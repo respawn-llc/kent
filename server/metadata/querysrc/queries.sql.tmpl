@@ -2632,14 +2632,20 @@ UPDATE projects
 SET updated_at_unix_ms = updated_at_unix_ms
 WHERE id = '';
 
--- name: ListSessionsTargetingWorktree :many
+-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
-ORDER BY updated_at_unix_ms DESC, rowid DESC;
+  AND (
+    CAST(sqlc.narg(before_updated_at_unix_ms) AS INTEGER) IS NULL
+    OR updated_at_unix_ms < sqlc.narg(before_updated_at_unix_ms)
+    OR (updated_at_unix_ms = sqlc.narg(before_updated_at_unix_ms) AND id < sqlc.narg(before_id))
+  )
+ORDER BY updated_at_unix_ms DESC, id DESC
+LIMIT sqlc.arg(page_size);
 
 -- name: InsertSessionPromptHistoryEntry :one
 INSERT INTO session_prompt_history_entries (

@@ -63,6 +63,16 @@ type WorktreeSessionBlocker struct {
 	UpdatedAt   time.Time
 }
 
+type WorktreeSessionCursor struct {
+	SessionID string
+	UpdatedAt time.Time
+}
+
+type WorktreeSessionPage struct {
+	Sessions []WorktreeSessionBlocker
+	Next     *WorktreeSessionCursor
+}
+
 type Store struct {
 	persistenceRoot  string
 	db               *sql.DB
@@ -653,18 +663,53 @@ func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]
 }
 
 func (s *Store) ListSessionsTargetingWorktree(ctx context.Context, worktreeID string) ([]WorktreeSessionBlocker, error) {
+	var out []WorktreeSessionBlocker
+	var cursor *WorktreeSessionCursor
+	for {
+		page, err := s.ListSessionsTargetingWorktreePage(ctx, worktreeID, cursor)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page.Sessions...)
+		if page.Next == nil {
+			return out, nil
+		}
+		cursor = page.Next
+	}
+}
+
+func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeID string, before *WorktreeSessionCursor) (WorktreeSessionPage, error) {
 	if s == nil || s.queries == nil {
-		return nil, errors.New("metadata store is required")
+		return WorktreeSessionPage{}, errors.New("metadata store is required")
 	}
-	rows, err := s.queries.ListSessionsTargetingWorktree(ctx, sql.NullString{String: strings.TrimSpace(worktreeID), Valid: strings.TrimSpace(worktreeID) != ""})
+	if strings.TrimSpace(worktreeID) == "" {
+		return WorktreeSessionPage{}, errors.New("worktree id is required")
+	}
+	const pageSize = 50
+	params := sqlitegen.ListSessionsTargetingWorktreePageParams{
+		WorktreeID: sql.NullString{String: worktreeID, Valid: true},
+		PageSize:   pageSize,
+	}
+	if before != nil {
+		if strings.TrimSpace(before.SessionID) == "" {
+			return WorktreeSessionPage{}, errors.New("worktree session cursor id is required")
+		}
+		params.BeforeUpdatedAtUnixMs = sql.NullInt64{Int64: before.UpdatedAt.UnixMilli(), Valid: true}
+		params.BeforeID = sql.NullString{String: before.SessionID, Valid: true}
+	}
+	rows, err := s.queries.ListSessionsTargetingWorktreePage(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("list sessions targeting worktree: %w", err)
+		return WorktreeSessionPage{}, fmt.Errorf("list sessions targeting worktree: %w", err)
 	}
-	out := make([]WorktreeSessionBlocker, 0, len(rows))
+	page := WorktreeSessionPage{Sessions: make([]WorktreeSessionBlocker, 0, len(rows))}
 	for _, row := range rows {
-		out = append(out, WorktreeSessionBlocker{SessionID: row.ID, SessionName: row.Name, UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
+		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, SessionName: row.Name, UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
 	}
-	return out, nil
+	if len(rows) == pageSize {
+		last := page.Sessions[len(page.Sessions)-1]
+		page.Next = &WorktreeSessionCursor{SessionID: last.SessionID, UpdatedAt: last.UpdatedAt}
+	}
+	return page, nil
 }
 
 func (s *Store) lookupWorkspaceBinding(ctx context.Context, workspaceRoot string) (Binding, error) {

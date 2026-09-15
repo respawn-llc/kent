@@ -7,8 +7,6 @@ import (
 	"go/token"
 	"os"
 	"testing"
-
-	"core/server/metadata"
 )
 
 func TestMetadataQuerySourceRendersDeterministically(t *testing.T) {
@@ -146,9 +144,9 @@ func TestGeneratedTaskSearchSchemaContractAdapterIsFresh(t *testing.T) {
 	}
 }
 
-func testMetadataQueryRenderer(t testing.TB) metadata.QuerySourceRenderer {
+func testMetadataQueryRenderer(t testing.TB) QuerySourceRenderer {
 	t.Helper()
-	renderer, err := metadata.LoadQuerySourceRenderer("../querysrc")
+	renderer, err := LoadQuerySourceRenderer("../querysrc")
 	if err != nil {
 		t.Fatalf("load metadata query source: %v", err)
 	}

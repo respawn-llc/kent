@@ -175,7 +175,7 @@ func worktreeError[Failure worktreeFailure](failure Failure) error {
 		if typed, ok := any(failure).(interface {
 			GetWorktreeBlocked() *worktreepb.BlockedDetails
 		}); ok && typed.GetWorktreeBlocked() != nil {
-			return worktreecontract.ErrWorktreeBlocked
+			return &worktreecontract.BlockedError{Details: typed.GetWorktreeBlocked()}
 		}
 	case "pending_work_capacity":
 		if typed, ok := any(failure).(interface {

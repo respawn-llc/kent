@@ -5577,41 +5577,60 @@ func (q *Queries) ListSessionWorkflowTaskIDs(ctx context.Context, sessionID stri
 	return items, nil
 }
 
-const listSessionsTargetingWorktree = `-- name: ListSessionsTargetingWorktree :many
+const listSessionsTargetingWorktreePage = `-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = ?1
-ORDER BY updated_at_unix_ms DESC, rowid DESC
+  AND (
+    CAST(?2 AS INTEGER) IS NULL
+    OR updated_at_unix_ms < ?2
+    OR (updated_at_unix_ms = ?2 AND id < ?3)
+  )
+ORDER BY updated_at_unix_ms DESC, id DESC
+LIMIT ?4
 `
 
-type ListSessionsTargetingWorktreeRow struct {
+type ListSessionsTargetingWorktreePageParams struct {
+	WorktreeID            sql.NullString
+	BeforeUpdatedAtUnixMs sql.NullInt64
+	BeforeID              sql.NullString
+	PageSize              int64
+}
+
+type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
 	Name            string
 	UpdatedAtUnixMs int64
 }
 
-func (q *Queries) ListSessionsTargetingWorktree(ctx context.Context, worktreeID sql.NullString) ([]ListSessionsTargetingWorktreeRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktree, worktreeID)
-	err = recordQueryError(ctx, err, listSessionsTargetingWorktree, 1)
+func (q *Queries) ListSessionsTargetingWorktreePage(ctx context.Context, arg ListSessionsTargetingWorktreePageParams) ([]ListSessionsTargetingWorktreePageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktreePage,
+		arg.WorktreeID,
+		arg.BeforeUpdatedAtUnixMs,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	err = recordQueryError(ctx, err, listSessionsTargetingWorktreePage, 4)
+
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListSessionsTargetingWorktreeRow
+	var items []ListSessionsTargetingWorktreePageRow
 	for rows.Next() {
-		var i ListSessionsTargetingWorktreeRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktree, 1); err != nil {
+		var i ListSessionsTargetingWorktreePageRow
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktreePage, 4); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
 	}
-	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktreePage, 4); err != nil {
 		return nil, err
 	}
-	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktreePage, 4); err != nil {
 		return nil, err
 	}
 	return items, nil
