@@ -6,7 +6,6 @@ import type { TFunction } from "i18next";
 
 import {
   CreateTargetResolutionKind,
-  errorMessage,
   newSetupOperationID,
   WorktreeError,
   type ApiService,
@@ -22,6 +21,7 @@ import {
   type SidebarPageNavigator,
   type StatusController,
 } from "@/app-facade";
+import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeCreate({
   client,
@@ -174,7 +174,8 @@ export function createWorktreeCreate({
       pending: created.isPending,
       resolving: value.trim().length > 0 && authority === undefined && !result?.isError,
       ...errors,
-      targetError: errors.targetError ?? (result?.isError ? errorMessage(result.error) : undefined),
+      targetError:
+        errors.targetError ?? (result?.isError ? worktreeErrorMessage(result.error, t) : undefined),
     };
   });
   return { state, resolution, creation, resolve, submit, editTarget, editBase };
@@ -197,7 +198,7 @@ function creationErrors(error: Error | null, targetRequired: boolean, baseRequir
       return { ...result, baseError: error.detail.diagnostic };
     }
   }
-  return { ...result, formError: errorMessage(error) };
+  return { ...result, formError: worktreeErrorMessage(error, t) };
 }
 
 export function useWorktreeCreate(model: ReturnType<typeof createWorktreeCreate>) {

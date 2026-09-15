@@ -3,14 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
-import {
-  DirtyStateKind,
-  errorMessage,
-  hasDeletableWorktreeBranch,
-  WorktreeError,
-  type WorktreeDeletePreview,
-} from "@/api";
+import { DirtyStateKind, hasDeletableWorktreeBranch, WorktreeError, type WorktreeDeletePreview } from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   Button,
@@ -24,6 +19,7 @@ import {
   TooltipTrigger,
 } from "@/ui";
 import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
+import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 type Props = Readonly<{
   sessionID: string;
@@ -72,12 +68,14 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
   const preview = useAtomValue(model.preview);
   const deletion = useAtomValue(model.deletion);
   const cleanliness = preview.data?.cleanliness;
-  const inlineError = immediateDeleteError(deletion.error);
+  const inlineError = immediateDeleteError(deletion.error, t);
   return (
     <>
       {preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
       {preview.isError ? (
-        <p className="break-words text-sm text-[var(--color-error)]">{errorMessage(preview.error)}</p>
+        <p className="break-words text-sm text-[var(--color-error)]">
+          {worktreeErrorMessage(preview.error, t)}
+        </p>
       ) : null}
       {cleanliness === undefined ? null : <CleanlinessFacts value={cleanliness} />}
       {inlineError !== undefined ? (
@@ -119,10 +117,10 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
   );
 }
 
-function immediateDeleteError(error: Error | null) {
+function immediateDeleteError(error: Error | null, t: TFunction) {
   if (error === null) return undefined;
   if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") return undefined;
-  return errorMessage(error);
+  return worktreeErrorMessage(error, t);
 }
 
 function CleanlinessFacts({ value }: Readonly<{ value: NonNullable<WorktreeDeletePreview["cleanliness"]> }>) {

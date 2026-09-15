@@ -6,7 +6,6 @@ import type { TFunction } from "i18next";
 
 import {
   BranchCleanupOutcomeKind,
-  errorMessage,
   WorktreeError,
   type ApiService,
   type WorktreeDeleteConfirmationChoice,
@@ -19,6 +18,7 @@ import {
   queryAtom,
   type StatusController,
 } from "@/app-facade";
+import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeDelete({
   client,
@@ -91,7 +91,7 @@ export function createWorktreeDelete({
           id: crypto.randomUUID(),
           tone: "danger",
           title: t("chat.worktree.delete"),
-          body: errorMessage(error),
+          body: worktreeErrorMessage(error, t),
         });
       } else if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") {
         await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);

@@ -26,4 +26,5 @@ export const chatWorktreeEnglish = {
   external: "External",
   missing: "Missing",
   requestPending: "Waiting for the current request",
+  internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
 };

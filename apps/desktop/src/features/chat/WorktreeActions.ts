@@ -4,8 +4,9 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import type { TFunction } from "i18next";
 
-import { errorMessage, type ApiService, type WorktreeSwitch } from "@/api";
+import { type ApiService, type WorktreeSwitch } from "@/api";
 import { queryAtom, type SidebarPageNavigator, type StatusController } from "@/app-facade";
+import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeActions({
   client,
@@ -37,7 +38,7 @@ export function createWorktreeActions({
         id: crypto.randomUUID(),
         tone: "danger",
         title: t("chat.worktree.switch"),
-        body: errorMessage(error),
+        body: worktreeErrorMessage(error, t),
       });
     },
   });
