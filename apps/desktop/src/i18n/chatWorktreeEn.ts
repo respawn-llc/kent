@@ -27,4 +27,10 @@ export const chatWorktreeEnglish = {
   missing: "Missing",
   requestPending: "Waiting for the current request",
   internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
+  selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",
+  selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",
+  selectorUnavailable: "Worktree “{{target}}” is unavailable. Refresh the list before trying again.",
+  taskBlocked: "The current Task prevents this worktree operation.",
+  pendingCapacity: "Too many worktree operations are pending. Wait for them to finish, then try again.",
+  deleteChanged: "The worktree changed after confirmation. Open Delete again to review its current state.",
 };

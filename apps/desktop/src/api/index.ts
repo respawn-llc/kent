@@ -163,6 +163,7 @@ export {
   DirtyStateKind,
   BranchCleanupOutcomeKind,
   CreateTargetResolutionKind,
+  SelectorErrorKind,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { rpcErrorCodes } from "./rpcErrorCodes";
 export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
