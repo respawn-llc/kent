@@ -383,7 +383,7 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 		}
 	})
 	service.currentNodeExecution = controller
-	restoreRequests := make(chan ExecutionTargetValidationRequest, 1)
+	restoreRequests := make(chan workflow.ExecutionTargetValidationRequest, 1)
 	targets := &recordingExecutionTargetInfrastructure{
 		restoreRequests: restoreRequests,
 		restoreErr: &workflow.MissingManagedWorktree{

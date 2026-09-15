@@ -25,6 +25,11 @@ type ExecutionTargetSelection struct {
 	CustomRef *string             `json:"custom_ref,omitempty"`
 }
 
+type ExecutionTargetValidationRequest struct {
+	TaskID                 TaskID
+	InitialBranchAssertion *string
+}
+
 type MissingManagedWorktree struct {
 	SuggestedSelection *ExecutionTargetSelection `json:"suggested_selection,omitempty"`
 }

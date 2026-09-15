@@ -117,7 +117,7 @@ type executionTargetInfrastructure interface {
 	AssertInitialTaskBranch(context.Context, InitialTaskBranchAssertionRequest) error
 	ResolveExecutionTarget(context.Context, ExecutionTargetResolveRequest) (workflowstore.ExecutionTargetSnapshot, error)
 	MaterializeExecutionTarget(context.Context, ExecutionTargetMaterializeRequest) (ExecutionTargetMaterialization, error)
-	ValidateExecutionTarget(context.Context, ExecutionTargetValidationRequest) error
+	ValidateExecutionTarget(context.Context, workflow.ExecutionTargetValidationRequest) error
 }
 
 type InitialTaskBranchInspectionRequest struct {
@@ -149,11 +149,6 @@ type ExecutionTargetMaterialization struct {
 	SetupResult              *worktree.WorktreeSetupResult
 	RetainedWorktree         *worktreepb.RegisteredFacts
 	RetainedPreviousWorktree *worktreepb.RetainedPreviousWorktree
-}
-
-type ExecutionTargetValidationRequest struct {
-	TaskID                 workflow.TaskID
-	InitialBranchAssertion *string
 }
 
 var errExecutionTargetInfrastructureRequired = errors.New("execution target infrastructure is required")
@@ -1074,7 +1069,7 @@ func (s *Service) preflightInitiatingActionTarget(
 			pendingBranchReplaced:  pendingBranchReplaced,
 		}
 		if selection.Mode != workflow.ExecutionTargetModeNone {
-			err := s.executionTargets.ValidateExecutionTarget(ctx, ExecutionTargetValidationRequest{
+			err := s.executionTargets.ValidateExecutionTarget(ctx, workflow.ExecutionTargetValidationRequest{
 				TaskID: taskID, InitialBranchAssertion: branchAssertion,
 			})
 			if err != nil && !errors.As(err, &preflight.missingManagedWorktree) {

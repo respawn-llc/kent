@@ -39,6 +39,7 @@ import (
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/server/workflowview"
+	"core/server/worktree"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -55,20 +56,21 @@ import (
 const currentNodeRunnerWait = 60 * time.Second
 
 type currentNodeRunnerFixture struct {
-	cfg             config.App
-	metadata        *metadata.Store
-	store           *workflowstore.Store
-	authority       *sessionruntime.Authority
-	runtimes        *registry.RuntimeRegistry
-	controller      *workflowexecution.CurrentNodeController
-	starter         *Starter
-	dependencies    *workflowview.TaskDependencies
-	projectID       string
-	workspaceID     string
-	workspace       string
-	client          currentNodeRunnerClient
-	persistenceGate *sessiontest.PersistenceGate
-	controllerClose error
+	cfg              config.App
+	metadata         *metadata.Store
+	store            *workflowstore.Store
+	authority        *sessionruntime.Authority
+	runtimes         *registry.RuntimeRegistry
+	controller       *workflowexecution.CurrentNodeController
+	starter          *Starter
+	executionTargets *worktree.Service
+	dependencies     *workflowview.TaskDependencies
+	projectID        string
+	workspaceID      string
+	workspace        string
+	client           currentNodeRunnerClient
+	persistenceGate  *sessiontest.PersistenceGate
+	controllerClose  error
 
 	mu             sync.Mutex
 	clientRequests []runtimewire.RuntimeClientRequest
@@ -354,6 +356,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, StarterOptions{
 		RuntimeAuthority: fixture.authority,
 		TaskDependencies: dependencyCounter,
+		ExecutionTargets: fixture,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			fixture.mu.Lock()
 			fixture.clientRequests = append(fixture.clientRequests, request)
@@ -424,16 +427,21 @@ func (f *currentNodeRunnerFixture) startTask(t *testing.T, task workflowstore.Ta
 
 func (f *currentNodeRunnerFixture) startTaskWithExecutionTarget(t *testing.T, task workflowstore.TaskRecord, candidate *workflowstore.ExecutionTargetCandidate) workflow.CurrentNodeReference {
 	t.Helper()
+	return f.startTaskWithPreparation(t, task, workflowexecution.TaskStartPreparation{
+		Prepare: func(context.Context) error { return nil },
+		Commit: func(ctx context.Context) error {
+			return f.store.LockTaskExecutionTarget(ctx, task.ID, candidate)
+		},
+	})
+}
+
+func (f *currentNodeRunnerFixture) startTaskWithPreparation(t *testing.T, task workflowstore.TaskRecord, preparation workflowexecution.TaskStartPreparation) workflow.CurrentNodeReference {
+	t.Helper()
 	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
 	started, err := f.controller.StartTask(
 		context.Background(),
 		task.ID,
-		workflowexecution.TaskStartPreparation{
-			Prepare: func(context.Context) error { return nil },
-			Commit: func(ctx context.Context) error {
-				return f.store.LockTaskExecutionTarget(ctx, task.ID, candidate)
-			},
-		},
+		preparation,
 		func(finalization workflowexecution.TaskPreparationFinalization) {
 			finalized <- finalization
 		},
@@ -487,6 +495,7 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.starter, err = NewStarter(f.cfg, f.metadata, f.store, nil, nil, StarterOptions{
 		RuntimeAuthority: f.authority,
 		TaskDependencies: dependencyCounter,
+		ExecutionTargets: f,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			f.mu.Lock()
 			f.clientRequests = append(f.clientRequests, request)

@@ -282,10 +282,12 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	runtimeRegistry.WithWorkflowEventPublisher(workflowStore.PublishWorkflowEvent)
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
+	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
 		RuntimeClientFactory: opts.RuntimeClientFactory,
 		RuntimeAuthority:     runtimeAuthority,
 		TaskDependencies:     workflowTaskDependencyCounter,
+		ExecutionTargets:     workflowExecutionTargets,
 	})
 	if err != nil {
 		cleanupNewFailure()
@@ -359,7 +361,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		Activity:         workflowActivity,
 		Attention:        workflowAttention,
 		PendingPrompts:   runtimeRegistry,
-	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
+	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(workflowExecutionTargets), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
@@ -569,7 +571,7 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	}, err
 }
 
-func (i taskExecutionTargetInfrastructure) ValidateExecutionTarget(ctx context.Context, req workflowsvc.ExecutionTargetValidationRequest) error {
+func (i taskExecutionTargetInfrastructure) ValidateExecutionTarget(ctx context.Context, req workflow.ExecutionTargetValidationRequest) error {
 	if i.service == nil {
 		return errors.New("worktree service is required")
 	}
@@ -577,13 +579,6 @@ func (i taskExecutionTargetInfrastructure) ValidateExecutionTarget(ctx context.C
 		TaskID:     req.TaskID,
 		BranchName: req.InitialBranchAssertion,
 	})
-	var missing *workflow.MissingManagedWorktree
-	if errors.As(err, &missing) {
-		return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
-			Code:                   "workflow_managed_worktree_missing",
-			MissingManagedWorktree: missing,
-		})
-	}
 	return err
 }
 

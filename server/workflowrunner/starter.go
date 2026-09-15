@@ -54,6 +54,10 @@ type WorkflowAttentionRegistry interface {
 	workflowattention.ApprovalQuestionAttentionRegistry
 }
 
+type executionTargetValidator interface {
+	ValidateExecutionTarget(context.Context, workflow.ExecutionTargetValidationRequest) error
+}
+
 type Starter struct {
 	cfg                  config.App
 	metadata             *metadata.Store
@@ -64,6 +68,7 @@ type Starter struct {
 	storeOptions         []session.StoreOption
 	runtimeClientFactory runtimewire.RuntimeClientFactory
 	taskAwarenessSource  workflowruntime.TaskAwarenessSource
+	executionTargets     executionTargetValidator
 	closed               atomic.Bool
 }
 
@@ -71,13 +76,14 @@ type StarterOptions struct {
 	RuntimeClientFactory runtimewire.RuntimeClientFactory
 	RuntimeAuthority     *sessionruntime.Authority
 	TaskDependencies     TaskDependencyCounter
+	ExecutionTargets     executionTargetValidator
 }
 
 func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStore, authManager *auth.Manager, attention WorkflowAttentionRegistry, opts StarterOptions) (*Starter, error) {
 	if strings.TrimSpace(cfg.PersistenceRoot) == "" {
 		return nil, errors.New("workflow runtime persistence root is required")
 	}
-	if metadataStore == nil || store == nil || opts.RuntimeAuthority == nil || opts.TaskDependencies == nil {
+	if metadataStore == nil || store == nil || opts.RuntimeAuthority == nil || opts.TaskDependencies == nil || opts.ExecutionTargets == nil {
 		return nil, errors.New("workflow runtime dependencies are required")
 	}
 	taskAwarenessSource, err := NewTaskAwarenessSource(store, opts.TaskDependencies)
@@ -94,6 +100,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		storeOptions:         metadataStore.AuthoritativeSessionStoreOptions(),
 		runtimeClientFactory: opts.RuntimeClientFactory,
 		taskAwarenessSource:  taskAwarenessSource,
+		executionTargets:     opts.ExecutionTargets,
 	}, nil
 }
 
@@ -129,6 +136,9 @@ func (s *Starter) prepareCurrentNodeAgentAssignment(
 	input workflowstore.CurrentNodeStartContext,
 	bindSession bool,
 ) (*currentNodeAgentAssignmentSteer, error) {
+	if err := s.prepareExecutableTarget(ctx, input); err != nil {
+		return nil, err
+	}
 	selection, err := currentNodeAgentExecutionSelection(input)
 	if err != nil {
 		return nil, err
@@ -152,6 +162,21 @@ func (s *Starter) prepareCurrentNodeAgentAssignment(
 		assignment: assignment,
 		ready:      make(chan struct{}),
 	}, nil
+}
+
+func (s *Starter) prepareExecutableTarget(ctx context.Context, input workflowstore.CurrentNodeStartContext) error {
+	if input.Task.ExecutionTarget == nil || input.Task.ExecutionTarget.Mode == workflow.ExecutionTargetModeNone {
+		return nil
+	}
+	err := s.executionTargets.ValidateExecutionTarget(ctx, workflow.ExecutionTargetValidationRequest{TaskID: input.Task.ID})
+	var missing *workflow.MissingManagedWorktree
+	if errors.As(err, &missing) {
+		return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
+			Code:                   "workflow_managed_worktree_missing",
+			MissingManagedWorktree: missing,
+		})
+	}
+	return err
 }
 
 type currentNodeAgentAssignmentSteer struct {
