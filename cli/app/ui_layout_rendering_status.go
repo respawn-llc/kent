@@ -42,12 +42,29 @@ func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 		break
 	}
 	if notice != "" {
-		if line := l.renderStatusLineCandidate(width, style, statusLineSegmentsWithNotice(segments, notice), indicatorLabel); lipgloss.Width(line) <= width {
-			return padANSIRight(line, width)
+		renderNotice := func() (string, bool) {
+			if line := l.renderStatusLineCandidate(width, style, statusLineSegmentsWithNotice(segments, notice), indicatorLabel); lipgloss.Width(line) <= width {
+				return padANSIRight(line, width), true
+			}
+			if noticeWidth := l.fittingStatusNoticeWidth(width, style, segments, indicatorLabel); noticeWidth > 0 {
+				line := l.renderStatusLineCandidate(width, style, statusLineSegmentsWithNotice(segments, l.renderStatusNotice(noticeWidth)), indicatorLabel)
+				return padANSIRight(line, width), true
+			}
+			return "", false
 		}
-		if noticeWidth := l.fittingStatusNoticeWidth(width, style, segments, indicatorLabel); noticeWidth > 0 {
-			line := l.renderStatusLineCandidate(width, style, statusLineSegmentsWithNotice(segments, l.renderStatusNotice(noticeWidth)), indicatorLabel)
-			return padANSIRight(line, width)
+		if line, ok := renderNotice(); ok {
+			return line
+		}
+		if removeStatusLineSegmentPriority(&segments, 4) {
+			if line, ok := renderNotice(); ok {
+				return line
+			}
+		}
+		if indicatorLabel != "" {
+			indicatorLabel = ""
+			if line, ok := renderNotice(); ok {
+				return line
+			}
 		}
 		notice = ""
 	}
