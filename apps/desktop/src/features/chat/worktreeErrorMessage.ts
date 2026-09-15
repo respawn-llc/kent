@@ -15,7 +15,7 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
     case "selector":
       return selectorMessage(detail.details, t);
     case "blocked":
-      return t("chat.worktree.taskBlocked");
+      return t("chat.worktree.operationBlocked");
     case "capacity":
       return t("chat.worktree.pendingCapacity");
     case "delete_precondition":

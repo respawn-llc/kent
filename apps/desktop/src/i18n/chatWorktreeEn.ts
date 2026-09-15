@@ -30,7 +30,7 @@ export const chatWorktreeEnglish = {
   selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",
   selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",
   selectorUnavailable: "Worktree “{{target}}” is unavailable. Refresh the list before trying again.",
-  taskBlocked: "The current Task prevents this worktree operation.",
-  pendingCapacity: "Too many worktree operations are pending. Wait for them to finish, then try again.",
+  operationBlocked: "This worktree operation is blocked.",
+  pendingCapacity: "Pending Work capacity has been reached. Try again when capacity is available.",
   deleteChanged: "The worktree changed after confirmation. Open Delete again to review its current state.",
 };
