@@ -33,8 +33,6 @@ Kent snapshots the rendered system prompt on each compaction to prevent cache mi
 
 After successful automatic, manual, or handoff compaction, a non-workflow session with an active goal resumes with the exact goal text and Kent's goal work and completion guidance. Paused, completed, cleared, and absent goals add no continuation guidance, and reopening a session without compaction does not add it.
 
-After successful compaction, Kent adds a developer reminder listing every shell session invoked by that Session that was running when the replacement context was built. Each entry includes its ID and a one-line command preview; command whitespace is collapsed and the preview is limited to 120 Unicode code points. Kent omits the reminder when no matching shells are running and does not add it when opening or resuming a Session. A captured shell may finish before the model reads the reminder.
-
 ## Placeholders
 
 You can assemble your own system prompt from building blocks provided by Kent. It's highly recommended to leave the instructions about the harness (`HarnessWorkflowAutonomy`) intact.
