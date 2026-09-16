@@ -1333,7 +1333,14 @@ func (s *Starter) applyCurrentNodeSessionExecutionTarget(ctx context.Context, in
 	if root.Managed != nil {
 		update.Worktree = &metadata.SessionExecutionTargetUpdateWorktree{ID: root.Managed.WorktreeID}
 	}
-	return s.metadata.UpdateSessionExecutionTarget(ctx, update)
+	if err := s.metadata.UpdateSessionExecutionTarget(ctx, update); err != nil {
+		return err
+	}
+	target, err := s.metadata.ResolveSessionExecutionTarget(ctx, descriptor.SessionID().String())
+	if err != nil {
+		return err
+	}
+	return s.runtimeAuthority.SyncExecutionTarget(ctx, descriptor.SessionID().String(), target, nil)
 }
 
 func (s *Starter) currentNodeManagedWorktreePathContext(plan launch.SessionPlan, root workflowstore.ExecutionRoot) (*askquestion.ManagedWorktreePathContext, error) {

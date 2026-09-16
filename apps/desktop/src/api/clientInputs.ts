@@ -135,6 +135,7 @@ export type TaskEditInput = Readonly<{
 
 export type TaskMoveInput = Readonly<{
   taskID: string;
+  branchName?: string | undefined;
   targetNodeID: string;
   transitionKey?: string | undefined;
   values?: Readonly<Record<string, Readonly<Record<string, string>>>>;

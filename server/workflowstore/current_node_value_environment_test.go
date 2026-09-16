@@ -81,6 +81,14 @@ func TestCompleteCurrentNodeMaterializesChainedInputsAndPriorTransitionParameter
 		doneResult.SessionReuseClassification != workflow.SessionReuseNone {
 		t.Fatalf("terminal completion outcome = %+v, want complete no-successor facts", doneResult)
 	}
+	currentNodes, err = store.ListCurrentNodes(ctx, task.ID)
+	if err != nil || len(currentNodes) != 1 {
+		t.Fatalf("completed current Nodes = %+v: %v", currentNodes, err)
+	}
+	if currentNodes[0].EnteredByEdgeID != nil ||
+		currentNodes[0].PriorValues.TransitionParameters["review"]["summary"] != "approved plan" {
+		t.Fatalf("terminal reference cleanup lost materialized result: %+v", currentNodes[0])
+	}
 }
 
 func TestCompleteCurrentNodeMaterializesCurrentAndPriorTransitionCommentary(t *testing.T) {

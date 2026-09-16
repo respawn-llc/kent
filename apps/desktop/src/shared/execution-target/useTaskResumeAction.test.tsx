@@ -13,6 +13,7 @@ it("routes Resume through the target-continuation controller", async () => {
     close: vi.fn(),
     selectMode: vi.fn(),
     setCustomRef: vi.fn(),
+    clearChoiceFailure: vi.fn(),
   };
   const { result } = renderHook(() => useTaskResumeAction(controller));
 
@@ -34,6 +35,7 @@ it("continues Resume with the original action and selected target", async () => 
     close: vi.fn(),
     selectMode: vi.fn(),
     setCustomRef: vi.fn(),
+    clearChoiceFailure: vi.fn(),
   };
   const { result } = renderHook(() => useTaskResumeAction(controller));
   const action = resumeTaskInitiatingAction("task-1");

@@ -369,11 +369,21 @@ message SelectorErrorDetails {
   };
 }
 
+enum SetupRecoveryDisposition {
+  SETUP_RECOVERY_DISPOSITION_UNSPECIFIED = 0;
+  SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING = 1;
+  SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT = 2;
+}
+
 message SetupRetainedDetails {
   RegisteredFacts worktree = 1 [(buf.validate.field).required = true];
   string script_path = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string diagnostic = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional RetainedPreviousWorktree retained_previous_worktree = 4;
+  SetupRecoveryDisposition recovery_disposition = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
 }
 
 message DeletePreconditionDetails {

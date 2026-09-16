@@ -1,0 +1,43 @@
+export const executionTargetEnglish = {
+  title: "Choose where this task runs",
+  choice: "Execution target",
+  policyRequiresSelection:
+    "This workflow asks you to choose an execution target the first time automation runs.",
+  configuredTargetUnavailable:
+    "The workflow's configured target is unavailable. Choose a task-local target to continue.",
+  mode_none: "Source workspace",
+  mode_noneHelp: "Run in the task's source workspace without a managed worktree.",
+  mode_head: "Current source HEAD",
+  mode_headHelp: "Create the managed worktree from the source repository's current commit.",
+  mode_default_branch: "Repository default branch",
+  mode_default_branchHelp: "Create the managed worktree from the repository's default branch.",
+  mode_custom_ref: "Custom Git revision",
+  mode_custom_refHelp: "Create the managed worktree from a branch, tag, or commit you specify.",
+  customRef: "Git revision",
+  branchName: "Branch name (optional)",
+  branchNameDefault: "Task Short ID",
+  branch_invalid_name: "“{{value}}” is not a valid branch name.",
+  branch_local_collision: "Branch “{{value}}” already exists. Choose another name.",
+  branch_remote_tracking_collision: "A remote branch named “{{value}}” exists. Choose another name.",
+  branch_no_managed_target: "A branch name requires a managed Worktree.",
+  branch_operation_cannot_create_worktree: "This operation cannot create branch “{{value}}”.",
+  branch_post_creation_mismatch: "The existing Worktree uses a different branch from “{{value}}”.",
+  revision_invalid_revision: "Git revision “{{value}}” could not be resolved.",
+  revision_non_commit: "Git revision “{{value}}” does not resolve to a commit.",
+  revision_git_failure: "Git could not resolve “{{value}}”.",
+  continue: "Continue",
+  unavailable_invalid_revision: "The configured Git revision could not be resolved.",
+  unavailable_non_commit: "The configured Git revision does not resolve to a commit.",
+  unavailable_default_branch_missing: "The repository has no detectable default branch.",
+  unavailable_default_branch_ambiguous: "The repository default branch is ambiguous.",
+  unavailable_git_failure: "Git could not resolve the configured target.",
+  original_detached_head:
+    "The original target cannot be restored from a detached HEAD. Choose a new execution target.",
+  original_invalid_root:
+    "The original location is no longer a valid Worktree. Choose a new execution target.",
+  original_root_inaccessible: "The original Worktree cannot be accessed. Choose a new execution target.",
+  original_missing_branch: "The original branch is missing. Choose a new execution target.",
+  original_conflict:
+    "The original target cannot be safely reused because of a conflict. Choose a new execution target.",
+  original_git_failure: "Git could not safely restore the original target. Choose a new execution target.",
+} as const;

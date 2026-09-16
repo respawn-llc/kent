@@ -2,6 +2,7 @@ package workflowrunner
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"core/internal/testharness/workflowfixture"
 	"core/server/llm"
 	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
 	"core/server/registry"
 	agentruntime "core/server/runtime"
 	"core/server/runtimewire"
@@ -397,6 +399,16 @@ func (f *currentNodeRunnerFixture) createTask(t *testing.T, workflowID runtimeid
 
 func (f *currentNodeRunnerFixture) startTask(t *testing.T, task workflowstore.TaskRecord) workflow.CurrentNodeReference {
 	t.Helper()
+	return f.startTaskWithExecutionTarget(t, task, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{
+			Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved,
+		},
+		Root: workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+	})
+}
+
+func (f *currentNodeRunnerFixture) startTaskWithExecutionTarget(t *testing.T, task workflowstore.TaskRecord, candidate *workflowstore.ExecutionTargetCandidate) workflow.CurrentNodeReference {
+	t.Helper()
 	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
 	started, err := f.controller.StartTask(
 		context.Background(),
@@ -404,16 +416,7 @@ func (f *currentNodeRunnerFixture) startTask(t *testing.T, task workflowstore.Ta
 		workflowexecution.TaskStartPreparation{
 			Prepare: func(context.Context) error { return nil },
 			Commit: func(ctx context.Context) error {
-				return f.store.LockTaskExecutionTarget(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
-					Snapshot: workflowstore.ExecutionTargetSnapshot{
-						Mode:       workflow.ExecutionTargetModeNone,
-						Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-					},
-					Root: workflowstore.ExecutionRoot{
-						SourceWorkspaceID:   f.workspaceID,
-						SourceWorkspaceRoot: f.workspace,
-					},
-				})
+				return f.store.LockTaskExecutionTarget(ctx, task.ID, candidate)
 			},
 		},
 		func(finalization workflowexecution.TaskPreparationFinalization) {
@@ -2145,6 +2148,163 @@ func TestPostTurnCompactionDiagnosticReleasesAssignedSuccessor(t *testing.T) {
 	f.waitForTaskQuiescence(t, source.TaskID)
 	if target.NodeID == source.NodeID {
 		t.Fatalf("successor reference = %v, want a distinct target", target)
+	}
+}
+
+func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("managed=%t", managed), func(t *testing.T) {
+			ctx := context.Background()
+			f := newCurrentNodeRunnerFixture(t, ScriptedCancellation(),
+				ScriptedToolBatch("relative operations", llm.ToolCall{
+					ID: "relative-operations", Name: string(toolspec.ToolExecCommand),
+					Input: json.RawMessage(`{"cmd":"pwd > actual-cwd; cat relative-input > relative-output; printf reopened > relative-input"}`),
+				}), ScriptedCancellation())
+			workflowID := createCurrentNodeAgentWorkflowWithCompletionMode(t, f.store, string(config.WorkflowCompletionModeTool))
+			workflowfixture.SaveStoreGraph(t, ctx, f.store, workflowID, func(definition workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+				agentID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindAgent))
+				groupID := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+				request.TransitionGroups = append(request.TransitionGroups, workflowstore.TransitionGroupRecord{
+					ID: groupID, WorkflowID: workflowID, SourceNodeID: agentID, TransitionID: "reopen", DisplayName: "Reopen",
+				})
+				request.Edges = append(request.Edges, workflowstore.EdgeRecord{
+					ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: workflowID,
+					TransitionGroupID: groupID, Key: "reopen", TargetNodeID: agentID,
+					AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured,
+					ContextMode: workflow.ContextModeContinueSession, ContextSource: workflow.ContextSource{Kind: workflow.ContextSourcePreviousTargetOrNew},
+					PromptTemplate: "Reopen the task.",
+				})
+			})
+			task := f.createTask(t, workflowID)
+			original := workflowstore.ManagedExecutionRoot{WorktreeID: runtimeids.NewGraphEntityID(), Root: filepath.Join(f.cfg.Settings.Worktrees.BaseDir, "original")}
+			if err := os.MkdirAll(original.Root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			original.Root, err = config.CanonicalWorkspaceRoot(original.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
+				ID: original.WorktreeID, WorkspaceID: f.workspaceID, CanonicalRoot: original.Root, Managed: true,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.metadata.Queries().BindInitialTaskManagedWorktree(ctx, sqlitegen.BindInitialTaskManagedWorktreeParams{
+				TaskID: string(task.ID), ManagedWorktreeID: sql.NullString{String: original.WorktreeID, Valid: true},
+				UpdatedAtUnixMs: time.Now().UnixMilli(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			initial := &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{
+					Mode: workflow.ExecutionTargetModeHead, RequestedRef: textutil.Value("HEAD"),
+					CommitOID: textutil.Value("fixture-commit"), Provenance: workflowstore.ExecutionTargetProvenanceResolved,
+				},
+				Root: workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace, Managed: &original},
+			}
+			source := f.startTaskWithExecutionTarget(t, task, initial)
+			initialNodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+				return len(nodes) == 1 && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
+			})
+			if len(f.client.Requests()) == 0 {
+				t.Fatalf("initial execution failed: %+v", initialNodes[0].Scheduling.Interruption)
+			}
+			f.waitForModelRequests(t, 1)
+			f.waitForTaskQuiescence(t, task.ID)
+			meta := f.onlyProjectSessionMeta(t)
+			if _, err := f.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
+				t.Fatal(err)
+			}
+			projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(ctx, f.projectID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, projectBoundary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := f.runtimeRequests()[0]
+			plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+				Settings: first.ActiveSettings, EnabledTools: first.EnabledTools, FilesystemContext: filesystem,
+				Sources: first.Sources, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true), Client: f.client,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionID, err := runtimeids.ParseSessionID(meta.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			attachment, err := f.authority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+				SessionID: sessionID, OwnerID: "retained-reopening-owner", Runtime: &plan,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil && !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+					t.Error(err)
+				}
+			})
+			replacement := &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+			}
+			if managed {
+				replacement.Snapshot = initial.Snapshot
+				replacement.Root.Managed = &workflowstore.ManagedExecutionRoot{WorktreeID: runtimeids.NewGraphEntityID(), Root: filepath.Join(f.cfg.Settings.Worktrees.BaseDir, "replacement")}
+				if err := os.MkdirAll(replacement.Root.Managed.Root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				replacement.Root.Managed.Root, err = config.CanonicalWorkspaceRoot(replacement.Root.Managed.Root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := f.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
+					ID: replacement.Root.Managed.WorktreeID, WorkspaceID: f.workspaceID, CanonicalRoot: replacement.Root.Managed.Root, Managed: true,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, root := range []string{original.Root, replacement.Root.EffectiveRoot()} {
+				if err := os.WriteFile(filepath.Join(root, "relative-input"), []byte("preserved"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prepared, err := f.store.PrepareManualMove(ctx, workflowstore.ManualMoveRequest{
+				TaskID: task.ID, TargetNodeID: source.NodeID, TransitionKey: textutil.Value(workflow.TransitionID("reopen")),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			moved, err := f.controller.ApplyManualMove(ctx, prepared, replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(moved.Mutation.Created) != 1 || moved.Mutation.Created[0].SessionID == nil || *moved.Mutation.Created[0].SessionID != sessionID {
+				t.Fatalf("reopening replaced retained Session: %+v", moved)
+			}
+			f.waitForModelRequests(t, 3)
+			f.waitForTaskQuiescence(t, task.ID)
+			root := replacement.Root.EffectiveRoot()
+			for path, want := range map[string]string{
+				filepath.Join(original.Root, "relative-input"): "preserved",
+				filepath.Join(root, "relative-input"):          "reopened",
+				filepath.Join(root, "relative-output"):         "preserved",
+				filepath.Join(root, "actual-cwd"):              root + "\n",
+			} {
+				if got, err := os.ReadFile(path); err != nil || string(got) != want {
+					t.Fatalf("tool effect %s = %q, want %q: %v", path, got, want, err)
+				}
+			}
+			if count := f.workflowAssignmentRecordCount(t, sessionID); count != 2 {
+				t.Fatalf("retained assignment history count = %d", count)
+			}
+			if err := f.authority.WithRuntime(ctx, attachment.Resource(), func(context.Context, *agentruntime.Engine) error { return nil }); err != nil {
+				t.Fatalf("original resident resource was replaced: %v", err)
+			}
+		})
 	}
 }
 
