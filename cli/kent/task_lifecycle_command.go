@@ -416,18 +416,29 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	switch {
 	case requirement == nil:
 		fmt.Fprintln(stderr, "Execution target selection is required.")
-	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection:
+	case requirement.Details.GetPolicyRequiresSelection() != nil:
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
-	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable:
-		target := "configured target"
-		if requirement.ConfiguredTarget != nil {
-			target = workflowConfiguredExecutionTargetSelector(*requirement.ConfiguredTarget)
+	case requirement.Details.GetConfiguredTargetUnavailable() != nil:
+		configured, err := requirement.ConfiguredTarget()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
 		}
-		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", target, requirement.UnavailableCause)
-	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable:
-		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). The Task remains Done; choose a replacement.\n", *requirement.OriginalTargetCause)
+		cause, err := requirement.UnavailableCause()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
+		}
+		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(*configured), cause)
+	case requirement.Details.GetOriginalTargetUnavailable() != nil:
+		cause, err := requirement.OriginalTargetCause()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
+		}
+		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). The Task remains Done; choose a replacement.\n", cause)
 	default:
-		fmt.Fprintf(stderr, "Execution target selection is required: %s.\n", requirement.Reason)
+		fmt.Fprintln(stderr, "Execution target selection response is invalid.")
 	}
 	fmt.Fprintln(stderr, "Rerun with one of:")
 	for _, selection := range []string{"none", "head", "default-branch", "ref:<revision>"} {
@@ -436,12 +447,12 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			prefix += " "
 		}
 		branch := ""
-		if requirement != nil && requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable && selection != "none" {
+		if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil && selection != "none" {
 			branch = " --branch-name <new-branch-name>"
 		}
 		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
 	}
-	if requirement != nil && requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable {
+	if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil {
 		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }
@@ -1213,17 +1224,17 @@ func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecution
 		}
 		selector = &value
 	}
-	script := setupErr.ScriptPath
-	diagnostic := setupErr.Diagnostic
-	root := setupErr.Worktree.Registered.Git.CanonicalRoot
+	script := setupErr.Details.ScriptPath
+	diagnostic := setupErr.Details.Diagnostic
+	root := setupErr.Details.Worktree.Git.CanonicalRoot
 	var previousRoot *string
-	if retained := setupErr.RetainedPreviousWorktree; retained != nil && retained.Worktree.Registered != nil {
-		value := retained.Worktree.Registered.Git.CanonicalRoot
+	if retained := setupErr.Details.RetainedPreviousWorktree; retained != nil {
+		value := retained.Worktree.Git.CanonicalRoot
 		previousRoot = &value
 	}
 	outcome := taskSetupOutcomeMoveSetupFailure
 	actions := taskTargetActions(base, selector)
-	if setupErr.RecoveryDisposition == serverapi.WorkflowSetupRecoveryFreshReplacement {
+	if setupErr.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
 		outcome = taskSetupOutcomeMoveReplacementSetupFailure
 		actions = taskTargetChoiceActions(base)
 		for index := range actions {

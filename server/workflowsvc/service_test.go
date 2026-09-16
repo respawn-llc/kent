@@ -347,7 +347,7 @@ func TestServiceTaskStartRequiresSelectionWithoutApplyingAction(t *testing.T) {
 	if response.Outcome != serverapi.WorkflowTaskActionOutcomeSelectionRequired ||
 		response.Applied != nil ||
 		response.SelectionRequired == nil ||
-		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection {
+		response.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
 		t.Fatalf("start response = %+v, want policy selection requirement", response)
 	}
 }
@@ -392,7 +392,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				TaskID: task.Task.ID, TargetNodeID: string(started.Mutation.Created[0].Reference.NodeID),
 			})
 			if err != nil || response.SelectionRequired == nil ||
-				response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable {
+				response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
 				t.Fatalf("completed reopen = %+v: %v", response, err)
 			}
 			after, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
@@ -466,7 +466,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				}
 				infrastructure.materializeErr = retained
 				var failure *serverapi.WorkflowSetupRetainedError
-				if _, err := service.MoveWorkflowTask(ctx, move); !errors.As(err, &failure) || failure.RecoveryDisposition != serverapi.WorkflowSetupRecoveryFreshReplacement {
+				if _, err := service.MoveWorkflowTask(ctx, move); !errors.As(err, &failure) || failure.Details.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
 					t.Fatalf("replacement setup failure = %+v: %v", failure, err)
 				}
 				infrastructure.materializeErr = nil
@@ -518,7 +518,7 @@ func TestServiceManualMoveExecutableSelectsTargetThenStartsCurrentNode(t *testin
 	if selectionRequired.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
 		selectionRequired.Applied != nil ||
 		selectionRequired.SelectionRequired == nil ||
-		selectionRequired.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection {
+		selectionRequired.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
 		t.Fatalf("selection response = %+v, want execution-target selection", selectionRequired)
 	}
 	if len(execution.interruptTaskIDs) != 0 {
@@ -1441,7 +1441,7 @@ func TestServiceTaskResumeReselectsUnavailableUnlockedTarget(t *testing.T) {
 	}
 	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
 		response.SelectionRequired == nil ||
-		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable {
+		response.SelectionRequired.Details.GetConfiguredTargetUnavailable() == nil {
 		t.Fatalf("resume response = %+v, want configured target selection", response)
 	}
 	if execution.resumeEligibilityCalls != 1 {

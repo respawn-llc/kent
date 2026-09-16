@@ -3,7 +3,10 @@ import { decodeJson } from "@app/server-api-contract";
 import {
   LockedExecutionTargetCause,
   SelectionRequiredSchema,
+  type SelectionRequired,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
 import type {
   ActivityPage,
@@ -93,74 +96,111 @@ function offsetPageSchema<T>(itemSchema: z.ZodType<T>): z.ZodType<OffsetPage<T>>
     }));
 }
 
-const unavailableCauseSchema = z.enum([
-  "invalid_revision",
-  "non_commit",
-  "default_branch_missing",
-  "default_branch_ambiguous",
-  "git_failure",
+const unavailableCauses = [
+  ["invalid_revision", ExecutionTargetUnavailableCause.INVALID_REVISION],
+  ["non_commit", ExecutionTargetUnavailableCause.NON_COMMIT],
+  ["default_branch_missing", ExecutionTargetUnavailableCause.DEFAULT_BRANCH_MISSING],
+  ["default_branch_ambiguous", ExecutionTargetUnavailableCause.DEFAULT_BRANCH_AMBIGUOUS],
+  ["git_failure", ExecutionTargetUnavailableCause.GIT_FAILURE],
+] as const;
+const originalTargetCauses = [
+  ["detached_head", LockedExecutionTargetCause.DETACHED_HEAD],
+  ["invalid_root", LockedExecutionTargetCause.INVALID_ROOT],
+  ["root_inaccessible", LockedExecutionTargetCause.ROOT_INACCESSIBLE],
+  ["missing_branch", LockedExecutionTargetCause.MISSING_BRANCH],
+  ["conflict", LockedExecutionTargetCause.CONFLICT],
+  ["git_failure", LockedExecutionTargetCause.GIT_FAILURE],
+] as const;
+const managedModes = [
+  ["head", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD],
+  ["default_branch", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH],
+  ["custom_ref", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF],
+] as const;
+
+const selectionRequirementEnvelope = z.discriminatedUnion("reason", [
+  z
+    .object({
+      reason: z.literal("original_target_unavailable"),
+      original_target_cause: z.string(),
+    })
+    .strict(),
+  z.object({ reason: z.literal("policy_requires_selection") }).strict(),
+  z
+    .object({
+      reason: z.literal("configured_target_unavailable"),
+      configured_target: z.object({ mode: z.string(), requested_ref: z.string().optional() }).strict(),
+      unavailable_cause: z.string(),
+    })
+    .strict(),
 ]);
 
-const originalTargetCauses = {
-  detached_head: LockedExecutionTargetCause.DETACHED_HEAD,
-  invalid_root: LockedExecutionTargetCause.INVALID_ROOT,
-  root_inaccessible: LockedExecutionTargetCause.ROOT_INACCESSIBLE,
-  missing_branch: LockedExecutionTargetCause.MISSING_BRANCH,
-  conflict: LockedExecutionTargetCause.CONFLICT,
-  git_failure: LockedExecutionTargetCause.GIT_FAILURE,
-} as const;
+function adaptSelectionEnvelope(value: z.output<typeof selectionRequirementEnvelope>) {
+  switch (value.reason) {
+    case "policy_requires_selection":
+      return { policy_requires_selection: {} };
+    case "original_target_unavailable":
+      return {
+        original_target_unavailable: {
+          cause:
+            originalTargetCauses.find(([name]) => name === value.original_target_cause)?.[1] ??
+            LockedExecutionTargetCause.UNSPECIFIED,
+        },
+      };
+    case "configured_target_unavailable":
+      return {
+        configured_target_unavailable: {
+          mode:
+            value.configured_target.mode === "none"
+              ? ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE
+              : (managedModes.find(([name]) => name === value.configured_target.mode)?.[1] ??
+                ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_UNSPECIFIED),
+          requested_ref: value.configured_target.requested_ref ?? null,
+          cause:
+            unavailableCauses.find(([name]) => name === value.unavailable_cause)?.[1] ??
+            ExecutionTargetUnavailableCause.UNSPECIFIED,
+        },
+      };
+  }
+}
 
-const configuredTargetSchema = z
-  .discriminatedUnion("mode", [
-    z.object({ mode: z.literal("head") }).strict(),
-    z.object({ mode: z.literal("default_branch") }).strict(),
-    z.object({ mode: z.literal("custom_ref"), requested_ref: z.string().trim().min(1) }).strict(),
-  ])
-  .transform((value) => ({
-    mode: value.mode,
-    requestedRef: value.mode === "custom_ref" ? value.requested_ref : null,
-  }));
-
-const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequirement> = z
-  .discriminatedUnion("reason", [
-    z
-      .object({
-        reason: z.literal("original_target_unavailable"),
-        original_target_cause: z.enum([
-          "detached_head",
-          "invalid_root",
-          "root_inaccessible",
-          "missing_branch",
-          "conflict",
-          "git_failure",
-        ]),
-      })
-      .strict(),
-    z.object({ reason: z.literal("policy_requires_selection") }).strict(),
-    z
-      .object({
-        reason: z.literal("configured_target_unavailable"),
-        configured_target: configuredTargetSchema,
-        unavailable_cause: unavailableCauseSchema,
-      })
-      .strict(),
-  ])
-  .transform((value): WorkflowExecutionTargetSelectionRequirement => {
-    if (value.reason === "policy_requires_selection") {
-      return { reason: value.reason };
+const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequirement> =
+  selectionRequirementEnvelope.transform((value, context): WorkflowExecutionTargetSelectionRequirement => {
+    try {
+      return projectSelection(decodeJson(SelectionRequiredSchema, adaptSelectionEnvelope(value)));
+    } catch {
+      context.addIssue({ code: "custom", message: "Invalid execution target selection requirement." });
+      return z.NEVER;
     }
-    if (value.reason === "original_target_unavailable") {
-      decodeJson(SelectionRequiredSchema, {
-        original_target_unavailable: { cause: originalTargetCauses[value.original_target_cause] },
-      });
-      return { reason: value.reason, originalTargetCause: value.original_target_cause };
-    }
-    return {
-      reason: value.reason,
-      configuredTarget: value.configured_target,
-      unavailableCause: value.unavailable_cause,
-    };
   });
+
+function projectSelection(decoded: SelectionRequired): WorkflowExecutionTargetSelectionRequirement {
+  switch (decoded.reason.case) {
+    case "policyRequiresSelection":
+      return { reason: "policy_requires_selection" };
+    case "originalTargetUnavailable": {
+      const facts = decoded.reason.value;
+      const cause = originalTargetCauses.find(([, cause]) => cause === facts.cause)?.[0];
+      if (cause === undefined) throw new Error("Unknown original target cause");
+      return { reason: "original_target_unavailable", originalTargetCause: cause };
+    }
+    case "configuredTargetUnavailable": {
+      const facts = decoded.reason.value;
+      const mode = managedModes.find(([, mode]) => mode === facts.mode)?.[0];
+      const cause = unavailableCauses.find(([, cause]) => cause === facts.cause)?.[0];
+      if (mode === undefined || cause === undefined) throw new Error("Unknown configured target");
+      return {
+        reason: "configured_target_unavailable",
+        configuredTarget: {
+          mode,
+          requestedRef: facts.requestedRef ?? null,
+        },
+        unavailableCause: cause,
+      };
+    }
+    case undefined:
+      throw new Error("Missing selection reason");
+  }
+}
 
 const selectionRequiredResponseSchema = z
   .object({

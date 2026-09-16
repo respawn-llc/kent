@@ -873,10 +873,8 @@ func (s *Service) startWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 	if target.context.Task.ExecutionTarget == nil && !target.explicit &&
 		target.context.Policy.Mode == workflow.ExecutionTargetModeAskOnFirstExecution {
 		return serverapi.WorkflowTaskStartResponse{
-			Outcome: serverapi.WorkflowTaskActionOutcomeSelectionRequired,
-			SelectionRequired: &serverapi.WorkflowExecutionTargetSelectionRequirement{
-				Reason: serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection,
-			},
+			Outcome:           serverapi.WorkflowTaskActionOutcomeSelectionRequired,
+			SelectionRequired: serverapi.NewWorkflowPolicyTargetSelectionRequirement(),
 		}, nil
 	}
 	setupOperationID := req.SetupOperationID.Domain()
@@ -1023,41 +1021,7 @@ func workflowRetainedPreviousWorktree(retained *worktreepb.RetainedPreviousWorkt
 	if retained == nil {
 		return nil
 	}
-	return &serverapi.WorkflowRetainedPreviousWorktree{Worktree: workflowRegisteredWorktree(retained.GetWorktree())}
-}
-
-func workflowRegisteredWorktree(registered *worktreepb.RegisteredFacts) serverapi.WorkflowRegisteredWorktreeTopology {
-	git := registered.GetGit()
-	kent := registered.GetKent()
-	facts := &serverapi.WorkflowRegisteredWorktreeFacts{}
-	if git != nil {
-		facts.Git = serverapi.WorkflowWorktreeGitFacts{
-			CanonicalRoot:  git.CanonicalRoot,
-			HeadObject:     git.HeadObject,
-			BranchRef:      git.BranchRef,
-			BranchName:     git.BranchName,
-			Detached:       git.Detached,
-			Bare:           git.Bare,
-			LockedReason:   git.LockedReason,
-			PrunableReason: git.PrunableReason,
-			IsMainWorktree: git.IsMainWorktree,
-			PathAvailable:  git.PathAvailable,
-		}
-	}
-	if kent != nil {
-		facts.Kent = serverapi.WorkflowWorktreeKentFacts{
-			WorktreeID:      kent.WorktreeId,
-			CanonicalRoot:   kent.CanonicalRoot,
-			DisplayName:     kent.DisplayName,
-			Managed:         kent.Managed,
-			CreatedBranch:   kent.CreatedBranch,
-			OriginSessionID: kent.OriginSessionId,
-		}
-	}
-	return serverapi.WorkflowRegisteredWorktreeTopology{
-		Variant:    "registered",
-		Registered: facts,
-	}
+	return &serverapi.WorkflowRetainedPreviousWorktree{Worktree: serverapi.WorkflowRegisteredWorktreeTopology{Registered: retained.GetWorktree()}}
 }
 
 func workflowSetupRetainedError(err error) error {
@@ -1065,17 +1029,11 @@ func workflowSetupRetainedError(err error) error {
 	if !errors.As(err, &retained) || retained == nil || retained.Details == nil {
 		return err
 	}
-	disposition, conversionErr := serverapi.WorkflowSetupRecoveryFromProto(retained.Details.RecoveryDisposition)
-	if conversionErr != nil {
-		return errors.Join(err, conversionErr)
+	result := &serverapi.WorkflowSetupRetainedError{Details: retained.Details}
+	if validationErr := result.Validate(); validationErr != nil {
+		return errors.Join(err, validationErr)
 	}
-	return &serverapi.WorkflowSetupRetainedError{
-		RecoveryDisposition:      disposition,
-		Worktree:                 workflowRegisteredWorktree(retained.Details.Worktree),
-		ScriptPath:               retained.Details.ScriptPath,
-		Diagnostic:               retained.Details.Diagnostic,
-		RetainedPreviousWorktree: workflowRetainedPreviousWorktree(retained.Details.RetainedPreviousWorktree),
-	}
+	return result
 }
 
 func (s *Service) preflightInitiatingActionTarget(
@@ -1226,10 +1184,7 @@ func (s *Service) initiatingActionTarget(ctx context.Context, taskID workflow.Ta
 					return initiatingActionTargetDecision{}, converted
 				}
 				if !preflight.explicit {
-					return initiatingActionTargetDecision{selectionRequired: &serverapi.WorkflowExecutionTargetSelectionRequirement{
-						Reason:              serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable,
-						OriginalTargetCause: &unavailable.Cause,
-					}}, nil
+					return initiatingActionTargetDecision{selectionRequired: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause)}, nil
 				}
 				return s.resolveAndMaterializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight)
 			}
@@ -1297,9 +1252,7 @@ func (s *Service) resolveInitiatingActionTarget(
 ) (*workflowstore.ExecutionTargetSnapshot, *serverapi.WorkflowExecutionTargetSelectionRequirement, error) {
 	targetContext := preflight.context
 	if !preflight.explicit && targetContext.Policy.Mode == workflow.ExecutionTargetModeAskOnFirstExecution {
-		return nil, &serverapi.WorkflowExecutionTargetSelectionRequirement{
-			Reason: serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection,
-		}, nil
+		return nil, serverapi.NewWorkflowPolicyTargetSelectionRequirement(), nil
 	}
 	selection := preflight.selection
 	if selection.Mode == workflow.ExecutionTargetModeNone {
@@ -1428,18 +1381,10 @@ func configuredExecutionTargetUnavailable(
 func configuredTargetSelectionRequirementFromUnavailable(
 	unavailable workflow.ConfiguredExecutionTargetUnavailable,
 ) *serverapi.WorkflowExecutionTargetSelectionRequirement {
-	configured := &serverapi.WorkflowExecutionTargetConfiguredTarget{
-		Mode: serverapi.WorkflowExecutionTargetMode(unavailable.Mode),
-	}
-	if unavailable.RequestedRef != nil {
-		requestedRef := *unavailable.RequestedRef
-		configured.RequestedRef = &requestedRef
-	}
-	return &serverapi.WorkflowExecutionTargetSelectionRequirement{
-		Reason:           serverapi.WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable,
-		ConfiguredTarget: configured,
-		UnavailableCause: serverapi.WorkflowExecutionTargetUnavailableCause(unavailable.Cause),
-	}
+	return serverapi.NewWorkflowConfiguredTargetSelectionRequirement(
+		serverapi.WorkflowExecutionTargetMode(unavailable.Mode), unavailable.RequestedRef,
+		serverapi.WorkflowExecutionTargetUnavailableCause(unavailable.Cause),
+	)
 }
 
 const configuredTargetPreparationFailureCode = "workflow_configured_execution_target_unavailable"
@@ -1452,14 +1397,13 @@ func configuredTargetPreparationError(preflight initiatingActionTargetPreflight,
 	if !ok {
 		return err
 	}
-	requirement := configuredTargetSelectionRequirementFromUnavailable(*unavailable)
 	fields := map[string]string{
 		"error": err.Error(),
-		"mode":  string(requirement.ConfiguredTarget.Mode),
-		"cause": string(requirement.UnavailableCause),
+		"mode":  string(unavailable.Mode),
+		"cause": string(unavailable.Cause),
 	}
-	if requirement.ConfiguredTarget.RequestedRef != nil {
-		fields["requested_ref"] = *requirement.ConfiguredTarget.RequestedRef
+	if unavailable.RequestedRef != nil {
+		fields["requested_ref"] = *unavailable.RequestedRef
 	}
 	return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
 		Code:                                 configuredTargetPreparationFailureCode,

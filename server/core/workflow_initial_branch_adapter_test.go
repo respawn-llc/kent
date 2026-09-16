@@ -153,7 +153,7 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	testsetup.RunGit(t, workspace, "branch", "-D", branchA)
 	request := serverapi.WorkflowTaskMoveRequest{TaskID: string(taskID), TargetNodeID: string(source.NodeID)}
 	selection, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
-	if err != nil || selection.SelectionRequired == nil || selection.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable {
+	if err != nil || selection.SelectionRequired == nil || selection.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
 		t.Fatalf("missing original selection = %+v: %v", selection, err)
 	}
 	request.ExecutionTarget = &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
