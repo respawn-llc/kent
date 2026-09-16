@@ -9,11 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { type VirtualItem, useVirtualizer } from "@tanstack/react-virtual";
-import {
-  scrollToNativeEnd,
-  useVirtualizedEndAnchoring,
-  type VirtualizedEndAnchoring,
-} from "./virtualizedEndAnchoring";
+import { useVirtualizedEndAnchoring, type VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
 import type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
@@ -238,16 +234,15 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
-  const nativeEndOptions = useVirtualizedEndAnchoring(endAnchoring);
+  const nativeEnd = useVirtualizedEndAnchoring(endAnchoring);
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    // Pixel restoration and leading-anchor recovery issue absolute scroll
-    // commands from layout effects. Do not re-enter React synchronously from
-    // those lifecycle paths.
+    // Scroll commands run from layout effects; do not re-enter React there.
+    // End-anchored measured resize correction is completed after commit below.
     useFlushSync: false,
     getItemKey: (index) =>
       virtualizedRowKey({
@@ -259,15 +254,11 @@ function VirtualizedInfiniteListContent<TItem>({
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
     rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
-    ...nativeEndOptions,
+    ...nativeEnd.options,
   });
-  const lastEndRequest = useRef<symbol | null>(null);
   useLayoutEffect(() => {
-    const request = endAnchoring?.scrollRequest;
-    if (request == null || request === lastEndRequest.current) return;
-    lastEndRequest.current = request;
-    scrollToNativeEnd(virtualizer);
-  }, [endAnchoring?.scrollRequest, virtualizer]);
+    nativeEnd.afterCommit(virtualizer);
+  });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
     nonAdjustingResizeItemKey === undefined
       ? undefined
