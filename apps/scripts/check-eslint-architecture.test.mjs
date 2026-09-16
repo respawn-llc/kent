@@ -283,6 +283,22 @@ test("HTML script data remains data while JavaScript scripts are checked", async
   assert.deepEqual(results[0].messages, []);
 });
 
+test("embedded policy sources use the same normalized paths as the compiler", async () => {
+  const results = await checkEffectPolicy([
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.astro`,
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.html`,
+  ]);
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.equal(result.fatalErrorCount, 0);
+    assert.ok(
+      result.messages.some(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  }
+});
+
 test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", async () => {
   const results = await checkEffectPolicy([
     join(fixtureRoot, "src/app-facade/allowed-effect-integration.ts"),

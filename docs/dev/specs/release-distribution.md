@@ -63,7 +63,7 @@
   - `Kent_<ver>_x64-setup.exe` and `.sig` — Windows installer and updater.
 - `latest.json` lists the updater artifacts for `darwin-aarch64`, `linux-x86_64`, and `windows-x86_64`.
 - `desktop-checksums.txt` contains SHA-256 checksums for distributable desktop bundles.
-- macOS bundles are Developer ID signed and are not notarized.
+- macOS Desktop bundles must be Developer ID signed and Apple-notarized, with a validated stapled notarization ticket.
 - The minimum macOS version is macOS 15 Sequoia.
 - Liquid Glass falls back to the standard translucent material on macOS versions before 26.
 
