@@ -635,6 +635,28 @@ func (c *CurrentNodeController) ApplyPendingApproval(
 
 type ManualMoveTargetPreparation func(context.Context, func(context.Context, *workflowstore.ExecutionTargetCandidate) error) error
 
+func (c *CurrentNodeController) RunManualMove(ctx context.Context, operation func(context.Context) error) error {
+	if c == nil || ctx == nil || operation == nil {
+		return errors.New("Manual Move owner, context, and operation are required")
+	}
+	c.lifecycleBarrier.RLock()
+	defer c.lifecycleBarrier.RUnlock()
+	c.mu.Lock()
+	closed := c.closed || c.closing
+	c.mu.Unlock()
+	if closed {
+		return errors.New("current node workflow controller is closed")
+	}
+	owned, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(c.workerContext, func() { cancel(preparationShutdownCause()) })
+	defer stop()
+	defer cancel(nil)
+	if c.workerContext.Err() != nil {
+		return preparationShutdownCause()
+	}
+	return operation(context.WithValue(owned, currentNodeLifecycleContextKey{}, c))
+}
+
 func (c *CurrentNodeController) ApplyManualMoveWithPreparation(
 	ctx context.Context,
 	prepared workflowstore.ManualMovePreparation,

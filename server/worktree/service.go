@@ -579,15 +579,7 @@ func (s *Service) PrepareTaskExecutionRoot(ctx context.Context, req TaskExecutio
 		req.BranchName,
 		req.Purpose,
 	)
-	prepared := taskExecutionRootPreparation(root, materialized, previous)
-	if err != nil {
-		var retained *worktreecontract.SetupRetainedError
-		if errors.As(err, &retained) && previous != nil {
-			retained.Details.RetainedPreviousWorktree = previous
-		}
-		return prepared, err
-	}
-	return prepared, nil
+	return taskExecutionRootPreparation(root, materialized, previous, err)
 }
 
 func (s *Service) prepareManagedTaskWorktree(
@@ -681,7 +673,12 @@ func taskExecutionRootPreparation(
 	root workflowstore.ExecutionRoot,
 	materialized TaskWorktreeMaterialization,
 	previous *worktreepb.RetainedPreviousWorktree,
-) TaskExecutionRootPreparation {
+	err error,
+) (TaskExecutionRootPreparation, error) {
+	var retained *worktreecontract.SetupRetainedError
+	if previous != nil && errors.As(err, &retained) {
+		retained.Details.RetainedPreviousWorktree = previous
+	}
 	if previous != nil && materialized.SetupResult != nil {
 		switch {
 		case materialized.SetupResult.Completed != nil:
@@ -704,7 +701,7 @@ func taskExecutionRootPreparation(
 			Root:       materialized.Worktree.GetRegistered().GetGit().GetCanonicalRoot(),
 		}
 	}
-	return prepared
+	return prepared, err
 }
 
 func (s *Service) releaseProvisionalTaskWorktree(

@@ -636,6 +636,10 @@ func (*currentNodeCompletionExecutionStub) RecordTaskPreparationFailure(context.
 	return errors.New("unexpected replacement preparation failure")
 }
 
+func (*currentNodeCompletionExecutionStub) RunManualMove(ctx context.Context, operation func(context.Context) error) error {
+	return operation(ctx)
+}
+
 func (*currentNodeCompletionExecutionStub) ApplyManualMoveWithPreparation(context.Context, workflowstore.ManualMovePreparation, workflowexecution.ManualMoveTargetPreparation) (workflowstore.ManualMoveResult, error) {
 	return workflowstore.ManualMoveResult{}, errors.New("unexpected Move before target preparation")
 }

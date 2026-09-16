@@ -174,6 +174,7 @@ const (
 type Option func(*Service)
 
 func WithCurrentNodeExecution(execution interface {
+	RunManualMove(context.Context, func(context.Context) error) error
 	StartTask(context.Context, workflow.TaskID, workflowexecution.TaskStartPreparation, workflowexecution.TaskPreparationFinalizer) (workflowstore.StartTaskResult, error)
 	PromoteConcurrencyQueuedTask(context.Context, workflow.TaskID) ([]workflow.CurrentNode, bool, error)
 	PreflightTaskResume(context.Context, workflow.TaskID) (workflowexecution.TaskResumePreflight, error)
@@ -1768,7 +1769,21 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req serverapi.Workflo
 }
 
 func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-	response, err := s.moveWorkflowTask(ctx, req)
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskMoveResponse{}, err
+	}
+	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskID), req.InvokingSessionID); err != nil {
+		return serverapi.WorkflowTaskMoveResponse{}, err
+	}
+	if s.currentNodeExecution == nil {
+		return serverapi.WorkflowTaskMoveResponse{}, errors.New("current node workflow execution is required")
+	}
+	var response serverapi.WorkflowTaskMoveResponse
+	err := s.currentNodeExecution.RunManualMove(ctx, func(ctx context.Context) error {
+		var err error
+		response, err = s.moveWorkflowTask(ctx, req)
+		return err
+	})
 	return response, workflowSetupRetainedError(err)
 }
 
@@ -1838,15 +1853,6 @@ func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req serverapi.Wor
 }
 
 func (s *Service) moveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskMoveResponse{}, err
-	}
-	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskID), req.InvokingSessionID); err != nil {
-		return serverapi.WorkflowTaskMoveResponse{}, err
-	}
-	if s.currentNodeExecution == nil {
-		return serverapi.WorkflowTaskMoveResponse{}, errors.New("current node workflow execution is required")
-	}
 	values := make(map[workflow.ModelKey]map[string]string, len(req.Values))
 	for nodeKey, outputs := range req.Values {
 		converted := make(map[string]string, len(outputs))

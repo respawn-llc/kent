@@ -141,6 +141,7 @@ export type TaskMoveInput = Readonly<{
   values?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   commentary?: string | undefined;
   executionTarget?: WorkflowExecutionTargetSelection | undefined;
+  branchName?: string | undefined;
   proceedDespiteDependencies?: boolean | undefined;
 }>;
 
@@ -155,6 +156,7 @@ export type TaskResumeInput = Readonly<{
   taskID: string;
   setupOperationID?: SetupOperationID | undefined;
   executionTarget?: WorkflowExecutionTargetSelection | undefined;
+  branchName?: string | undefined;
 }>;
 
 export type OrdinaryQuestionAnswerInput = Readonly<{

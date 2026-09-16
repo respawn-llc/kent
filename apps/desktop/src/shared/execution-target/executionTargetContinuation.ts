@@ -26,6 +26,7 @@ export type TaskInitiatingAction =
       kind: "resume";
       taskID: string;
       setupOperationID: SetupOperationID;
+      branchName?: string | undefined;
     }>;
 
 export type TaskInitiatingActionResult =
@@ -48,6 +49,7 @@ export type TaskInitiatingActionResult =
 export type ExecutionTargetSelectionDraft = Readonly<{
   mode: WorkflowExecutionTargetSelectionMode;
   customRef: string | null;
+  branchName: string | null;
 }>;
 
 export function startTaskInitiatingAction(
@@ -92,13 +94,41 @@ export function proceedWithTaskInitiatingAction(action: TaskInitiatingAction): T
 export function initialExecutionTargetSelectionDraft(
   requirement: WorkflowExecutionTargetSelectionRequirement,
 ): ExecutionTargetSelectionDraft {
+  if (requirement.reason === "missing_managed_worktree" && requirement.suggestedSelection !== null) {
+    return { ...requirement.suggestedSelection, branchName: null };
+  }
   if (requirement.reason === "configured_target_unavailable") {
     return {
       mode: requirement.configuredTarget.mode,
       customRef: requirement.configuredTarget.requestedRef,
+      branchName: null,
     };
   }
-  return { mode: "default_branch", customRef: null };
+  return { mode: "default_branch", customRef: null, branchName: null };
+}
+
+export function executionTargetBranchName(
+  selection: WorkflowExecutionTargetSelection | undefined,
+  branchName: string | null | undefined,
+): string | undefined {
+  const value = branchName?.trim();
+  return selection?.mode === "none" || value === "" ? undefined : (value ?? undefined);
+}
+
+export function taskActionWithBranchName(
+  action: TaskInitiatingAction,
+  selection: WorkflowExecutionTargetSelection,
+  branchName: string | null,
+): TaskInitiatingAction {
+  const value = executionTargetBranchName(selection, branchName);
+  switch (action.kind) {
+    case "resume":
+      return { ...action, branchName: value };
+    case "move":
+      return { ...action, input: { ...action.input, branchName: value } };
+    case "start":
+      return action;
+  }
 }
 
 export function executionTargetSelectionFromDraft(
@@ -145,6 +175,7 @@ export async function executeTaskInitiatingAction(
           taskID: action.taskID,
           setupOperationID: action.setupOperationID,
           executionTarget: selection,
+          branchName: action.branchName,
         }),
       };
   }

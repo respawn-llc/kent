@@ -127,7 +127,7 @@ func (s *Service) prepareReplacementTaskExecutionRoot(
 			},
 		},
 	})
-	return taskExecutionRootPreparation(root, materialized, retainedPrevious), err
+	return taskExecutionRootPreparation(root, materialized, retainedPrevious, err)
 }
 
 func (s *Service) retrySelectedTaskWorktreeSetup(
@@ -152,7 +152,7 @@ func (s *Service) retrySelectedTaskWorktreeSetup(
 	}
 	materialized, err := s.prepareManagedTaskWorktree(ctx, task, workspace, req.SetupOperationID, *target, &record, req.SetupRequirement, req.BranchName)
 	root := workflowstore.ExecutionRoot{SourceWorkspaceID: workspace.WorkspaceID, SourceWorkspaceRoot: workspace.RootPath}
-	return taskExecutionRootPreparation(root, materialized, nil), err
+	return taskExecutionRootPreparation(root, materialized, nil, err)
 }
 
 func validateRetainedTaskSetupRecovery(recovery *workflow.CurrentNodeSetupRecoveryDetail, task sqlitegen.TaskRecord, record metadata.WorktreeRecord) error {

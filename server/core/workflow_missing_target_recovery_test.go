@@ -69,6 +69,10 @@ func TestWorkflowReplacementPreservesSetupChangedCheckout(t *testing.T) {
 	testWorkflowMissingTargetReplacement(t, serverapi.WorkflowExecutionTargetModeHead, replacementPreserveChangedCheckout)
 }
 
+func TestWorkflowMoveClientCancellationDoesNotCancelReplacementSetup(t *testing.T) {
+	testWorkflowMissingTargetReplacement(t, serverapi.WorkflowExecutionTargetModeHead, replacementMoveClientCancellation)
+}
+
 type replacementRecoveryAction uint8
 
 const (
@@ -80,12 +84,14 @@ const (
 	replacementMoveFromDone
 	replacementChooseFreshBranch
 	replacementPreserveChangedCheckout
+	replacementMoveClientCancellation
 )
 
 func testWorkflowMissingTargetReplacement(t *testing.T, mode serverapi.WorkflowExecutionTargetMode, recoveryAction replacementRecoveryAction) {
 	t.Helper()
 	ctx := context.Background()
-	moving := recoveryAction == replacementMoveRetrySetup || recoveryAction == replacementMoveResumeSetup || recoveryAction == replacementMoveFromDone
+	cancelMove := recoveryAction == replacementMoveClientCancellation
+	moving := recoveryAction == replacementMoveRetrySetup || recoveryAction == replacementMoveResumeSetup || recoveryAction == replacementMoveFromDone || cancelMove
 	fromDone := recoveryAction == replacementMoveFromDone
 	var store *workflowstore.Store
 	var taskID workflow.TaskID
@@ -235,15 +241,19 @@ func testWorkflowMissingTargetReplacement(t *testing.T, mode serverapi.WorkflowE
 		branchName = &name
 		selectedCommit = strings.TrimSpace(testsetup.RunGit(t, binding.CanonicalRoot, "rev-parse", "HEAD"))
 	}
-	var permitPath, attemptsPath string
+	var permitPath, attemptsPath, releaseSetupPath string
 	if recoveryAction != replacementWithoutSetupFailure {
 		setupRoot := t.TempDir()
 		permitPath = filepath.Join(setupRoot, "permit")
 		attemptsPath = filepath.Join(setupRoot, "attempts")
+		releaseSetupPath = filepath.Join(setupRoot, "release")
 		scriptPath := filepath.Join(setupRoot, "setup.sh")
 		script := fmt.Sprintf("#!/bin/sh\nprintf x >> %q\ntest -f %q\n", attemptsPath, permitPath)
 		if recoveryAction == replacementPreserveChangedCheckout {
 			script = fmt.Sprintf("#!/bin/sh\nprintf x >> %q\ngit checkout -b setup_user_branch\nexit 1\n", attemptsPath)
+		}
+		if cancelMove {
+			script = fmt.Sprintf("#!/bin/sh\nprintf x >> %q\nif [ ! -f %q ]; then\nwhile [ ! -f %q ]; do sleep 0.01; done\nexit 1\nfi\n", attemptsPath, permitPath, releaseSetupPath)
 		}
 		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 			t.Fatal(err)
@@ -264,7 +274,31 @@ func testWorkflowMissingTargetReplacement(t *testing.T, mode serverapi.WorkflowE
 			TaskID: string(taskID), TargetNodeID: string(*moveTarget), ExecutionTarget: selection,
 			BranchName: branchName, Commentary: "Move after cleanup",
 		}
-		moved, err := api.MoveWorkflowTask(ctx, *moveRequest)
+		var moved serverapi.WorkflowTaskMoveResponse
+		var err error
+		if cancelMove {
+			caller, cancel := context.WithCancel(ctx)
+			defer cancel()
+			result := testsetup.Start(func() (serverapi.WorkflowTaskMoveResponse, error) {
+				return api.MoveWorkflowTask(caller, *moveRequest)
+			})
+			testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {
+				data, err := os.ReadFile(attemptsPath)
+				return err == nil && len(data) == 1
+			}, "replacement setup did not begin")
+			cancel()
+			if err := os.WriteFile(releaseSetupPath, []byte("release"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case outcome := <-result:
+				moved, err = outcome.Value, outcome.Err
+			case <-time.After(10 * time.Second):
+				t.Fatal("accepted Move did not finish after client cancellation")
+			}
+		} else {
+			moved, err = api.MoveWorkflowTask(ctx, *moveRequest)
+		}
 		if !errors.As(err, &moveFailure) || moved.Applied != nil || moveFailure.SetupOperationID == nil {
 			t.Fatalf("Move did not stop work and leave failed setup unapplied: %+v, %v", moved, err)
 		}
@@ -341,7 +375,7 @@ func testWorkflowMissingTargetReplacement(t *testing.T, mode serverapi.WorkflowE
 			retry.ExecutionTarget = &serverapi.WorkflowExecutionTargetSelection{Mode: mode}
 			retry.BranchName = branchName
 		}
-		if recoveryAction == replacementMoveRetrySetup {
+		if recoveryAction == replacementMoveRetrySetup || cancelMove {
 			moved, err := api.MoveWorkflowTask(ctx, *moveRequest)
 			if err != nil || moved.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied {
 				t.Fatalf("retry original Move: %+v, %v", moved, err)
@@ -437,7 +471,7 @@ func testWorkflowMissingTargetReplacement(t *testing.T, mode serverapi.WorkflowE
 		return err == nil && len(current) == 1 && current[0].Scheduling == nil
 	}, "recovered Task did not complete")
 	expectedSessions := int64(1)
-	if recoveryAction == replacementMoveRetrySetup || fromDone {
+	if recoveryAction == replacementMoveRetrySetup || fromDone || cancelMove {
 		expectedSessions = 2
 	}
 	if count, err := store.CountTaskSessions(ctx, taskID); err != nil || count != expectedSessions {
