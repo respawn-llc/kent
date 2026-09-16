@@ -119,7 +119,7 @@ export function ChatWorkspaceChip({
               </TooltipProvider>
             )}
             estimateSize={() => 40}
-            className="h-64 min-h-0 overflow-y-auto"
+            className="h-64 max-h-full min-h-0 overflow-y-auto"
             loadingLabel={t("states.loading")}
             hasNextPage={catalog.hasNextPage}
             isFetchingNextPage={catalog.isFetchingNextPage}
