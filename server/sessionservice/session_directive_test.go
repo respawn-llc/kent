@@ -85,11 +85,11 @@ func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 }
 
 func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, containerDir, store := createPersistedSession(t)
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{

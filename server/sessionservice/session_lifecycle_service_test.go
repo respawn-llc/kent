@@ -76,22 +76,12 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 	return 0
 }
 
-func newTestSessionLifecycleService(containerDir string, authManager *auth.Manager, options ...[]session.StoreOption) *SessionLifecycleService {
+func newTestSessionLifecycleService(root string, authManager *auth.Manager, options ...[]session.StoreOption) *SessionLifecycleService {
 	storeOptions := sessionServiceTestPersistence.Options()
 	if len(options) == 0 {
-		return newSessionLifecycleServiceWithOptions(containerDir, authManager, storeOptions)
+		return newGlobalSessionLifecycleServiceWithOptions(root, authManager, storeOptions)
 	}
-	return newSessionLifecycleServiceWithOptions(containerDir, authManager, options[0])
-}
-
-func newSessionLifecycleServiceWithOptions(root string, authManager *auth.Manager, storeOptions []session.StoreOption) *SessionLifecycleService {
-	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    storeOptions,
-	})
-	return NewSessionLifecycleService(root, authority, authManager).
-		WithPersistenceRoot(root).
-		WithPersistedSessionResolver(sessionServiceTestPersistence)
+	return newGlobalSessionLifecycleServiceWithOptions(root, authManager, options[0])
 }
 
 func newGlobalSessionLifecycleServiceWithOptions(root string, authManager *auth.Manager, storeOptions []session.StoreOption) *SessionLifecycleService {
@@ -198,12 +188,12 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 }
 
 func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, _, store := createPersistedSession(t)
 	if err := store.SetInputDraft("draft from store"); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		SessionId:       proto.String(store.Meta().SessionID),
 		TransitionInput: "transition input",
@@ -233,11 +223,11 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, containerDir, store := createPersistedSession(t)
+			root, _, store := createPersistedSession(t)
 			if err := store.SetName("parent session"); err != nil {
 				t.Fatalf("persist parent session: %v", err)
 			}
-			service := newTestSessionLifecycleService(containerDir, nil)
+			service := newTestSessionLifecycleService(root, nil)
 			_, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 				SessionId: store.Meta().SessionID,
 				Input:     "conflicting parent draft",
@@ -275,12 +265,12 @@ func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 }
 
 func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, _, store := createPersistedSession(t)
 	if err := store.SetName("session name"); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	if _, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -352,7 +342,7 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 }
 
 func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
-	service := NewSessionLifecycleService(t.TempDir(), nil, nil)
+	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil)
 	_, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
 		SessionId:     "session-1",
 		WorkspaceRoot: t.TempDir(),
@@ -363,11 +353,11 @@ func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
 }
 
 func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, _, store := createPersistedSession(t)
 	if err := store.SetName("session name"); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	req := &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -401,7 +391,7 @@ func TestServiceResolveTransitionOpenSessionRequiresTarget(t *testing.T) {
 }
 
 func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturnsBinding(t *testing.T) {
-	_, containerDir, parent := createPersistedSession(t)
+	root, containerDir, parent := createPersistedSession(t)
 	child, err := session.NewLazy(
 		containerDir,
 		"workspace-x",
@@ -428,7 +418,7 @@ func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturns
 		firstStarted: firstStarted,
 		releaseFirst: releaseFirst,
 	}
-	service := newTestSessionLifecycleService(containerDir, nil).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(root, nil).WithNavigationTargetResolver(resolver)
 
 	request := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -471,7 +461,7 @@ func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturns
 }
 
 func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeResolution(t *testing.T) {
-	_, containerDir, parent := createPersistedSession(t)
+	root, containerDir, parent := createPersistedSession(t)
 	child, err := session.NewLazy(
 		containerDir,
 		"workspace-x",
@@ -489,7 +479,7 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 		t.Fatalf("EnsureDurable child: %v", err)
 	}
 	resolver := &sessionNavigationTargetResolverStub{}
-	service := newTestSessionLifecycleService(containerDir, nil).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(root, nil).WithNavigationTargetResolver(resolver)
 
 	_, err = service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -507,13 +497,13 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 }
 
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, containerDir, store := createPersistedSession(t)
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -540,13 +530,13 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 }
 
 func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, containerDir, store := createPersistedSession(t)
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -736,11 +726,11 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 }
 
 func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	root, _, store := createPersistedSession(t)
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	_, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -753,13 +743,9 @@ func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testin
 	}
 }
 
-func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
+func TestServiceGetInitialInputResolvesSessionAcrossProjects(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "projects", "project-a", "sessions")
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
-	if err := os.MkdirAll(containerA, 0o755); err != nil {
-		t.Fatalf("mkdir container A: %v", err)
-	}
 	store, err := session.Create(
 		containerB,
 		"workspace-b",
@@ -774,23 +760,19 @@ func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 		t.Fatalf("set foreign input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(containerA, nil)
-	_, err = service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
-	if err == nil {
-		t.Fatal("expected foreign session lookup rejection")
+	service := newTestSessionLifecycleService(root, nil)
+	response, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
+	if err != nil {
+		t.Fatalf("GetInitialInput: %v", err)
 	}
-	if !errors.Is(err, sessioncontract.ErrSessionNotFound) && !errors.Is(err, session.ErrOutsideWorkspaceContainer) {
-		t.Fatalf("expected scoped lookup rejection, got %v", err)
+	if response.Input != "foreign draft" {
+		t.Fatalf("input = %q, want stored draft", response.Input)
 	}
 }
 
-func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
+func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "projects", "project-a", "sessions")
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
-	if err := os.MkdirAll(containerA, 0o755); err != nil {
-		t.Fatalf("mkdir container A: %v", err)
-	}
 	store, err := session.Create(
 		containerB,
 		"workspace-b",
@@ -805,16 +787,20 @@ func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
 		t.Fatalf("persist foreign session meta: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(containerA, nil)
+	service := newTestSessionLifecycleService(root, nil)
 	_, err = service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
-		Input:     "should fail",
+		Input:     "updated draft",
 	})
-	if err == nil {
-		t.Fatal("expected foreign session mutation rejection")
+	if err != nil {
+		t.Fatalf("PersistInputDraft: %v", err)
 	}
-	if !errors.Is(err, sessioncontract.ErrSessionNotFound) && !errors.Is(err, session.ErrOutsideWorkspaceContainer) {
-		t.Fatalf("expected scoped lookup rejection, got %v", err)
+	response, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
+	if err != nil {
+		t.Fatalf("GetInitialInput: %v", err)
+	}
+	if response.Input != "updated draft" {
+		t.Fatalf("input = %q, want updated draft", response.Input)
 	}
 }
 
