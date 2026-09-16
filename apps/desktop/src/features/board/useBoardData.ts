@@ -20,7 +20,7 @@ import { useAppServices } from "@/app-facade";
 import { workflowProjectEventCanChangeTaskSearch } from "@/app-facade";
 import { workflowProjectQuestionTaskID } from "@/app-facade";
 import { useRetainedQueryData } from "@/app-facade";
-import { useTaskLifecycleAction } from "@/shared/execution-target";
+import { useTaskInterruptAction } from "@/shared/execution-target";
 import { useProjectLabelEffects } from "@/shared/labels";
 import { workflowProjectEventAffectsDependencyBoard } from "@/shared/task-dependencies";
 import { useBoardQuery } from "./BoardQueryRuntime";
@@ -236,18 +236,10 @@ export function useBoardTaskActions(projectID: string) {
     },
     [queryClient, refresh],
   );
-  const interruptMutation = useMutation({
-    mutationFn: async (taskID: string) => api.interruptTask(taskID),
-    onSuccess: refresh,
-  });
-  const interrupt = useTaskLifecycleAction();
+  const interrupt = useTaskInterruptAction(refresh);
   return {
     refresh,
-    interrupt: {
-      execute: async (taskID: string) =>
-        interrupt.execute(taskID, async () => interruptMutation.mutateAsync(taskID)),
-      pendingTaskIDs: interrupt.pendingTaskIDs,
-    },
+    interrupt,
     delete: useMutation({
       mutationFn: async (taskID: string) => api.deleteTask(taskID),
       onSuccess: async (_result, taskID) => {

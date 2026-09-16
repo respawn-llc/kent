@@ -80,13 +80,13 @@ export function LabelRenameEditor({
           value={rename.draft}
         />
         <IconTooltipButton
-          aria-busy={pending}
+          loading={pending}
           label={t("labels.saveRename")}
           onClick={onCommit}
           size="icon-sm"
           variant="primary-outline"
         >
-          {pending ? <Spinner /> : <Check aria-hidden="true" size={14} strokeWidth={2} />}
+          <Check aria-hidden="true" size={14} strokeWidth={2} />
         </IconTooltipButton>
         <IconTooltipButton label={t("labels.cancelRename")} onClick={onCancel} size="icon-sm">
           <X aria-hidden="true" size={14} strokeWidth={1.8} />
@@ -174,12 +174,12 @@ export function LabelResultRow({
         <div className="flex items-center gap-[var(--space-1)]">
           {deleteAction}
           <IconTooltipButton
-            aria-busy={renamePending}
+            loading={renamePending}
             label={t("labels.rename", { name: label.name })}
             onClick={onRename}
             size="icon-sm"
           >
-            {renamePending ? <Spinner /> : <Pencil aria-hidden="true" size={14} strokeWidth={1.8} />}
+            <Pencil aria-hidden="true" size={14} strokeWidth={1.8} />
           </IconTooltipButton>
         </div>
       }

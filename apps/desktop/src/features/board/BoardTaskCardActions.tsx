@@ -4,20 +4,6 @@ import { useTranslation } from "react-i18next";
 import { IconTooltipButton } from "@/ui";
 import type { KanbanCardVM } from "./BoardColumnViewModel";
 
-function optimisticTaskActions(
-  actions: KanbanCardVM["actions"],
-  pendingInterrupt: boolean,
-  pendingResume: boolean,
-): Readonly<{ canInterrupt: boolean; canResume: boolean }> {
-  if (pendingInterrupt) {
-    return { canInterrupt: false, canResume: true };
-  }
-  if (pendingResume) {
-    return { canInterrupt: true, canResume: false };
-  }
-  return actions;
-}
-
 export function BoardTaskCardActions({
   actionsDisabled,
   card,
@@ -34,8 +20,8 @@ export function BoardTaskCardActions({
   pendingResume: boolean;
 }>) {
   const { t } = useTranslation();
-  const actionPending = pendingInterrupt || pendingResume;
-  const { canInterrupt, canResume } = optimisticTaskActions(card.actions, pendingInterrupt, pendingResume);
+  const canInterrupt = card.actions.canInterrupt || pendingInterrupt;
+  const canResume = card.actions.canResume || pendingResume;
   if (!canInterrupt && !canResume) {
     return null;
   }
@@ -48,7 +34,8 @@ export function BoardTaskCardActions({
             event.stopPropagation();
             onResume(card.id);
           }}
-          disabled={actionsDisabled || actionPending}
+          disabled={actionsDisabled}
+          loading={pendingResume}
           size="icon-sm"
           variant={card.statusKind === "queued" ? "warning" : "primary-outline"}
         >
@@ -66,7 +53,8 @@ export function BoardTaskCardActions({
             event.stopPropagation();
             onInterrupt(card.id);
           }}
-          disabled={actionsDisabled || actionPending}
+          disabled={actionsDisabled}
+          loading={pendingInterrupt}
           size="icon-sm"
           variant="danger"
         >

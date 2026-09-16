@@ -407,7 +407,7 @@ describe("KanbanColumn retained replacement boundary", () => {
     expect(screen.queryByRole("button", { name: "board.resume" })).not.toBeInTheDocument();
   });
 
-  it("optimistically swaps only the pending Task action", () => {
+  it("shows loading only for the pending Task action", () => {
     const secondCard = { ...card, id: "task-2", shortID: "KNT-2", title: "Second Task" };
     renderColumn(
       <KanbanColumn
@@ -432,9 +432,11 @@ describe("KanbanColumn retained replacement boundary", () => {
       />,
     );
 
-    expect(screen.getAllByRole("button", { name: "board.resume" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "board.resume" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "board.interrupt" })).toBeDisabled();
+    const resumes = screen.getAllByRole("button", { name: "board.resume" });
+    expect(resumes).toHaveLength(2);
+    expect(resumes.filter((button) => button.getAttribute("aria-busy") === "true")).toHaveLength(1);
+    for (const button of resumes) expect(button).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "board.interrupt" })).not.toBeInTheDocument();
   });
 
   it("does not restore a drag after the selected Workflow becomes invalid", async () => {

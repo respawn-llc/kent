@@ -21,7 +21,13 @@ import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresen
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { TaskDetailInboxRow } from "./TaskDetailInboxRow";
 import { TaskDetailBodyIslands } from "./TaskDetailBodyIslands";
-import { DescriptionIsland, PropertiesIsland, TaskHeaderIsland, type TaskDraft } from "./TaskDetailRows";
+import {
+  DescriptionIsland,
+  PropertiesIsland,
+  TaskHeaderIsland,
+  type TaskDraft,
+  type SaveTaskDraft,
+} from "./TaskDetailRows";
 import { TaskTabs, type DetailTab } from "./TaskDetailTabs";
 import { TaskDependenciesArea } from "./TaskDependenciesAreaAdapter";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
@@ -110,7 +116,7 @@ export function TaskDetailList({
   onNewCommentBodyChange: (body: string) => void;
   onEditingCommentChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
-  onSaveDraft: (draft?: TaskDraft) => Promise<void>;
+  onSaveDraft: SaveTaskDraft;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   relationshipNavigationAvailable: boolean;
@@ -122,7 +128,7 @@ export function TaskDetailList({
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
   const draftDirty = draft.title !== detail.title || draft.body !== detail.body;
-  const canSaveDraft = draftDirty && !updatePending && draft.title.trim().length > 0;
+  const canSaveDraft = draftDirty && draft.title.trim().length > 0;
   const activityItems = useMemo(
     () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
     [activity.data],
@@ -308,7 +314,7 @@ type TaskDetailListRowProps = Readonly<{
   onNewCommentBodyChange: (body: string) => void;
   onEditingCommentChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
-  onSaveDraft: (draft?: TaskDraft) => Promise<void>;
+  onSaveDraft: SaveTaskDraft;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   relationshipNavigationAvailable: boolean;
@@ -363,7 +369,7 @@ function HeaderRow({
     <TaskHeaderIsland
       canSaveDraft={canSaveDraft}
       detail={detail}
-      disabled={updatePending}
+      saving={updatePending}
       draft={draft}
       onDraftChange={onDraftChange}
       onSave={onSaveDraft}

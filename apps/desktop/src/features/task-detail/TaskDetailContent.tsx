@@ -154,13 +154,18 @@ export function TaskDetailContent({
     localDependencyFocusRequest,
   });
 
-  async function saveDraft(nextDraft: TaskDraft = draft): Promise<void> {
-    await update.mutateAsync({
-      taskID: detail.id,
-      title: nextDraft.title,
-      body: nextDraft.body,
+  function saveDraft(nextDraft: TaskDraft = draft, onSaved?: () => void): void {
+    update.submit({
+      input: {
+        taskID: detail.id,
+        title: nextDraft.title,
+        body: nextDraft.body,
+      },
+      onSuccess() {
+        onMutated?.();
+        onSaved?.();
+      },
     });
-    onMutated?.();
   }
 
   return (

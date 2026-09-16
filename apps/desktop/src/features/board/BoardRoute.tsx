@@ -363,7 +363,7 @@ function BoardContent({
   }
 
   function interruptTask(taskID: string): void {
-    void actions.interrupt.execute(taskID).catch(reportInterruptError);
+    actions.interrupt.execute(taskID, reportInterruptError);
   }
 
   function resumeTask(taskID: string): void {
@@ -550,7 +550,14 @@ function BoardContent({
           onSubmit={(input) => {
             initiatingAction.close();
             runCardAction(
-              moveTaskInitiatingAction({ ...manualMove.action.input, ...input }, manualMove.action.actionID),
+              moveTaskInitiatingAction(
+                {
+                  ...manualMove.action.input,
+                  ...(input.transitionKey === undefined ? {} : { transitionKey: input.transitionKey }),
+                  ...(input.values === undefined ? {} : { values: input.values }),
+                },
+                manualMove.action.actionID,
+              ),
             );
           }}
           preview={manualMove.preview}

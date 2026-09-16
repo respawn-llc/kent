@@ -141,18 +141,14 @@ function renderLabelChooserSearch({
             <span className="absolute top-1/2 right-[var(--space-1)] -translate-y-1/2">
               <IconTooltipButton
                 disabled={catalogAtLimit}
-                aria-busy={catalogMutationPending}
+                loading={catalogMutationPending}
                 label={
                   catalogAtLimit ? t("labels.catalogLimit") : t("labels.create", { name: preparedSearch })
                 }
                 onClick={onCreate}
                 size="icon-sm"
               >
-                {catalogMutationPending ? (
-                  <Spinner />
-                ) : (
-                  <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-                )}
+                <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
               </IconTooltipButton>
             </span>
           ) : null}

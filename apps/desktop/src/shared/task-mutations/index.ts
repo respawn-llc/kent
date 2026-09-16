@@ -1,1 +1,6 @@
-export { useCreateTask, useUpdateTask } from "./useTaskMutations";
+export {
+  useCreateTask,
+  useUpdateTask,
+  type CreateTaskSubmission,
+  type UpdateTaskSubmission,
+} from "./useTaskMutations";

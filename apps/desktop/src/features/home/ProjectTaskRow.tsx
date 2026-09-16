@@ -148,7 +148,8 @@ export function projectTaskEntry({
               aria-label={`${t("board.resume")}: ${task.shortID}`}
               className="inline-grid size-6 place-items-center rounded-full outline-none transition-colors hover:bg-[var(--color-island-3)] focus-visible:ring-[2px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-45"
               data-testid={`project-task-status-${task.id}`}
-              disabled={resumeDisabled || pendingResume}
+              disabled={resumeDisabled}
+              aria-busy={pendingResume}
               onClick={(event) => {
                 event.stopPropagation();
                 onResumeTask(task.id);
