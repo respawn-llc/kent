@@ -61,9 +61,20 @@ export const englishResources = {
       },
     },
     chatTranscript: {
+      thinking: "Thinking...",
+      working: "Working…",
+      compacting: "Compacting…",
+      running: "Running…",
+      reviewing: "Reviewing…",
+      thoughtDuration: "Thought for {{seconds}} seconds",
       copy: "Copy",
       copied: "Copied",
       copyFailed: "Could not copy transcript content.",
+      edit: "Edit in a new Session",
+      editFailed: "Could not create an edited Session.",
+      editUnknownFailure: "Could not create an edited Session ({{code}}).",
+      editFailureRecovery:
+        "Your draft is unchanged. Try Edit again. If it keeps failing, report these details:\n\n{{diagnostic}}",
       reviewerSuggestions_one: "{{count}} suggestion",
       reviewerSuggestions_other: "{{count}} suggestions",
       notice: {
