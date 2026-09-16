@@ -309,6 +309,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 					result:   test.admission,
 					err:      test.admissionErr,
 				},
+				nil,
 			)
 			target := &chatpb.ChatTarget{
 				Target: &chatpb.ChatTarget_Session{

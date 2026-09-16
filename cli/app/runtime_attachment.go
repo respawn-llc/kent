@@ -13,10 +13,15 @@ import (
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/apicontract"
 	"core/shared/lifecyclecontract"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 )
 
 const runtimeReleaseTimeout = runtimeattach.ReleaseTimeout
+
+type goalSetClient interface {
+	SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error)
+}
 
 type runtimeAttachmentSource interface {
 	RuntimeAttachmentClients() runtimeAttachmentClients
@@ -27,6 +32,7 @@ type runtimeAttachmentClients struct {
 	ProcessViews      apicontract.ProcessViewService
 	PromptControl     apicontract.PromptControlService
 	RuntimeControls   apicontract.RuntimeControlService
+	GoalSet           goalSetClient
 	ChatSettings      apicontract.ChatSettingsService
 	SessionTranscript apicontract.SessionTranscriptService
 	SessionRuntime    apicontract.SessionRuntimeService
@@ -102,7 +108,13 @@ func prepareSharedRuntimeWiring(
 	plan sessionLaunchPlan,
 	reactivator *runtimeReactivator,
 ) (*runtimeWiring, func(), error) {
-	runtimeClient := newUIRuntimeClientWithReads(plan.SessionID, clients.SessionViews, clients.RuntimeControls, clients.ChatSettings).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(
+		plan.SessionID,
+		clients.SessionViews,
+		clients.RuntimeControls,
+		clients.GoalSet,
+		clients.ChatSettings,
+	).(*sessionRuntimeClient)
 	if reactivator != nil {
 		runtimeClient.SetRuntimeReactivator(reactivator)
 	}

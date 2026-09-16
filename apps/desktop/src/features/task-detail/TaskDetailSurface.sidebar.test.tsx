@@ -34,7 +34,8 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   useStatusController: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/ui", () => ({
+vi.mock("@/ui", async (importOriginal) => ({
+  ...(await importOriginal()),
   ErrorState: ({ body }: Readonly<{ body: string }>) => <div data-testid="error-state">{body}</div>,
   LoadingState: () => <div data-testid="loading-state" />,
 }));

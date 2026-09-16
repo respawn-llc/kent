@@ -95,6 +95,7 @@ const dependencyTargets = {
     ["@app/server-api-contract", "@app/server-api-contract/**"],
     ["src/index.ts", "src/gen/**/*.ts"],
   ),
+  SHELL: dependencyTarget(architectureOwners.SHELL, "@/app"),
   SHARED: dependencyTarget(architectureOwners.SHARED, "@/shared/*"),
   TOOLING_TYPES: dependencyTarget(architectureOwners.TOOLING, "@/types"),
   UI: dependencyTarget(architectureOwners.UI, "@/ui"),
@@ -172,7 +173,7 @@ const ownerDependencyMatrix = [
     architectureOwners.SERVER_API_CONTRACT,
     dependencyTarget(architectureOwners.SERVER_API_CONTRACT),
   ),
-  ownerDependencies(architectureOwners.TEST_SUPPORT, ...compositionDependencies),
+  ownerDependencies(architectureOwners.TEST_SUPPORT, dependencyTargets.SHELL, ...compositionDependencies),
   ownerDependencies(architectureOwners.TOOLING, dependencyTargets.TOOLING_TYPES),
 ];
 

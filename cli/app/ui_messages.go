@@ -79,7 +79,9 @@ type goalRuntimeDoneMsg struct {
 	operation      goalRuntimeOperation
 	objective      string
 	goal           *runtimepb.GoalView
+	setResult      *runtimepb.GoalSetSuccess
 	mutation       clientui.GoalMutationResult
+	diagnostic     error
 	err            error
 }
 

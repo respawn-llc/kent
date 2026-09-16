@@ -22,6 +22,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/config"
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -1481,14 +1482,90 @@ func TestServiceInterruptIdleIsNotAccepted(t *testing.T) {
 	}
 }
 
+func runtimeControlSetGoal(
+	ctx context.Context,
+	service *Service,
+	sessionID string,
+	objective string,
+	actor string,
+	runID *string,
+	stepID *string,
+) (*runtimepb.GoalMutationSuccess, error) {
+	return runtimeControlSetGoalWithPolicy(
+		ctx,
+		service,
+		sessionID,
+		objective,
+		actor,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+		runID,
+		stepID,
+	)
+}
+
+func runtimeControlSetAgentGoal(
+	ctx context.Context,
+	service *Service,
+	sessionID string,
+	objective string,
+	runID *string,
+	stepID *string,
+) (*runtimepb.GoalMutationSuccess, error) {
+	return runtimeControlSetGoalWithPolicy(
+		ctx,
+		service,
+		sessionID,
+		objective,
+		string(session.GoalActorAgent),
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
+		runID,
+		stepID,
+	)
+}
+
+func runtimeControlSetGoalWithPolicy(
+	ctx context.Context,
+	service *Service,
+	sessionID string,
+	objective string,
+	actor string,
+	policy runtimepb.GoalExecutionPolicy,
+	runID *string,
+	stepID *string,
+) (*runtimepb.GoalMutationSuccess, error) {
+	commit, err := service.SetResolvedGoal(ctx, &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+			},
+		},
+		Objective:       objective,
+		Actor:           actor,
+		ExecutionPolicy: policy,
+		RunId:           runID,
+		StepId:          stepID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if commit.Mutation == nil {
+		return nil, errors.New("resolved Goal Set commit has no mutation")
+	}
+	return commit.Mutation, nil
+}
+
 func TestServiceGoalMutationsSetShowComplete(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 
-	setResp, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "ship goal mode",
-		Actor:     "user",
-	})
+	setResp, err := runtimeControlSetGoal(
+		context.Background(),
+		service,
+		store.Meta().SessionID,
+		"ship goal mode",
+		"user",
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -1555,7 +1632,7 @@ func TestGoalResponseFromRuntimeResultUsesAuthoritativeProducerMatrix(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil)
+			response, err := goalResponseFromRuntimeResult(test.result, test.mutation)
 			if err != nil {
 				t.Fatalf("goalResponseFromRuntimeResult: %v", err)
 			}
@@ -1601,7 +1678,7 @@ func TestGoalResponseFromRuntimeResultRejectsImpossibleProducerCombinations(t *t
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil); err == nil {
+			if _, err := goalResponseFromRuntimeResult(test.result, test.mutation); err == nil {
 				t.Fatal("goalResponseFromRuntimeResult accepted an impossible producer result")
 			}
 		})
@@ -1723,11 +1800,15 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 	before := runtimeControlGoalDeveloperMessages(t, store)
 	goalDone := make(chan goalResult, 1)
 	go func() {
-		response, goalErr := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-			SessionId: store.Meta().SessionID,
-			Objective: "accepted pending goal",
-			Actor:     string(session.GoalActorUser),
-		})
+		response, goalErr := runtimeControlSetGoal(
+			context.Background(),
+			service,
+			store.Meta().SessionID,
+			"accepted pending goal",
+			string(session.GoalActorUser),
+			nil,
+			nil,
+		)
 		goalDone <- goalResult{response: response, err: goalErr}
 	}()
 	var accepted *runtimepb.GoalMutationSuccess
@@ -1890,21 +1971,21 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if active == nil {
 		t.Fatal("active execution missing")
 	}
-	request := &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "same-step goal",
-		Actor:     "agent",
-		RunId:     &active.RunID,
-		StepId:    &active.StepID,
-	}
-	response, err := service.SetGoal(t.Context(), request)
+	response, err := runtimeControlSetAgentGoal(
+		t.Context(),
+		service,
+		store.Meta().SessionID,
+		"same-step goal",
+		&active.RunID,
+		&active.StepID,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("exact-agent SetGoal returned invalid persisted identity: %v", err)
 	}
-	shown, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: request.SessionId})
+	shown, err := service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1912,7 +1993,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("set response = %+v, persisted = %+v", response, shown.Goal)
 	}
 	complete, err := service.CompleteGoal(t.Context(), &runtimepb.GoalMutationRequest{
-		SessionId: request.SessionId, Actor: request.Actor, RunId: request.RunId, StepId: request.StepId,
+		SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
 	})
 	if err != nil {
 		t.Fatalf("complete same-step goal: %v", err)
@@ -1925,7 +2006,14 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		complete.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE {
 		t.Fatalf("same-step complete = %+v", complete)
 	}
-	replacement, err := service.SetGoal(t.Context(), request)
+	replacement, err := runtimeControlSetAgentGoal(
+		t.Context(),
+		service,
+		store.Meta().SessionID,
+		"same-step goal",
+		&active.RunID,
+		&active.StepID,
+	)
 	if err != nil {
 		t.Fatalf("replace completed same-step goal: %v", err)
 	}
@@ -1936,14 +2024,14 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("replacement goal = %+v, prior = %+v", replacement, response)
 	}
 	for _, stale := range []*runtimepb.GoalMutationRequest{
-		{SessionId: request.SessionId, Actor: request.Actor, RunId: textutil.OptionalExactString("ef3970ae-98f5-4939-bd4b-549151b4af63"), StepId: request.StepId},
-		{SessionId: request.SessionId, Actor: request.Actor, RunId: request.RunId, StepId: textutil.OptionalExactString("2b424eef-6003-4c99-a2ae-7315e1508c39")},
+		{SessionId: store.Meta().SessionID, Actor: "agent", RunId: textutil.OptionalExactString("ef3970ae-98f5-4939-bd4b-549151b4af63"), StepId: &active.StepID},
+		{SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: textutil.OptionalExactString("2b424eef-6003-4c99-a2ae-7315e1508c39")},
 	} {
 		if _, err := service.CompleteGoal(t.Context(), stale); !errors.Is(err, runtime.ErrAgentGoalStepInactive) {
 			t.Fatalf("stale exact Goal mutation = %v, want inactive Step", err)
 		}
 	}
-	shown, err = service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: request.SessionId})
+	shown, err = service.ShowGoal(t.Context(), &runtimepb.GoalShowRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1968,7 +2056,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 		t.Fatalf("goal notices after boundary = %d, want set, complete, set", len(messages))
 	}
 	if _, err := service.CompleteGoal(t.Context(), &runtimepb.GoalMutationRequest{
-		SessionId: request.SessionId, Actor: request.Actor, RunId: request.RunId, StepId: request.StepId,
+		SessionId: store.Meta().SessionID, Actor: "agent", RunId: &active.RunID, StepId: &active.StepID,
 	}); !errors.Is(err, runtime.ErrAgentGoalStepInactive) {
 		t.Fatalf("retired exact Goal mutation = %v, want inactive Step", err)
 	}
@@ -1984,11 +2072,15 @@ func TestServiceCommittedGoalStartsLoopAfterCallerDisconnects(t *testing.T) {
 		{
 			name: "set",
 			mutate: func(ctx context.Context, service *Service, sessionID string) error {
-				_, err := service.SetGoal(ctx, &runtimepb.GoalSetRequest{
-					SessionId: sessionID,
-					Objective: "accepted after disconnect",
-					Actor:     string(session.GoalActorUser),
-				})
+				_, err := runtimeControlSetGoal(
+					ctx,
+					service,
+					sessionID,
+					"accepted after disconnect",
+					string(session.GoalActorUser),
+					nil,
+					nil,
+				)
 				return err
 			},
 			committed: func(goal *runtimepb.Goal) bool {
@@ -2145,11 +2237,15 @@ func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
 		runtimeControlExactExecution(t),
 	)
 	engine.SetQuestionsEnabled(false)
-	resp, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "steer the workflow",
-		Actor:     "user",
-	})
+	resp, err := runtimeControlSetGoal(
+		context.Background(),
+		service,
+		store.Meta().SessionID,
+		"steer the workflow",
+		"user",
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("SetGoal in workflow run = %v, want allowed", err)
 	}
@@ -2168,12 +2264,15 @@ func TestServiceWorkflowAgentStepGoalSetDoesNotBypassStepQueue(t *testing.T) {
 		runtimeControlExactExecution(t),
 	)
 
-	_, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "queued by shell",
-		Actor:     string(session.GoalActorAgent),
-		StepId:    textutil.OptionalExactString("step-from-shell"),
-	})
+	_, err := runtimeControlSetGoal(
+		context.Background(),
+		service,
+		store.Meta().SessionID,
+		"queued by shell",
+		string(session.GoalActorAgent),
+		nil,
+		textutil.OptionalExactString("step-from-shell"),
+	)
 	if err == nil {
 		t.Fatal("agent step-scoped workflow goal set mutated directly without an active step")
 	}
@@ -2189,11 +2288,15 @@ func TestServiceWorkflowSessionGoalMutationAllowed(t *testing.T) {
 		runtimeControlExactExecution(t),
 	)
 
-	resp, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "steer despite the held lease",
-		Actor:     "user",
-	})
+	resp, err := runtimeControlSetGoal(
+		context.Background(),
+		service,
+		store.Meta().SessionID,
+		"steer despite the held lease",
+		"user",
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("SetGoal in workflow runtime = %v, want allowed", err)
 	}
@@ -2209,7 +2312,7 @@ func TestServiceWorkflowAgentStepGoalCompleteDoesNotBypassStepQueue(t *testing.T
 		runtimeControlExactExecution(t),
 	)
 	sessionID := store.Meta().SessionID
-	if _, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{SessionId: sessionID, Objective: "workflow goal", Actor: "user"}); err != nil {
+	if _, err := runtimeControlSetGoal(context.Background(), service, sessionID, "workflow goal", "user", nil, nil); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
@@ -2233,7 +2336,7 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 		runtimeControlExactExecution(t),
 	)
 	sessionID := store.Meta().SessionID
-	if _, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{SessionId: sessionID, Objective: "workflow goal", Actor: "user"}); err != nil {
+	if _, err := runtimeControlSetGoal(context.Background(), service, sessionID, "workflow goal", "user", nil, nil); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
 	if _, err := service.PauseGoal(context.Background(), &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}); err != nil {
@@ -2265,103 +2368,18 @@ func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
 	}
 }
 
-func TestServiceSetGoalAllowsAgentWithoutExistingGoal(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-
-	resp, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "agent self-goal",
-		Actor:     "agent",
-	})
-	if err != nil {
-		t.Fatalf("SetGoal agent: %v", err)
-	}
-	if resp.Goal == nil || resp.Goal.Objective != "agent self-goal" || resp.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
-		t.Fatalf("agent set response = %+v", resp)
-	}
-}
-
-func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		status session.GoalStatus
-	}{
-		{name: "active", status: session.GoalStatusActive},
-		{name: "paused", status: session.GoalStatusPaused},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			store, engine, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{})
-			if _, err := engine.SetGoal(t.Context(), "existing goal\n\n- keep markdown", session.GoalActorUser); err != nil {
-				t.Fatalf("SetGoal initial: %v", err)
-			}
-			if tt.status == session.GoalStatusPaused {
-				if _, err := engine.SetGoalStatus(context.Background(), session.GoalStatusPaused, session.GoalActorUser); err != nil {
-					t.Fatalf("SetGoalStatus paused: %v", err)
-				}
-			}
-
-			_, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-				SessionId: store.Meta().SessionID,
-				Objective: "agent replacement",
-				Actor:     "agent",
-			})
-			var denied goalAgentOverwriteDeniedError
-			if !errors.As(err, &denied) {
-				t.Fatalf("agent overwrite error = %v, want goalAgentOverwriteDeniedError", err)
-			}
-			if denied.Objective != "existing goal\n\n- keep markdown" {
-				t.Fatalf("denied objective = %q, want existing goal text", denied.Objective)
-			}
-			if denied.Status != string(tt.status) {
-				t.Fatalf("denied status = %q, want %q", denied.Status, string(tt.status))
-			}
-			if goal := store.Meta().Goal; goal == nil || goal.Objective != "existing goal\n\n- keep markdown" || goal.Status != tt.status {
-				t.Fatalf("goal after rejected overwrite = %+v", goal)
-			}
-		})
-	}
-}
-
-func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
-	store, engine, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	completed, err := engine.SetGoal(t.Context(), "completed goal", session.GoalActorUser)
-	if err != nil {
-		t.Fatalf("SetGoal initial: %v", err)
-	}
-	if _, err := engine.SetGoalStatus(context.Background(), session.GoalStatusComplete, session.GoalActorAgent); err != nil {
-		t.Fatalf("SetGoalStatus complete: %v", err)
-	}
-	if goal := store.Meta().Goal; goal == nil || goal.ID != completed.ID || goal.Status != session.GoalStatusComplete {
-		t.Fatalf("goal before follow-up set = %+v, want completed goal %q", goal, completed.ID)
-	}
-
-	resp, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "next goal",
-		Actor:     "agent",
-	})
-	if err != nil {
-		t.Fatalf("SetGoal after complete: %v", err)
-	}
-	if resp.Goal == nil || resp.Goal.Objective != "next goal" || resp.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
-		t.Fatalf("set goal response = %+v", resp)
-	}
-	if resp.Goal.Id == completed.ID {
-		t.Fatalf("next goal reused completed goal id %q", completed.ID)
-	}
-	if goal := store.Meta().Goal; goal == nil || goal.ID != resp.Goal.Id || goal.Objective != "next goal" || goal.Status != session.GoalStatusActive {
-		t.Fatalf("persisted replacement goal = %+v, want response goal %+v", goal, resp.Goal)
-	}
-}
-
 func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 
-	_, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		SessionId: store.Meta().SessionID,
-		Objective: "ship goal mode",
-		Actor:     "user",
-	})
+	_, err := runtimeControlSetGoal(
+		context.Background(),
+		service,
+		store.Meta().SessionID,
+		"ship goal mode",
+		"user",
+		nil,
+		nil,
+	)
 	if !errors.Is(err, runtime.ErrGoalRequiresAskQuestion) {
 		t.Fatalf("SetGoal error = %v, want ErrGoalRequiresAskQuestion", err)
 	}

@@ -69,6 +69,8 @@ export type {
   ChatWorkspaceSelector,
 } from "./chatTypes";
 export type {
+  ChatGoalSetResult,
+  ChatGoalSetTarget,
   ChatGoal,
   ChatGoalAvailability,
   ChatGoalFact,

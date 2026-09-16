@@ -27,3 +27,4 @@ export { ChatComposerSurface } from "./ChatComposerSurface";
 export type { ChatComposerProps } from "./ChatComposer";
 export type { ChatComposerLayout } from "./ChatShell";
 export type { ComposerCommand, ComposerCommandInvocation, ComposerCommandResult } from "./composerCommands";
+export * from "./goal";

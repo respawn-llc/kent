@@ -35,7 +35,7 @@ func TestGoalPersistenceDoesNotWaitForModelBoundary(t *testing.T) {
 	}
 }
 
-func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
+func TestGoalNoticeFailureDoesNotUndoCommittedGoalAndSurfacesRuntimeFeedback(t *testing.T) {
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
@@ -56,7 +56,7 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
 		t.Fatalf("notice failure changed committed goal: %+v", goal)
 	}
 	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError == "" {
-		t.Fatal("notice failure was not surfaced")
+		t.Fatal("notice failure was not surfaced as Runtime feedback")
 	}
 	count := 0
 	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
@@ -66,5 +66,35 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("goal notices = %d, want one committed notice without replay", count)
+	}
+}
+
+func TestGoalSetContinuesNoticeAfterCommittedMetadataIssue(t *testing.T) {
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	gate.FailNext(errors.New("goal metadata observer failed"))
+
+	result, err := engine.SetGoal(t.Context(), "continue after metadata issue", session.GoalActorUser)
+	if err == nil {
+		t.Fatal("SetGoal succeeded without reporting metadata observer failure")
+	}
+	if !result.MetadataReceipt.Committed {
+		t.Fatalf("metadata receipt = %+v, want committed", result.MetadataReceipt)
+	}
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("drain notice after metadata issue: %v", err)
+	}
+	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError != "" {
+		t.Fatalf("Set diagnostic surfaced duplicate Runtime feedback: %q", snapshot.StreamingError)
+	}
+	count := 0
+	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeGoal {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("goal notices = %d, want one notice after metadata issue", count)
 	}
 }

@@ -2,6 +2,7 @@ import { workflowEditorEnglish } from "./workflowEditorEn";
 import { chatComposerEnglish } from "./chatComposerEn";
 import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
+import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
 
 export const englishResources = {
@@ -235,7 +236,7 @@ export const englishResources = {
         noPromptPreview: "No prompt preview",
       },
     },
-    chat: chatEnglish,
+    chat: { ...chatEnglish, goal: chatGoalEnglish },
     projectEdit: {
       title: "Project",
       loadingTitle: "Loading project",

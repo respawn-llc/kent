@@ -1,14 +1,21 @@
-import { create } from "@app/server-api-contract";
+import { create, validate } from "@app/server-api-contract";
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import {
+  ChatTargetSchema,
+  ExistingSessionTargetSchema,
+  NewChatTargetSchema,
+} from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireProjectAttachment } from "./chatAttachment";
-import { requireChatSessionID } from "./chatTarget";
+import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
+import { initialChatSettingsToWire } from "./chatSettings";
 import { enumValue, required, safeNumber } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
+import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
 import { defaultSubscriptionEstablishmentTimeoutMs } from "./jsonRpcSubscription";
-import type { ChatApi } from "./chatTypes";
+import type { ChatApi, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
 import type { ChatGoalFacts } from "./chatTranscriptTypes";
 import type { DescriptorRpcTransport } from "./transport";
 
@@ -27,6 +34,30 @@ export type ChatGoalProjection =
 export type ChatGoalMutationResult =
   | Readonly<{ kind: "authoritative_goal"; fact: ChatGoalFact & Readonly<{ goal: ChatGoal }> }>
   | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>;
+export type ChatGoalSetTarget =
+  | Readonly<{
+      kind: "session";
+      sessionID: string;
+      projectID?: string;
+      workspace?: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
+    }>
+  | Readonly<{
+      kind: "new_chat";
+      projectID: string;
+      workspaceID: string;
+      initialSettings: InitialChatSettings;
+      initialInputDraft?: string;
+    }>;
+export type ChatGoalSetResult = Readonly<{
+  sessionID: string;
+  outcome:
+    | Readonly<{
+        kind: "mutation";
+        mutation: ChatGoalMutationResult;
+        diagnostic: ChatOperationError | null;
+      }>
+    | Readonly<{ kind: "rejected"; error: ChatOperationError }>;
+}>;
 export type ChatGoalObservation = Readonly<{
   sequence: number;
   kind: "hydration" | "update";
@@ -99,7 +130,7 @@ export function goalFactFromTranscript(input: ChatGoalFacts): ChatGoalFact {
   };
 }
 
-function mutationResult(value: R.GoalMutationSuccess): ChatGoalMutationResult {
+export function goalMutationFromGenerated(value: R.GoalMutationSuccess): ChatGoalMutationResult {
   const availability = goalAvailability(value.availability);
   switch (value.kind) {
     case R.GoalMutationResultKind.AUTHORITATIVE_GOAL:
@@ -123,6 +154,67 @@ function observation(value: R.GoalObservation): ChatGoalObservation {
   return { sequence, kind, fact: goalFactFromWire(required(value.status)) };
 }
 
+export function chatGoalSetResultFromGenerated(
+  result: R.GoalSetResult,
+  requestedSessionID?: string,
+): ChatGoalSetResult {
+  try {
+    validate(R.GoalSetResultSchema, result);
+  } catch {
+    throw new ContractError("Goal Set result did not match the GUI contract.");
+  }
+  switch (result.outcome.case) {
+    case "error":
+      throw chatOperationError(R.GoalService.method.set, result.outcome.value);
+    case "success": {
+      const success = result.outcome.value;
+      const sessionID = goalSetSessionID(success.session?.sessionId, requestedSessionID);
+      return { sessionID, outcome: goalSetOutcome(success) };
+    }
+    case undefined:
+      throw new ContractError("Goal Set result outcome is required.");
+  }
+}
+
+function goalSetSessionID(sessionID: string | undefined, requestedSessionID?: string): string {
+  if (sessionID === undefined || sessionID.trim().length === 0) {
+    throw new ContractError("Goal Set success Session is required.");
+  }
+  if (requestedSessionID !== undefined && sessionID !== requestedSessionID) {
+    throw new ContractError("Goal Set success Session does not match the requested Session.");
+  }
+  return sessionID;
+}
+
+function goalSetOutcome(success: R.GoalSetSuccess): ChatGoalSetResult["outcome"] {
+  switch (success.outcome.case) {
+    case "mutation": {
+      const mutation = goalMutationFromGenerated(success.outcome.value);
+      if (mutation.kind !== "authoritative_goal") {
+        throw new ContractError("Goal Set response returned an illegal mutation result.");
+      }
+      return {
+        kind: "mutation",
+        mutation,
+        diagnostic:
+          success.diagnostic === undefined
+            ? null
+            : chatOperationError(R.GoalService.method.set, success.diagnostic),
+      };
+    }
+    case "rejected":
+      if (success.diagnostic !== undefined) {
+        throw new ContractError("Goal Set rejection cannot include a diagnostic.");
+      }
+      return {
+        kind: "rejected",
+        error: chatOperationError(R.GoalService.method.set, success.outcome.value),
+      };
+    case undefined:
+      throw new ContractError("Goal Set success outcome is required.");
+  }
+}
+
 export function createChatGoalApi(
   transport: DescriptorRpcTransport,
 ): Pick<
@@ -130,25 +222,27 @@ export function createChatGoalApi(
   "getGoal" | "setGoal" | "pauseGoal" | "resumeGoal" | "completeGoal" | "clearGoal" | "subscribeGoal"
 > {
   const mutate = async (
-    target: Parameters<ChatApi["setGoal"]>[0],
+    target: ChatSessionTarget,
     method:
-      | typeof R.GoalService.method.set
       | typeof R.GoalService.method.pause
       | typeof R.GoalService.method.resume
       | typeof R.GoalService.method.complete
       | typeof R.GoalService.method.clear,
-    objective?: string,
   ) => {
     const sessionId = requireChatSessionID(target);
     const call = await transport.callDescriptorAttachedProject({
       projectID: target.projectID,
       selector: target.workspace,
       method,
-      createRequest: () =>
-        create(method.input, { sessionId, actor: "user", ...(objective === undefined ? {} : { objective }) }),
+      createRequest: () => create(method.input, { sessionId, actor: "user" }),
     });
     requireProjectAttachment(call.attachment, target);
-    return mutationResult(requireUnarySuccess(method, call.result));
+    const mutation = goalMutationFromGenerated(requireUnarySuccess(method, call.result));
+    const expectedKind = method === R.GoalService.method.clear ? "authoritative_clear" : "authoritative_goal";
+    if (mutation.kind !== expectedKind) {
+      throw new ContractError("Goal mutation response returned an illegal result.");
+    }
+    return mutation;
   };
   return {
     async getGoal(target) {
@@ -163,7 +257,57 @@ export function createChatGoalApi(
       requireProjectAttachment(call.attachment, target);
       return goalFactFromWire(requireUnarySuccess(method, call.result));
     },
-    setGoal: async (target, objective) => mutate(target, R.GoalService.method.set, objective),
+    async setGoal(target, objective) {
+      if (target.kind === "session") {
+        const sessionID = target.sessionID.trim();
+        if (!isValidChatSessionID(sessionID)) throw new TypeError("Session ID is required.");
+        const result = await transport.callDescriptorAttachedSession(
+          sessionID,
+          R.GoalService.method.set,
+          create(R.GoalSetRequestSchema, {
+            target: create(ChatTargetSchema, {
+              target: {
+                case: "session",
+                value: create(ExistingSessionTargetSchema, { sessionId: sessionID }),
+              },
+            }),
+            objective,
+            actor: "user",
+            executionPolicy: R.GoalExecutionPolicy.START_OR_CONTINUE,
+          }),
+        );
+        return chatGoalSetResultFromGenerated(result, sessionID);
+      }
+      const call = await transport.callDescriptorAttachedProject({
+        projectID: target.projectID,
+        selector: { workspaceID: target.workspaceID },
+        method: R.GoalService.method.set,
+        createRequest: (attachment) =>
+          create(R.GoalSetRequestSchema, {
+            target: create(ChatTargetSchema, {
+              target: {
+                case: "newChat",
+                value: create(NewChatTargetSchema, {
+                  projectId: attachment.projectID,
+                  workspaceId: attachment.workspaceID,
+                  initialSettings: initialChatSettingsToWire(target.initialSettings),
+                }),
+              },
+            }),
+            objective,
+            actor: "user",
+            executionPolicy: R.GoalExecutionPolicy.START_OR_CONTINUE,
+            ...(target.initialInputDraft === undefined
+              ? {}
+              : { initialInputDraft: target.initialInputDraft }),
+          }),
+      });
+      requireProjectAttachment(call.attachment, {
+        projectID: target.projectID,
+        workspace: { workspaceID: target.workspaceID },
+      });
+      return chatGoalSetResultFromGenerated(call.result);
+    },
     pauseGoal: async (target) => mutate(target, R.GoalService.method.pause),
     resumeGoal: async (target) => mutate(target, R.GoalService.method.resume),
     completeGoal: async (target) => mutate(target, R.GoalService.method.complete),
