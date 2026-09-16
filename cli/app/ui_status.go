@@ -188,7 +188,6 @@ func defaultUIStatusCollector() status.Collector {
 		RequestTimeout:         statusRefreshTimeout,
 		GitTimeout:             statusGitTimeout,
 		SessionNameReadTimeout: uiRuntimeReadTimeout,
-		EnvSanitizer:           sanitizedGitEnv,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/gitenv"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -347,7 +348,7 @@ func CloneTokenMap(input map[string]int) map[string]int {
 	return cloned
 }
 
-func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration, envSanitizer func([]string) []string) GitInfo {
+func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration) GitInfo {
 	trimmedWorkdir := strings.TrimSpace(workdir)
 	if trimmedWorkdir == "" {
 		return GitInfo{}
@@ -367,10 +368,7 @@ func CollectGitStatus(ctx context.Context, workdir string, timeout time.Duration
 	gitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "-C", trimmedWorkdir, "status", "--porcelain=v2", "--branch")
-	cmd.Env = os.Environ()
-	if envSanitizer != nil {
-		cmd.Env = envSanitizer(cmd.Env)
-	}
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if gitCtx.Err() == context.DeadlineExceeded || err != nil {
 		return GitInfo{Visible: true, Error: GitError(err, string(out))}

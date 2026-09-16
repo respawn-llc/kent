@@ -22,7 +22,6 @@ type Collector struct {
 	RequestTimeout         time.Duration
 	GitTimeout             time.Duration
 	SessionNameReadTimeout time.Duration
-	EnvSanitizer           func([]string) []string
 }
 
 func (c Collector) Collect(ctx context.Context, req Request) (Snapshot, error) {
@@ -175,7 +174,7 @@ func (c Collector) CollectGit(ctx context.Context, req Request, _ Snapshot) GitS
 	if gitTimeout <= 0 {
 		gitTimeout = 4 * time.Second
 	}
-	return GitStageResult{Git: CollectGitStatus(ctx, GitRoot(req), gitTimeout, c.EnvSanitizer)}
+	return GitStageResult{Git: CollectGitStatus(ctx, GitRoot(req), gitTimeout)}
 }
 
 func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) EnvironmentStageResult {

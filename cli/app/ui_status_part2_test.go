@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"core/shared/gitenv"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -25,6 +27,8 @@ func TestStatusLineGitStartupUsesRuntimeWorktreeRootBranch(t *testing.T) {
 	workspaceRoot := initStatusLineGitRepo(t, "workspace-branch")
 	worktreeRoot := initStatusLineGitRepo(t, "worktree-branch")
 	t.Chdir(processRoot)
+	t.Setenv("GIT_DIR", filepath.Join(processRoot, ".git"))
+	t.Setenv("GIT_WORK_TREE", processRoot)
 
 	runtimeClient := &runtimeControlFakeClient{sessionView: &runtimepb.SessionView{
 		ExecutionTarget: &worktreepb.SessionExecutionTarget{
@@ -244,7 +248,7 @@ func initStatusLineGitRepo(t *testing.T, branch string) string {
 	t.Helper()
 	repoRoot := t.TempDir()
 	cmd := exec.Command("git", "-C", repoRoot, "init", "-b", branch)
-	cmd.Env = sanitizedGitEnv(os.Environ())
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init -b %s: %v (%s)", branch, err, out)
 	}
