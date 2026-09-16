@@ -24,8 +24,7 @@ type ExecutionHandle interface {
 }
 
 type ExecutionResult struct {
-	Script               *ScriptResult
-	DroppedRuntimeEvents uint64
+	Script *ScriptResult
 }
 
 type executionPhase uint8
@@ -204,17 +203,11 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 	}
 	var closeErr error
 	if e.resource != nil {
-		if e.resource.eventBridge != nil {
-			result.DroppedRuntimeEvents = e.resource.eventBridge.Dropped.Load()
-		}
 		if e.resource.logger != nil {
 			if executionErr != nil {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s error=%q", e.scope.ID(), executionErr.Error())
 			} else {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s ok", e.scope.ID())
-			}
-			if result.DroppedRuntimeEvents != 0 {
-				e.resource.logger.Logf("runtime.event.drop.total=%d", result.DroppedRuntimeEvents)
 			}
 		}
 		if e.closeResource {

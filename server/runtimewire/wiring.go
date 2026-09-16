@@ -25,7 +25,6 @@ import (
 type RuntimeWiring struct {
 	Engine        *runtime.Engine
 	AskBroker     *askquestion.AskQuestionBroker
-	EventBridge   *EventBridge
 	Background    *shelltool.Manager
 	LocalTools    *LocalToolRegistryBinding
 	PromptHistory []string
@@ -208,14 +207,6 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	toolRegistry := localTools.Registry()
-	eventBridge := NewEventBridge(2048, func(total uint64, evt runtime.Event) {
-		if logger == nil {
-			return
-		}
-		if total == 1 || total%100 == 0 {
-			logger.Logf("runtime.event.drop count=%d kind=%s", total, evt.Kind)
-		}
-	})
 	promptReloader := opts.PromptFacingSnapshotReloader
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
@@ -267,12 +258,7 @@ func NewRuntimeWiringWithBackground(
 			Client:            reviewerClient,
 			ClientFactory:     newReviewerClient,
 		},
-		OnEvent: func(evt runtime.Event) {
-			if opts.OnEvent != nil {
-				opts.OnEvent(evt)
-			}
-			eventBridge.Publish(evt)
-		},
+		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
@@ -283,11 +269,10 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	return &RuntimeWiring{
-		Engine:      eng,
-		AskBroker:   askBroker,
-		EventBridge: eventBridge,
-		Background:  background,
-		LocalTools:  localTools,
+		Engine:     eng,
+		AskBroker:  askBroker,
+		Background: background,
+		LocalTools: localTools,
 	}, nil
 }
 

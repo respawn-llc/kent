@@ -188,7 +188,6 @@ type agentResource struct {
 	ownerlessDisposition agentResourceOwnerlessDisposition
 	store                *session.Store
 	engine               *runtime.Engine
-	eventBridge          *runtimewire.EventBridge
 	logger               *runlog.RunLogger
 	localTools           *runtimewire.LocalToolRegistryBinding
 	askBroker            *tools.AskQuestionBroker
