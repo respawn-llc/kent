@@ -1441,26 +1441,12 @@ func (s *Service) runReplacementTaskWorktreeSetup(
 	if err != nil {
 		return created.materialization, err
 	}
-	attempt, err := s.prepareSetupAttempt(request)
+	result, err := s.runSetupRecovery(ctx, setupRecoveryRequest{
+		Attempt:  request,
+		Observer: observer,
+	})
 	if err != nil {
-		if result, identified := setupPreparationFailureResult(err, request.RetainedWorktree); identified {
-			return managedTaskSetupMaterialization(created.materialization, result)
-		}
 		return created.materialization, err
-	}
-	if attempt == nil {
-		return managedTaskSetupMaterialization(created.materialization, setupRecoveryResult{
-			Result: WorktreeSetupResult{NotRequired: &worktreepb.SetupNotRequired{
-				Reason: worktreepb.SetupNotRequiredReason_WORKTREE_SETUP_NOT_REQUIRED_REASON_NO_CONFIGURED_SCRIPT,
-			}},
-		})
-	}
-	err = s.executeSetupAttempt(ctx, *attempt, observer)
-	result := setupRecoveryResult{Result: WorktreeSetupResult{Completed: &worktreepb.SetupCompleted{}}}
-	if err != nil {
-		result = setupRecoveryResult{
-			Result: WorktreeSetupResult{Failed: setupFailureFromError(err, attempt.retained)}, Err: err,
-		}
 	}
 	return managedTaskSetupMaterialization(created.materialization, result)
 }
