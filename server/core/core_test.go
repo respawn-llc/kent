@@ -54,7 +54,7 @@ func TestNewBuildsReusableServerCore(t *testing.T) {
 	if appCore.Background() == nil {
 		t.Fatal("expected background manager")
 	}
-	if appCore.ProjectViewClient() == nil || appCore.ProcessViewClient() == nil || appCore.SessionLaunchClient() == nil || appCore.SessionViewClient() == nil || appCore.SessionLifecycleClient() == nil || appCore.SessionTranscriptClient() == nil || appCore.RunPromptClient() == nil {
+	if appCore.ProjectViewClient() == nil || appCore.ProcessViewClient() == nil || appCore.ProcessControlClient() == nil || appCore.SessionLaunchClient() == nil || appCore.SessionViewClient() == nil || appCore.SessionLifecycleClient() == nil || appCore.SessionTranscriptClient() == nil || appCore.RunPromptClient() == nil {
 		t.Fatal("expected core clients to be wired")
 	}
 	if appCore.CapabilityFactsClient() == nil {
@@ -81,6 +81,24 @@ func TestCapabilityFactsClientReportsAbsenceForUnconfiguredCore(t *testing.T) {
 	var nilCore *Core
 	if client := nilCore.CapabilityFactsClient(); client != nil {
 		t.Fatalf("nil Core capability facts client = %T, want nil", client)
+	}
+}
+
+func TestProcessClientsReportAbsenceForUnconfiguredCore(t *testing.T) {
+	var zeroCore Core
+	if client := zeroCore.ProcessViewClient(); client != nil {
+		t.Fatalf("zero Core process view client = %T, want nil", client)
+	}
+	if client := zeroCore.ProcessControlClient(); client != nil {
+		t.Fatalf("zero Core process control client = %T, want nil", client)
+	}
+
+	var nilCore *Core
+	if client := nilCore.ProcessViewClient(); client != nil {
+		t.Fatalf("nil Core process view client = %T, want nil", client)
+	}
+	if client := nilCore.ProcessControlClient(); client != nil {
+		t.Fatalf("nil Core process control client = %T, want nil", client)
 	}
 }
 

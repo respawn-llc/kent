@@ -37,7 +37,7 @@ type Bundles struct {
 	Chat        *ChatBundle
 	cleanup     []lifecycleResource
 	Persistence *PersistenceBundle
-	Processes   *ProcessBundle
+	Processes   *processview.ProcessViewService
 	Projects    *ProjectBundle
 	Prompts     *PromptBundle
 	Runtime     *RuntimeBundle
@@ -62,11 +62,6 @@ type ChatBundle struct {
 type PersistenceBundle struct {
 	rootLock      *RootLockLease
 	metadataStore *metadata.Store
-}
-
-type ProcessBundle struct {
-	processControls apicontract.ProcessControlService
-	processViews    apicontract.ProcessViewService
 }
 
 type ProjectBundle struct {
@@ -135,9 +130,6 @@ func (b *Bundles) withDefaults() *Bundles {
 	}
 	if withDefaults.Persistence == nil {
 		withDefaults.Persistence = &PersistenceBundle{}
-	}
-	if withDefaults.Processes == nil {
-		withDefaults.Processes = &ProcessBundle{}
 	}
 	if withDefaults.Projects == nil {
 		withDefaults.Projects = &ProjectBundle{}
@@ -251,7 +243,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 			}},
 		},
 		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore),
-		Processes:   newProcessBundle(in.processService),
+		Processes:   in.processService,
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
 		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
@@ -275,13 +267,6 @@ func newPersistenceBundle(rootLease *RootLockLease, metadataStore *metadata.Stor
 	return &PersistenceBundle{
 		rootLock:      rootLease,
 		metadataStore: metadataStore,
-	}
-}
-
-func newProcessBundle(processService *processview.ProcessViewService) *ProcessBundle {
-	return &ProcessBundle{
-		processControls: processService,
-		processViews:    processService,
 	}
 }
 
