@@ -301,10 +301,15 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Dynamic compaction must not rewrite or roll back already-sent section-selection history.
 - Fresh main hydration, Reviewer request construction, and post-compaction hydration share one canonical stable prefix: applicable Headless context, Subagents, Skills, Worktree context, Agents.md instructions, then active Goal continuation or Workflow context.
 - Fresh main and Reviewer requests append Environment after that stable prefix.
-- Post-compaction hydration inserts compacted or handoff output and manual user carryover before the same Environment suffix, except for the provider-native continuation ordering below.
+- Post-compaction hydration must place compacted or handoff output before Environment and manual user carryover after Environment, except for the provider-native continuation ordering below.
 - Successful provider-native compaction must place its continuation reminder as the first ordinary developer message after the system prompt, before other developer context, the unchanged encrypted checkpoint, and Environment. The reminder must belong to the same committed replacement and use the ordinary developer-notice contract. Local compaction uses its summary wrapper without that native reminder.
 - Compaction continuation guidance preserves the original user objective, subsequent corrections, decisions, constraints, and remaining work, and directs reuse of completed work and verification unless new evidence makes them stale.
 - A single editable Markdown document must own compaction continuation guidance. Native compaction inserts that guidance directly; the local handoff-summary wrapper includes it through a template.
+- After successful compaction, Kent must capture the running shells invoked by that Session when building the replacement context. This behavior must apply to local, dynamic, provider-native, Workflow, and handoff compaction, not ordinary Session opening or resume.
+- When that snapshot contains running shells, Kent must include one ordinary developer reminder in the committed replacement context immediately before Environment, after the compacted summary or checkpoint. The reminder must preserve the provider-native continuation reminder's first position.
+- The reminder must include every captured running shell's ID and command preview without a shell-count limit. The preview must collapse whitespace to single spaces and use at most the first 120 Unicode code points of that result, without an ellipsis or other truncation marker.
+- The reminder must describe the shells as running when captured. Kent must omit finished shells and omit the reminder when no owned shells are running. Capturing the reminder must not wait for shells to finish or change their execution.
+- An editable Markdown document must own the reminder heading, with the shell list inserted through an `ActiveShells` template value.
 - Handoff output includes the user-authored future-agent message in the atomic history replacement.
 - Goal and Workflow remain alternative Session-mode context in their respective slots.
 - Outside Workflow execution, Kent includes an active Goal continuation only for an active Goal.

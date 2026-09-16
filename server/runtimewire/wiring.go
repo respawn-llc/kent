@@ -243,6 +243,7 @@ func NewRuntimeWiringWithBackground(
 		HeadlessMode:                    opts.Headless,
 		ToolPreambles:                   active.ToolPreambles,
 		WorkflowPrompt:                  opts.WorkflowPrompt,
+		BackgroundShellManager:          background,
 		AskQuestionBatchSkipped:         opts.AskQuestionBatchSkipped,
 		TranscriptWorkingDir:            workingDirectory,
 		GlobalConfigDir:                 opts.GlobalConfigDir,
