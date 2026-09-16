@@ -51,10 +51,8 @@ function requiredValue<Value>(value: Value | null): Value {
 export function settingsDisabledReason(
   t: TFunction,
   editability: ChatSettingsEditability,
-  disconnected: boolean,
   autoCompactionPolicy?: ChatSettingsAutoCompaction["policy"],
 ): string | undefined {
-  if (disconnected) return t("common.readOnly");
   if (autoCompactionPolicy === "required") return t("chatSettings.required");
   switch (editability.kind) {
     case "editable":

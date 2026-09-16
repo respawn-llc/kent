@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect, it, vi } from "vitest";
 
-import type { ApiConnectionSource, ChatSessionTarget, ChatTranscriptHandler } from "@/api";
+import type { ChatSessionTarget, ChatTranscriptHandler } from "@/api";
 import { mainViewRead, runtimeHost, target, transcriptPage } from "@/test-support/chat-runtime";
 
 import type { ChatRuntimeApi } from "./chatRuntime";
@@ -22,7 +22,6 @@ it("shares one mounted query authority across provider consumers", async () => {
     subscribeTranscript: vi.fn().mockReturnValue({ close: subscriptionClose }),
   };
   const api: ChatRuntimeProviderApi = {
-    connection: staticConnection(),
     chat,
   };
   const view = render(
@@ -46,8 +45,7 @@ it("shares one mounted query authority across provider consumers", async () => {
   });
 });
 
-it("recovers only after disconnected to connected and starts no recovery newest page", async () => {
-  const connection = mutableConnection("connected");
+it("keeps transcript failure local without another Main View or newest-page read", async () => {
   const handlers: ChatTranscriptHandler[] = [];
   const getMainView = vi.fn().mockResolvedValue({
     mainView: namedMainView("current", 1),
@@ -62,7 +60,7 @@ it("recovers only after disconnected to connected and starts no recovery newest 
       return { close: vi.fn() };
     }),
   };
-  const api: ChatRuntimeProviderApi = { connection, chat };
+  const api: ChatRuntimeProviderApi = { chat };
   const view = render(
     <QueryClientProvider client={new QueryClient()}>
       <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
@@ -76,19 +74,11 @@ it("recovers only after disconnected to connected and starts no recovery newest 
   expect(handlers).toHaveLength(1);
   expect(getTranscriptPage).toHaveBeenCalledOnce();
 
-  connection.set("connecting");
-  connection.set("connected");
+  act(() => handlers[0]?.onTransportLoss?.());
   await Promise.resolve();
   expect(getMainView).toHaveBeenCalledOnce();
   expect(handlers).toHaveLength(1);
 
-  connection.set("disconnected");
-  connection.set("connecting");
-  connection.set("connected");
-  await waitFor(() => {
-    expect(getMainView).toHaveBeenCalledTimes(2);
-  });
-  expect(handlers).toHaveLength(2);
   expect(getTranscriptPage).toHaveBeenCalledOnce();
   view.unmount();
 });
@@ -100,7 +90,6 @@ it("keeps the mounted owner active through StrictMode effect replay", async () =
     goal: { goal: null, availability: "available" },
   });
   const api: ChatRuntimeProviderApi = {
-    connection: staticConnection(),
     chat: {
       getMainView,
       getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage(null)),
@@ -141,31 +130,4 @@ function Probe({ id }: Readonly<{ id: string }>) {
 
 function namedMainView(sessionName: string, sequence: number) {
   return { ...mainViewRead(sequence).mainView, sessionName };
-}
-
-function staticConnection(): ApiConnectionSource {
-  return {
-    snapshot: () => ({ phase: "connected", lastError: null, generation: 1 }),
-    subscribe: () => () => undefined,
-  };
-}
-
-function mutableConnection(initial: ReturnType<ApiConnectionSource["snapshot"]>["phase"]) {
-  let snapshot: ReturnType<ApiConnectionSource["snapshot"]> = {
-    phase: initial,
-    lastError: null,
-    generation: 0,
-  };
-  const listeners = new Set<() => void>();
-  return {
-    snapshot: () => snapshot,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    set(phase: typeof snapshot.phase) {
-      snapshot = { phase, lastError: null, generation: snapshot.generation + 1 };
-      for (const listener of listeners) listener();
-    },
-  };
 }

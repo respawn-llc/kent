@@ -40,7 +40,6 @@ export type ChatSettingsOptions =
   | (ChatSettingsNavigation &
       Readonly<{
         target: Extract<ChatSettingsTarget, { kind: "session" }>;
-        serverMutationAvailability: "available" | "disconnected";
         authoritativeRefreshGeneration: unknown;
         onContextChange(context: ChatContext): void;
       }>);
@@ -67,13 +66,9 @@ type SettingsState =
 export type ReadyChatSettings =
   | (ReadyNewChat & Readonly<{ activate(operation: ChatSettingsMutation): void }>)
   | (Omit<ReadySession, "lastDelivered"> &
-      (
-        | Readonly<{
-            serverMutationAvailability: "available";
-            activate(operation: ChatSettingsMutation): Promise<ChatSettingsMutationResponse>;
-          }>
-        | Readonly<{ serverMutationAvailability: "disconnected" }>
-      ));
+      Readonly<{
+        activate(operation: ChatSettingsMutation): Promise<ChatSettingsMutationResponse>;
+      }>);
 
 export type ChatSettingsFeature =
   | Exclude<SettingsState, ReadyNewChat | ReadySession>
@@ -198,19 +193,8 @@ function useSettingsState(
 
   if (state.kind === "ready-session") {
     if (target.kind !== "session" || !("onContextChange" in options)) return loadingState(target.kind);
-    if (options.serverMutationAvailability === "disconnected")
-      return {
-        kind: state.kind,
-        settings: state.settings,
-        session: state.session,
-        serverMutationAvailability: "disconnected",
-      };
-    const ready: Extract<
-      ReadyChatSettings,
-      { kind: "ready-session"; serverMutationAvailability: "available" }
-    > = {
+    const ready: Extract<ReadyChatSettings, { kind: "ready-session" }> = {
       kind: state.kind,
-      serverMutationAvailability: "available",
       settings: state.settings,
       session: state.session,
       async activate(operation) {

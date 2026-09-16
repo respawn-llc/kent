@@ -150,13 +150,16 @@ function WorkflowSettingsRoute({ navigator, projectID, workflowID }: WorkflowEdi
     );
   }
   return (
-    <WorkflowSettingsSurface
-      controller={controller}
-      dispatch={dispatch}
-      navigator={navigator}
-      save={save}
-      workflowID={workflowID}
-    />
+    <>
+      <WorkflowEditorObservationFailures data={data} />
+      <WorkflowSettingsSurface
+        controller={controller}
+        dispatch={dispatch}
+        navigator={navigator}
+        save={save}
+        workflowID={workflowID}
+      />
+    </>
   );
 }
 
@@ -292,24 +295,48 @@ function WorkflowEditorRouteContent({
   }
 
   return (
-    <WorkflowEditorReadyView
-      activeEmbeddedInspectorInitialFocus={activeEmbeddedInspector?.initialFocus}
-      activeEmbeddedInspectorSelection={activeEmbeddedInspector?.selection ?? null}
-      closeDeletedNodeInspector={closeDeletedNodeInspector}
-      controller={controller}
-      deleteConfirmationDialog={deleteConfirmation.dialog}
-      dispatch={dispatch}
-      draftState={draftState}
-      graph={viewState.graph}
-      inspect={inspectWorkflowGraphItem}
-      onClearEmbeddedInspector={() => {
-        setEmbeddedInspectorSelection(null);
-      }}
-      openDeleteConfirmation={deleteConfirmation.open}
-      save={save}
-      surface={surface}
-      workflowID={workflowID}
-    />
+    <>
+      <WorkflowEditorObservationFailures data={data} />
+      <WorkflowEditorReadyView
+        activeEmbeddedInspectorInitialFocus={activeEmbeddedInspector?.initialFocus}
+        activeEmbeddedInspectorSelection={activeEmbeddedInspector?.selection ?? null}
+        closeDeletedNodeInspector={closeDeletedNodeInspector}
+        controller={controller}
+        deleteConfirmationDialog={deleteConfirmation.dialog}
+        dispatch={dispatch}
+        draftState={draftState}
+        graph={viewState.graph}
+        inspect={inspectWorkflowGraphItem}
+        onClearEmbeddedInspector={() => {
+          setEmbeddedInspectorSelection(null);
+        }}
+        openDeleteConfirmation={deleteConfirmation.open}
+        save={save}
+        surface={surface}
+        workflowID={workflowID}
+      />
+    </>
+  );
+}
+
+function WorkflowEditorObservationFailures({ data }: Readonly<{ data: WorkflowEditorData }>) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {(["workflowObservation", "projectObservation"] as const).map((key) => {
+        const observation = data[key];
+        return observation.error === null ? null : (
+          <ErrorState
+            key={key}
+            fullPage={false}
+            body={errorMessage(observation.error)}
+            title={t("workflowEditor.loadFailed")}
+            onRetry={observation.retry}
+            retryLabel={t("app.retry")}
+          />
+        );
+      })}
+    </>
   );
 }
 

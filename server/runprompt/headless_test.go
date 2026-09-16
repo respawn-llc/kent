@@ -610,21 +610,19 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
-	cfg := config.App{
-		WorkspaceRoot:   workspace,
-		PersistenceRoot: root,
-		Settings: config.Settings{
-			Model:               "gpt-5",
-			ThinkingLevel:       "medium",
-			OpenAIBaseURL:       provider.URL,
-			EnabledTools:        map[toolspec.ID]bool{toolspec.ToolPatch: true},
-			AllowNonCwdEdits:    true,
-			MaxSubagentDepth:    2,
-			Worktrees:           config.WorktreeSettings{BaseDir: managedBase},
-			ShellOutputMaxChars: 16_000,
-			Shell:               config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
 	}
+	cfg.Settings.Model = "gpt-5"
+	cfg.Settings.ThinkingLevel = "medium"
+	cfg.Settings.OpenAIBaseURL = provider.URL
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
+	cfg.Settings.AllowNonCwdEdits = true
+	cfg.Settings.MaxSubagentDepth = 2
+	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
+	cfg.Settings.ShellOutputMaxChars = 16_000
+	cfg.Settings.Shell = config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{

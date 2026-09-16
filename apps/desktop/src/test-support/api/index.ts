@@ -30,7 +30,6 @@ import {
   TransitionService,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import {
-  ConnectionStore,
   type DescriptorRpcTransport,
   type DescriptorSubscriptionInput,
   type AttachedProjectCall,
@@ -258,7 +257,6 @@ export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
 }
 
 export class FakeRpcTransport implements DescriptorRpcTransport {
-  readonly connection = new ConnectionStore();
   readonly calls: Readonly<{ method: string; params: JsonValue; options?: RpcCallOptions }>[] = [];
   readonly descriptorCalls: Readonly<{
     descriptor: DescMethod;
@@ -318,7 +316,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
         this.#routes.set(route.method, route);
       }
     }
-    this.connection.set("connected");
   }
 
   async call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown> {

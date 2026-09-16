@@ -727,7 +727,7 @@ func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
 	request := gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID)
 	request.OwnerID = "client-spoof"
 	request.AgentSelection = &serverapi.SessionRuntimeAgentSelection{
-		Agent: "worker",
+		AgentRole: textutil.Value("worker"),
 		Baseline: serverapi.SessionRuntimeChatSettings{
 			Supervisor: "off", Thinking: "high", Fast: true, Questions: false, AutoCompaction: true,
 		},
@@ -742,7 +742,9 @@ func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
 		if activationRequest.OwnerID == "" || activationRequest.OwnerID == "client-spoof" {
 			t.Fatalf("gateway did not inject connection owner id: %+v", activationRequest)
 		}
-		if activationRequest.AgentSelection == nil || *activationRequest.AgentSelection != *request.AgentSelection {
+		if activationRequest.AgentSelection == nil ||
+			!textutil.EqualOptional(activationRequest.AgentSelection.AgentRole, request.AgentSelection.AgentRole) ||
+			activationRequest.AgentSelection.Baseline != request.AgentSelection.Baseline {
 			t.Fatalf("planned Agent selection changed: %v", activationRequest.AgentSelection)
 		}
 	case <-time.After(time.Second):

@@ -1,19 +1,13 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMatchRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowDeleteImpact } from "@/api";
 import { errorMessage } from "@/api";
-import {
-  queryKeys,
-  useAppNavigation,
-  useAppServices,
-  useConnectionSnapshot,
-  useStatusController,
-} from "@/app-facade";
-import { Dialog } from "@/ui";
+import { queryKeys, useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
+import { Dialog, useStableCallback } from "@/ui";
 import { WorkflowDeleteConfirmationContent } from "./WorkflowDeleteConfirmationContent";
 import {
   workflowDeleteBlockersMessage,
@@ -35,23 +29,27 @@ export function useWorkflowDeleteLauncher(
 }> {
   const { t } = useTranslation();
   const { api } = useAppServices();
-  const connection = useConnectionSnapshot();
   const navigation = useAppNavigation();
   const queryClient = useQueryClient();
   const matchRoute = useMatchRoute();
-  const { push } = useStatusController();
+  const { push, dismiss } = useStatusController();
+  const previewNoticeID = useId();
   const [pending, setPending] = useState<DeleteOperation | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [committedOwner, setCommittedOwner] = useState<string | null>(null);
   const [openingOwner, setOpeningOwner] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const workflowIDRef = useRef(workflowID);
+  const workflowIDRef = useRef<string | null>(workflowID);
   const previewAdmissionRef = useRef<PreviewAdmission | null>(null);
   const submitAdmissionRef = useRef<DeleteOperation | null>(null);
   const committedOwnerRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     workflowIDRef.current = workflowID;
-  }, [workflowID]);
+    return () => {
+      workflowIDRef.current = null;
+      dismiss(previewNoticeID);
+    };
+  }, [dismiss, previewNoticeID, workflowID]);
 
   useEffect(() => {
     const stalePreview = previewAdmissionRef.current;
@@ -153,7 +151,10 @@ export function useWorkflowDeleteLauncher(
     [api, matchRoute, navigation, onDeleted, push, queryClient, t],
   );
 
-  const openWorkflowDelete = useCallback(async (): Promise<void> => {
+  const retryPreview = useStableCallback((ownerWorkflowID: string) => {
+    if (workflowIDRef.current === ownerWorkflowID) void openWorkflowDelete();
+  });
+  async function openWorkflowDelete(): Promise<void> {
     if (
       previewAdmissionRef.current !== null ||
       submitAdmissionRef.current !== null ||
@@ -173,17 +174,21 @@ export function useWorkflowDeleteLauncher(
     } catch (error) {
       if (previewAdmissionRef.current === admission && workflowIDRef.current === workflowID) {
         push({
-          id: "workflow-delete-preview-error",
+          id: previewNoticeID,
           tone: "danger",
           title: t("workflowEditor.workflowDeleteTitle"),
           body: errorMessage(error),
+          actionLabel: t("app.retry"),
+          onAction: () => {
+            retryPreview(workflowID);
+          },
         });
       }
     } finally {
       if (previewAdmissionRef.current === admission) previewAdmissionRef.current = null;
       setOpeningOwner((current) => (current === workflowID ? null : current));
     }
-  }, [api, pending, push, t, workflowID]);
+  }
 
   const cancelPending = useCallback(() => {
     if (submitAdmissionRef.current !== null) return;
@@ -193,12 +198,7 @@ export function useWorkflowDeleteLauncher(
   const currentPending = pending?.ownerWorkflowID === workflowID ? pending : null;
   const opening = openingOwner === workflowID;
   return {
-    disabled:
-      connection.phase !== "connected" ||
-      opening ||
-      submitting ||
-      currentPending !== null ||
-      committedOwner === workflowID,
+    disabled: opening || submitting || currentPending !== null || committedOwner === workflowID,
     dialog:
       currentPending === null
         ? null

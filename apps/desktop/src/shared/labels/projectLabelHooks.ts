@@ -75,7 +75,6 @@ export function useProjectLabelCatalogMutations() {
         ) {
           queryClient.setQueryData(queryKey, context.previous);
         }
-        effects.scheduleCatalogRefresh();
       },
       async onSuccess(catalog) {
         await cancelCatalog();

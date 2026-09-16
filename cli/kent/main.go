@@ -283,7 +283,7 @@ func runSubcommand(args []string) int {
 	runFS.SetOutput(os.Stderr)
 	runFS.Usage = func() { runUsage.write(runFS) }
 	flags := registerCommonFlags(runFS, true)
-	agentRoleRaw := runFS.String("agent", "", "configured subagent role; use default for base settings")
+	agentRoleRaw := runFS.String("agent", "", "role for this run; default selects the headless default, omission preserves a resumed role")
 	fastRole := runFS.Bool("fast", false, "use the built-in fast subagent role")
 	timeoutRaw := runFS.String("timeout", "", "maximum run duration, such as 30s or 2m")
 	outputModeRaw := runFS.String("output-mode", string(runOutputModeFinalText), "result format: final-text|json")

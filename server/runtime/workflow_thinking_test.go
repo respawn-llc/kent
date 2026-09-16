@@ -63,6 +63,54 @@ func TestWorkflowAssignmentAppliesThinkingInItsRuntimeFIFOPosition(t *testing.T)
 	}
 }
 
+func TestWorkflowAssignmentResumeWaitsBehindEarlierRuntimeMutation(t *testing.T) {
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
+		Model: "workflow-assignment-order-model",
+	})
+	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("pause Runtime FIFO: %v", err)
+	}
+
+	previous := workflowAssignmentForCompactionTest()
+	previous.Prompt.Identity = "workflow-current-node/previous"
+	previousSnapshot, err := NewWorkflowAssignmentSnapshot(previous)
+	if err != nil {
+		t.Fatalf("build previous assignment snapshot: %v", err)
+	}
+	previousSteer, err := engine.SteerWorkflowAssignmentSnapshot(previousSnapshot)
+	if err != nil {
+		t.Fatalf("queue previous assignment: %v", err)
+	}
+
+	current := workflowAssignmentForCompactionTest()
+	current.Prompt.Identity = "workflow-current-node/current"
+	currentSteer, err := engine.SteerWorkflowAssignmentResume(t.Context(), current)
+	if err != nil {
+		t.Fatalf("queue Resume assignment: %v", err)
+	}
+
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("drain Runtime FIFO: %v", err)
+	}
+	if receipt, err := previousSteer.Wait(t.Context()); err != nil || !receipt.Committed {
+		t.Fatalf("previous assignment receipt = %+v, error=%v", receipt, err)
+	}
+	if receipt, err := currentSteer.Wait(t.Context()); err != nil || !receipt.Committed {
+		t.Fatalf("Resume assignment receipt = %+v, error=%v", receipt, err)
+	}
+	projection, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load final assignment projection: %v", err)
+	}
+	if projection == nil || projection.SourcePath == nil || *projection.SourcePath != current.Prompt.Identity {
+		t.Fatalf("final assignment projection = %+v, want queued Resume assignment %q", projection, current.Prompt.Identity)
+	}
+	if got := workflowModeRecordCount(t, store); got != 2 {
+		t.Fatalf("Workflow assignment records = %d, want earlier mutation followed by Resume", got)
+	}
+}
+
 func TestWorkflowAssignmentClearsThinkingOverride(t *testing.T) {
 	store := mustCreateTestSession(t)
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
@@ -124,6 +172,90 @@ func TestDormantWorkflowAssignmentPersistsThinkingMutation(t *testing.T) {
 			t.Fatal("dormant assignment did not persist selected Thinking")
 		}
 	}
+}
+
+func TestDormantWorkflowAssignmentResumeUsesPersistedAssignmentIdentity(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name          string
+		seedIdentity  *string
+		wantRecordAdd int
+	}{
+		{name: "missing assignment", seedIdentity: nil, wantRecordAdd: 1},
+		{name: "different assignment", seedIdentity: textutil.Value("run-previous"), wantRecordAdd: 1},
+		{name: "exact assignment", seedIdentity: textutil.Value("run-current"), wantRecordAdd: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			if test.seedIdentity != nil {
+				if _, _, err := appendTestEvent(t, store, "seed", llm.Message{
+					Role:        llm.RoleDeveloper,
+					MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
+					SourcePath:  test.seedIdentity,
+					Content:     textutil.Value("existing assignment"),
+				}); err != nil {
+					t.Fatalf("seed assignment: %v", err)
+				}
+			}
+			assignment := workflowAssignmentForCompactionTest()
+			assignment.Prompt.Identity = "run-current"
+			before := workflowModeRecordCount(t, store)
+
+			steer, err := SteerPersistedWorkflowAssignmentForResume(
+				store,
+				assignment,
+				PersistedWorkflowAssignmentContext{
+					Model: "workflow-thinking-model",
+				},
+			)
+			if err != nil {
+				t.Fatalf("prepare dormant Resume assignment: %v", err)
+			}
+			receipt, err := steer.Wait(t.Context())
+			if err != nil {
+				t.Fatalf("wait dormant Resume assignment: %v", err)
+			}
+			if !receipt.Committed {
+				t.Fatal("dormant Resume assignment was not committed")
+			}
+			after := workflowModeRecordCount(t, store)
+			if got := after - before; got != test.wantRecordAdd {
+				t.Fatalf("Workflow assignment record delta = %d, want %d", got, test.wantRecordAdd)
+			}
+			projection, err := store.ActiveWorkflowAssignmentProjection()
+			if err != nil {
+				t.Fatalf("load active assignment projection: %v", err)
+			}
+			if projection == nil || projection.SourcePath == nil ||
+				(test.wantRecordAdd == 1 && *projection.SourcePath != assignment.Prompt.Identity) {
+				t.Fatalf("active assignment projection = %+v, want restored identity %q", projection, assignment.Prompt.Identity)
+			}
+		})
+	}
+}
+
+func workflowModeRecordCount(t *testing.T, store *session.Store) int {
+	t.Helper()
+	eventLog, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatalf("materialize Session event log: %v", err)
+	}
+	window, err := eventLog.ReadRecentRecords(100)
+	if err != nil {
+		t.Fatalf("read Session event log: %v", err)
+	}
+	count := 0
+	for _, record := range window.Records {
+		payload, err := record.Payload()
+		if err != nil {
+			t.Fatalf("read Session event payload: %v", err)
+		}
+		message, ok := payload.(session.MessageRecord)
+		if ok && message.MessageType != nil && *message.MessageType == session.MessageTypeWorkflowMode {
+			count++
+		}
+	}
+	return count
 }
 
 func TestWorkflowThinkingSetterAcceptsStandardMaxAndCustomValues(t *testing.T) {

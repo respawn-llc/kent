@@ -31,12 +31,10 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
   const [view, setView] = useState<"closed" | "overview" | "agents">("closed");
   const transitionName = CSS.escape(`chat-settings-agent-${useId()}`);
   const settings = settingsPresentation(feature);
-  const disconnected =
-    feature.kind === "ready-session" && feature.serverMutationAvailability === "disconnected";
   const reason = (
     editability: Parameters<typeof settingsDisabledReason>[1],
-    policy?: Parameters<typeof settingsDisabledReason>[3],
-  ) => settingsDisabledReason(t, editability, disconnected, policy);
+    policy?: Parameters<typeof settingsDisabledReason>[2],
+  ) => settingsDisabledReason(t, editability, policy);
   function activate(operation: ChatSettingsMutation) {
     if (!("activate" in feature)) return;
     if (feature.kind === "ready-new-chat") {
@@ -167,7 +165,6 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
               <SettingsRow reason={reason(settings.thinking.editability)}>
                 <div className="min-w-0 flex-1">
                   <ThinkingSelector
-                    disabled={disconnected}
                     onCommit={(value) => {
                       activate({ kind: "thinking", value });
                     }}

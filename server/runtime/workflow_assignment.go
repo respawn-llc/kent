@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
+	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/workflow"
@@ -40,6 +42,34 @@ type PersistedWorkflowAssignmentContext struct {
 
 type WorkflowAssignmentSteer struct {
 	deferred runtimeDeferred[session.CommitReceipt]
+}
+
+func PersistedWorkflowAssignmentIdentity(store *session.Store) (*string, error) {
+	assignment, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		return nil, err
+	}
+	if assignment == nil ||
+		assignment.MessageType == nil ||
+		*assignment.MessageType != session.MessageTypeWorkflowMode ||
+		assignment.SourcePath == nil {
+		return nil, nil
+	}
+	identity := strings.TrimSpace(*assignment.SourcePath)
+	if identity == "" {
+		return nil, nil
+	}
+	return &identity, nil
+}
+
+func (e *Engine) ActiveWorkflowAssignmentIdentity(ctx context.Context) (*string, error) {
+	return awaitEngineRuntimeOperation(
+		ctx,
+		e,
+		func(context.Context) (*string, error) {
+			return workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems()), nil
+		},
+	)
 }
 
 func newWorkflowAssignmentSteer() WorkflowAssignmentSteer {
@@ -87,6 +117,73 @@ func (e *Engine) SteerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnap
 		return WorkflowAssignmentSteer{}, err
 	}
 	return e.steerWorkflowAssignmentSnapshot(snapshot)
+}
+
+type workflowAssignmentPromptSelection struct {
+	kind   prompts.WorkflowTaskPromptKind
+	inject bool
+}
+
+func (e *Engine) SteerWorkflowAssignmentResume(
+	ctx context.Context,
+	assignment WorkflowAssignment,
+) (WorkflowAssignmentSteer, error) {
+	if e == nil || e.closed.Load() {
+		return WorkflowAssignmentSteer{}, ErrEngineClosed
+	}
+	deferred := submitEngineRuntimeOperation(e, func(operationCtx context.Context) (session.CommitReceipt, error) {
+		currentIdentity := workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems())
+		kind, inject, err := selectWorkflowTaskPrompt(
+			currentIdentity,
+			assignment.Prompt.Identity,
+			workflowTaskPromptTriggerResumeDelivery,
+		)
+		if err != nil {
+			return session.CommitReceipt{}, err
+		}
+		return e.steerWorkflowAssignmentSelection(operationCtx, assignment, workflowAssignmentPromptSelection{
+			kind:   kind,
+			inject: inject,
+		})
+	})
+	return WorkflowAssignmentSteer{deferred: deferred}, nil
+}
+
+func (e *Engine) steerWorkflowAssignmentSelection(
+	ctx context.Context,
+	assignment WorkflowAssignment,
+	selection workflowAssignmentPromptSelection,
+) (session.CommitReceipt, error) {
+	if err := context.Cause(ctx); err != nil {
+		return session.CommitReceipt{}, err
+	}
+	if !selection.inject {
+		return session.CommitReceipt{Committed: true}, nil
+	}
+	message, err := buildWorkflowAssignmentMessageForKind(assignment, selection.kind)
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	return e.steerPreparedWorkflowMessage(message)
+}
+
+func (e *Engine) steerWorkflowAssignmentMessage(message llm.Message) (session.CommitReceipt, error) {
+	return e.steerWithCommitReceiptRaw(sessionSteeringProvenance(), steerMessagesWithPersistenceIntent(
+		steeringPriorityRuntimeContext,
+		steeringMessageEventDefault,
+		true,
+		[]llm.Message{message},
+	))
+}
+
+func (e *Engine) steerPreparedWorkflowMessage(message llm.Message) (session.CommitReceipt, error) {
+	if latestActiveMetaContextMatches(
+		e.transcriptRuntimeState().SnapshotItems(),
+		message,
+	) {
+		return session.CommitReceipt{Committed: true}, nil
+	}
+	return e.steerWorkflowAssignmentMessage(message)
 }
 
 func (e *Engine) steerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnapshot) (WorkflowAssignmentSteer, error) {
@@ -192,12 +289,45 @@ func SteerPersistedWorkflowAssignment(
 	assignment WorkflowAssignment,
 	deliveryContext PersistedWorkflowAssignmentContext,
 ) (WorkflowAssignmentSteer, error) {
+	kind, err := workflowAssignmentPromptKind(assignment.ContextMode)
+	if err != nil {
+		return WorkflowAssignmentSteer{}, err
+	}
+	return steerPersistedWorkflowAssignment(store, assignment, deliveryContext, kind, true)
+}
+
+func SteerPersistedWorkflowAssignmentForResume(
+	store *session.Store,
+	assignment WorkflowAssignment,
+	deliveryContext PersistedWorkflowAssignmentContext,
+) (WorkflowAssignmentSteer, error) {
 	if store == nil {
 		return WorkflowAssignmentSteer{}, errors.New("session store is required")
 	}
-	message, err := buildWorkflowAssignmentMessage(assignment)
+	currentIdentity, err := PersistedWorkflowAssignmentIdentity(store)
 	if err != nil {
 		return WorkflowAssignmentSteer{}, err
+	}
+	kind, inject, err := selectWorkflowTaskPrompt(
+		currentIdentity,
+		assignment.Prompt.Identity,
+		workflowTaskPromptTriggerResumeDelivery,
+	)
+	if err != nil {
+		return WorkflowAssignmentSteer{}, err
+	}
+	return steerPersistedWorkflowAssignment(store, assignment, deliveryContext, kind, inject)
+}
+
+func steerPersistedWorkflowAssignment(
+	store *session.Store,
+	assignment WorkflowAssignment,
+	deliveryContext PersistedWorkflowAssignmentContext,
+	kind prompts.WorkflowTaskPromptKind,
+	inject bool,
+) (WorkflowAssignmentSteer, error) {
+	if store == nil {
+		return WorkflowAssignmentSteer{}, errors.New("session store is required")
 	}
 	engine, err := newPersistedSteeringEngine(store)
 	if err != nil {
@@ -238,10 +368,20 @@ func SteerPersistedWorkflowAssignment(
 			return WorkflowAssignmentSteer{}, err
 		}
 	}
+	if !inject {
+		return CompletedWorkflowAssignmentSteer(session.CommitReceipt{Committed: true}, nil), nil
+	}
+	message, err := buildWorkflowAssignmentMessageForKind(assignment, kind)
+	if err != nil {
+		return WorkflowAssignmentSteer{}, err
+	}
 	return completePersistedWorkflowAssignment(engine, message), nil
 }
 
-func completePersistedWorkflowAssignment(engine *Engine, message llm.Message) WorkflowAssignmentSteer {
+func completePersistedWorkflowAssignment(
+	engine *Engine,
+	message llm.Message,
+) WorkflowAssignmentSteer {
 	receipt, err := engine.steerDormantWithCommitReceipt(steerMessagesWithPersistenceIntent(
 		steeringPriorityRuntimeContext,
 		steeringMessageEventDefault,

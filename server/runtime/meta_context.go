@@ -60,10 +60,7 @@ type metaContextBuildOptions struct {
 	IncludeHeadlessExit       bool
 	ActiveGoal                *session.GoalState
 	IncludeWorkflow           bool
-	WorkflowCompletionMode    workflowruntime.CompletionMode
-	WorkflowPrompt            *workflowruntime.PromptContract
-	WorkflowTaskAwareness     workflowruntime.TaskAwareness
-	WorkflowTaskPromptKind    prompts.WorkflowTaskPromptKind
+	WorkflowMessage           *llm.Message
 	WorktreeReminder          *session.WorktreeReminderState
 	SessionRebindReminder     *session.SessionRebindReminder
 	IncludeSkillWarnings      bool
@@ -264,22 +261,8 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		message, ok, err := workflowModeMetaMessage(
-			opts.WorkflowTaskPromptKind,
-			opts.WorkflowCompletionMode,
-			opts.WorkflowPrompt,
-			opts.WorkflowTaskAwareness,
-		)
-		if err != nil {
-			return metaContextBuildResult{}, err
-		}
-		if ok {
-			if opts.WorkflowPrompt != nil {
-				message.SourcePath = textutil.OptionalTrimmedString(
-					opts.WorkflowPrompt.Identity,
-				)
-			}
-			collector.addMessages([]llm.Message{message})
+		if opts.WorkflowMessage != nil {
+			collector.addMessages([]llm.Message{*opts.WorkflowMessage})
 		}
 	}
 	if opts.WorktreeReminder != nil {
@@ -411,7 +394,11 @@ func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocati
 	lines := make([]string, 0, len(roles)+3)
 	lines = append(lines, "Available subagent roles:")
 	if defaultAllowed {
-		lines = append(lines, "- `default`: not specifying any role will invoke the default general-purpose agent")
+		description := strings.TrimSpace(b.subagentSettings.Subagents[config.DefaultSubagentRole].Description)
+		if description == "" {
+			description = "not specifying any role will invoke the default general-purpose agent"
+		}
+		lines = append(lines, "- `default`: "+description)
 	}
 	for _, role := range roles {
 		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
@@ -434,7 +421,7 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 	names := make([]string, 0, len(settings.Subagents))
 	for name := range settings.Subagents {
 		normalized := config.NormalizeSubagentRole(name)
-		if normalized == "" || normalized == config.BuiltInSubagentRoleFast {
+		if normalized == "" || normalized == config.BuiltInSubagentRoleFast || normalized == config.DefaultSubagentRole {
 			continue
 		}
 		names = append(names, normalized)
@@ -533,15 +520,28 @@ func workflowModeMetaMessage(kind prompts.WorkflowTaskPromptKind, mode workflowr
 }
 
 func buildWorkflowAssignmentMessage(assignment WorkflowAssignment) (llm.Message, error) {
-	var kind prompts.WorkflowTaskPromptKind
-	switch assignment.ContextMode {
-	case workflow.ContextModeNewSession:
-		kind = prompts.WorkflowTaskPromptInitialAssignment
-	case workflow.ContextModeContinueSession, workflow.ContextModeCompactAndContinueSession:
-		kind = prompts.WorkflowTaskPromptReassignment
-	default:
-		return llm.Message{}, fmt.Errorf("unsupported workflow assignment context mode %q", assignment.ContextMode)
+	kind, err := workflowAssignmentPromptKind(assignment.ContextMode)
+	if err != nil {
+		return llm.Message{}, err
 	}
+	return buildWorkflowAssignmentMessageForKind(assignment, kind)
+}
+
+func workflowAssignmentPromptKind(contextMode workflow.ContextMode) (prompts.WorkflowTaskPromptKind, error) {
+	switch contextMode {
+	case workflow.ContextModeNewSession:
+		return prompts.WorkflowTaskPromptInitialAssignment, nil
+	case workflow.ContextModeContinueSession, workflow.ContextModeCompactAndContinueSession:
+		return prompts.WorkflowTaskPromptReassignment, nil
+	default:
+		return 0, fmt.Errorf("unsupported workflow assignment context mode %q", contextMode)
+	}
+}
+
+func buildWorkflowAssignmentMessageForKind(
+	assignment WorkflowAssignment,
+	kind prompts.WorkflowTaskPromptKind,
+) (llm.Message, error) {
 	message, ok, err := workflowModeMetaMessage(
 		kind,
 		assignment.CompletionMode,

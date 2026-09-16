@@ -14,6 +14,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 )
 
 type chatSettingsService struct {
@@ -90,7 +91,8 @@ func (s chatSettingsService) mutateSessionChatSettings(
 			result.Outcome = &chatsettingspb.MutationResult_Rejected{Rejected: projected.Rejection}
 			return false, nil
 		}
-		if engine != nil && projected.State.Agent == input.Raw.Agent {
+		sameAgent := textutil.EqualOptional(projected.State.AgentRole, input.Raw.AgentRole)
+		if engine != nil && sameAgent {
 			if _, err := engine.PrepareReviewerFrequency(projected.Effective.Supervisor); err != nil {
 				return false, err
 			}
@@ -111,12 +113,12 @@ func (s chatSettingsService) mutateSessionChatSettings(
 			)
 		}
 		changed = committed.Changed
-		if engine != nil && projected.State.Agent == input.Raw.Agent {
+		if engine != nil && sameAgent {
 			if err := engine.AcceptPreparedChatSettings(projected.Effective); err != nil {
 				return false, err
 			}
 		}
-		return projected.State.Agent != input.Raw.Agent && changed, nil
+		return !sameAgent && changed, nil
 	})
 	if err != nil {
 		return nil, err

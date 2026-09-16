@@ -130,10 +130,6 @@ export class ChatTranscriptHost {
     return { kind: "accepted" };
   }
 
-  recoveryStarted(): void {
-    this.#applyAutonomous(this.#window.dispatch({ kind: "recovery-begin" }));
-  }
-
   observationLost(): void {
     this.#applyAutonomous(this.#window.dispatch({ kind: "observation-loss" }));
   }

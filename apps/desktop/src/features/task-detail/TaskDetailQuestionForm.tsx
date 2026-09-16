@@ -16,14 +16,12 @@ import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 export function QuestionBox({
   attention,
   answerQuestion,
-  disabled,
   selectionState,
   onSelectionStateChange,
   registerPrimaryControl,
 }: Readonly<{
   attention: QuestionAttentionItem;
   answerQuestion: QuestionAnswerMutation;
-  disabled: boolean;
   selectionState: QuestionSelectionState;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   registerPrimaryControl?: ((control: PromptPrimaryControl) => () => void) | undefined;
@@ -48,7 +46,6 @@ export function QuestionBox({
       <QuestionFormView
         answerQuestion={answerQuestion}
         attention={attention}
-        disabled={disabled}
         onSelectionStateChange={onSelectionStateChange}
         presentation={presentation}
         registerPrimaryControl={registerPrimaryControl}

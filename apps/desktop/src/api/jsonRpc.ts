@@ -1,4 +1,3 @@
-import { ConnectionStore } from "./connectionStore";
 import {
   binaryFrameBytes,
   binaryFramePayload,
@@ -7,7 +6,7 @@ import {
   descriptorResponseCorrelation,
   encodeDescriptorCall,
 } from "./descriptorRpc";
-import { ContractError, RpcError, TransportError } from "./errors";
+import { TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import {
   unaryConnectionPolicy,
@@ -17,7 +16,6 @@ import {
 } from "@app/server-api-contract";
 import { z } from "zod";
 import {
-  delay,
   jsonRpcVersion,
   openSocket,
   parseFrame,
@@ -50,8 +48,6 @@ import type {
 
 const socketOpenTimeoutMs = 10_000;
 const rpcRequestTimeoutMs = 30_000;
-const subscriptionReconnectBaseMs = 500;
-const subscriptionReconnectMaxMs = 5_000;
 const textFrameSchema = z.string();
 
 type PendingRequestBase = Readonly<{
@@ -74,7 +70,6 @@ export function createJsonRpcTransport(endpoint: string, expectedRootId = ""): D
 }
 
 class JsonRpcWebSocketTransport implements RpcTransport {
-  readonly connection = new ConnectionStore();
   #endpoint: string;
   #expectedRootId: string;
   #socket: WebSocket | null = null;
@@ -275,7 +270,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     if (this.#opening !== null) {
       return this.#opening;
     }
-    this.connection.set("connecting");
     this.#opening = this.#connectControl();
     try {
       return await this.#opening;
@@ -305,7 +299,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       throw error;
     }
     this.#socket = socket;
-    this.connection.set("connected");
     return socket;
   }
 
@@ -476,13 +469,11 @@ class JsonRpcWebSocketTransport implements RpcTransport {
 
   #handleControlClose(): void {
     this.#socket = null;
-    this.connection.set("disconnected", "Kent service connection closed.");
     this.#rejectAll(new TransportError("Kent service connection closed."));
   }
 
   #handleControlError(): void {
     this.#socket = null;
-    this.connection.set("disconnected", "Kent service connection failed.");
     this.#rejectAll(new TransportError("Kent service connection failed."));
   }
 
@@ -503,26 +494,13 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     signal: AbortSignal,
     attachmentTarget?: Readonly<{ sessionID?: string; projectID?: string }>,
   ): Promise<void> {
-    let attempt = 0;
-    while (!signal.aborted) {
-      try {
-        await this.#withSubscriptionSocket(signal, run, attachmentTarget);
+    try {
+      await this.#withSubscriptionSocket(signal, run, attachmentTarget);
+    } catch (error) {
+      if (abortSignalWasRequested(signal) || isTerminalSubscriptionError(error)) {
         return;
-      } catch (error) {
-        if (abortSignalWasRequested(signal)) {
-          return;
-        }
-        if (isTerminalSubscriptionError(error)) {
-          return;
-        }
-        if (error instanceof ContractError || error instanceof RpcError) {
-          onError(error);
-          return;
-        }
-        onError(error instanceof Error ? error : new TransportError("Subscription failed."));
-        await delay(Math.min(subscriptionReconnectBaseMs * 2 ** attempt, subscriptionReconnectMaxMs), signal);
-        attempt += 1;
       }
+      onError(error instanceof Error ? error : new TransportError("Subscription failed."));
     }
   }
 

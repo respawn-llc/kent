@@ -51,8 +51,8 @@ func TestAuthorizeCallerTargetMatrix(t *testing.T) {
 		}
 	}
 	workflowNoSwitch := &Caller{Workflow: true}
-	if err := Authorize(config.Settings{Subagents: settings.Subagents}, workflowNoSwitch, Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}); err != nil {
-		t.Fatalf("fast target should bypass workflow controls: %v", err)
+	if err := Authorize(config.Settings{Subagents: settings.Subagents}, workflowNoSwitch, Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}); !isDenialKind(err, serverapi.SubagentLaunchDenialNotCallable) {
+		t.Fatalf("fast target with workflow delegation disabled: %v, want not-callable denial", err)
 	}
 	blockedFast := config.Settings{Subagents: map[string]config.SubagentRole{
 		config.BuiltInSubagentRoleFast: {AgentCallableSet: true, AgentCallable: false},
@@ -60,6 +60,67 @@ func TestAuthorizeCallerTargetMatrix(t *testing.T) {
 	workflowBlockedFast := &Caller{Workflow: true}
 	if err := Authorize(blockedFast, workflowBlockedFast, Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}); !isDenialKind(err, serverapi.SubagentLaunchDenialNotCallable) {
 		t.Fatalf("blocked fast role error = %v, want not-callable denial", err)
+	}
+}
+
+func TestFastRoleObeysWorkflowDelegationFlags(t *testing.T) {
+	settings := config.Settings{
+		Workflow: config.WorkflowSettings{Subagents: true},
+		Subagents: map[string]config.SubagentRole{
+			config.BuiltInSubagentRoleFast: {WorkflowSubagentSet: true, WorkflowSubagent: false},
+		},
+	}
+	target := Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}
+	if err := Authorize(settings, &Caller{Workflow: true}, target); !isDenialKind(err, serverapi.SubagentLaunchDenialNotCallable) {
+		t.Fatalf("workflow-disabled fast role: %v, want not-callable denial", err)
+	}
+	for _, caller := range []*Caller{nil, {}} {
+		if err := Authorize(settings, caller, target); err != nil {
+			t.Fatalf("non-workflow caller launching fast: %v", err)
+		}
+	}
+}
+
+func TestDefaultRoleDelegationPolicy(t *testing.T) {
+	for _, target := range []Target{
+		{Kind: TargetOmittedBase},
+		{Kind: TargetExplicitBase},
+		{Kind: TargetNamed, Selector: config.DefaultSubagentRole},
+	} {
+		for _, tc := range []struct {
+			name     string
+			role     config.SubagentRole
+			workflow bool
+			caller   *Caller
+			denied   bool
+		}{
+			{name: "ordinary unconfigured", caller: &Caller{}},
+			{name: "ordinary disabled", caller: &Caller{}, role: config.SubagentRole{AgentCallableSet: true}, denied: true},
+			{name: "human bypass", role: config.SubagentRole{AgentCallableSet: true, WorkflowSubagentSet: true}},
+			{name: "workflow enabled", caller: &Caller{Workflow: true}, workflow: true},
+			{name: "workflow globally disabled", caller: &Caller{Workflow: true}, denied: true},
+			{name: "workflow role disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{WorkflowSubagentSet: true}, denied: true},
+			{name: "workflow agent disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{AgentCallableSet: true}, denied: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				settings := config.Settings{
+					Workflow:  config.WorkflowSettings{Subagents: tc.workflow},
+					Subagents: map[string]config.SubagentRole{config.DefaultSubagentRole: tc.role},
+				}
+				err := Authorize(settings, tc.caller, target)
+				if !tc.denied {
+					if err != nil {
+						t.Fatalf("target %+v unexpectedly denied: %v", target, err)
+					}
+					return
+				}
+				var denied *serverapi.SubagentLaunchDeniedError
+				if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable ||
+					denied.Target == nil || *denied.Target != config.DefaultSubagentRole {
+					t.Fatalf("target %+v error = %v, want default not-callable denial", target, err)
+				}
+			})
+		}
 	}
 }
 

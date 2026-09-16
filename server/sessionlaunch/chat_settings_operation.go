@@ -29,7 +29,7 @@ type PreparedChatSettingsOperationResult struct {
 }
 
 func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInput, operation *chatsettingspb.MutationOperation) (PreparedChatSettingsOperationResult, error) {
-	rawAgent := input.Raw.Agent
+	rawAgent := input.Raw.AgentSelector()
 	defaultEntry, ok := input.Catalog.Lookup(config.DefaultSubagentRole)
 	if !ok {
 		return PreparedChatSettingsOperationResult{}, errors.New("default Chat Agent baseline is missing")
@@ -45,10 +45,8 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		}
 		selectedEntry.Settings = selectedSettings
 	}
-	baseAgent := rawAgent
 	baseSettings := input.Effective
 	if !selectedAvailable && input.Locked == nil {
-		baseAgent = config.DefaultSubagentRole
 		baseSettings = defaultEntry.Settings.Baseline
 		baseSettings.Questions = input.PersistedQuestions
 	} else if selectedAvailable {
@@ -63,7 +61,11 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			}
 		}
 	}
-	base, err := session.ChatSettingsStateFromCompleteSettings(baseAgent, baseSettings)
+	var baseRole *string
+	if selectedAvailable || input.Locked != nil {
+		baseRole = input.Raw.AgentRole
+	}
+	base, err := session.ChatSettingsStateFromRole(baseRole, baseSettings)
 	if err != nil {
 		return PreparedChatSettingsOperationResult{}, err
 	}

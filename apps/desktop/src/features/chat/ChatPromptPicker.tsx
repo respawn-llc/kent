@@ -6,7 +6,6 @@ import {
   useAppServices,
   useChatRuntimeOwner,
   useChatRuntimeSnapshot,
-  useConnectionSnapshot,
   usePublishChatPromptPresence,
 } from "@/app-facade";
 import { showStatusToast } from "@/ui";
@@ -22,15 +21,12 @@ export function ChatPromptPicker({
   const client = useQueryClient();
   const owner = useChatRuntimeOwner();
   const runtime = useChatRuntimeSnapshot();
-  const connection = useConnectionSnapshot();
   const model = useMemo(
     () =>
       createPromptPickerViewModel({
         owner,
         client,
         api: api.chat,
-        target,
-        connection: api.connection,
         onError: (error) => {
           showStatusToast({
             id: `chat-prompt-send:${target.sessionID}`,
@@ -57,7 +53,6 @@ export function ChatPromptPicker({
           prompts={runtime.pendingPrompts}
           state={state}
           isPending={request.isPending}
-          disconnected={connection.phase !== "connected"}
           dispatch={(action, focusField) => {
             actions.dispatch({ action, focusField });
           }}

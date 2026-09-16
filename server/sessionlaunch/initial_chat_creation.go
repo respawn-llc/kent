@@ -100,7 +100,7 @@ func (s *Service) prepareInitialChatCreation(
 	}
 	return &session.ChatDraftState{
 		Message: draft,
-		Agent:   state.Agent,
+		Agent:   state.AgentSelector(),
 		Settings: &session.ChatSettingsOverrides{
 			Supervisor:     textutil.Pointer(state.Settings.Supervisor),
 			Thinking:       textutil.Pointer(state.Settings.Thinking),

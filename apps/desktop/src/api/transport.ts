@@ -1,4 +1,3 @@
-import type { ConnectionStore } from "./connectionStore";
 import type { JsonValue } from "./json";
 import type { DescMessage, DescMethod, MessageShape } from "@app/server-api-contract";
 
@@ -95,7 +94,6 @@ export type RuntimeOwnerOptions = Readonly<{
 }>;
 
 export type RpcTransport = Readonly<{
-  connection: ConnectionStore;
   call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown>;
   callDedicated(method: string, params: JsonValue, options?: RpcDedicatedCallOptions): Promise<unknown>;
   callAttachedProject(

@@ -8,7 +8,6 @@ import {
 
 type Props = Readonly<{
   dependencies: TaskDependencies;
-  disabled: boolean;
   navigationDisabled: boolean;
   onAdd(direction: TaskDependencyDirection): void;
   onAddExisting(pair: TaskDependencyPair): Promise<unknown>;
@@ -21,7 +20,6 @@ type Props = Readonly<{
 export function TaskDependenciesArea(props: Props) {
   const {
     dependencies,
-    disabled,
     navigationDisabled,
     onAdd,
     onAddExisting,
@@ -34,7 +32,6 @@ export function TaskDependenciesArea(props: Props) {
   return (
     <DependenciesArea
       dependencies={dependencies}
-      disabled={disabled}
       excludedTaskIDs={() => excludedTaskIDs}
       navigationDisabled={navigationDisabled}
       onAdd={onAdd}

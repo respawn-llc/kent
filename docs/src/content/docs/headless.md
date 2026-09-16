@@ -65,52 +65,25 @@ Use exactly one of `--session` or `--task`. Task short IDs resolve in the curren
 
 ## Subagent Roles
 
-Roles are needed to create specialized subagent types for different tasks and workflows. Treat them like different employees or specialists.
+Roles select the model settings and context used by a headless Session.
 
-`--agent <role>` selects a named subagent role from `[subagents.<role>]` in the local or global config file. `--agent default` clears a resumed role and uses the base settings; `none` and `self` are not run-agent selectors.
+For a new `kent run`, omitting `--agent` when no other role is selected, or explicitly passing `--agent default`, selects the always-available `default` role. The `[subagents.default]` table can override the base model, Thinking, tools, Skills, and role description; without overrides, the role inherits the base settings.
+
+When resuming a Session, omitting `--agent` preserves the Session's recorded role. Opening that Session in TUI or Desktop preserves its selected headless role. New interactive TUI and Desktop Sessions use the base settings unless another role is selected, and interactive `--agent default` selects those base settings.
+
+If you remove a role before the Session's first model request locks its settings, resuming the Session switches it to the interactive base settings and clears the role selection. An agent making that headless continuation must pass the `default` role's delegation checks. Once the Session's settings are locked, resuming retains its recorded role even if you remove the role from configuration.
+
+`--agent <role>` selects another role from `[subagents.<role>]` in the local or global config file; `none` and `self` are not run-agent selectors. Humans can launch roles with `kent run` even when delegation metadata blocks model-originated calls. Built-in roles (`default` and `fast`) follow the same child-delegation rules as custom roles. Direct Workflow Node assignment uses the selected role's settings regardless of delegation flags.
+
 To open an interactive session with a role, run:
 
 ```bash
 kent --agent research
 ```
 
-To apply a role while reopening a specific session, combine it with `--session` or `--continue`. Unlocked sessions may select another role or clear the role with `--agent default`. If the session has a locked model request shape, the selected role must match the persisted role and `--agent default` cannot clear it.
+To apply a role while reopening a specific Session, combine it with `--session` or `--continue`. An unlocked Session may select another role, including the headless default with `--agent default`. A locked Session keeps its persisted model request shape and role.
 
-Example subagent config:
-
-```toml
-[subagents.research]
-model = "gpt-5.6-sol"
-thinking_level = "xhigh"
-system_prompt_file = "research-agent.md"
-description = "Use when you need fast, smart general-purpose researcher for deep thinking or complicated plans."
-priority_request_mode = true
-agent_callable = true
-workflow_subagent = true
-
-[subagents.research.tools]
-patch = false
-
-[subagents.research.skills]
-"kent-dogfooding" = false
-```
-
-- Set `agent_callable = false` to disallow agents to call that subagent role on their own.
-- Set `workflow_subagent = false` to disallow workflow agents from calling that custom role.
-- The built-in `fast` role exists even without config.
-- Subagent roles inherit the main config and then override only the keys you set in that role table.
-
-Useful role-specific keys include:
-
-- `model`, `provider_override`, `openai_base_url`, etc.
-- `thinking_level`, `model_verbosity`, `priority_request_mode`
-- `system_prompt_file`
-- `description`, `agent_callable`
-- `workflow_subagent`
-- `[subagents.<role>.tools]`
-- `[subagents.<role>.skills]`
-
-For the full list of shared overrides, see [Configuration](../config/).
+See [Configuration](../config/#subagents) for role overrides and delegation metadata.
 
 ## Delegation Depth
 
@@ -226,12 +199,12 @@ Because the child was never created, this response has no session ID or continua
 
 Supported run-specific flags:
 
-| Flag              | Description                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `--timeout`       | Optional run timeout such as `30s`, `5m`, or `1h`. Default is no timeout.                              |
-| `--output-mode`   | `final-text` or `json`. Default is `final-text`.                                                       |
-| `--progress-mode` | `stderr` for live responses and notices, or `quiet` for final-result-only output. Default is `stderr`. |
-| `-q`, `--quiet`   | Shortcut for `--progress-mode=quiet`.                                                                  |
-| `--continue`      | Continue a previous session by id.                                                                     |
-| `--agent`         | Select a named subagent role from `config.toml`; use `default` for the base role.                      |
-| `--fast`          | Shortcut for the built-in `fast` subagent role.                                                        |
+| Flag              | Description                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `--timeout`       | Optional run timeout such as `30s`, `5m`, or `1h`. Default is no timeout.                                    |
+| `--output-mode`   | `final-text` or `json`. Default is `final-text`.                                                             |
+| `--progress-mode` | `stderr` for live responses and notices, or `quiet` for final-result-only output. Default is `stderr`.       |
+| `-q`, `--quiet`   | Shortcut for `--progress-mode=quiet`.                                                                        |
+| `--continue`      | Continue a previous session by id.                                                                           |
+| `--agent`         | Select a role; `default` uses the headless default. Omission preserves a resumed role and defaults new runs. |
+| `--fast`          | Shortcut for the built-in `fast` subagent role.                                                              |

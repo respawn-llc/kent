@@ -105,7 +105,6 @@ vi.mock("@/app-facade", () => ({
   taskSearchDebounceMs: 0,
   useDebouncedText: (value: string) => value,
   useAppServices: () => ({ api: {}, logger: { append: state.loggerAppend } }),
-  useConnectionSnapshot: () => ({ phase: "connected" }),
   useStatusController: () => ({ dismiss: state.statusDismiss, push: state.statusPush }),
   useTaskSearch: () => ({
     displayedQuery: null,

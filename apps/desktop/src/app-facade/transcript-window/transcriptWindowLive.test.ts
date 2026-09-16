@@ -56,12 +56,10 @@ describe("transcript live membership and compaction", () => {
     });
     expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
     expect(sequences(window)).toEqual([1]);
-    for (const kind of ["observation-loss", "recovery-begin"] as const) {
-      window.dispatch({ kind });
-      expect(window.snapshot.thinkingStatus).toBeNull();
-      window.dispatch({ kind: "reattachment-hydration", hydration: source });
-      expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
-    }
+    window.dispatch({ kind: "observation-loss" });
+    expect(window.snapshot.thinkingStatus).toBeNull();
+    window.dispatch({ kind: "reattachment-hydration", hydration: source });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
     window.dispatch({ kind: "dispose" });
     expect(window.snapshot.thinkingStatus).toBeNull();
   });

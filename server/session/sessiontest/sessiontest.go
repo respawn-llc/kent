@@ -231,7 +231,7 @@ func CommitChatSettingsTestState(t testing.TB, store *session.Store, update func
 	if err != nil {
 		t.Fatalf("complete Chat settings: %v", err)
 	}
-	state = CompleteChatSettingsState(t, state.Agent, settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction)
+	state.Settings = CompleteChatSettingsState(t, state.AgentSelector(), settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction).Settings
 	update(state.Settings)
 	if _, err := store.CommitChatSettingsState(state); err != nil {
 		t.Fatalf("commit Chat settings: %v", err)

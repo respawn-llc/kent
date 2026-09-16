@@ -25,7 +25,7 @@ export type ChatComposerProps = Readonly<{
 
 export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: ChatComposerProps) {
   const { t } = useTranslation();
-  const { composer, activity, connected, stoppable, onEditorKeyDown } = useComposerSurface();
+  const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const pickerOpen = composer.suggestions.length > 0;
@@ -78,7 +78,7 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
     <div className="chat-composer" ref={root}>
       {(pickerOpen || composer.pending.items.length > 0) && (
         <PeekingSurface>
-          <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} disconnected={!connected} />
+          <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} />
           {pickerOpen && <ComposerSuggestions composer={composer} />}
         </PeekingSurface>
       )}
@@ -102,12 +102,7 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
               : t("chatComposer.placeholder")
           }
         />
-        <ComposerControls
-          composer={composer}
-          settingsChip={settingsChip}
-          connected={connected}
-          stoppable={stoppable}
-        />
+        <ComposerControls composer={composer} settingsChip={settingsChip} stoppable={stoppable} />
       </Island>
     </div>
   );
@@ -146,33 +141,25 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
   );
 }
 
-function composerSendLabel(
-  composer: Composer,
-  connected: boolean,
-  t: ReturnType<typeof useTranslation>["t"],
-) {
-  return !connected
-    ? t("common.readOnly")
-    : composer.draft.kind === "loading"
-      ? t("chatComposer.loadingDraft")
-      : composer.submission.kind === "loading"
-        ? t("chatComposer.loadingSettings")
-        : composer.submission.kind === "failed"
-          ? errorMessage(composer.submission.error)
-          : !composer.canSubmit
-            ? t("chatComposer.empty")
-            : t("chatComposer.send");
+function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslation>["t"]) {
+  return composer.draft.kind === "loading"
+    ? t("chatComposer.loadingDraft")
+    : composer.submission.kind === "loading"
+      ? t("chatComposer.loadingSettings")
+      : composer.submission.kind === "failed"
+        ? errorMessage(composer.submission.error)
+        : !composer.canSubmit
+          ? t("chatComposer.empty")
+          : t("chatComposer.send");
 }
 
 function ComposerControls({
   composer,
   settingsChip,
-  connected,
   stoppable,
 }: Readonly<{
   composer: Composer;
   settingsChip: ReactNode;
-  connected: boolean;
   stoppable: boolean;
 }>) {
   const { t } = useTranslation();
@@ -181,8 +168,7 @@ function ComposerControls({
       <div className="min-w-0 flex-1">{settingsChip}</div>
       {stoppable && (
         <IconTooltipButton
-          label={connected ? t("chatComposer.stop") : t("common.readOnly")}
-          disabled={!connected}
+          label={t("chatComposer.stop")}
           onClick={() => {
             composer.pending.stop();
           }}
@@ -192,8 +178,8 @@ function ComposerControls({
         </IconTooltipButton>
       )}
       <IconTooltipButton
-        label={composerSendLabel(composer, connected, t)}
-        disabled={!connected || !composer.canSubmit}
+        label={composerSendLabel(composer, t)}
+        disabled={!composer.canSubmit}
         variant="primary"
         onClick={() => {
           composer.submit("send");

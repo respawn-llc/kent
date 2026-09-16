@@ -90,12 +90,7 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (
-          services.api.connection.snapshot().phase !== "connected" ||
-          !get(draft.read).isSuccess ||
-          input.submission.kind !== "ready"
-        )
-          return;
+        if (!get(draft.read).isSuccess || input.submission.kind !== "ready") return;
         const original = get(draft.text);
         if (original.trim().length === 0) return;
         const command = resolveComposerCommand(input.selectedToken ?? original, input.commands);
