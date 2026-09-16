@@ -48,6 +48,7 @@ export type TaskInitiatingActionController = Readonly<{
   close(): void;
   selectMode(mode: WorkflowExecutionTargetSelectionMode): void;
   setCustomRef(customRef: string | null): void;
+  clearChoiceFailure(): void;
 }>;
 
 export function useTaskInitiatingActionController({
@@ -201,6 +202,13 @@ export function useTaskInitiatingActionController({
     [updatePending],
   );
 
+  const clearChoiceFailure = useCallback(() => {
+    const current = pendingRef.current;
+    if (current?.kind === "execution_target" && current.choiceFailure !== null) {
+      updatePending({ ...current, choiceFailure: null });
+    }
+  }, [updatePending]);
+
   return {
     pending,
     running,
@@ -208,5 +216,6 @@ export function useTaskInitiatingActionController({
     close,
     selectMode,
     setCustomRef,
+    clearChoiceFailure,
   };
 }

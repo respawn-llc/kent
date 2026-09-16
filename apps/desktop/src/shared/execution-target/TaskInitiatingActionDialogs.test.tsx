@@ -142,6 +142,7 @@ describe("TaskInitiatingActionDialogs", () => {
     expect(branch).toHaveValue("taken");
     await user.clear(branch);
     await user.type(branch, "available");
+    expect(screen.queryByTestId("execution-target-choice-error")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("execution-target-submit"));
     await waitFor(() => {
       expect(execute).toHaveBeenCalledTimes(3);

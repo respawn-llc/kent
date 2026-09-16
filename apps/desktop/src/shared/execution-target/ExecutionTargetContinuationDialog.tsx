@@ -353,7 +353,17 @@ function ExecutionTargetForm({
       <ExecutionTargetChoices
         continuation={continuation}
         pending={pending}
-        branch={replacement ? { value: branchName, onChange: setBranchName } : undefined}
+        branch={
+          replacement
+            ? {
+                value: branchName,
+                onChange: (value) => {
+                  setBranchName(value);
+                  continuation.clearChoiceFailure();
+                },
+              }
+            : undefined
+        }
       />
       <ExecutionTargetChoiceFailureMessage failure={pending.choiceFailure} />
       <div className="flex justify-end gap-[var(--space-2)]">
