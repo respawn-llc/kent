@@ -174,6 +174,7 @@ export async function switchWorktree(
   const selector = transitionSelector(operation);
   const operationID = crypto.randomUUID();
   const enter = selector !== null;
+  const target = enter ? required((await getWorktreeStatus(transport, sessionID)).target) : null;
   const method = enter ? TransitionService.method.enter : TransitionService.method.leave;
   const result = enter
     ? await transport.callDescriptorAttachedSession(
@@ -183,6 +184,10 @@ export async function switchWorktree(
           operationId: operationID,
           sessionId: sessionID,
           selector: required(selector),
+          targetWorkspace: {
+            workspaceId: required(required(target).workspaceId),
+            workspaceRoot: required(target).workspaceRoot,
+          },
         }),
       )
     : await transport.callDescriptorAttachedSession(

@@ -35,9 +35,15 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
     expect(push).not.toHaveBeenCalled();
     expect(services.transport.descriptorCalls).toMatchObject([
       { descriptor: fixture.methods.resolve, request: { sessionId: "session", selector: "topic" } },
+      { descriptor: fixture.methods.status, request: { sessionId: "session" } },
       {
         descriptor: fixture.methods.enter,
-        request: { sessionId: "session", selector: fixture.selector, operationId: fixture.operationID },
+        request: {
+          sessionId: "session",
+          selector: fixture.selector,
+          operationId: fixture.operationID,
+          targetWorkspace: { workspaceId: "workspace", workspaceRoot: "/repo" },
+        },
       },
     ]);
   } finally {

@@ -256,6 +256,12 @@ describe("Desktop Worktree client", () => {
     const branchless = await resolvePreview(DirtyStateKind.DIRTY_STATE_CLEAN, detachedTopology);
     const transport = new FakeRpcTransport([
       {
+        descriptor: StatusService.method.get,
+        result: create(StatusResultSchema, {
+          outcome: { case: "success", value: { target, worktree: { recordedRoot: "/repo" } } },
+        }),
+      },
+      {
         descriptor: CreateService.method.create,
         result: create(CreateResultSchema, {
           outcome: { case: "success", value: { target, worktree: entry } },
@@ -315,7 +321,9 @@ describe("Desktop Worktree client", () => {
         method: operationName(method),
       });
     }
-    const mutations = transport.descriptorCalls;
+    const mutations = transport.descriptorCalls.filter(
+      ({ descriptor }) => descriptor !== StatusService.method.get,
+    );
     expect(mutations.slice(0, 3).map(({ request }) => request)).toMatchObject([
       { spec: { baseRef: "refs/heads/existing", createBranch: false } },
       { spec: { baseRef: "HEAD", createBranch: true, branchName: "new" } },
@@ -337,7 +345,10 @@ describe("Desktop Worktree client", () => {
     ]);
     expect(mutations[3]).toMatchObject({
       descriptor: TransitionService.method.enter,
-      request: { selector: "feature" },
+      request: {
+        selector: "feature",
+        targetWorkspace: { workspaceId: target.workspaceId, workspaceRoot: target.workspaceRoot },
+      },
     });
     expect(mutations[4]?.descriptor).toBe(TransitionService.method.leave);
     for (const { request } of mutations.slice(5)) {
@@ -419,6 +430,12 @@ describe("Desktop Worktree client", () => {
     await expect(
       new ApiClient(
         new FakeRpcTransport([
+          {
+            descriptor: StatusService.method.get,
+            result: create(StatusResultSchema, {
+              outcome: { case: "success", value: { target, worktree: { recordedRoot: "/repo" } } },
+            }),
+          },
           {
             descriptor: TransitionService.method.enter,
             result: create(EnterResultSchema, {
