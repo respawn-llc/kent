@@ -3092,16 +3092,80 @@ type actualManualCompactionRecovery struct {
 	attachment      sessionruntime.RuntimeAttachment
 	client          *compactingScriptedClient
 	initialRequests []llm.Request
+	responseGate    *actualManualCompactionResponseGate
+}
+
+type actualManualCompactionResponseGate struct {
+	started      chan struct{}
+	release      chan struct{}
+	startedOnce  sync.Once
+	releasedOnce sync.Once
+}
+
+func newActualManualCompactionResponseGate() *actualManualCompactionResponseGate {
+	return &actualManualCompactionResponseGate{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (g *actualManualCompactionResponseGate) beforeResponse(ctx context.Context) error {
+	g.startedOnce.Do(func() { close(g.started) })
+	select {
+	case <-g.release:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
+func (g *actualManualCompactionResponseGate) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-g.started:
+	case <-time.After(currentNodeRunnerWait):
+		t.Fatal("resumed model response did not reach its scripted gate")
+	}
+}
+
+func (g *actualManualCompactionResponseGate) releaseResponse() {
+	if g == nil {
+		return
+	}
+	g.releasedOnce.Do(func() { close(g.release) })
 }
 
 func newActualManualCompactionRecovery(t *testing.T) actualManualCompactionRecovery {
-	return newActualManualCompactionRecoveryWithPersistenceGate(t, false)
+	return newActualManualCompactionRecoveryWithOptions(t, false, nil)
 }
 
 func newActualManualCompactionRecoveryWithPersistenceGate(
 	t *testing.T,
 	withPersistenceGate bool,
 ) actualManualCompactionRecovery {
+	return newActualManualCompactionRecoveryWithOptions(t, withPersistenceGate, nil)
+}
+
+func newActualManualCompactionRecoveryWithResponseGate(
+	t *testing.T,
+	withPersistenceGate bool,
+) actualManualCompactionRecovery {
+	return newActualManualCompactionRecoveryWithOptions(
+		t,
+		withPersistenceGate,
+		newActualManualCompactionResponseGate(),
+	)
+}
+
+func newActualManualCompactionRecoveryWithOptions(
+	t *testing.T,
+	withPersistenceGate bool,
+	responseGate *actualManualCompactionResponseGate,
+) actualManualCompactionRecovery {
+	resumedResponse := ScriptedFinalAnswer(`{"commentary":"resumed"}`)
+	if responseGate != nil {
+		resumedResponse.BeforeResponse = responseGate.beforeResponse
+	}
 	client := NewCompactingScriptedClient(
 		llm.ProviderCapabilities{
 			ProviderID:               "test",
@@ -3120,7 +3184,7 @@ func newActualManualCompactionRecoveryWithPersistenceGate(
 			},
 		},
 		ScriptedCancellation(),
-		ScriptedFinalAnswer(`{"commentary":"resumed"}`),
+		resumedResponse,
 	)
 	var f *currentNodeRunnerFixture
 	if withPersistenceGate {
@@ -3188,11 +3252,13 @@ func newActualManualCompactionRecoveryWithPersistenceGate(
 		attachment:      attachment,
 		client:          client,
 		initialRequests: initialRequests,
+		responseGate:    responseGate,
 	}
 }
 
 func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
-	recovery := newActualManualCompactionRecovery(t)
+	recovery := newActualManualCompactionRecoveryWithResponseGate(t, false)
+	t.Cleanup(recovery.responseGate.releaseResponse)
 	f := recovery.fixture
 	if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeNative) {
 		t.Fatalf("retained runtime compaction mode before replacement = %q, want native", got)
@@ -3203,6 +3269,7 @@ func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
 		t.Fatalf("resume retained Session with replacement: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	recovery.responseGate.wait(t)
 	assignments := workflowAssignments(requests[len(requests)-1])
 	if len(assignments) != 1 ||
 		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(recovery.currentNode) {
@@ -3215,7 +3282,8 @@ func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
 
 func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *testing.T) {
 	cause := errors.New("replacement assignment persistence failed")
-	recovery := newActualManualCompactionRecoveryWithPersistenceGate(t, true)
+	recovery := newActualManualCompactionRecoveryWithResponseGate(t, true)
+	t.Cleanup(recovery.responseGate.releaseResponse)
 	f := recovery.fixture
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
 	identity := workflowruntime.CurrentNodePromptIdentity(recovery.currentNode)
@@ -3247,6 +3315,7 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 		t.Fatalf("retry Resume after replacement failure: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
+	recovery.responseGate.wait(t)
 	assignments := workflowAssignments(requests[len(requests)-1])
 	if len(assignments) != 1 || assignments[0].sourcePath != identity {
 		t.Fatalf("retried replacement assignments = %+v, want one exact Current Node assignment", assignments)
