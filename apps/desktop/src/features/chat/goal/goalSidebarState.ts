@@ -6,6 +6,7 @@ export type GoalMutationIntent =
 
 export type GoalObservationState =
   | Readonly<{ kind: "loading" | "observed"; fact: ChatGoalFact | null }>
+  | Readonly<{ kind: "loading_retryable"; error: Error; fact: null }>
   | Readonly<{ kind: "error"; error: Error; fact: ChatGoalFact | null }>;
 
 export type DraftState = Readonly<{ base: string; draft: string }>;

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatApi, ChatGoalFact, ChatGoalMutationResult, ChatGoalStatus, ChatSessionTarget } from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
-import { ErrorState, LoadingState } from "@/ui";
+import { Button, ErrorState, LoadingState } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
 import {
   deriveGoalSidebarState,
@@ -158,6 +158,20 @@ function ExactGoalSidebar({
 }>) {
   const model = useExactGoalSidebarModel({ api, initialDraft, target });
 
+  if (model.observation.kind === "loading_retryable") {
+    return (
+      <LoadingState
+        actions={
+          <Button onClick={model.replaceObservation} variant="primary">
+            {model.t("app.retry")}
+          </Button>
+        }
+        body={model.observation.error.message}
+        fullPage={false}
+        title={model.t("chat.goal.loading")}
+      />
+    );
+  }
   if (model.observation.kind === "loading" && model.fact === null) {
     return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
   }
@@ -517,14 +531,13 @@ function useGoalObservation(
         live = false;
         subscription?.close();
         subscription = null;
-        setObservation((current) => ({ kind: "loading", fact: current.fact }));
-        setAttempt((current) => current + 1);
+        setObservation({ kind: "loading_retryable", error, fact: null });
         return;
       }
       live = false;
       subscription?.close();
       subscription = null;
-      setObservation((current) => ({ kind: "error", error, fact: current.fact }));
+      setObservation({ kind: "error", error, fact: null });
     };
 
     subscription = api.subscribeGoal(target, {

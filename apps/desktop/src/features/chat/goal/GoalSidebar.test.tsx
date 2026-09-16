@@ -83,6 +83,51 @@ describe("Goal sidebar", () => {
     expect(closes.every((close) => close.mock.calls.length === 1)).toBe(true);
   });
 
+  it("stops after an observed subscription failure and retries only explicitly", async () => {
+    const services = createTestServices([]);
+    const handlers: ChatGoalObservationHandler[] = [];
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+      handlers.push(handler);
+      const close = vi.fn();
+      closes.push(close);
+      return { close };
+    };
+    const api = createGoalSidebarApi({
+      goal: goalValue("saved objective", "active"),
+      subscribeGoal,
+    });
+    render(
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "session", api, target }} />
+      </TestAppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(handlers).toHaveLength(1);
+    });
+    act(() => {
+      handlers[0]?.onEvent(hydration({ objective: "saved objective", status: "active" }));
+      handlers[0]?.onError(new Error("Goal connection lost."));
+    });
+
+    expect(await screen.findByTestId("loading-state")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(handlers).toHaveLength(1);
+    expect(closes[0]).toHaveBeenCalledOnce();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => {
+      expect(handlers).toHaveLength(2);
+    });
+    expect(await screen.findByTestId("loading-state")).toBeInTheDocument();
+
+    act(() => {
+      handlers[1]?.onEvent(hydration({ objective: "recovered objective", status: "paused" }));
+    });
+    expect(await screen.findByText("recovered objective")).toBeInTheDocument();
+  });
+
   it("uses subscription-only saved state after a successful action", async () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
