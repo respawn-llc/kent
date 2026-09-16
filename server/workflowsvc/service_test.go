@@ -1559,7 +1559,7 @@ func TestServiceTaskResumeNoOpsWhenTaskAlreadyResumed(t *testing.T) {
 	}
 }
 
-func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
+func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
@@ -1567,11 +1567,14 @@ func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
 	if _, err := service.store.StartTask(ctx, workflow.TaskID(task.Task.ID)); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
-	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	initialCurrentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
 	if err != nil {
 		t.Fatalf("ListCurrentNodes: %v", err)
 	}
-	for _, currentNode := range currentNodes {
+	if len(initialCurrentNodes) != 1 {
+		t.Fatalf("initial current nodes = %+v, want one", initialCurrentNodes)
+	}
+	for _, currentNode := range initialCurrentNodes {
 		if err := service.store.InterruptCurrentNode(
 			ctx,
 			currentNode.Reference,
@@ -1611,25 +1614,73 @@ func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
 		},
 	}
 
-	responses := make(chan serverapi.WorkflowTaskResumeResponse, 2)
-	errs := make(chan error, 2)
+	type resumeResult struct {
+		response serverapi.WorkflowTaskResumeResponse
+		err      error
+	}
+	results := make(chan resumeResult, 2)
 	for range 2 {
 		go func() {
 			response, resumeErr := service.ResumeWorkflowTask(ctx, request)
-			responses <- response
-			errs <- resumeErr
+			results <- resumeResult{response: response, err: resumeErr}
 		}()
 	}
-	outcomes := map[serverapi.WorkflowExecutionTargetActionOutcome]int{}
+
+	applied := 0
+	noOp := 0
+	staleTarget := 0
 	for range 2 {
-		if err := <-errs; err != nil {
-			t.Fatalf("ResumeWorkflowTask: %v", err)
+		result := <-results
+		switch {
+		case result.err == nil:
+			switch result.response.Outcome {
+			case serverapi.WorkflowExecutionTargetActionOutcomeApplied:
+				applied++
+			case serverapi.WorkflowExecutionTargetActionOutcomeNoOp:
+				noOp++
+				if result.response.NoOp == nil || len(result.response.NoOp.CurrentNodes) != 1 {
+					t.Fatalf("no-op ResumeWorkflowTask response = %+v, want one Current Node", result.response)
+				}
+			default:
+				t.Fatalf("ResumeWorkflowTask response = %+v, want applied or no-op", result.response)
+			}
+		case errors.Is(result.err, workflowstore.ErrExecutionTargetAlreadyLocked):
+			staleTarget++
+		default:
+			t.Fatalf("ResumeWorkflowTask: %v", result.err)
 		}
-		outcomes[(<-responses).Outcome]++
 	}
-	if outcomes[serverapi.WorkflowExecutionTargetActionOutcomeApplied] != 1 ||
-		outcomes[serverapi.WorkflowExecutionTargetActionOutcomeNoOp] != 1 {
-		t.Fatalf("concurrent Resume outcomes = %+v, want one applied and one no_op", outcomes)
+	if applied != 1 || noOp+staleTarget != 1 {
+		t.Fatalf(
+			"concurrent Resume results = applied:%d no_op:%d stale_target:%d, want one applied and one no-op or stale-target result",
+			applied,
+			noOp,
+			staleTarget,
+		)
+	}
+
+	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("ListCurrentNodes after concurrent Resume: %v", err)
+	}
+	if len(currentNodes) != 1 ||
+		!currentNodes[0].Reference.Equal(initialCurrentNodes[0].Reference) ||
+		currentNodes[0].Scheduling == nil ||
+		(currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady &&
+			currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted) {
+		t.Fatalf("current nodes after concurrent Resume = %+v, want original node requeued once", currentNodes)
+	}
+
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("GetTaskExecutionTargetContext after concurrent Resume: %v", err)
+	}
+	if staleTarget != 0 && targetContext.Task.ExecutionTarget == nil {
+		t.Fatalf("stale-target Resume had no locked target: %+v", targetContext.Task)
+	}
+	if target := targetContext.Task.ExecutionTarget; target != nil &&
+		(target.Mode != workflow.ExecutionTargetModeNone || targetContext.Task.ManagedWorktreeID != nil) {
+		t.Fatalf("execution target after concurrent Resume = %+v, managed worktree = %v; want no managed target", target, targetContext.Task.ManagedWorktreeID)
 	}
 }
 
