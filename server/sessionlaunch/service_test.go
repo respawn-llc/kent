@@ -794,6 +794,36 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 			t.Fatalf("ordinary caller target: %v", err)
 		}
 	}
+	removed, err := session.Create(containerDir, "removed", workspace, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workflowEnabled := range []bool{false, true} {
+		if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Settings.Workflow.Subagents = workflowEnabled
+		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
+			WorkflowSubagentSet: true, WorkflowSubagent: false,
+		}
+		service := NewService(launch.Planner{
+			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta, ProjectWorkspaceBoundary: meta,
+		})
+		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
+		_, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,
+		})
+		var denied *serverapi.SubagentLaunchDeniedError
+		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
+			t.Fatalf("removed role, workflow enabled=%t: error=%v, want not-callable denial", workflowEnabled, err)
+		}
+		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &ordinaryCallerID,
+		}); err != nil {
+			t.Fatalf("ordinary caller resuming removed role: %v", err)
+		}
+	}
 }
 func TestPlanLaunchSessionPreservesLockedAgentRoleAndTools(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

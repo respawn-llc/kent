@@ -453,6 +453,9 @@ func authorizePersistedHeadlessRole(
 	persistedRole := strings.TrimSpace(*meta.Continuation.AgentRole)
 	lookup := config.LookupSubagentRole(planner.Config.Settings, persistedRole)
 	if lookup.Status != config.SubagentRoleLookupPresent {
+		if meta.Locked == nil {
+			return subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase})
+		}
 		return nil
 	}
 	persistedOverride, err := (serverapi.RunPromptOverrides{AgentRole: &persistedRole}).AgentRoleOverride()

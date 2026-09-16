@@ -172,9 +172,17 @@ func TestDefaultAgentLaunchAndContinuationEnforceCallability(t *testing.T) {
 		Config: cfg, ContainerDir: containerDir, StoreOptions: db.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: db, ProjectWorkspaceBoundary: db,
 	})
+	removed, err := session.Create(containerDir, "removed", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, db.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
+		t.Fatal(err)
+	}
 	for _, intent := range []serverapi.SessionLaunchIntent{
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, caller.Meta().SessionID)),
+		serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID)),
 	} {
 		for _, role := range []*string{nil, textutil.Value(config.DefaultSubagentRole)} {
 			_, err := service.PlanLaunchSession(t.Context(), PlanRequest{

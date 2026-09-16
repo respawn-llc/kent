@@ -71,6 +71,8 @@ For a new `kent run`, omitting `--agent` when no other role is selected, or expl
 
 When resuming a Session, omitting `--agent` preserves the Session's recorded role. Opening that Session in TUI or Desktop preserves its selected headless role. New interactive TUI and Desktop Sessions use the base settings unless another role is selected, and interactive `--agent default` selects those base settings.
 
+If you remove a role before the Session's first model request locks its settings, resuming the Session switches it to the interactive base settings and clears the role selection. An agent making that headless continuation must pass the `default` role's delegation checks. Once the Session's settings are locked, resuming retains its recorded role even if you remove the role from configuration.
+
 `--agent <role>` selects another role from `[subagents.<role>]` in the local or global config file; `none` and `self` are not run-agent selectors. Humans can launch roles with `kent run` even when delegation metadata blocks model-originated calls. Built-in roles (`default` and `fast`) follow the same child-delegation rules as custom roles. Direct Workflow Node assignment uses the selected role's settings regardless of delegation flags.
 
 To open an interactive session with a role, run:
