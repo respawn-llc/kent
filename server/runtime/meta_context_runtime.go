@@ -612,7 +612,7 @@ func compactionShellCommandPreview(command string) string {
 	normalized := strings.Join(strings.Fields(command), " ")
 	runes := []rune(normalized)
 	if len(runes) > compactionRunningShellCommandPreviewLimit {
-		runes = runes[:compactionRunningShellCommandPreviewLimit]
+		return string(runes[:compactionRunningShellCommandPreviewLimit-1]) + "…"
 	}
 	return string(runes)
 }

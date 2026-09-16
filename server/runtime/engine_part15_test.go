@@ -548,7 +548,7 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 	}
 
 	normalizedCommand := strings.Join(strings.Fields(displayCommand), " ")
-	wantPreview := string([]rune(normalizedCommand)[:compactionRunningShellCommandPreviewLimit])
+	wantPreview := string([]rune(normalizedCommand)[:compactionRunningShellCommandPreviewLimit-1]) + "…"
 	prefix := shell.SessionID + ": `"
 	var preview string
 	for _, item := range eng.transcriptRuntimeState().SnapshotItems() {
@@ -578,8 +578,8 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 	if !strings.Contains(preview, "--workspace /tmp/project") || !strings.Contains(preview, "--message") {
 		t.Fatalf("running shell command preview omitted continuation-line arguments: %q", preview)
 	}
-	if strings.Contains(preview, "...") || strings.Contains(preview, "…") {
-		t.Fatalf("running shell command preview contains a truncation marker: %q", preview)
+	if !strings.HasSuffix(preview, "…") {
+		t.Fatalf("running shell command preview lacks a truncation marker: %q", preview)
 	}
 	if len([]rune(preview)) != compactionRunningShellCommandPreviewLimit {
 		t.Fatalf("running shell command preview length = %d, want %d Unicode code points", len([]rune(preview)), compactionRunningShellCommandPreviewLimit)
