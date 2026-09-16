@@ -397,28 +397,12 @@ func (m *uiModel) takeGoalRuntimeFollowUp() tea.Cmd {
 		m.goalRuntimePending = goalRuntimePendingState{}
 		return nil
 	}
-	operation := pending.desiredOperation
-	objective := pending.desiredObjective
-	m.goalRuntimeMutationSerial = nextNonZeroToken(m.goalRuntimeMutationSerial)
-	token := m.nextGoalRuntimeToken()
-	m.goalRuntimePending = goalRuntimePendingState{
-		token:                  token,
-		sessionID:              pending.sessionID,
-		inFlight:               true,
-		inFlightMutationSerial: m.goalRuntimeMutationSerial,
-		inFlightOperation:      operation,
-		inFlightObjective:      objective,
-		inFlightClient:         pending.inFlightClient,
-		desiredOperation:       operation,
-		desiredObjective:       objective,
-	}
-	return goalRuntimeRequestCommand(
+	m.goalRuntimePending = goalRuntimePendingState{}
+	return m.goalRuntimeCommandFor(
 		pending.inFlightClient,
 		pending.sessionID,
-		operation,
-		objective,
-		token,
-		m.goalRuntimeMutationSerial,
+		pending.desiredOperation,
+		pending.desiredObjective,
 	)
 }
 
