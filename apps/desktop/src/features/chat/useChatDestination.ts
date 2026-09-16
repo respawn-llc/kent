@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppServices } from "@/app-facade";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { ContractError, type WorkspaceCatalogRow } from "@/api";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
 import { useChatComposer } from "./useChatComposer";
 import { chatDestinationCommands } from "./chatDestinationCommands";
 import type { ComposerCommand } from "./composerCommands";
-import { useChatGoal } from "./goal/useChatGoal";
+import { useGoalSidebarLauncher } from "./goal/useGoalSidebarLauncher";
+import { useNewChatGoalActions } from "./goal/goalBinding";
 
-const ignoreProjection = () => {
-  /* Settings owns these projections until Context is assembled. */
-};
 export function useChatDestination({
   opening,
   navigation,
@@ -24,8 +22,9 @@ export function useChatDestination({
   commands?: readonly ComposerCommand[];
   onSessionDelivered?(sessionID: string): void;
 }>) {
-  const { api } = useAppServices();
+  const services = useAppServices();
   const { t } = useTranslation();
+  const client = useQueryClient();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -33,92 +32,48 @@ export function useChatDestination({
       mounted.current = false;
     };
   }, []);
-  const [model] = useState(() => createChatDestinationViewModel(opening));
+  const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t }));
   const target = useAtomValue(model.target);
   const selection = useAtomValue(model.selection);
-  const select = useAtomSet(model.selection);
-  const settings = useChatSettings(
-    target.kind === "new_chat"
-      ? { target, onInitialSettingsChange: ignoreProjection }
-      : { target, ...navigation, authoritativeRefreshGeneration: null, onContextChange: ignoreProjection },
-  );
-  const submission =
-    settings.kind === "ready-new-chat"
-      ? { kind: "ready" as const, initialSettings: settings.initialSettings }
-      : settings.kind === "ready-session"
-        ? { kind: "ready" as const }
-        : settings.kind === "failed-new-chat" || settings.kind === "failed-session"
-          ? { kind: "failed" as const, error: settings.error }
-          : { kind: "loading" as const };
+  const adoptAction = useAtomSet(model.adopt);
+  const selectWorkspace = useAtomSet(model.selectWorkspace);
+  const firstActionPending = useAtomValue(model.firstActionPending);
+  const settings = useChatSettings({ model: model.settings, ...navigation });
+  const adopt = (sessionID: string) => {
+    if (mounted.current)
+      adoptAction({
+        sessionID,
+        ...(onSessionDelivered === undefined ? {} : { delivered: onSessionDelivered }),
+      });
+  };
   const composer = useChatComposer({
-    target: model.target,
-    submission,
-    commands: [...chatDestinationCommands(api.chat, target.kind === "new_chat", t), ...commands],
+    model: model.composer,
+    commands: [...chatDestinationCommands(services.api.chat, target.kind === "new_chat", t), ...commands],
     onDeliveredSession: (result) => {
       adopt(result.sessionID);
     },
   });
-  const selectedAgent =
-    settings.kind === "ready-new-chat"
-      ? settings.catalog.choices.find((choice) => choice.agent.role === settings.initialSettings.agentRole)
-      : undefined;
-  const goal = useChatGoal({
-    target,
-    ready: settings.kind === "ready-new-chat",
-    availability:
-      selectedAgent === undefined
-        ? null
-        : selectedAgent.questions.capable
-          ? "available"
-          : "agent_capability_missing",
-    captureTarget: () => {
-      if (
-        target.kind !== "new_chat" ||
-        settings.kind !== "ready-new-chat" ||
-        !("workspaceID" in target.workspace)
-      )
-        throw new ContractError("New Chat Settings are not ready.");
-      composer.beginFirstAction(undefined);
-      return {
-        kind: "new_chat",
-        projectID: target.projectID,
-        workspaceID: target.workspace.workspaceID,
-        initialSettings: settings.initialSettings,
-        initialInputDraft: composer.text,
-      };
-    },
-    delivered: (delivery) => {
-      adopt(delivery.target.sessionID);
-    },
-    failed: () => {
-      if (mounted.current) composer.resumeNewChat(undefined);
-    },
+  const goalActions = useNewChatGoalActions(model.goal);
+  const openGoal = useGoalSidebarLauncher({
+    kind: "new_chat",
+    api: services.api.chat,
+    binding: model.goal,
+    setGoal: async (objective) =>
+      goalActions.setGoal({
+        objective,
+        delivered: (delivery) => {
+          adopt(delivery.target.sessionID);
+        },
+      }),
   });
-  function adopt(sessionID: string) {
-    if (!mounted.current) return;
-    const session = { kind: "session" as const, projectID: opening.projectID, sessionID };
-    select(session);
-    composer.adoptDraft(session);
-    onSessionDelivered?.(sessionID);
-  }
-  function selectWorkspace(workspace: WorkspaceCatalogRow) {
-    if (
-      selection.kind !== "new_chat" ||
-      composer.inputPending ||
-      goal.pending ||
-      selection.workspace.id === workspace.id
-    )
-      return;
-    select({ ...selection, workspace });
-  }
   return {
     target,
     settings,
     composer,
     adopt,
     selectWorkspace,
-    openGoal: goal.open,
-    firstActionPending: composer.inputPending || goal.pending,
+    openGoal,
+    firstActionPending,
     workspace: selection.kind === "new_chat" ? selection.workspace : null,
   } as const;
 }

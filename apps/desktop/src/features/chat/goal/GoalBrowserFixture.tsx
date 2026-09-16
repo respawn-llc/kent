@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import type {
   ApiSubscription,
@@ -13,7 +12,7 @@ import { ChatOperationError, RpcError, TransportError } from "@/api";
 import { Button } from "@/ui";
 import { GoalAffordance } from "./GoalAffordance";
 import { type GoalSidebarApi, type GoalSidebarInput } from "./GoalSidebar";
-import { NewChatGoalBinding } from "./goalBinding";
+import { createGoalFixtureOwner, useGoalFixtureActions } from "./goalBindingFixtures";
 import { useGoalSidebarLauncher } from "./useGoalSidebarLauncher";
 
 const fixtureSessionID = "123e4567-e89b-42d3-a456-426614174000";
@@ -59,7 +58,6 @@ export function GoalBrowserFixture({
 }: Readonly<{
   onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
 }> = {}) {
-  const client = useQueryClient();
   const [state, setState] = useState<GoalFixtureState>("absent");
   const [mutationMode, setMutationMode] = useState<FixtureMutationMode>("success");
   const [setMode, setSetMode] = useState<FixtureSetMode>("success");
@@ -71,12 +69,11 @@ export function GoalBrowserFixture({
       }),
     [mutationMode, rerender, setMode, state],
   );
-  const input = useMemo<GoalSidebarInput>(() => {
-    if (state === "new-chat" || state === "questions-off") {
-      const binding = new NewChatGoalBinding({
-        client,
-        api: { setGoal: runtime.api.setGoal },
-        captureTarget: () => ({
+  const owner = useMemo(
+    () =>
+      createGoalFixtureOwner({
+        api: runtime.api,
+        target: {
           kind: "new_chat",
           projectID: "project-1",
           workspaceID: "workspace-1",
@@ -88,16 +85,15 @@ export function GoalBrowserFixture({
             questionsEnabled: state !== "questions-off",
             autoCompactionEnabled: true,
           },
-        }),
-        onHostDelivery: (delivery) => {
-          binding.followSession(delivery.target);
         },
-      });
-      binding.setAvailability("available");
-      return { kind: "new_chat", api: runtime.api, binding };
-    }
-    return { kind: "session", api: runtime.api, target: fixtureTarget };
-  }, [client, runtime.api, state]);
+      }),
+    [runtime.api, state],
+  );
+  const actions = useGoalFixtureActions(owner, () => undefined);
+  const input: GoalSidebarInput =
+    state === "new-chat" || state === "questions-off"
+      ? { kind: "new_chat", api: runtime.api, binding: owner.binding, setGoal: actions.setGoal }
+      : { kind: "session", api: runtime.api, target: fixtureTarget };
 
   return (
     <GoalBrowserFixtureControls

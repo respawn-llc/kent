@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { ChatSettingsMutation, ChatSettingsRead, InitialChatSettings } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { useChatSettings } from "./index";
+import { useChatSettings } from "./chatSettingsTestOwner";
 
 const target = {
   kind: "new_chat",

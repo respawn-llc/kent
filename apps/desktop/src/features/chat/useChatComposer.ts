@@ -1,36 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import type * as Atom from "effect/unstable/reactivity/Atom";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-
-import type { ChatSettingsTarget } from "@/api";
-import { useAppServices, useDebouncedText } from "@/app-facade";
+import { useDebouncedText } from "@/app-facade";
 import { composerSuggestions, type ComposerCommand, type ComposerCommandResult } from "./composerCommands";
 import { useComposerPendingWork } from "./useComposerPendingWork";
-import { createComposerDraftViewModel, useComposerDraftActions } from "./ComposerDraftViewModel";
-import {
-  createComposerInputViewModel,
-  useComposerInputActions,
-  type ComposerSubmission,
-} from "./ComposerInputViewModel";
-import { createComposerPendingViewModel } from "./ComposerPendingViewModel";
+import { useComposerDraftActions } from "./ComposerDraftViewModel";
+import { useComposerInputActions } from "./ComposerInputViewModel";
+import type { ChatComposerViewModel } from "./ChatComposerViewModel";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
 export type ChatComposerOptions = Readonly<{
-  target: Atom.Atom<ChatSettingsTarget>;
-  submission?: ComposerSubmission;
+  model: ChatComposerViewModel;
   onDeliveredSession?(result: Exclude<ComposerCommandResult, { kind: "local" }>): void;
   commands?: readonly ComposerCommand[];
 }>;
 const noCommands: readonly ComposerCommand[] = [];
 
 export function useChatComposer(options: ChatComposerOptions) {
-  const { submission = { kind: "loading" }, onDeliveredSession, commands = noCommands } = options;
-  const services = useAppServices();
-  const client = useQueryClient();
-  const { t } = useTranslation();
+  const { model, onDeliveredSession, commands = noCommands } = options;
+  const submission = useAtomValue(model.submission);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -38,14 +26,7 @@ export function useChatComposer(options: ChatComposerOptions) {
       mounted.current = false;
     };
   }, []);
-  const target = useAtomValue(options.target);
-  const [model] = useState(() => {
-    const targetAtom = options.target;
-    const draft = createComposerDraftViewModel({ services, client, target: targetAtom, opening: target, t });
-    const input = createComposerInputViewModel({ services, client, target: targetAtom, draft, t });
-    const pending = createComposerPendingViewModel({ services, client, target: targetAtom, t });
-    return { draft, input, pending } as const;
-  });
+  const target = useAtomValue(model.target);
   const draftActions = useComposerDraftActions(model.draft);
   const inputActions = useComposerInputActions(model.input);
   const inputPending = useAtomValue(model.input.pending);
@@ -87,7 +68,6 @@ export function useChatComposer(options: ChatComposerOptions) {
     if (navigationPending) return;
     inputActions.submit({
       intent,
-      submission,
       commands,
       selectedToken: selectedCommand?.token ?? null,
       restore: (input) => {

@@ -1,13 +1,13 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { QueryClient } from "@tanstack/react-query";
 
 import type { ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
 import { ChatOperationError, RpcError } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
-import { NewChatGoalBinding, type NewChatGoalHostDelivery } from "./goalBinding";
+import type { NewChatGoalHostDelivery } from "./goalBinding";
+import { createGoalFixtureOwner, GoalFixturePage } from "./goalBindingFixtures";
 import { GoalSidebarPage, type GoalSidebarApi } from "./GoalSidebar";
 
 type GoalFact = Parameters<ChatGoalObservationHandler["onEvent"]>[0]["fact"];
@@ -277,18 +277,13 @@ describe("Goal sidebar", () => {
       },
     };
     const api = createGoalSidebarApi({ goal: null });
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
+    const owner = createGoalFixtureOwner({
       api: { setGoal: vi.fn(async () => result) },
-      captureTarget: () => newChatTarget(),
-      onHostDelivery: (delivery) => {
-        hostDelivery(delivery);
-        binding.followSession(delivery.target);
-      },
+      target: newChatTarget(),
     });
     render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
 
@@ -311,16 +306,14 @@ describe("Goal sidebar", () => {
       throw new Error("Unsupported Agent must not send Goal Set.");
     });
     const api = createGoalSidebarApi({ goal: null, setGoal });
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
+    const owner = createGoalFixtureOwner({
       api: { setGoal },
-      captureTarget: () => newChatTarget(),
-      onHostDelivery: () => undefined,
+      target: newChatTarget(),
+      unsupported: true,
     });
-    binding.setAvailability("agent_capability_missing");
     render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalFixturePage api={api} owner={owner} delivered={() => undefined} />
       </TestAppProviders>,
     );
 
@@ -348,18 +341,13 @@ describe("Goal sidebar", () => {
       goal: null,
       subscribeGoal,
     });
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
+    const owner = createGoalFixtureOwner({
       api: { setGoal: vi.fn(async () => goalSetResult("New Chat Goal", "goal-new-chat")) },
-      captureTarget: () => newChatTarget(),
-      onHostDelivery: (delivery) => {
-        hostDelivery(delivery);
-        binding.followSession(delivery.target);
-      },
+      target: newChatTarget(),
     });
     render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
 
@@ -371,7 +359,6 @@ describe("Goal sidebar", () => {
       expect(notice.mock.calls.filter(([value]) => value.tone === "warning")).toHaveLength(1);
     });
     expect(order).toEqual(["host", "warning"]);
-    expect(binding.snapshot).toEqual({ kind: "resolved_session", target: exactTarget() });
     const delivered = hostDelivery.mock.calls[0]?.[0];
     expect(delivered?.target).toEqual(exactTarget());
     expect(delivered?.goal).toMatchObject({ objective: "New Chat Goal", status: "active" });
@@ -393,18 +380,13 @@ describe("Goal sidebar", () => {
       goal: null,
       subscribeGoal,
     });
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
+    const owner = createGoalFixtureOwner({
       api: { setGoal: vi.fn(async () => pending.promise) },
-      captureTarget: () => newChatTarget(),
-      onHostDelivery: (delivery) => {
-        hostDelivery(delivery);
-        binding.followSession(delivery.target);
-      },
+      target: newChatTarget(),
     });
     const view = render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
     const user = userEvent.setup();
@@ -414,7 +396,7 @@ describe("Goal sidebar", () => {
 
     const { unmount: unmountReplacement } = render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
     await act(async () => {

@@ -1,14 +1,17 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import { RegistryProvider } from "@effect/atom-react";
+import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import type {
   ChatInputMutationResult,
   ChatTranscriptHandler,
   InitialChatSettings,
   ChatSettingsTarget,
 } from "@/api";
-import { ChatRuntimeProvider } from "@/app-facade";
+import { ChatRuntimeProvider, useAppServices } from "@/app-facade";
+import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
 import { parsePendingWorkItemID } from "@/api";
@@ -24,7 +27,12 @@ import {
   type ComposerSubmission,
 } from "./useChatComposer";
 
-function useChatComposer(options: ChatSettingsTarget & Omit<ChatComposerOptions, "target">) {
+function useChatComposer(
+  options: ChatSettingsTarget & Omit<ChatComposerOptions, "model"> & { submission?: ComposerSubmission },
+) {
+  const services = useAppServices();
+  const client = useQueryClient();
+  const { t } = useTranslation();
   const [target] = useState(() =>
     Atom.make<ChatSettingsTarget>(
       options.kind === "session"
@@ -32,7 +40,31 @@ function useChatComposer(options: ChatSettingsTarget & Omit<ChatComposerOptions,
         : { kind: "new_chat", projectID: options.projectID, workspace: options.workspace },
     ),
   );
-  return useComposer({ ...options, target });
+  const [submission] = useState(() =>
+    Atom.make<ComposerSubmission>(options.submission ?? { kind: "loading" }),
+  );
+  const setSubmission = useAtomSet(submission);
+  const state = options.submission?.kind ?? "loading";
+  const settings =
+    options.submission?.kind === "ready" && "initialSettings" in options.submission
+      ? options.submission.initialSettings
+      : null;
+  const error = options.submission?.kind === "failed" ? options.submission.error : null;
+  useLayoutEffect(() => {
+    setSubmission(
+      state === "ready"
+        ? settings === null
+          ? { kind: "ready" }
+          : { kind: "ready", initialSettings: settings }
+        : state === "failed"
+          ? { kind: "failed", error }
+          : { kind: "loading" },
+    );
+  }, [state, settings, error, setSubmission]);
+  const [model] = useState(() =>
+    createChatComposerViewModel({ services, client, t, target, submission, opening: options }),
+  );
+  return useComposer({ ...options, model });
 }
 
 function TestAppProviders({

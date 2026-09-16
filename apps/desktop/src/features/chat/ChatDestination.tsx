@@ -4,7 +4,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { errorMessage } from "@/api";
 import type { ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { ChatRuntimeProvider, useAppServices, useChatRuntimePresentation } from "@/app-facade";
-import { ChatShell } from "./ChatShell";
+import { ChatShell, type ChatShellState } from "./ChatShell";
 import { ChatComposer } from "./ChatComposer";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useChatDestination } from "./useChatDestination";
@@ -93,13 +93,26 @@ function ChatDestinationShell({
   destination: ReturnType<typeof useChatDestination>;
   chips: ReactNode;
 }>) {
-  const { sessionName, goal } = useChatRuntimePresentation();
+  const { sessionName, goal, mainView } = useChatRuntimePresentation();
+  const draft = destination.composer.draft;
+  const state: ChatShellState =
+    draft.kind === "failed"
+      ? { kind: "error", diagnostic: errorMessage(draft.error), onRetry: destination.composer.retryDraft }
+      : mainView.kind === "session" && mainView.status === "error" && mainView.data === undefined
+        ? {
+            kind: "error",
+            diagnostic: errorMessage(mainView.error),
+            onRetry: () => {
+              void mainView.retry();
+            },
+          }
+        : { kind: "ready" };
   return (
     <ChatComposerSurface composer={destination.composer}>
       <ChatShell
         selectedSession={destination.target}
         sessionName={sessionName}
-        state={{ kind: "ready" }}
+        state={state}
         content={() => null}
         composer={(_, layout) => (
           <ChatComposer

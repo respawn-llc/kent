@@ -445,3 +445,25 @@ it("keeps text but replaces edited settings when selecting another workspace bef
     );
   });
 });
+
+it("rejects a previously rendered workspace action while any first input request is pending", async () => {
+  const view = setup();
+  view.steer.mockReturnValue(deferred<ChatInputMutationResult>().promise);
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-new-chat");
+  });
+  const selectWorkspace = view.result.current.selectWorkspace;
+  act(() => {
+    view.result.current.composer.edit("pending input");
+  });
+  act(() => {
+    view.result.current.composer.submit("send");
+  });
+  await waitFor(() => {
+    expect(view.steer).toHaveBeenCalledOnce();
+  });
+  act(() => {
+    selectWorkspace({ id: "workspace-2", name: "Second", rootPath: "/second", isDefault: false });
+  });
+  expect(view.result.current.target).toEqual(newChatTarget);
+});

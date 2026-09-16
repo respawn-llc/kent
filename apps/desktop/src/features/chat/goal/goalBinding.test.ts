@@ -1,7 +1,8 @@
 import type { ChatGoalSetResult, ChatSessionTarget } from "@/api";
 import { ChatOperationError, ContractError, RpcError } from "@/api";
-import { NewChatGoalBinding, type NewChatGoalHostDelivery } from "./goalBinding";
-import { QueryClient } from "@tanstack/react-query";
+import type { NewChatGoalHostDelivery } from "./goalBinding";
+import { createGoalFixtureOwner, useGoalFixtureActions } from "./goalBindingFixtures";
+import { act, renderHook } from "@testing-library/react";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
@@ -44,19 +45,11 @@ describe("New Chat Goal binding", () => {
   it("captures the target and delivers Session/Goal before resolving the binding", async () => {
     const setGoal = vi.fn(async () => committedResult);
     const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
-      api: { setGoal },
-      captureTarget: () => target,
-      onHostDelivery: (value) => {
-        delivery(value);
-        binding.followSession(value.target);
-      },
+    const owner = createGoalFixtureOwner({ api: { setGoal }, target });
+    const { result } = renderHook(() => useGoalFixtureActions(owner, delivery));
+    await act(async () => {
+      await expect(result.current.setGoal("ship")).resolves.toEqual(committedResult);
     });
-    const snapshots: string[] = [];
-    binding.subscribe(() => snapshots.push(binding.snapshot.kind));
-
-    await expect(binding.setGoal("ship")).resolves.toEqual(committedResult);
 
     const expectedTarget: ChatSessionTarget = {
       projectID: target.projectID,
@@ -66,8 +59,10 @@ describe("New Chat Goal binding", () => {
       target: expectedTarget,
       goal: committedResult.outcome.kind === "mutation" ? committedResult.outcome.mutation.fact.goal : null,
     });
-    expect(binding.snapshot).toEqual({ kind: "resolved_session", target: expectedTarget });
-    expect(snapshots.at(-1)).toBe("resolved_session");
+    expect(result.current.state).toEqual({
+      kind: "resolved_session",
+      target: { kind: "session", ...expectedTarget },
+    });
     expect(setGoal).toHaveBeenCalledExactlyOnceWith(target, "ship");
   });
 
@@ -83,17 +78,11 @@ describe("New Chat Goal binding", () => {
       },
     };
     const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
-      api: { setGoal: vi.fn(async () => rejected) },
-      captureTarget: () => target,
-      onHostDelivery: (value) => {
-        delivery(value);
-        binding.followSession(value.target);
-      },
+    const owner = createGoalFixtureOwner({ api: { setGoal: vi.fn(async () => rejected) }, target });
+    const { result } = renderHook(() => useGoalFixtureActions(owner, delivery));
+    await act(async () => {
+      await expect(result.current.setGoal("ship")).resolves.toEqual(rejected);
     });
-
-    await expect(binding.setGoal("ship")).resolves.toEqual(rejected);
 
     expect(delivery).toHaveBeenCalledExactlyOnceWith({
       target: {
@@ -102,7 +91,7 @@ describe("New Chat Goal binding", () => {
       },
       goal: null,
     });
-    expect(binding.snapshot.kind).toBe("resolved_session");
+    expect(result.current.state.kind).toBe("resolved_session");
   });
 
   it("does not deliver or resolve a malformed Goal result", async () => {
@@ -111,31 +100,29 @@ describe("New Chat Goal binding", () => {
       ...committedResult,
       sessionID: "",
     };
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
-      api: { setGoal: vi.fn(async () => malformed) },
-      captureTarget: () => target,
-      onHostDelivery: delivery,
+    const owner = createGoalFixtureOwner({ api: { setGoal: vi.fn(async () => malformed) }, target });
+    const { result } = renderHook(() => useGoalFixtureActions(owner, delivery));
+    await act(async () => {
+      await expect(result.current.setGoal("ship")).rejects.toBeInstanceOf(ContractError);
     });
-
-    await expect(binding.setGoal("ship")).rejects.toBeInstanceOf(ContractError);
     expect(delivery).not.toHaveBeenCalled();
-    expect(binding.snapshot).toEqual({ kind: "unresolved", availability: null, pending: false, ready: true });
+    expect(result.current.state).toEqual({
+      kind: "unresolved",
+      availability: null,
+      pending: false,
+      ready: true,
+    });
   });
 
   it("follows the host Session instead of selecting a private terminal Session", async () => {
-    const binding = new NewChatGoalBinding({
-      client: new QueryClient(),
-      api: { setGoal: vi.fn(async () => committedResult) },
-      captureTarget: () => target,
-      onHostDelivery: () => {
-        binding.followSession({ projectID: target.projectID, sessionID: "host-selected" });
-      },
+    const owner = createGoalFixtureOwner({ api: { setGoal: vi.fn(async () => committedResult) }, target });
+    const { result } = renderHook(() => useGoalFixtureActions(owner, () => undefined));
+    act(() => {
+      result.current.select({ kind: "session", projectID: target.projectID, sessionID: "host-selected" });
     });
-    await expect(binding.setGoal("ship")).resolves.toEqual(committedResult);
-    expect(binding.snapshot).toEqual({
+    expect(result.current.state).toEqual({
       kind: "resolved_session",
-      target: { projectID: target.projectID, sessionID: "host-selected" },
+      target: { kind: "session", projectID: target.projectID, sessionID: "host-selected" },
     });
   });
 });

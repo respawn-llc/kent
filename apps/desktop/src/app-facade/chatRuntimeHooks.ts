@@ -59,5 +59,16 @@ export function useChatRuntimePresentation() {
     sessionName: query.data?.sessionName ?? null,
     goal: snapshot?.goal.kind === "observed" ? snapshot.goal.value : null,
     observationError: snapshot?.observation.kind === "error" ? snapshot.observation.error : null,
+    mainView:
+      owner === null
+        ? { kind: "absent" as const }
+        : {
+            kind: "session" as const,
+            data: query.data,
+            status: query.status,
+            error: query.error,
+            fetchStatus: query.fetchStatus,
+            retry: async () => owner.retryMainView(),
+          },
   };
 }

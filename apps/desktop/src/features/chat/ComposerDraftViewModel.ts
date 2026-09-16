@@ -165,11 +165,8 @@ export function createComposerDraftViewModel({
   );
   const submit = Atom.fn<undefined>()(
     (_, get) =>
-      Effect.sync(() => {
-        if (get(target).kind === "new_chat") {
-          persistLocal(get(text));
-          get.set(persistence, "destination-owned");
-        }
+      Effect.gen(function* () {
+        yield* get.setResult(begin, undefined);
         get.set(editor, { kind: "editing", text: "" });
       }),
     { concurrent: true },
@@ -184,6 +181,13 @@ export function createComposerDraftViewModel({
           return true;
         }
         if (!observer.getCurrentResult().isSuccess) {
+          const local = get(editor);
+          if (
+            observer.getCurrentResult().data === undefined &&
+            local.kind === "opening" &&
+            local.text.length === 0
+          )
+            return true;
           const initial = yield* Effect.promise(async () => observer.refetch());
           if (!initial.isSuccess) return false;
         }

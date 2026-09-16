@@ -12,7 +12,8 @@ import {
   type InitialChatSettings,
 } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { useChatSettings, type ChatSettingsOptions, type ChatSettingsFeature } from "./index";
+import type { ChatSettingsFeature } from "./index";
+import { useChatSettings, type ChatSettingsOptions } from "./chatSettingsTestOwner";
 import * as ui from "@/ui";
 import { appI18n } from "@/i18n";
 
@@ -212,7 +213,9 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
   await user.click(always);
   expect(always).toBeChecked();
   await user.click(always);
-  expect(mutate).toHaveBeenCalledTimes(2);
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledTimes(2);
+  });
   expect(mutate).toHaveBeenNthCalledWith(1, target, { kind: "supervisor", value: "all" });
   expect(mutate).toHaveBeenNthCalledWith(2, target, { kind: "supervisor", value: "all" });
   await act(async () => {
@@ -328,7 +331,9 @@ it("applies overlapping successes in delivery order and reports each mutation Co
     void result.current.activate({ kind: "questions", enabled: false });
     void result.current.activate({ kind: "fast", enabled: true });
   });
-  expect(mutate).toHaveBeenCalledTimes(2);
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledTimes(2);
+  });
   expect(result.current).toMatchObject({
     settings: { questions: { enabled: false }, fast: { value: true } },
   });
@@ -434,7 +439,7 @@ it.each(["applied", "rejected"] as const)(
       second.resolve(delivered);
       await second.promise;
     });
-    act(() => {
+    await act(async () => {
       if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
       void result.current.activate({ kind: "questions", enabled: false });
     });
@@ -443,7 +448,9 @@ it.each(["applied", "rejected"] as const)(
       first.reject(new Error("disk full"));
       await first.promise.catch(() => undefined);
     });
-    expect(result.current).toMatchObject({ settings: delivered.settings, session: delivered.session });
+    await waitFor(() => {
+      expect(result.current).toMatchObject({ settings: delivered.settings, session: delivered.session });
+    });
     expect(onContextChange).toHaveBeenCalledOnce();
     expect(notice).toHaveBeenCalledTimes(outcome === "applied" ? 1 : 2);
     expect(notice.mock.lastCall?.[0].onAction).toBeUndefined();
@@ -642,7 +649,9 @@ it("preserves exact custom Thinking input and returns distinct completions for t
   act(() => {
     completion = activate("  submitted exactly  ");
   });
-  expect(mutate).toHaveBeenLastCalledWith(target, { kind: "thinking", value: "  submitted exactly  " });
+  await waitFor(() => {
+    expect(mutate).toHaveBeenLastCalledWith(target, { kind: "thinking", value: "  submitted exactly  " });
+  });
   const canonical = response({
     ...settings,
     thinking: {

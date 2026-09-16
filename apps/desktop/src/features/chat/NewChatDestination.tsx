@@ -28,16 +28,17 @@ export function NewChatDestination({
   } satisfies WorkspaceSelectionState);
   const restarted = useRef(false);
   const firstOffset = catalog.data?.pages[0]?.offset;
+  const uncommitted = selection.selection.state === "uncommitted";
   useEffect(() => {
-    if (firstOffset !== undefined && firstOffset > 0 && !restarted.current) {
+    if (uncommitted && firstOffset !== undefined && firstOffset > 0 && !restarted.current) {
       restarted.current = true;
       void client.resetQueries({ exact: true, queryKey: queryKeys.projectWorkspaceCatalog(projectID) });
     }
-  }, [client, firstOffset, projectID]);
+  }, [client, firstOffset, projectID, uncommitted]);
   const defaultWorkspace = catalog.data?.pages[0]?.workspaces.find((row) => row.isDefault);
   useEffect(() => {
-    if (defaultWorkspace !== undefined) dispatch({ type: "catalog-loaded", defaultWorkspace });
-  }, [defaultWorkspace]);
+    if (uncommitted && defaultWorkspace !== undefined) dispatch({ type: "catalog-loaded", defaultWorkspace });
+  }, [defaultWorkspace, uncommitted]);
   if (selection.selection.state === "committed")
     return (
       <ChatDestination

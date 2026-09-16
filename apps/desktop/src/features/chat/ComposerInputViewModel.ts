@@ -48,7 +48,6 @@ type Request = SubmissionCallbacks &
   }>;
 export type ComposerInputActivation = SubmissionCallbacks &
   Readonly<{
-    submission: ComposerSubmission;
     intent: "send" | "queue";
     selectedToken: string | null;
     commands: readonly ComposerCommand[];
@@ -58,12 +57,14 @@ export function createComposerInputViewModel({
   services,
   client,
   target,
+  submission,
   draft,
   t,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
   target: Atom.Atom<ChatSettingsTarget>;
+  submission: Atom.Atom<ComposerSubmission>;
   draft: ComposerDraftViewModel;
   t: TFunction;
 }>) {
@@ -94,7 +95,8 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (!get(draft.read).isSuccess || input.submission.kind !== "ready") return;
+        const ready = get(submission);
+        if (!get(draft.read).isSuccess || ready.kind !== "ready") return;
         const original = get(draft.text);
         if (original.trim().length === 0) return;
         const command = resolveComposerCommand(input.selectedToken ?? original, input.commands);
@@ -112,8 +114,8 @@ export function createComposerInputViewModel({
           command.notify();
           return;
         }
-        const requestTarget = mutationTarget(get(target), input.submission);
-        get.set(draft.submit, undefined);
+        const requestTarget = mutationTarget(get(target), ready);
+        yield* get.setResult(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
           observer.mutate({ ...input, target: requestTarget, original, command }),
         ).pipe(Effect.ignore);

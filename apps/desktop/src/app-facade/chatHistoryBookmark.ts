@@ -1,5 +1,5 @@
 import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { sessionChatHistoryStateSchema } from "./sessionChatHistory";
 
 export function useChatHistoryBookmark(projectID: string, routeSessionID: string | null) {
@@ -14,18 +14,21 @@ export function useChatHistoryBookmark(projectID: string, routeSessionID: string
         metadata?.projectID === projectID ? (metadata.deliveredSessionID ?? routeSessionID) : routeSessionID,
     };
   });
+  const expected = useRef({ href: opening.href, index: opening.index, key: opening.key });
   return {
     sessionID: opening.sessionID,
     delivered: (sessionID: string) => {
       const location = history.location;
-      if (location.href !== opening.href || location.state.__TSR_index !== opening.index) return;
-      const state = sessionChatHistoryStateSchema.parse(window.history.state);
-      if (state.__TSR_key !== opening.key) return;
+      if (
+        location.href !== expected.current.href ||
+        location.state.__TSR_index !== expected.current.index ||
+        location.state.__TSR_key !== expected.current.key
+      )
+        return;
+      const state = sessionChatHistoryStateSchema.parse(location.state);
       const metadata = state.sessionChat;
-      // Router patches the instance method to navigate. This metadata-only write
-      // preserves its entry identity and is read normally on history revisit.
-      window.History.prototype.replaceState.call(
-        window.history,
+      history.replace(
+        location.href,
         {
           ...state,
           sessionChat: {
@@ -34,9 +37,14 @@ export function useChatHistoryBookmark(projectID: string, routeSessionID: string
             deliveredSessionID: sessionID,
           },
         },
-        "",
-        location.href,
+        { ignoreBlocker: true },
       );
+      const replaced = history.location;
+      expected.current = {
+        href: replaced.href,
+        index: replaced.state.__TSR_index,
+        key: replaced.state.__TSR_key,
+      };
     },
   };
 }
