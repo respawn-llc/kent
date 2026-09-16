@@ -2,8 +2,10 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
+	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/sessionenv"
 	"core/shared/toolspec"
@@ -116,7 +118,7 @@ func newShellTestManager(t *testing.T, minimumExecToBackground time.Duration) *M
 
 func TestExecCommandSilentSuccessIsTerminalAndUnambiguous(t *testing.T) {
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(t.TempDir(), 16_000, 20, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 20, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "silent-success", map[string]any{
 		"cmd":           "true",
@@ -144,7 +146,7 @@ func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *te
 	serverCWD := t.TempDir()
 	t.Chdir(serverCWD)
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool("", 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor("", 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	call := tools.Call{
 		ID:   "empty-default-workdir",
 		Name: toolspec.ToolExecCommand,
@@ -161,8 +163,9 @@ func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *te
 	call.Input = input
 
 	_, managerErr := manager.Start(context.Background(), ExecRequest{
-		Command: []string{"/bin/sh", "-c", "touch exec-command-empty-default-side-effect"},
-		Workdir: "",
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:       []string{"/bin/sh", "-c", "touch exec-command-empty-default-side-effect"},
+		Workdir:       "",
 	})
 	if managerErr == nil {
 		t.Fatal("expected empty workdir manager error")
@@ -242,7 +245,7 @@ func TestExecCommandWorkdirValidationErrors(t *testing.T) {
 			}
 			call := tools.Call{ID: tt.id, Name: toolspec.ToolExecCommand, Input: rawInput}
 			manager := newBackgroundTestManager(t)
-			got, err := NewExecCommandTool(workspace, 16_000, 200_000, manager, "").Call(context.Background(), call)
+			got, err := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})).Call(context.Background(), call)
 			if err != nil {
 				t.Fatalf("exec_command call returned transport error: %v", err)
 			}
@@ -278,6 +281,7 @@ func envSliceToMap(t *testing.T, in []string) map[string]string {
 func TestManagerStartEmbedsOwnerSessionIDInProcessEnv(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "printf %s \"$" + sessionenv.SessionIDEnv + "\""},
 		DisplayCommand: "print kent session id",
 		OwnerSessionID: "session-env-123",
@@ -328,6 +332,7 @@ func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
 		DisplayCommand: "tail-test",
 		Workdir:        workspace,
@@ -381,6 +386,7 @@ func TestManagerSubscribeOutputReceivesSingleLineWhileProcessKeepsRunning(t *tes
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'ready\\n'; sleep 1"},
 		DisplayCommand: "single-line-running",
 		Workdir:        workspace,
@@ -423,6 +429,7 @@ func TestManagerInlineOutputUsesRecentOutputBeforeLogFlush(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'inline-ready\\n'; sleep 1"},
 		DisplayCommand: "inline-recent",
 		Workdir:        workspace,
@@ -450,6 +457,7 @@ func TestManagerInlineOutputTruncatesRecentOutputFallback(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf '%0500d\\n' 1; sleep 1"},
 		DisplayCommand: "inline-recent-truncated",
 		Workdir:        workspace,
@@ -491,6 +499,7 @@ func TestManagerSubscribeOutputCloseUnblocksNext(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "sleep 1"},
 		DisplayCommand: "tail-close-test",
 		Workdir:        workspace,
@@ -572,7 +581,7 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 		t.Run(tt.name, func(t *testing.T) {
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
-			execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 			pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 			start := callExecCommand(t, execTool, "poll-start", map[string]any{
@@ -630,7 +639,7 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	start := callExecCommand(t, execTool, "short-poll-start", map[string]any{
@@ -696,6 +705,7 @@ func TestWriteStdinCancellationReportsActiveProcess(t *testing.T) {
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "sleep 2"},
 		DisplayCommand: "sleep 2",
 		Workdir:        workspace,
@@ -753,7 +763,7 @@ func TestExecCommandCancellationReturnsUndecoratedBaseError(t *testing.T) {
 	workspace := t.TempDir()
 	readyMarker := filepath.Join(workspace, "exec-command-cancellation-ready")
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	call := tools.Call{
 		ID:   "exec-command-cancellation",
 		Name: toolspec.ToolExecCommand,
@@ -807,7 +817,7 @@ func TestExecCommandReturnsClosedManagerErrorUnchanged(t *testing.T) {
 	if err := manager.Close(); err != nil {
 		t.Fatalf("close manager: %v", err)
 	}
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	call := tools.Call{
 		ID:   "closed-manager",
 		Name: toolspec.ToolExecCommand,
@@ -823,8 +833,9 @@ func TestExecCommandReturnsClosedManagerErrorUnchanged(t *testing.T) {
 	}
 	call.Input = input
 	_, managerErr := manager.Start(context.Background(), ExecRequest{
-		Command: []string{"/bin/sh", "-c", "true"},
-		Workdir: workspace,
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:       []string{"/bin/sh", "-c", "true"},
+		Workdir:       workspace,
 	})
 	if managerErr == nil {
 		t.Fatal("expected closed manager error")
@@ -845,6 +856,7 @@ func TestManagerWriteStdinCancellationPreservesContextCanceled(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "sleep 2"},
 		DisplayCommand: "sleep 2",
 		Workdir:        workspace,
@@ -875,7 +887,7 @@ func TestManagerWriteStdinCancellationPreservesContextCanceled(t *testing.T) {
 func TestExecCommandReportsNonZeroExitCode(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "nonzero-1", map[string]any{
 		"cmd":           "printf 'bad\\n'; exit 7",
@@ -906,6 +918,7 @@ func TestWriteStdinWarnsAndRetriesWhenFullLogReadFails(t *testing.T) {
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "sleep 0.15; printf done"},
 		DisplayCommand: "delayed-done",
 		Workdir:        workspace,
@@ -971,7 +984,7 @@ func TestExecCommandClampsShortYieldTime(t *testing.T) {
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "clamp-1", map[string]any{
 		"cmd":           fmt.Sprintf("sleep %.1f; echo done", commandDelay.Seconds()),
@@ -1010,7 +1023,7 @@ func TestNormalizeWriteYieldTimeDoesNotCapLongPolls(t *testing.T) {
 func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "poll-duration-exec", map[string]any{
@@ -1069,7 +1082,7 @@ func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
-			execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 			stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 			start := callExecCommand(t, execTool, "whitespace-input-start", map[string]any{
@@ -1112,7 +1125,7 @@ func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {
 func TestExecCommandForegroundTruncationSetsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "fg-trunc-1", map[string]any{
 		"cmd":               "i=0; while [ $i -lt 400 ]; do printf x; i=$((i+1)); done",
@@ -1135,7 +1148,7 @@ func TestExecCommandForegroundTruncationSetsPresentationMetadata(t *testing.T) {
 func TestExecCommandRawOutputAddsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "raw-presentation-1", map[string]any{
 		"cmd":           "printf raw",
@@ -1155,7 +1168,7 @@ func TestExecCommandRawOutputAddsPresentationMetadata(t *testing.T) {
 func TestWriteStdinRawSessionAddsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "raw-tty-1", map[string]any{
@@ -1187,7 +1200,7 @@ func TestWriteStdinRawSessionAddsPresentationMetadata(t *testing.T) {
 func TestWriteStdinSendsInputToInteractiveProcess(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "tty-1", map[string]any{
@@ -1223,7 +1236,7 @@ func TestWriteStdinSendsInputToInteractiveProcess(t *testing.T) {
 func TestWriteStdinCompletionTruncationSetsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "tty-trunc-1", map[string]any{
@@ -1255,7 +1268,7 @@ func TestWriteStdinCompletionTruncationSetsPresentationMetadata(t *testing.T) {
 func TestWriteStdinPreservesBackgroundSummaryTruncationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "tty-summary-trunc-1", map[string]any{

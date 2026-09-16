@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func assertOversizedOutputFailure(t *testing.T, result tools.Result, logPath string) {
@@ -37,7 +40,7 @@ func assertGuardedPresentation(t *testing.T, result tools.Result, raw bool, back
 
 func TestExecCommandGuardPreservesOutputPathPresentationAndLog(t *testing.T) {
 	manager := newBackgroundTestManager(t)
-	tool := NewExecCommandTool(t.TempDir(), 16_000, 20, manager, "")
+	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 20, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	const output = "123456789012345678901234567890123456789012345678"
 	result := callExecCommand(t, tool, "guarded", map[string]any{
 		"cmd": "printf '" + output + "'; exit 7", "shell": "/bin/sh", "login": false,
@@ -83,7 +86,7 @@ func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {
 			if test.cap != nil {
 				input["max_output_tokens"] = *test.cap
 			}
-			result := callExecCommand(t, NewExecCommandTool(t.TempDir(), 16_000, 40, manager, ""), test.name, input)
+			result := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), test.name, input)
 			if result.IsError {
 				t.Fatalf("unexpected error: %s", result.Output)
 			}
@@ -100,7 +103,7 @@ func TestExecCommandGuardBoundariesAndOrdinaryTruncation(t *testing.T) {
 
 func TestRunningExecCommandGuardPreservesLifecycleAndIndependentPoll(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	tool := NewExecCommandTool(t.TempDir(), 16_000, 40, manager, "")
+	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	const output = "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
 	result := callExecCommand(t, tool, "running", map[string]any{
 		"cmd": "printf '" + output + "'; sleep 0.5", "shell": "/bin/sh", "login": false,
@@ -142,7 +145,7 @@ func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *t
 				}
 				return true
 			})
-			start := callExecCommand(t, NewExecCommandTool(t.TempDir(), 16_000, 40, manager, ""), "start", map[string]any{
+			start := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), "start", map[string]any{
 				"cmd": test.command, "shell": "/bin/sh", "login": false, "tty": true, "yield_time_ms": 50,
 			})
 			if start.IsError {

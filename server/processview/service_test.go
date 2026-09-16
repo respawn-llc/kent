@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/toolspec"
 )
@@ -86,7 +89,7 @@ func newProcessViewFixture(t *testing.T) processViewFixture {
 	t.Cleanup(func() { _ = manager.Close() })
 
 	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, 200_000, manager, "session-1")
+	tool := shelltool.NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "session-1", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	return processViewFixture{
 		manager: manager,
 		tool:    tool,

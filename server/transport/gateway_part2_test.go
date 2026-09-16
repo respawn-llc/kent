@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/llm"
@@ -20,6 +21,7 @@ import (
 	"core/server/runtimewire"
 	"core/server/session"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
@@ -496,6 +498,7 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	}
 
 	ownResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: storeA.Meta().SessionID,
@@ -508,6 +511,7 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreignResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: storeB.Meta().SessionID,

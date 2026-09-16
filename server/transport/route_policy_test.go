@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/session"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	rpccontract "core/shared/apicontract"
+	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -488,6 +491,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 	fixture.appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 	ctx := context.Background()
 	own, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: fixture.ownSessionID,
@@ -498,6 +502,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreign, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: fixture.foreignSessionID,
@@ -508,6 +513,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 		t.Fatalf("start foreign process: %v", err)
 	}
 	ownerless, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf ownerless\\n; sleep 1"},
 		DisplayCommand: "printf ownerless; sleep 1",
 		Workdir:        fixture.appCore.Config().WorkspaceRoot,

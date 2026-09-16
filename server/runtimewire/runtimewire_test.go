@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
@@ -1083,8 +1084,7 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *testing.T) {
 	workspace := t.TempDir()
 	manager, err := shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(50*time.Millisecond),
-		shelltool.WithPostprocessor(runtimeWirePostprocessor(t, config.ShellPostprocessingModeBuiltin, nil)),
+		shelltool.WithMinimumExecToBgTime(50 * time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
@@ -1099,6 +1099,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		ModelContextWindow:  200_000,
 		SupportsVision:      func() bool { return true },
 		Background:          manager,
+		ShellPostprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)
@@ -1222,10 +1223,10 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 	}
 }
 
-func TestRuntimeWiringExecCommandUsesEffectiveBuiltinInsteadOfBootstrapNone(t *testing.T) {
+func TestRuntimeWiringExecCommandUsesEffectiveBuiltinWithSuppliedManager(t *testing.T) {
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "effective-builtin")
-	background := newRuntimeWireShellManager(t, runtimeWirePostprocessor(t, config.ShellPostprocessingModeNone, nil))
+	background := newRuntimeWireShellManager(t)
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 
 	wiring, err := NewRuntimeWiringWithBackground(
@@ -1259,9 +1260,8 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 	rootA := t.TempDir()
 	rootB := t.TempDir()
 	store := newRuntimeWireSession(t, rootA, "effective-hook")
-	bootstrapHook := "BOOTSTRAP"
 	effectiveHook := "EFFECTIVE"
-	background := newRuntimeWireShellManager(t, runtimeWirePostprocessor(t, config.ShellPostprocessingModeUser, &bootstrapHook))
+	background := newRuntimeWireShellManager(t)
 	effectiveHookPath := runtimeWireHookScript(t, effectiveHook)
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeUser, &effectiveHookPath)
 
@@ -1312,31 +1312,16 @@ func runtimeWireShellSettings(mode config.ShellPostprocessingMode, hookPath *str
 	}
 }
 
-func runtimeWirePostprocessor(t *testing.T, mode config.ShellPostprocessingMode, hookReplacement *string) *postprocess.Runner {
-	t.Helper()
-	var hookPath *string
-	if hookReplacement != nil {
-		path := runtimeWireHookScript(t, *hookReplacement)
-		hookPath = &path
-	}
-	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: mode, HookPath: hookPath})
-	if err != nil {
-		t.Fatalf("new postprocess runner: %v", err)
-	}
-	return runner
-}
-
 func runtimeWireHookScript(t *testing.T, replacement string) string {
 	t.Helper()
 	script := "#!/bin/sh\nprintf '{\"processed\":true,\"replaced_output\":\"" + replacement + "\"}'\n"
 	return testsetup.WriteExecutable(t, "hook.sh", script)
 }
 
-func newRuntimeWireShellManager(t *testing.T, runner *postprocess.Runner) *shelltool.Manager {
+func newRuntimeWireShellManager(t *testing.T) *shelltool.Manager {
 	t.Helper()
 	manager, err := shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(250*time.Millisecond),
-		shelltool.WithPostprocessor(runner),
+		shelltool.WithMinimumExecToBgTime(250 * time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
@@ -1732,6 +1717,7 @@ func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Log
 		ModelContextWindow:  200_000,
 		SupportsVision:      func() bool { return true },
 		Logger:              logger,
+		ShellPostprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	})
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
@@ -1750,6 +1736,7 @@ func newRuntimeWireToolRegistryWithConfig(t *testing.T, workspace string, config
 		AllowNonCwdEdits:    allowNonCwdEdits,
 		SupportsVision:      func() bool { return true },
 		GlobalConfigDir:     configRoot,
+		ShellPostprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	})
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
@@ -1766,6 +1753,7 @@ func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.I
 		ShellOutputMaxChars: 16_000,
 		ModelContextWindow:  200_000,
 		SupportsVision:      func() bool { return true },
+		ShellPostprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)

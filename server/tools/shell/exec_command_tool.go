@@ -49,10 +49,6 @@ type ExecCommandTool struct {
 	executionCorrelation *runtimeids.ExecutionCorrelation
 }
 
-func NewExecCommandTool(workspaceRoot string, outputLimit int, contextWindowTokens int, background *Manager, ownerSessionID string) *ExecCommandTool {
-	return NewExecCommandToolWithConfig(workspaceRoot, outputLimit, contextWindowTokens, background, ownerSessionID, ExecCommandToolConfig{})
-}
-
 type ExecCommandToolConfig struct {
 	Postprocessor        *postprocess.Runner
 	ExecutionCorrelation *runtimeids.ExecutionCorrelation

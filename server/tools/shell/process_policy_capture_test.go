@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/runtimeids"
@@ -14,7 +15,7 @@ import (
 
 func TestExecCommandCarriesExecutionCorrelationThroughSnapshotAndTerminalEvent(t *testing.T) {
 	workspace := t.TempDir()
-	manager := newManagerWithPostprocessor(t, replacementRunner(t, "RUNTIME"))
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	correlation, err := runtimeids.NewExecutionCorrelation(runtimeids.NewExecutionScopeID(), runtimeids.ResourceGeneration(7))
 	if err != nil {
 		t.Fatalf("new execution correlation: %v", err)
@@ -102,8 +103,8 @@ func assertExecutionCorrelation(t *testing.T, got *runtimeids.ExecutionCorrelati
 
 func TestExecCommandUsesRuntimeBoundPolicyForForegroundCompletion(t *testing.T) {
 	workspace := t.TempDir()
-	manager := newManagerWithPostprocessor(t, replacementRunner(t, "BOOTSTRAP"))
-	noneRunner := mustPostprocessRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone})
+	manager := newShellTestManager(t, 50*time.Millisecond)
+	noneRunner := postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone})
 	runtimeRunner := replacementRunner(t, "RUNTIME")
 
 	noneTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "none-owner", noneRunner)
@@ -137,7 +138,7 @@ func TestExecCommandUsesRuntimeBoundPolicyForForegroundCompletion(t *testing.T) 
 
 func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion(t *testing.T) {
 	workspace := t.TempDir()
-	manager := newManagerWithPostprocessor(t, replacementRunner(t, "BOOTSTRAP"))
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	runnerA := replacementRunner(t, "RUNTIME_A")
 	runnerB := replacementRunner(t, "RUNTIME_B")
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", runnerA)
@@ -227,7 +228,7 @@ func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion
 
 func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T) {
 	workspace := t.TempDir()
-	manager := newManagerWithPostprocessor(t, replacementRunner(t, "BOOTSTRAP"))
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	tool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "raw-owner", replacementRunner(t, "RUNTIME"))
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
 
@@ -286,7 +287,7 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 
 func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 	workspace := t.TempDir()
-	manager := newManagerWithPostprocessor(t, replacementRunner(t, "BOOTSTRAP"))
+	manager := newShellTestManager(t, 50*time.Millisecond)
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", replacementRunner(t, "RUNTIME_A"))
 	toolB := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-b", replacementRunner(t, "RUNTIME_B"))
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager)
@@ -377,22 +378,8 @@ func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 func replacementRunner(t *testing.T, replacement string) *postprocess.Runner {
 	t.Helper()
 	hookPath := writeExecutableScript(t, "#!/bin/sh\nprintf '{\"processed\":true,\"replaced_output\":\""+replacement+"\"}'\n")
-	return mustPostprocessRunner(t, postprocess.Settings{
+	return postprocessfixture.NewRunner(t, postprocess.Settings{
 		Mode:     config.ShellPostprocessingModeUser,
 		HookPath: &hookPath,
 	})
-}
-
-func newManagerWithPostprocessor(t *testing.T, runner *postprocess.Runner) *Manager {
-	t.Helper()
-	manager, err := NewManager(
-		WithMinimumExecToBgTime(50*time.Millisecond),
-		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
-		WithPostprocessor(runner),
-	)
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-	return manager
 }

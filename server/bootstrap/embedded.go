@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"core/server/auth"
 	"core/server/launch"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
 )
@@ -115,16 +113,8 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func(
 }
 
 func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
-	runner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     cfg.Settings.Shell.PostprocessingMode,
-		HookPath: cfg.Settings.Shell.PostprocessHook,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("compile shell postprocessor: %w", err)
-	}
 	return shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
-		shelltool.WithPostprocessor(runner),
+		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds) * time.Second),
 	)
 }
 
