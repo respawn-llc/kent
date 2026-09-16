@@ -349,20 +349,25 @@ function NewTaskFormContent({
               : { ...destination, boardQueryWorkflowID, workflowID },
           );
         }}
-        onRemove={(direction, item) => {
-          setPreparedDependencies((current) => removePreparedTaskDependency(current, direction, item.taskID));
-        }}
-        onSelectCandidate={async (direction, result) => {
-          setPreparedDependencies((current) =>
-            insertPreparedTaskDependency(current, {
-              direction,
-              taskID: result.group.taskID,
-              shortID: result.group.shortID,
-              title: result.group.title,
-              workflowID: result.group.workflowID,
-              status: result.group.status,
-            }),
-          );
+        interaction={{
+          kind: "prepared",
+          onRemove(direction, item) {
+            setPreparedDependencies((current) =>
+              removePreparedTaskDependency(current, direction, item.taskID),
+            );
+          },
+          onSelect(direction, result) {
+            setPreparedDependencies((current) =>
+              insertPreparedTaskDependency(current, {
+                direction,
+                taskID: result.group.taskID,
+                shortID: result.group.shortID,
+                title: result.group.title,
+                workflowID: result.group.workflowID,
+                status: result.group.status,
+              }),
+            );
+          },
         }}
         onSelectTask={(taskID) => {
           navigator.push({ kind: "taskDetail", taskID });

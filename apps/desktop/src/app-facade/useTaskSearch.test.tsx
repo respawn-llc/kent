@@ -15,14 +15,22 @@ it("keeps completed same-Project results during replacement without paginating t
     initialProps: { project: "project-1", query: "first" },
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
-  await waitFor(() => { expect(view.result.current.results[0]?.group.taskID).toBe("first"); });
+  await waitFor(() => {
+    expect(view.result.current.results[0]?.group.taskID).toBe("first");
+  });
   view.rerender({ project: "project-1", query: "second" });
-  await waitFor(() => { expect(search).toHaveBeenCalledTimes(2); });
+  await waitFor(() => {
+    expect(search).toHaveBeenCalledTimes(2);
+  });
   expect(view.result.current.results[0]?.group.taskID).toBe("first");
   expect(view.result.current.paginationUsesVisibleData).toBe(false);
-  await act(async () => { view.result.current.request.fetchNextPage(); });
+  await act(async () => {
+    view.result.current.request.fetchNextPage();
+  });
   expect(search).toHaveBeenCalledTimes(2);
-  await act(async () => { replacement.resolve(page("second", null)); });
+  await act(async () => {
+    replacement.resolve(page("second", null));
+  });
   expect(view.result.current.results[0]?.group.taskID).toBe("second");
   search.mockReturnValue(new Promise(() => undefined));
   view.rerender({ project: "project-2", query: "second" });
@@ -38,12 +46,16 @@ it("retains at most three pages while paging through a larger result", async () 
   const view = renderHook(() => useTaskSearch("project-1", true, "needle"), {
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
-  await waitFor(() => { expect(view.result.current.request.isSuccess).toBe(true); });
+  await waitFor(() => {
+    expect(view.result.current.request.isSuccess).toBe(true);
+  });
   for (let offset = 1; offset <= 4; offset++) {
-    await act(async () => { view.result.current.request.fetchNextPage(); });
-    await waitFor(() =>
-      { expect(view.result.current.results.at(-1)?.group.taskID).toBe(`task-${String(offset)}`); },
-    );
+    await act(async () => {
+      view.result.current.request.fetchNextPage();
+    });
+    await waitFor(() => {
+      expect(view.result.current.results.at(-1)?.group.taskID).toBe(`task-${String(offset)}`);
+    });
     expect(view.result.current.request.data?.pages.length).toBeLessThanOrEqual(3);
   }
   expect(view.result.current.results.map((result) => result.group.taskID)).toEqual([

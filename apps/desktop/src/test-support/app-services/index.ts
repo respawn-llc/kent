@@ -55,19 +55,22 @@ export type CreateTestServicesOptions = Readonly<{
 export function TestAppProviders({
   children,
   services,
+  queryClient: suppliedQueryClient,
 }: Readonly<{
   children: ReactNode;
   services: AppServices;
+  queryClient?: QueryClient;
 }>) {
   const queryClient = useMemo(
     () =>
+      suppliedQueryClient ??
       new QueryClient({
         defaultOptions: {
           mutations: { retry: false },
           queries: { retry: false },
         },
       }),
-    [],
+    [suppliedQueryClient],
   );
   return createElement(
     I18nextProvider,

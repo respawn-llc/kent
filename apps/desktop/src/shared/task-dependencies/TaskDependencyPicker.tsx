@@ -2,7 +2,7 @@ import { Plus, SearchIcon } from "lucide-react";
 import { useMemo, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
+import { errorMessage, type TaskDependencyDirection } from "@/api";
 import { useTaskSearch, type TaskSearchResult } from "@/app-facade";
 import { TaskStatusIcon } from "@/shared/task-status";
 import {
@@ -16,26 +16,29 @@ import {
   fieldInputClassName,
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
+import { useTaskDependencyActions, type DependencyInteraction } from "./dependencyActions";
+import { taskDependencyPairForDirection } from "./dependencyCache";
 
 export function TaskDependencyPicker({
   disabled,
   excludedTaskIDs,
   onCreateTask,
-  onSelect,
+  interaction,
+  direction,
   projectID,
   trigger,
 }: Readonly<{
   disabled: boolean;
   excludedTaskIDs: ReadonlySet<string>;
   onCreateTask(): void;
-  onSelect(result: TaskSearchResult): Promise<unknown>;
+  interaction: DependencyInteraction;
+  direction: TaskDependencyDirection;
   projectID: string;
   trigger: ReactElement;
 }>) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [pendingTaskID, setPendingTaskID] = useState<string | null>(null);
   const [acceptedTaskIDs, setAcceptedTaskIDs] = useState<ReadonlySet<string>>(() => new Set());
   const inputRef = useRef<HTMLInputElement | null>(null);
   const search = useTaskSearch(projectID, open && !disabled, query);
@@ -49,19 +52,7 @@ export function TaskDependencyPicker({
   const close = (): void => {
     setOpen(false);
     setQuery("");
-    setPendingTaskID(null);
     setAcceptedTaskIDs(new Set());
-  };
-  const select = async (result: TaskSearchResult): Promise<void> => {
-    const selectedTaskID = result.group.taskID;
-    setPendingTaskID(selectedTaskID);
-    try {
-      await onSelect(result);
-      setAcceptedTaskIDs((current) => new Set([...current, selectedTaskID]));
-      setPendingTaskID(null);
-    } catch {
-      setPendingTaskID(null);
-    }
   };
   return (
     <Popover
@@ -69,7 +60,6 @@ export function TaskDependencyPicker({
         setOpen(nextOpen);
         if (!nextOpen) {
           setQuery("");
-          setPendingTaskID(null);
           setAcceptedTaskIDs(new Set());
         }
       }}
@@ -114,7 +104,7 @@ export function TaskDependencyPicker({
             />
           </span>
           <IconTooltipButton
-            disabled={disabled || pendingTaskID !== null}
+            disabled={disabled}
             label={t("task.dependenciesCreateTask")}
             onClick={() => {
               close();
@@ -126,8 +116,12 @@ export function TaskDependencyPicker({
           </IconTooltipButton>
         </div>
         <TaskDependencySearchResults
-          onActivate={(result) => void select(result)}
-          pendingTaskID={pendingTaskID}
+          onAccepted={(taskID) => {
+            setAcceptedTaskIDs((current) => new Set([...current, taskID]));
+          }}
+          interaction={interaction}
+          direction={direction}
+          projectID={projectID}
           results={results}
           search={search}
         />
@@ -137,13 +131,17 @@ export function TaskDependencyPicker({
 }
 
 function TaskDependencySearchResults({
-  onActivate,
-  pendingTaskID,
+  onAccepted,
+  interaction,
+  direction,
+  projectID,
   results,
   search,
 }: Readonly<{
-  onActivate(result: TaskSearchResult): void;
-  pendingTaskID: string | null;
+  onAccepted(taskID: string): void;
+  interaction: DependencyInteraction;
+  direction: TaskDependencyDirection;
+  projectID: string;
   results: readonly TaskSearchResult[];
   search: ReturnType<typeof useTaskSearch>;
 }>) {
@@ -179,31 +177,99 @@ function TaskDependencySearchResults({
         }
       }}
       renderItem={(result) => (
-        <button
-          aria-selected={false}
-          className="flex w-full min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-s)] border-0 bg-transparent py-[calc(var(--space-2)/1.5)] text-left text-[var(--color-on-island)] outline-none hover:bg-[var(--color-island-2)] focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)] disabled:cursor-wait disabled:opacity-55"
-          data-testid={`dependency-candidate-${result.group.taskID}`}
-          disabled={pendingTaskID !== null}
-          onClick={() => {
-            onActivate(result);
-          }}
-          role="option"
-          type="button"
-        >
-          <span className="grid size-[15px] shrink-0 place-items-center">
-            {pendingTaskID === result.group.taskID ? (
-              <Spinner className="size-[15px]" size="sm" />
-            ) : (
-              <TaskStatusIcon status={result.group.status.kind} />
-            )}
-          </span>
-          <span className="shrink-0 font-mono text-xs text-[var(--color-muted)]">{result.group.shortID}</span>
-          <span className="min-w-0 truncate text-sm">{result.group.title}</span>
-        </button>
+        <CandidateAction
+          result={result}
+          interaction={interaction}
+          direction={direction}
+          projectID={projectID}
+          onAccepted={onAccepted}
+        />
       )}
       role="listbox"
       rowSpacing="tight"
     />
+  );
+}
+
+type CandidateProps = Readonly<{
+  result: TaskSearchResult;
+  interaction: DependencyInteraction;
+  direction: TaskDependencyDirection;
+  projectID: string;
+  onAccepted(taskID: string): void;
+}>;
+function CandidateAction(props: CandidateProps) {
+  const { interaction, result, direction, onAccepted } = props;
+  return interaction.kind === "persisted" ? (
+    <PersistedCandidate {...props} interaction={interaction} />
+  ) : (
+    <CandidateButton
+      result={result}
+      pending={false}
+      onActivate={() => {
+        interaction.onSelect(direction, result);
+        onAccepted(result.group.taskID);
+      }}
+    />
+  );
+}
+function PersistedCandidate({
+  interaction,
+  ...props
+}: CandidateProps &
+  Readonly<{
+    interaction: Extract<DependencyInteraction, { kind: "persisted" }>;
+  }>) {
+  const action = useTaskDependencyActions(
+    props.projectID,
+    interaction.taskID,
+    taskDependencyPairForDirection(interaction.taskID, props.direction, props.result.group.taskID),
+  );
+  return (
+    <CandidateButton
+      result={props.result}
+      pending={action.pending}
+      onActivate={() => {
+        action.submit({
+          kind: "add",
+          onChanged: interaction.onChanged,
+          onSuccess: () => {
+            props.onAccepted(props.result.group.taskID);
+          },
+        });
+      }}
+    />
+  );
+}
+function CandidateButton({
+  result,
+  pending,
+  onActivate,
+}: Readonly<{
+  result: TaskSearchResult;
+  pending: boolean;
+  onActivate(): void;
+}>) {
+  return (
+    <button
+      aria-selected={false}
+      aria-busy={pending}
+      className="flex w-full min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-s)] border-0 bg-transparent py-[calc(var(--space-2)/1.5)] text-left text-[var(--color-on-island)] outline-none hover:bg-[var(--color-island-2)] focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]"
+      data-testid={`dependency-candidate-${result.group.taskID}`}
+      onClick={onActivate}
+      role="option"
+      type="button"
+    >
+      <span className="grid size-[15px] shrink-0 place-items-center">
+        {pending ? (
+          <Spinner className="size-[15px]" size="sm" />
+        ) : (
+          <TaskStatusIcon status={result.group.status.kind} />
+        )}
+      </span>
+      <span className="shrink-0 font-mono text-xs text-[var(--color-muted)]">{result.group.shortID}</span>
+      <span className="min-w-0 truncate text-sm">{result.group.title}</span>
+    </button>
   );
 }
 
