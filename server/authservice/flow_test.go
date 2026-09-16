@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"core/server/auth"
 )
@@ -29,7 +28,7 @@ func (h stubHandler) Interact(ctx context.Context, req FlowInteractionRequest) (
 }
 
 func TestEnsureReadyReturnsStartupErrorWithoutInteractiveHandler(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	err := EnsureFlowReady(context.Background(), mgr, auth.OpenAIOAuthOptions{}, "dark", func(string) string { return "" }, true, false, stubHandler{
 		needs: func(FlowInteractionRequest) bool { return false },
 	})
@@ -39,7 +38,7 @@ func TestEnsureReadyReturnsStartupErrorWithoutInteractiveHandler(t *testing.T) {
 }
 
 func TestEnsureReadyLoopsAfterInteractionUntilAuthConfigured(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	callCount := 0
 	err := EnsureFlowReady(context.Background(), mgr, auth.OpenAIOAuthOptions{}, "dark", func(key string) string {
 		if key == "OPENAI_API_KEY" {
@@ -76,7 +75,7 @@ func TestEnsureReadyLoopsAfterInteractionUntilAuthConfigured(t *testing.T) {
 }
 
 func TestEnsureReadyAllowsOptionalStartupWithoutConfiguredAuth(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	interacted := false
 	err := EnsureFlowReady(context.Background(), mgr, auth.OpenAIOAuthOptions{}, "dark", func(string) string { return "" }, false, false, stubHandler{
 		needs: func(FlowInteractionRequest) bool { return false },

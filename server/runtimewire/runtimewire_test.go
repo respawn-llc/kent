@@ -1544,7 +1544,7 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		[]toolspec.ID{toolspec.ToolExecCommand},
-		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, nil),
+		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil),
 		nil,
 		nil,
 		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}),

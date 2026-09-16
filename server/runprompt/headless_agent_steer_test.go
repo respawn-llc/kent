@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/server/auth"
@@ -112,7 +111,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{Method: auth.Method{
 		Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"},
-	}}), nil, time.Now)
+	}}), nil)
 	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)

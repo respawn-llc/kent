@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/server/auth"
@@ -44,7 +43,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		}
 		authManager := auth.NewManager(auth.NewMemoryStore(auth.State{Method: auth.Method{
 			Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}}), nil, time.Now)
+		}}), nil)
 		client := NewInProcessRunPromptClient(HeadlessBootstrap{
 			SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
 			RuntimeAuthority: newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...),

@@ -117,7 +117,6 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func(
 		AuthManager: auth.NewManager(
 			store,
 			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
-			now,
 		),
 	}, nil
 }

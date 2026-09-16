@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"sync"
-	"time"
 
 	sharedauth "core/shared/auth"
 )
@@ -12,7 +11,6 @@ type Manager struct {
 	mutationMu sync.Mutex
 	store      Store
 	refresher  *OAuthRefresher
-	now        func() time.Time
 }
 
 type CurrentStateResolution struct {
@@ -20,14 +18,10 @@ type CurrentStateResolution struct {
 	Current *State
 }
 
-func NewManager(store Store, refresher *OAuthRefresher, now func() time.Time) *Manager {
-	if now == nil {
-		now = time.Now
-	}
+func NewManager(store Store, refresher *OAuthRefresher) *Manager {
 	return &Manager{
 		store:     store,
 		refresher: refresher,
-		now:       now,
 	}
 }
 
@@ -168,7 +162,6 @@ func (m *Manager) updateState(ctx context.Context, mutate func(*State) error) (S
 			return State{}, err
 		}
 	}
-	state.UpdatedAt = m.now().UTC()
 	if m.store != nil {
 		if err := m.store.Save(ctx, state); err != nil {
 			return State{}, err
@@ -223,7 +216,6 @@ func (m *Manager) resolveState(ctx context.Context, state State) (State, error) 
 		return state, nil
 	}
 	state.Method = updated
-	state.UpdatedAt = m.now().UTC()
 	if m.store != nil {
 		if err := m.store.Save(ctx, state); err != nil {
 			return State{}, err

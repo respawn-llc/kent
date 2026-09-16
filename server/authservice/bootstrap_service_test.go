@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"core/server/auth"
 	"core/shared/config"
@@ -225,9 +224,7 @@ func newTestAuthBootstrapService(initial auth.State) (*BootstrapService, *auth.M
 
 func newTestAuthBootstrapServiceWithSettings(initial auth.State, settings config.Settings) (*BootstrapService, *auth.MemoryStore) {
 	store := auth.NewMemoryStore(initial)
-	manager := auth.NewManager(store, nil, func() time.Time {
-		return time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
-	})
+	manager := auth.NewManager(store, nil)
 	return NewBootstrapService(manager, auth.OpenAIOAuthOptions{}, settings), store
 }
 

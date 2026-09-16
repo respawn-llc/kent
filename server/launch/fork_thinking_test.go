@@ -30,10 +30,10 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 			state := auth.EmptyState()
 			if test.oauth {
 				state.Method = auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
-					AccessToken: "test-access", RefreshToken: "test-refresh", TokenType: "Bearer",
+					AccessToken: "test-access", RefreshToken: "test-refresh",
 				}}
 			}
-			manager := auth.NewManager(auth.NewMemoryStore(state), nil, nil)
+			manager := auth.NewManager(auth.NewMemoryStore(state), nil)
 			for _, override := range []*string{nil, textutil.Value("low")} {
 				meta := session.Meta{ChatSettings: &session.ChatSettingsOverrides{Thinking: override}}
 				got, err := ResolveForkThinking(t.Context(), config.App{Settings: settings}, meta, manager, false)

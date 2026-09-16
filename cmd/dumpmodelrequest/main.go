@@ -211,7 +211,7 @@ func captureSessionRequest(
 		eventLog,
 		activeSettings,
 		activeToolIDs,
-		auth.NewManager(authStore, nil, nil),
+		auth.NewManager(authStore, nil),
 		nil,
 		runtimewire.RuntimeWiringOptions{
 			QuestionsEnabled:                    textutil.Value(resolved.QuestionsEnabled),

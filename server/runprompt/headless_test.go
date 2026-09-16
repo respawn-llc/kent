@@ -317,7 +317,7 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "test-key"},
 		},
-	}), nil, time.Now)
+	}), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	launcher := &headlessPromptLauncher{boot: HeadlessBootstrap{
 		RuntimeAuthority:       authority,
@@ -375,7 +375,7 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
@@ -452,7 +452,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
@@ -609,7 +609,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
@@ -947,7 +947,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	defer provider.Close()
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -1117,7 +1117,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
@@ -1391,7 +1391,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
@@ -1584,7 +1584,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		PersistenceRoot: root,
 		Settings:        config.Settings{Model: "gpt-5"},
 	}
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
@@ -1630,7 +1630,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
@@ -1713,7 +1713,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {

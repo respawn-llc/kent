@@ -64,7 +64,7 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"))
+	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandler("old-key"))
 
 	pickerCalls := 0
 	interactor := &interactiveAuthInteractor{
@@ -97,7 +97,7 @@ func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testi
 
 func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("ready-key"))
+	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandler("ready-key"))
 
 	interactor := &interactiveAuthInteractor{
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
@@ -122,7 +122,7 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 func TestRemoteLoginTransitionWaitsForAuthChoiceWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"))
+	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandler("old-key"))
 
 	pickerEntered := make(chan struct{})
 	releasePicker := make(chan struct{})

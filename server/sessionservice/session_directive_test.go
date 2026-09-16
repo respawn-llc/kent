@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"core/server/auth"
 	"core/server/session"
@@ -133,7 +132,7 @@ func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
 		},
-	}), nil, time.Now)
+	}), nil)
 	service := newTestSessionLifecycleService(t.TempDir(), manager)
 	currentID := runtimeids.NewSessionID()
 

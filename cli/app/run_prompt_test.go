@@ -38,12 +38,6 @@ func readyMemoryAuthHandler() memoryAuthHandler {
 }
 
 func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
-	state := apiKeyMemoryAuthState(key)
-	state.UpdatedAt = time.Now().UTC()
-	return memoryAuthHandler{state: state}
-}
-
-func apiKeyMemoryAuthHandlerWithoutTimestamp(key string) memoryAuthHandler {
 	return memoryAuthHandler{state: apiKeyMemoryAuthState(key)}
 }
 

@@ -826,7 +826,7 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
 		},
-	}), nil, time.Now)
+	}), nil)
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
@@ -862,7 +862,7 @@ func TestServiceResolveTransitionLogoutReturnsStableDirective(t *testing.T) {
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
 		},
-	}), nil, time.Now)
+	}), nil)
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 	req := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId:  proto.String(runtimeids.NewSessionID().String()),

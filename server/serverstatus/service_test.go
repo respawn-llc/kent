@@ -97,7 +97,7 @@ func (failingAuthStore) Load(context.Context) (auth.State, error) {
 func (failingAuthStore) Save(context.Context, auth.State) error { return nil }
 
 func TestGetServerReadinessSkipsAuthStateWhenStartupAuthNotRequired(t *testing.T) {
-	manager := auth.NewManager(failingAuthStore{}, nil, nil)
+	manager := auth.NewManager(failingAuthStore{}, nil)
 	service := NewServerStatusService(manager, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}}, nil)
 
 	response, err := service.GetReadiness(context.Background(), &emptypb.Empty{})

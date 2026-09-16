@@ -48,7 +48,7 @@ func TestStatusServiceLoadsAuthStateOnce(t *testing.T) {
 	store := &countingAuthStatusStore{state: auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "sk-secret-1234"}},
 	}}
-	service := NewStatusService(auth.NewManager(store, nil, time.Now), config.Settings{})
+	service := NewStatusService(auth.NewManager(store, nil), config.Settings{})
 
 	if _, err := service.GetStatus(context.Background(), &authpb.GetStatusRequest{}); err != nil {
 		t.Fatalf("GetAuthStatus: %v", err)
@@ -77,7 +77,6 @@ func TestFetchUsagePayloadUsesTypedOAuthHeaders(t *testing.T) {
 	_, err := fetchUsagePayload(context.Background(), server.URL, auth.State{
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
 			AccessToken: "access-token",
-			TokenType:   "Bearer",
 			AccountID:   "acct-1",
 		}},
 	})
@@ -95,7 +94,7 @@ func TestFetchUsagePayloadUsesTypedOAuthHeaders(t *testing.T) {
 func TestStatusServicePublishesUnavailableWhenInitialLoadFails(t *testing.T) {
 	wantErr := errors.New("permission denied")
 	service := NewStatusService(
-		auth.NewManager(failingAuthStatusStore{err: wantErr}, nil, time.Now),
+		auth.NewManager(failingAuthStatusStore{err: wantErr}, nil),
 		config.Settings{},
 	)
 
@@ -119,7 +118,6 @@ func TestStatusServiceReadsOAuthFactsWithoutRefreshingCredentials(t *testing.T) 
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
 			AccessToken:  "stale",
 			RefreshToken: "refresh",
-			TokenType:    "Bearer",
 			Expiry:       now.Add(-time.Minute),
 			AccountID:    "acct-1",
 			Email:        "user@example.com",
@@ -136,7 +134,7 @@ func TestStatusServiceReadsOAuthFactsWithoutRefreshingCredentials(t *testing.T) 
 			return auth.Method{}, refreshErr
 		},
 	)
-	service := NewStatusService(auth.NewManager(store, refresher, func() time.Time { return now }), config.Settings{})
+	service := NewStatusService(auth.NewManager(store, refresher), config.Settings{})
 
 	response, err := service.GetStatus(context.Background(), &authpb.GetStatusRequest{SkipSubscriptionUsage: true})
 	if err != nil {
@@ -173,7 +171,7 @@ func TestStatusServicePublishesOnlySafeAPIKeyFacts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewStatusService(auth.NewManager(auth.NewMemoryStore(auth.State{
 				Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: test.key}},
-			}), nil, time.Now), config.Settings{ProviderOverride: "anthropic"})
+			}), nil), config.Settings{ProviderOverride: "anthropic"})
 
 			response, err := service.GetStatus(context.Background(), &authpb.GetStatusRequest{})
 			if err != nil {
@@ -196,7 +194,6 @@ func TestStatusServiceUsesRequestedEffectiveProviderForSubscription(t *testing.T
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
 			AccessToken:  "access-token",
 			RefreshToken: "refresh-token",
-			TokenType:    "Bearer",
 			Expiry:       now.Add(-time.Minute),
 		}},
 	})
@@ -208,7 +205,7 @@ func TestStatusServiceUsesRequestedEffectiveProviderForSubscription(t *testing.T
 			return auth.Method{}, refreshErr
 		},
 	)
-	service := NewStatusService(auth.NewManager(store, refresher, func() time.Time { return now }), config.Settings{
+	service := NewStatusService(auth.NewManager(store, refresher), config.Settings{
 		OpenAIBaseURL: "https://daemon.example/v1",
 	})
 
@@ -240,10 +237,9 @@ func TestStatusServiceSkipsSubscriptionUsageWhenRequested(t *testing.T) {
 	service := NewStatusService(auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
 			AccessToken: "access-token",
-			TokenType:   "Bearer",
 			Expiry:      now.Add(time.Hour),
 		}},
-	}), nil, func() time.Time { return now }), config.Settings{})
+	}), nil), config.Settings{})
 
 	response, err := service.GetStatus(context.Background(), &authpb.GetStatusRequest{
 		SkipSubscriptionUsage: true,

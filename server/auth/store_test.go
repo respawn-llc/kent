@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -13,7 +14,7 @@ func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 	store := NewFileStore(statePath)
 
-	state := testAuthStateAt(testAPIKeyState("secret-key"), 10)
+	state := testAPIKeyState("secret-key")
 
 	if err := store.Save(context.Background(), state); err != nil {
 		t.Fatalf("save auth state: %v", err)
@@ -22,10 +23,64 @@ func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
 	assertAuthStateFileMode(t, statePath, authStateFileMode)
 }
 
+func TestFileStorePreservesCredentialsOnRewrite(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		want   Method
+	}{
+		{
+			name: "OAuth",
+			method: `{"type": "oauth", "oauth": {
+				"access_token": "saved-access",
+				"refresh_token": "saved-refresh",
+				"token_type": "Bearer",
+				"expiry": "2030-01-01T12:00:00Z",
+				"account_id": "saved-account",
+				"email": "saved@example.invalid"
+			}}`,
+			want: Method{Type: MethodOAuth, OAuth: &OAuthMethod{
+				AccessToken: "saved-access", RefreshToken: "saved-refresh",
+				Expiry:    time.Date(2030, time.January, 1, 12, 0, 0, 0, time.UTC),
+				AccountID: "saved-account", Email: "saved@example.invalid",
+			}},
+		},
+		{
+			name:   "API key",
+			method: `{"type": "api_key", "api_key": {"key": "saved-key"}}`,
+			want:   Method{Type: MethodAPIKey, APIKey: &APIKeyMethod{Key: "saved-key"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "auth.json")
+			persisted := `{
+				"scope": "global",
+				"env_api_key_preference": "prefer_saved_auth",
+				"updated_at": "2026-01-01T10:00:00Z",
+				"method": ` + test.method + `
+			}`
+			if err := os.WriteFile(path, []byte(persisted), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store := NewFileStore(path)
+			before := requireAuthState(t, store.Load)
+			if err := store.Save(context.Background(), before); err != nil {
+				t.Fatal(err)
+			}
+			after := requireAuthState(t, store.Load)
+			want := State{Scope: ScopeGlobal, Method: test.want, EnvAPIKeyPreference: EnvAPIKeyPreferencePreferSaved}
+			if !reflect.DeepEqual(before, want) || !reflect.DeepEqual(after, want) {
+				t.Fatal("credentials, identity, expiry, or auth selection were not preserved")
+			}
+		})
+	}
+}
+
 func TestFileStoreLoadCorrectsExistingFilePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testOAuthState(), 10), 0o644)
+	writeAuthStateFile(t, statePath, testOAuthState(), 0o644)
 
 	store := NewFileStore(statePath)
 	loaded := requireAuthState(t, store.Load)
@@ -39,7 +94,7 @@ func TestFileStoreLoadCorrectsExistingFilePermissions(t *testing.T) {
 func TestFileStoreLoadDoesNotBroadenStrictPermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testOAuthState(), 10), 0o400)
+	writeAuthStateFile(t, statePath, testOAuthState(), 0o400)
 
 	store := NewFileStore(statePath)
 	requireAuthState(t, store.Load)
@@ -50,10 +105,10 @@ func TestFileStoreLoadDoesNotBroadenStrictPermissions(t *testing.T) {
 func TestFileStoreSaveCorrectsExistingInsecurePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testAPIKeyState("seed-key"), 9), 0o644)
+	writeAuthStateFile(t, statePath, testAPIKeyState("seed-key"), 0o644)
 
 	store := NewFileStore(statePath)
-	next := testAuthStateAt(testAPIKeyState("next-key"), 10)
+	next := testAPIKeyState("next-key")
 	if err := store.Save(context.Background(), next); err != nil {
 		t.Fatalf("save auth state: %v", err)
 	}
@@ -102,7 +157,7 @@ func TestEnvAPIKeyOverrideStoreSaveDelegatesToBaseStore(t *testing.T) {
 	base := NewMemoryStore(EmptyState())
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) { return "", false })
 
-	want := testAuthStateAt(testAPIKeyState("sk-saved"), 12)
+	want := testAPIKeyState("sk-saved")
 	if err := store.Save(context.Background(), want); err != nil {
 		t.Fatalf("save auth state: %v", err)
 	}
@@ -151,7 +206,7 @@ func TestEnvAPIKeyOverrideStoreLoadPersistedDelegatesToBasePersistedLoader(t *te
 		},
 		persistedState: State{
 			Scope:  ScopeGlobal,
-			Method: Method{Type: MethodOAuth, OAuth: &OAuthMethod{AccessToken: "persisted-access", RefreshToken: "persisted-refresh", TokenType: "Bearer"}},
+			Method: Method{Type: MethodOAuth, OAuth: &OAuthMethod{AccessToken: "persisted-access", RefreshToken: "persisted-refresh"}},
 		},
 	}
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) { return "sk-env", true })
@@ -177,16 +232,10 @@ func testOAuthState() State {
 			OAuth: &OAuthMethod{
 				AccessToken:  "oauth-access",
 				RefreshToken: "oauth-refresh",
-				TokenType:    "Bearer",
 				Expiry:       time.Date(2026, time.January, 1, 11, 0, 0, 0, time.UTC),
 			},
 		},
 	}
-}
-
-func testAuthStateAt(state State, hour int) State {
-	state.UpdatedAt = time.Date(2026, time.January, 1, hour, 0, 0, 0, time.UTC)
-	return state
 }
 
 func testEnvAPIKey(value string) func(string) (string, bool) {

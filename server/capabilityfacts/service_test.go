@@ -251,7 +251,6 @@ func TestServiceUsesSavedAuthWithoutRefreshingPreAuthFacts(t *testing.T) {
 	state.Method.OAuth = &auth.OAuthMethod{
 		AccessToken:  "stale-token",
 		RefreshToken: "refresh-token",
-		TokenType:    "Bearer",
 		Expiry:       time.Now().Add(-time.Hour),
 		AccountID:    "account",
 	}
@@ -264,7 +263,7 @@ func TestServiceUsesSavedAuthWithoutRefreshingPreAuthFacts(t *testing.T) {
 	)
 	service := NewService(Options{
 		Config:      testConfig(t, config.Settings{Model: "gpt-5.6-sol"}),
-		AuthManager: auth.NewManager(auth.NewMemoryStore(state), refresher, time.Now),
+		AuthManager: auth.NewManager(auth.NewMemoryStore(state), refresher),
 	})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
