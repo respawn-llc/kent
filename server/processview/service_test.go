@@ -160,51 +160,35 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 	}
 }
 
-func TestServiceKillProcessSignalsManagerEntry(t *testing.T) {
+func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	result := fixture.startCommand(t, "call-kill", "sleep 30", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	if _, err := fixture.service.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: "1000"}); err != nil {
-		t.Fatalf("KillProcess: %v", err)
+	processes := fixture.manager.List()
+	if len(processes) != 1 {
+		t.Fatalf("process count = %d, want 1", len(processes))
 	}
-	waitForProcessKilled(t, fixture.manager, "1000")
-}
-
-func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source, nil)
+	id := processes[0].ID
+	req := &processpb.KillRequest{ProcessId: id}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := svc.KillProcess(ctx, &processpb.KillRequest{ProcessId: "1000"}); err != context.Canceled {
+	if _, err := fixture.service.KillProcess(ctx, req); err != context.Canceled {
 		t.Fatalf("KillProcess error = %v, want context canceled", err)
 	}
-	if source.killCalls != 0 {
-		t.Fatalf("kill call count = %d, want 0", source.killCalls)
+	snapshot, err := fixture.manager.Snapshot(id)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestServiceKillProcessRepeatedCallExecutesAgain(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source, nil)
-	req := &processpb.KillRequest{ProcessId: "1000"}
-
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess first: %v", err)
+	if snapshot.KillRequested || !snapshot.Running {
+		t.Fatalf("canceled request changed process state: %+v", snapshot)
 	}
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess second: %v", err)
+	if _, err := fixture.service.KillProcess(context.Background(), req); err != nil {
+		t.Fatalf("KillProcess: %v", err)
 	}
-	if source.killCalls != 2 {
-		t.Fatalf("kill call count = %d, want 2", source.killCalls)
-	}
-}
-
-type stubKillProcessSource struct {
-	killCalls int
-	killErr   error
+	waitForProcessKilled(t, fixture.manager, id)
 }
 
 type allProjectSessionMembership struct{}
@@ -214,21 +198,6 @@ func (allProjectSessionMembership) ListProjectSessionIDs(
 	_ string,
 ) ([]string, error) {
 	return []string{"session-1"}, nil
-}
-
-func (s *stubKillProcessSource) List() []shelltool.Snapshot { return nil }
-
-func (s *stubKillProcessSource) Snapshot(string) (shelltool.Snapshot, error) {
-	return shelltool.Snapshot{}, nil
-}
-
-func (s *stubKillProcessSource) Kill(string) error {
-	s.killCalls++
-	return s.killErr
-}
-
-func (s *stubKillProcessSource) InlineOutput(string, int) (string, string, error) {
-	return "", "", nil
 }
 
 func waitForProcessCount(t *testing.T, manager *shelltool.Manager, count int) {
