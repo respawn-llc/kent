@@ -3,6 +3,9 @@ packages:
   - "desktop/packages/*"
   - "shared/*"
 
+# Use the installed pnpm when the manifest's reference version differs.
+pmOnFail: warn
+
 # 7 days. Keeps freshly published packages out of local installs/updates.
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
