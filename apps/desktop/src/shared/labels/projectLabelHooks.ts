@@ -16,10 +16,14 @@ type ProjectLabelReorderContext = Readonly<{
 
 type Completion<A> = Readonly<{
   onSuccess?: (value: A) => void;
-  onStart?: () => void;
-  onSettled?: () => void;
-  onError?: (error: unknown) => void;
 }>;
+type CreateInput = Completion<ProjectLabel> &
+  Readonly<{
+    name: string;
+    onStart?: () => void;
+    onSettled?: () => void;
+    onError?: (error: unknown) => void;
+  }>;
 type CatalogActionContext = Readonly<{
   api: AppServices["api"];
   effects: ProjectLabelEffects;
@@ -58,14 +62,10 @@ export function useProjectLabelActions(labelID: string) {
 
 function createCatalogActions({ api, effects, projectID, queryClient }: CatalogActionContext) {
   const queryKey = queryKeys.projectLabels(projectID);
-  const cancelCatalog = async (): Promise<void> => {
-    await queryClient.cancelQueries({ queryKey, exact: true }, { revert: false, silent: true });
-  };
   return {
     create: queryAction(
       new MutationObserver(queryClient, {
-        mutationFn: async (input: Completion<ProjectLabel> & Readonly<{ name: string }>) =>
-          api.createProjectLabel(projectID, input.name),
+        mutationFn: async (input: CreateInput) => api.createProjectLabel(projectID, input.name),
         onMutate(input) {
           input.onStart?.();
         },
@@ -76,7 +76,7 @@ function createCatalogActions({ api, effects, projectID, queryClient }: CatalogA
           input.onError?.(error);
         },
         async onSuccess(label, input) {
-          await cancelCatalog();
+          await cancelCatalog(queryClient, queryKey);
           patchCreatedLabel(queryClient, queryKey, label);
           effects.scheduleCatalogRefresh();
           input.onSuccess?.(label);
@@ -87,12 +87,12 @@ function createCatalogActions({ api, effects, projectID, queryClient }: CatalogA
       new MutationObserver<
         ProjectLabelCatalog,
         unknown,
-        Completion<ProjectLabelCatalog> & Readonly<{ labelIDs: readonly string[] }>,
+        Readonly<{ labelIDs: readonly string[]; onError?: (error: unknown) => void }>,
         ProjectLabelReorderContext
       >(queryClient, {
         mutationFn: async ({ labelIDs }) => api.reorderProjectLabels(projectID, labelIDs),
         async onMutate({ labelIDs }) {
-          await cancelCatalog();
+          await cancelCatalog(queryClient, queryKey);
           const previous = queryClient.getQueryData<ProjectLabelCatalog>(queryKey);
           if (previous === undefined) {
             throw new Error(
@@ -116,7 +116,7 @@ function createCatalogActions({ api, effects, projectID, queryClient }: CatalogA
           input.onError?.(error);
         },
         async onSuccess(catalog) {
-          await cancelCatalog();
+          await cancelCatalog(queryClient, queryKey);
           if (catalog.projectID !== projectID) {
             throw new Error(
               `Project label reorder returned ${catalog.projectID} while serving ${projectID}.`,
@@ -132,15 +132,13 @@ function createCatalogActions({ api, effects, projectID, queryClient }: CatalogA
 
 function createLabelActions({ api, effects, projectID, queryClient }: CatalogActionContext, labelID: string) {
   const queryKey = queryKeys.projectLabels(projectID);
-  const cancelCatalog = async () =>
-    queryClient.cancelQueries({ queryKey, exact: true }, { revert: false, silent: true });
   return {
     rename: queryAction(
       new MutationObserver(queryClient, {
         mutationFn: async (input: Completion<ProjectLabel> & Readonly<{ name: string }>) =>
           api.renameProjectLabel(projectID, labelID, input.name),
         async onSuccess(label, input) {
-          await cancelCatalog();
+          await cancelCatalog(queryClient, queryKey);
           patchRenamedLabel(queryClient, queryKey, label);
           effects.scheduleCatalogRefresh();
           input.onSuccess?.(label);
@@ -151,7 +149,7 @@ function createLabelActions({ api, effects, projectID, queryClient }: CatalogAct
       new MutationObserver<string, unknown, Completion<string>>(queryClient, {
         mutationFn: async () => api.deleteProjectLabel(projectID, labelID),
         async onSuccess(deleted, input) {
-          await cancelCatalog();
+          await cancelCatalog(queryClient, queryKey);
           pruneDeletedLabelFromExistingCaches(queryClient, projectID, deleted);
           effects.scheduleDeleteRefresh();
           input.onSuccess?.(deleted);
@@ -170,6 +168,10 @@ export function useProjectLabelFilter(): ProjectLabelFilterController {
 
 export function useProjectLabelEffects(): ProjectLabelEffects {
   return useProjectLabelData().effects;
+}
+
+async function cancelCatalog(queryClient: QueryClient, queryKey: ReturnType<typeof queryKeys.projectLabels>) {
+  await queryClient.cancelQueries({ queryKey, exact: true }, { revert: false, silent: true });
 }
 
 function patchCreatedLabel(

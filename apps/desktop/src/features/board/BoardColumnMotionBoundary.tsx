@@ -18,7 +18,6 @@ import { useColumnVisibility } from "./useColumnVisibility";
 
 export type BoardColumnMotionBoundaryProps = Readonly<{
   activeDrag: ActiveBoardCardDrag | null;
-  actionsDisabled: boolean;
   board: SelectedWorkflowBoard;
   displayedCards: readonly KanbanCardVM[] | undefined;
   column: BoardColumn;
@@ -66,7 +65,6 @@ const inactivePresentation: BoardColumnPresentation = {
 
 export function BoardColumnMotionBoundary({
   activeDrag,
-  actionsDisabled,
   board,
   displayedCards,
   column,
@@ -169,7 +167,6 @@ export function BoardColumnMotionBoundary({
         />
       ) : null}
       <KanbanColumn
-        actionsDisabled={actionsDisabled}
         cards={renderedCards}
         column={columnVM}
         columnRef={setRegisteredColumnElement}

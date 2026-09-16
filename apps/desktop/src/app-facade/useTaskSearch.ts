@@ -115,7 +115,8 @@ function createTaskSearchModel({
     getNextPageParam: (lastPage) => lastPage.response.nextOffset ?? undefined,
     maxPages: retainedTaskSearchPages,
   });
-  const request = open ? queryAtom(observer) : Atom.make(observer.getCurrentResult());
+  const observed = queryAtom(observer);
+  const request: typeof observed = open ? observed : Atom.make(observer.getCurrentResult());
   const state = Atom.make((get) => {
     const current = get(request);
     const previous = get.once(retained);

@@ -265,7 +265,6 @@ export function ProjectTasksSurface({
     onToggle: toggleGroup,
     pendingResumeTaskIDs: initiatingAction.pendingResumeTaskIDs,
     projectID,
-    resumeDisabled: false,
     taskDetailID,
     t,
   });

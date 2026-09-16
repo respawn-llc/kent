@@ -104,8 +104,6 @@ vi.mock("@/app-facade", () => ({
   queryKeys: {
     projectWorkspaceCatalog: (projectID: string) => ["project-catalog", projectID, "workspaces"],
   },
-  taskSearchDebounceMs: 0,
-  useDebouncedText: (value: string) => value,
   useAppServices: () => ({ api: {}, logger: { append: state.loggerAppend } }),
   useStatusController: () => ({ dismiss: state.statusDismiss, push: state.statusPush }),
   useTaskSearch: () => ({

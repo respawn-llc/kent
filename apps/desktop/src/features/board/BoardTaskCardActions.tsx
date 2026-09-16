@@ -5,14 +5,12 @@ import { IconTooltipButton } from "@/ui";
 import type { KanbanCardVM } from "./BoardColumnViewModel";
 
 export function BoardTaskCardActions({
-  actionsDisabled,
   card,
   onInterrupt,
   onResume,
   pendingInterrupt,
   pendingResume,
 }: Readonly<{
-  actionsDisabled: boolean;
   card: KanbanCardVM;
   onInterrupt: (taskID: string) => void;
   onResume: (taskID: string) => void;
@@ -34,7 +32,6 @@ export function BoardTaskCardActions({
             event.stopPropagation();
             onResume(card.id);
           }}
-          disabled={actionsDisabled}
           loading={pendingResume}
           size="icon-sm"
           variant={card.statusKind === "queued" ? "warning" : "primary-outline"}
@@ -53,7 +50,6 @@ export function BoardTaskCardActions({
             event.stopPropagation();
             onInterrupt(card.id);
           }}
-          disabled={actionsDisabled}
           loading={pendingInterrupt}
           size="icon-sm"
           variant="danger"

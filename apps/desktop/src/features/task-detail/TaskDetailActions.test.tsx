@@ -130,7 +130,7 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
   ]);
 });
 
-it("disables Start while pending but permits it after an independent observation fails", async () => {
+it("shows Start loading, prevents duplicate requests, and permits it after an independent observation fails", async () => {
   let resolveStart: ((value: unknown) => void) | undefined;
   const services = mountTaskDetailSurface(
     taskWithActions({
@@ -154,12 +154,16 @@ it("disables Start while pending but permits it after an independent observation
     },
   );
   const user = userEvent.setup();
+  const startTask = vi.spyOn(services.api, "startTask");
   const start = await screen.findByTestId("task-detail-start");
 
   await user.click(start);
   await waitFor(() => {
-    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute("aria-busy", "true");
   });
+  expect(start).toBeEnabled();
+  await user.click(start);
+  expect(startTask).toHaveBeenCalledOnce();
   resolveStart?.({
     outcome: "applied",
     applied: {
@@ -167,7 +171,7 @@ it("disables Start while pending but permits it after an independent observation
     },
   });
   await waitFor(() => {
-    expect(start).not.toBeDisabled();
+    expect(start).toHaveAttribute("aria-busy", "false");
   });
 
   act(() => {

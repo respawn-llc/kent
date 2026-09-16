@@ -48,7 +48,6 @@ type DisplayedSnapshot = Readonly<{
 
 export type BoardRailMotionControllerProps = Readonly<{
   activeDrag: ActiveBoardCardDrag | null;
-  actionsDisabled: boolean;
   board: SelectedWorkflowBoard;
   columnDropState: (column: BoardColumn) => BoardColumnDropState;
   columnIsCollapsed: (column: BoardColumn) => boolean;
@@ -74,7 +73,6 @@ const emptyPendingMoveColumnIDs: ReadonlySet<string> = new Set();
 
 export function BoardRailMotionController({
   activeDrag,
-  actionsDisabled,
   board,
   columnDropState,
   columnIsCollapsed,
@@ -448,7 +446,6 @@ export function BoardRailMotionController({
                 {section.columns.map((column) => (
                   <BoardColumnMotionBoundary
                     activeDrag={activeDrag}
-                    actionsDisabled={actionsDisabled}
                     board={board}
                     displayedCards={displayedColumns.get(column.id)}
                     column={column}
@@ -477,7 +474,6 @@ export function BoardRailMotionController({
             ) : (
               <BoardColumnMotionBoundary
                 activeDrag={activeDrag}
-                actionsDisabled={actionsDisabled}
                 board={board}
                 displayedCards={displayedColumns.get(section.column.id)}
                 column={section.column}

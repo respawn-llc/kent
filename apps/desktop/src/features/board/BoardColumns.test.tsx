@@ -254,7 +254,7 @@ describe("KanbanColumn retained replacement boundary", () => {
               key={item.id}
               column={item}
               cards={item.id === column.id ? [card] : []}
-              actionsDisabled={false}
+
               dragDisabled={false}
               dropState="idle"
               hasMoreCards={false}
@@ -317,7 +317,6 @@ describe("KanbanColumn retained replacement boundary", () => {
 
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[]}
         column={column}
         dragDisabled={false}
@@ -348,7 +347,6 @@ describe("KanbanColumn retained replacement boundary", () => {
 
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[card]}
         column={column}
         dragDisabled
@@ -382,7 +380,6 @@ describe("KanbanColumn retained replacement boundary", () => {
     const onResumeTask = vi.fn();
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[{ ...card, statusKind: "queued" }]}
         column={column}
         dragDisabled={false}
@@ -411,7 +408,6 @@ describe("KanbanColumn retained replacement boundary", () => {
     const secondCard = { ...card, id: "task-2", shortID: "KNT-2", title: "Second Task" };
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[card, secondCard]}
         column={{ ...column, taskCount: 2 }}
         dragDisabled={false}

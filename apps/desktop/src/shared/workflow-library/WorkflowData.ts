@@ -40,7 +40,11 @@ export function useWorkflowPages(query = "", enabled = true) {
   const retry = useAtomSet(model.retry, { mode: "value" });
   return {
     ...useAtomValue(model.request),
-    fetchNextPage: () => nextPage(undefined),
-    refetch: () => retry(undefined),
+    fetchNextPage: () => {
+      nextPage(undefined);
+    },
+    refetch: () => {
+      retry(undefined);
+    },
   };
 }

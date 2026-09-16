@@ -99,7 +99,6 @@ export function projectTaskEntry({
   onTaskActivate,
   pendingResume,
   projectID,
-  resumeDisabled,
   task,
   taskDetailID,
   t,
@@ -111,7 +110,6 @@ export function projectTaskEntry({
   onTaskActivate: (taskID: string) => void;
   pendingResume: boolean;
   projectID: string;
-  resumeDisabled: boolean;
   task: TaskListItem;
   taskDetailID: string | null;
   t: ReturnType<typeof useTranslation>["t"];
@@ -148,7 +146,6 @@ export function projectTaskEntry({
               aria-label={`${t("board.resume")}: ${task.shortID}`}
               className="inline-grid size-6 place-items-center rounded-full outline-none transition-colors hover:bg-[var(--color-island-3)] focus-visible:ring-[2px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-45"
               data-testid={`project-task-status-${task.id}`}
-              disabled={resumeDisabled}
               aria-busy={pendingResume}
               onClick={(event) => {
                 event.stopPropagation();

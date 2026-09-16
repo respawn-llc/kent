@@ -253,7 +253,6 @@ function BoardContent({
     resumeErrorTitle: t("board.resumeFailed"),
   });
   const manualMove = initiatingAction.pending?.kind === "move_preview" ? initiatingAction.pending : null;
-  const actionsDisabled = false;
   const dragDisabled = !board.selectedWorkflow.validForTaskCreation;
   const {
     activeDrag,
@@ -520,7 +519,6 @@ function BoardContent({
           >
             <BoardRailMotionController
               activeDrag={activeDrag}
-              actionsDisabled={actionsDisabled}
               board={board}
               columnDropState={columnDropState}
               columnIsCollapsed={columnIsCollapsed}

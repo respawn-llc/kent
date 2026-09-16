@@ -54,7 +54,6 @@ export type KanbanColumnProps = Readonly<{
   isFirstActive: boolean;
   isCollapsed?: boolean;
   dropState: BoardColumnDropState;
-  actionsDisabled: boolean;
   dragDisabled: boolean;
   columnRef?: (element: HTMLElement | null) => void;
   scrollportRef?: (element: HTMLElement | null) => void;
@@ -117,7 +116,6 @@ export function KanbanColumn({
   isFirstActive,
   isCollapsed = false,
   dropState,
-  actionsDisabled,
   dragDisabled,
   columnRef,
   scrollportRef,
@@ -236,7 +234,6 @@ export function KanbanColumn({
               const pendingStartMove = pendingStartMoveTaskIDs?.has(card.id) ?? false;
               return (
                 <TaskCard
-                  actionsDisabled={actionsDisabled}
                   card={card}
                   cardIndex={cardIndex}
                   dragDisabled={dragDisabled || pendingStartMove}
@@ -317,7 +314,6 @@ function readyBoundary(
 }
 
 const TaskCard = memo(function TaskCard({
-  actionsDisabled,
   card,
   cardIndex,
   dragDisabled,
@@ -334,7 +330,6 @@ const TaskCard = memo(function TaskCard({
   card: KanbanCardVM;
   cardIndex: number;
   instance: BoardCardInstance;
-  actionsDisabled: boolean;
   dragDisabled: boolean;
   onCardClick: (taskID: string) => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
@@ -461,7 +456,6 @@ const TaskCard = memo(function TaskCard({
                 )}
               </div>
               <BoardTaskCardActions
-                actionsDisabled={actionsDisabled}
                 card={card}
                 onInterrupt={onInterruptTask}
                 onResume={onResumeTask}
@@ -475,7 +469,7 @@ const TaskCard = memo(function TaskCard({
       <ContextMenuContent>
         <ContextMenuItem
           className="text-[var(--color-error)]"
-          disabled={actionsDisabled || !card.actions.canDelete}
+          disabled={!card.actions.canDelete}
           onSelect={() => {
             onDeleteTask(card.id);
           }}

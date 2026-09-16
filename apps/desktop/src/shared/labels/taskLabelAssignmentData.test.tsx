@@ -21,7 +21,7 @@ const appServiceMocks = vi.hoisted(() => ({
   updateTaskLabels: vi.fn<ApiService["updateTaskLabels"]>(),
 }));
 
-describe("useManagedTaskLabelAssignment", () => {
+describe("Task Label assignments", () => {
   beforeEach(() => {
     appServiceMocks.getTaskLabels.mockReset();
     appServiceMocks.updateTaskLabels.mockReset();
@@ -37,8 +37,7 @@ describe("useManagedTaskLabelAssignment", () => {
     const cancel = vi.spyOn(queryClient, "cancelQueries");
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID, betaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh,
           scheduleTaskAssignmentRefresh,
@@ -95,18 +94,15 @@ describe("useManagedTaskLabelAssignment", () => {
     const scheduleCatalogRefresh = vi.fn();
     const scheduleTaskAssignmentRefresh = vi.fn();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    const loadingCatalogLabelIDs: readonly string[] = [];
-    const { result, rerender } = renderHook(
-      ({ availableLabelIDs }: Readonly<{ availableLabelIDs: readonly string[] }>) =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs,
+    const { result } = renderHook(
+      () =>
+        useAssignment({
           projectID,
           scheduleCatalogRefresh,
           scheduleTaskAssignmentRefresh,
           taskID,
         }),
       {
-        initialProps: { availableLabelIDs: loadingCatalogLabelIDs },
         wrapper: createWrapper(queryClient),
       },
     );
@@ -142,16 +138,17 @@ describe("useManagedTaskLabelAssignment", () => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
     });
 
-    queryClient.setQueryData(queryKeys.taskLabels(taskID), assignment([betaID]));
-    queryClient.setQueryData(queryKeys.projectLabels(projectID), {
-      projectID,
-      labels: [
-        { id: betaID, name: "Beta" },
-        { id: alphaID, name: "Alpha" },
-        { id: remoteID, name: "Remote" },
-      ],
+    act(() => {
+      queryClient.setQueryData(queryKeys.taskLabels(taskID), assignment([betaID]));
+      queryClient.setQueryData(queryKeys.projectLabels(projectID), {
+        projectID,
+        labels: [
+          { id: betaID, name: "Beta" },
+          { id: alphaID, name: "Alpha" },
+          { id: remoteID, name: "Remote" },
+        ],
+      });
     });
-    rerender({ availableLabelIDs: [betaID, alphaID, remoteID] });
 
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
@@ -190,8 +187,7 @@ describe("useManagedTaskLabelAssignment", () => {
     const queryClient = createQueryClient([alphaID]);
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
@@ -244,8 +240,7 @@ describe("useManagedTaskLabelAssignment", () => {
     const queryClient = createQueryClient([alphaID, betaID]);
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID, betaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
@@ -293,8 +288,7 @@ describe("useManagedTaskLabelAssignment", () => {
     const queryClient = createQueryClient([alphaID, betaID]);
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID, betaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
@@ -337,15 +331,13 @@ describe("useManagedTaskLabelAssignment", () => {
     const { result } = renderHook(
       () =>
         [
-          useManagedTaskLabelAssignment({
-            availableLabelIDs: [alphaID],
+          useAssignment({
             projectID,
             scheduleCatalogRefresh: vi.fn(),
             scheduleTaskAssignmentRefresh: vi.fn(),
             taskID,
           }),
-          useManagedTaskLabelAssignment({
-            availableLabelIDs: [alphaID],
+          useAssignment({
             projectID,
             scheduleCatalogRefresh: vi.fn(),
             scheduleTaskAssignmentRefresh: vi.fn(),
@@ -387,15 +379,13 @@ describe("useManagedTaskLabelAssignment", () => {
     const { result } = renderHook(
       () =>
         [
-          useManagedTaskLabelAssignment({
-            availableLabelIDs: [alphaID, betaID],
+          useAssignment({
             projectID,
             scheduleCatalogRefresh: vi.fn(),
             scheduleTaskAssignmentRefresh,
             taskID,
           }),
-          useManagedTaskLabelAssignment({
-            availableLabelIDs: [alphaID, betaID],
+          useAssignment({
             projectID,
             scheduleCatalogRefresh: vi.fn(),
             scheduleTaskAssignmentRefresh,
@@ -436,17 +426,15 @@ describe("useManagedTaskLabelAssignment", () => {
     const update = deferred<TaskLabelAssignment>();
     appServiceMocks.updateTaskLabels.mockReturnValueOnce(update.promise);
     const queryClient = createQueryClient([alphaID]);
-    const { result, rerender } = renderHook(
-      ({ availableLabelIDs }: Readonly<{ availableLabelIDs: readonly string[] }>) =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs,
+    const { result } = renderHook(
+      () =>
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
           taskID,
         }),
       {
-        initialProps: { availableLabelIDs: [alphaID] },
         wrapper: createWrapper(queryClient),
       },
     );
@@ -457,12 +445,10 @@ describe("useManagedTaskLabelAssignment", () => {
     act(() => {
       result.current.setSelected(alphaID, true);
     });
-    queryClient.setQueryData(queryKeys.projectLabels(projectID), {
-      projectID,
-      labels: [],
+    act(() => {
+      queryClient.setQueryData(queryKeys.projectLabels(projectID), { projectID, labels: [] });
+      pruneDeletedLabelFromExistingCaches(queryClient, projectID, alphaID);
     });
-    pruneDeletedLabelFromExistingCaches(queryClient, projectID, alphaID);
-    rerender({ availableLabelIDs: [] });
     update.resolve(assignment([alphaID]));
 
     await waitFor(() => {
@@ -479,8 +465,7 @@ describe("useManagedTaskLabelAssignment", () => {
     const queryClient = createQueryClient([alphaID, betaID]);
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID, betaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
@@ -522,8 +507,7 @@ describe("useManagedTaskLabelAssignment", () => {
     queryClient.removeQueries({ queryKey: queryKeys.task(taskID), exact: true });
     const { result } = renderHook(
       () =>
-        useManagedTaskLabelAssignment({
-          availableLabelIDs: [alphaID],
+        useAssignment({
           projectID,
           scheduleCatalogRefresh: vi.fn(),
           scheduleTaskAssignmentRefresh: vi.fn(),
@@ -557,13 +541,12 @@ describe("useManagedTaskLabelAssignment", () => {
       const scheduleCatalogRefresh = vi.fn();
       const scheduleTaskAssignmentRefresh = vi.fn();
       const input = {
-        availableLabelIDs: [alphaID, betaID],
         projectID,
         scheduleCatalogRefresh,
         scheduleTaskAssignmentRefresh,
         taskID,
       };
-      const view = renderHook(() => useManagedTaskLabelAssignment(input), {
+      const view = renderHook(() => useAssignment(input), {
         wrapper: createWrapper(queryClient),
       });
       await waitFor(() => {
@@ -608,12 +591,9 @@ describe("useManagedTaskLabelAssignment", () => {
         expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
       });
 
-      const { result: remountedResult, unmount: unmountRemounted } = renderHook(
-        () => useManagedTaskLabelAssignment(input),
-        {
-          wrapper: createWrapper(queryClient),
-        },
-      );
+      const { result: remountedResult, unmount: unmountRemounted } = renderHook(() => useAssignment(input), {
+        wrapper: createWrapper(queryClient),
+      });
       await waitFor(() => {
         expect(remountedResult.current.isPending).toBe(false);
       });
@@ -652,9 +632,8 @@ function createWrapper(queryClient: QueryClient) {
   };
 }
 
-function useManagedTaskLabelAssignment(
+function useAssignment(
   input: Readonly<{
-    availableLabelIDs: readonly string[];
     projectID: string;
     taskID: string;
     scheduleCatalogRefresh(): void;

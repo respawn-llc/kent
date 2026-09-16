@@ -114,7 +114,9 @@ function LinkWorkflowPicker({
       <ErrorState
         body={errorMessage(workflowsQuery.error)}
         fullPage={false}
-        onRetry={() => { workflowsQuery.refetch(); }}
+        onRetry={() => {
+          workflowsQuery.refetch();
+        }}
         retryLabel={t("app.retry")}
         title={t("workflowLibrary.loadFailed")}
       />
@@ -148,7 +150,9 @@ function LinkWorkflowPicker({
       isFetchingNextPage={workflowsQuery.isFetchingNextPage}
       items={workflows}
       loadingLabel={t("app.loadingMore")}
-      onLoadMore={() => { workflowsQuery.fetchNextPage(); }}
+      onLoadMore={() => {
+        workflowsQuery.fetchNextPage();
+      }}
       renderItem={(workflow) => (
         <WorkflowLinkRow
           linked={linkedByWorkflowID.get(workflow.id)}
