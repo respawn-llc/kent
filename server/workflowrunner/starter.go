@@ -575,7 +575,22 @@ func (s *Starter) currentNodeResumeUsesPreparedSession(
 		return false, err
 	}
 	if admission.RuntimeAvailable {
-		return true, nil
+		err = s.runtimeAuthority.WithCurrentRuntime(
+			ctx,
+			descriptor.SessionID(),
+			func(runtimeCtx context.Context, engine *runtime.Engine) error {
+				identity, identityErr := engine.ActiveWorkflowAssignmentIdentity(runtimeCtx)
+				if identityErr != nil {
+					return identityErr
+				}
+				differentAssignment = identity != nil &&
+					*identity != workflowruntime.CurrentNodePromptIdentity(input.CurrentNode.Reference)
+				return nil
+			},
+		)
+		if err != nil {
+			return false, err
+		}
 	}
 	return !differentAssignment, nil
 }

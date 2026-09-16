@@ -1957,6 +1957,14 @@ func TestPostCommitDiagnosticPreservesApprovalAndCACBoundary(t *testing.T) {
 }
 
 func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *testing.T) {
+	runDisabledCACResumeAfterConfigurationChange(t, false)
+}
+
+func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChangeWithOpenRuntime(t *testing.T) {
+	runDisabledCACResumeAfterConfigurationChange(t, true)
+}
+
+func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen bool) {
 	client := NewCompactingScriptedClient(
 		llm.ProviderCapabilities{
 			ProviderID:               "test",
@@ -2016,6 +2024,9 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 		t.Fatal("disabled CAC target lost its assigned Session")
 	}
 	f.waitForTaskQuiescence(t, interrupted.Reference.TaskID)
+	if keepRuntimeOpen {
+		f.openRetainedRuntime(t, *interrupted.SessionID)
+	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
 	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
 		t.Fatalf("resume disabled CAC target: %v", err)
@@ -2029,6 +2040,16 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 	}
 	if len(requests) != 3 {
 		t.Fatalf("resumed model requests = %d, want source, source, target", len(requests))
+	}
+	record, err := f.metadata.ResolvePersistedSession(context.Background(), interrupted.SessionID.String())
+	if err != nil {
+		t.Fatalf("resolve resumed target Session: %v", err)
+	}
+	if record.Meta == nil ||
+		record.Meta.Continuation == nil ||
+		record.Meta.Continuation.AgentRole == nil ||
+		*record.Meta.Continuation.AgentRole != "reviewer" {
+		t.Fatalf("resumed target Session role = %+v, want reviewer", record.Meta)
 	}
 }
 

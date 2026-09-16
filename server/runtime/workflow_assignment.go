@@ -62,6 +62,16 @@ func PersistedWorkflowAssignmentIdentity(store *session.Store) (*string, error) 
 	return &identity, nil
 }
 
+func (e *Engine) ActiveWorkflowAssignmentIdentity(ctx context.Context) (*string, error) {
+	return awaitEngineRuntimeOperation(
+		ctx,
+		e,
+		func(context.Context) (*string, error) {
+			return workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems()), nil
+		},
+	)
+}
+
 func newWorkflowAssignmentSteer() WorkflowAssignmentSteer {
 	return WorkflowAssignmentSteer{deferred: newRuntimeDeferred[session.CommitReceipt]()}
 }
