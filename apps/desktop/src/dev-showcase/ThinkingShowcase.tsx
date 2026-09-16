@@ -8,7 +8,7 @@ import {
   type TranscriptPageRequest,
 } from "@/app-facade";
 import { TranscriptReasoningSlot, TranscriptThinkingStatus } from "@/features/chat";
-import { TranscriptWindowView, type TranscriptViewportMeasurement } from "@/shared/transcript-window";
+import { TranscriptWindowView } from "@/shared/transcript-window";
 import { Toaster, TooltipProvider } from "@/ui";
 
 import {
@@ -48,7 +48,6 @@ export function ThinkingShowcase() {
   const [clipboardResult, setClipboardResult] = useState<string | null>(null);
   const [pageFails, setPageFails] = useState(false);
   const [pendingPage, setPendingPage] = useState<TranscriptPageRequest | null>(null);
-  const [measurementDisplay, setMeasurementDisplay] = useState<TranscriptViewportMeasurement | null>(null);
   const [position, setPosition] = useState(180);
   const [sequence, setSequence] = useState(121);
   const dispatch = useCallback(
@@ -369,7 +368,6 @@ export function ThinkingShowcase() {
               retryLabel="Retry fixture history"
               boundaryErrorMessage={(error) => error.message}
               onInput={dispatch}
-              onMeasurement={setMeasurementDisplay}
             />
           </div>
           <p className="text-sm text-[var(--color-muted)]">
@@ -377,9 +375,6 @@ export function ThinkingShowcase() {
           </p>
           {clipboardResult === null ? null : (
             <pre className="whitespace-pre-wrap text-xs">Clipboard source: {clipboardResult}</pre>
-          )}
-          {measurementDisplay === null ? null : (
-            <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(measurementDisplay, null, 2)}</pre>
           )}
         </section>
         <Toaster />

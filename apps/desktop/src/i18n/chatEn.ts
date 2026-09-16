@@ -11,6 +11,12 @@ const chatPickerEnglish = {
 };
 
 export const chatEnglish = {
+  tail: {
+    jump: "Jump to latest",
+    loading: "Loading transcript…",
+    loadingLatest: "Loading latest messages…",
+    failed: "Could not load transcript",
+  },
   picker: chatPickerEnglish,
   worktree: chatWorktreeEnglish,
   toolRows: chatToolRowsEnglish,
