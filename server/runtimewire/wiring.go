@@ -23,11 +23,10 @@ import (
 )
 
 type RuntimeWiring struct {
-	Engine        *runtime.Engine
-	AskBroker     *askquestion.AskQuestionBroker
-	Background    *shelltool.Manager
-	LocalTools    *LocalToolRegistryBinding
-	PromptHistory []string
+	Engine     *runtime.Engine
+	AskBroker  *askquestion.AskQuestionBroker
+	Background *shelltool.Manager
+	LocalTools *LocalToolRegistryBinding
 }
 
 func (w *RuntimeWiring) Close() error {
