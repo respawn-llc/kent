@@ -14,6 +14,7 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	"core/server/worktree"
+	"core/shared/serverapi"
 )
 
 func prepareMissingWorktreeCompletion(t *testing.T, f *currentNodeRunnerFixture, task workflowstore.TaskRecord) (workflowstore.ExecutionTargetCandidate, *worktree.Service) {
@@ -50,14 +51,18 @@ func prepareMissingWorktreeCompletion(t *testing.T, f *currentNodeRunnerFixture,
 	return candidate, service
 }
 
-func (f *currentNodeRunnerFixture) ValidateExecutionTarget(ctx context.Context, req workflow.ExecutionTargetValidationRequest) error {
+func (f *currentNodeRunnerFixture) RestoreExecutionTarget(ctx context.Context, req workflow.ExecutionTargetRestoreRequest) error {
 	if f.executionTargets == nil {
 		return errors.New("managed fixture target was not prepared")
 	}
-	_, err := f.executionTargets.ValidateLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeValidationRequest{
+	_, err := f.executionTargets.RestoreLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
 		TaskID: req.TaskID, BranchName: req.InitialBranchAssertion,
-		SetupRecovery: req.SetupRecovery,
+		SetupOperationID: req.SetupOperationID,
 	})
+	var locked *worktree.LockedTaskWorktreeError
+	if errors.As(err, &locked) {
+		return &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCause(locked.Cause)}
+	}
 	return err
 }
 
@@ -97,14 +102,72 @@ func TestCurrentNodeCompletionToDoneWithMissingWorktree(t *testing.T) {
 	assertMissingCompletionEvidence(t, f, task, candidate)
 }
 
-func TestCurrentNodeCompletionPausesExecutableSuccessorWithMissingWorktree(t *testing.T) {
+func TestCurrentNodeCompletionRestoresExecutableSuccessorWorktree(t *testing.T) {
+	for _, kind := range []workflow.NodeKind{workflow.NodeKindAgent, workflow.NodeKindScript} {
+		t.Run(string(kind), func(t *testing.T) {
+			sourceStep := ScriptedFinalAnswer(`{"commentary":"source completed"}`)
+			var f *currentNodeRunnerFixture
+			var candidate workflowstore.ExecutionTargetCandidate
+			sourceStep.BeforeResponse = func(ctx context.Context) error {
+				return removeCompletionWorktree(ctx, f.workspace, candidate.Root.Managed.Root)
+			}
+			steps := []ScriptedRuntimeStep{sourceStep}
+			successor := currentNodeWorkflowStep{kind: kind}
+			marker := filepath.Join(t.TempDir(), "executed")
+			if kind == workflow.NodeKindAgent {
+				successor.role, successor.prompt = "coder", "Continue work."
+				step := ScriptedFinalAnswer(`{"commentary":"successor completed"}`)
+				step.BeforeResponse = func(context.Context) error {
+					_, err := os.Stat(candidate.Root.Managed.Root)
+					return err
+				}
+				steps = append(steps, step)
+			} else {
+				successor.scriptPath = filepath.Join(t.TempDir(), "successor.sh")
+				if err := os.WriteFile(successor.scriptPath, []byte("#!/bin/sh\ntouch "+workflowRunnerShellQuote(marker)+"\nprintf '%s' '{\"commentary\":\"done\"}'\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f = newCurrentNodeRunnerFixture(t, steps...)
+			id := createCurrentNodeTwoStepWorkflow(t, f.store, "Restored Worktree", workflow.ContextModeNewSession,
+				currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Do work."}, successor)
+			task := f.createTask(t, id)
+			candidate, _ = prepareMissingWorktreeCompletion(t, f, task)
+			startManagedCompletionTask(t, f, task, candidate)
+			f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+				if len(nodes) == 1 && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil {
+					t.Fatalf("safe successor restoration failed: %+v", nodes[0].Scheduling.Interruption)
+				}
+				return len(nodes) == 1 && nodes[0].Scheduling == nil
+			})
+			if _, err := os.Stat(candidate.Root.Managed.Root); err != nil {
+				t.Fatalf("successor did not restore its original root: %v", err)
+			}
+			if kind == workflow.NodeKindScript {
+				if _, err := os.Stat(marker); err != nil {
+					t.Fatalf("restored Script did not execute: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCurrentNodeCompletionPausesExecutableSuccessorWithUnavailableWorktree(t *testing.T) {
 	for _, kind := range []workflow.NodeKind{workflow.NodeKindAgent, workflow.NodeKindScript} {
 		t.Run(string(kind), func(t *testing.T) {
 			step := ScriptedFinalAnswer(`{"commentary":"completed source work"}`)
 			var f *currentNodeRunnerFixture
 			var candidate workflowstore.ExecutionTargetCandidate
+			var branch string
 			step.BeforeResponse = func(ctx context.Context) error {
-				return removeCompletionWorktree(ctx, f.workspace, candidate.Root.Managed.Root)
+				if err := removeCompletionWorktree(ctx, f.workspace, candidate.Root.Managed.Root); err != nil {
+					return err
+				}
+				output, err := exec.CommandContext(ctx, "git", "-C", f.workspace, "branch", "-D", branch).CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("delete disposable branch: %w: %s", err, output)
+				}
+				return nil
 			}
 			f = newCurrentNodeRunnerFixture(t, step)
 			successor := currentNodeWorkflowStep{kind: kind}
@@ -121,6 +184,7 @@ func TestCurrentNodeCompletionPausesExecutableSuccessorWithMissingWorktree(t *te
 			workflowID := createCurrentNodeTwoStepWorkflow(t, f.store, "Missing Worktree", workflow.ContextModeNewSession,
 				currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Do the work."}, successor)
 			task := f.createTask(t, workflowID)
+			branch = task.ShortID
 			candidate, _ = prepareMissingWorktreeCompletion(t, f, task)
 			source := startManagedCompletionTask(t, f, task, candidate)
 			nodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
@@ -129,7 +193,7 @@ func TestCurrentNodeCompletionPausesExecutableSuccessorWithMissingWorktree(t *te
 			})
 			f.waitForTaskQuiescence(t, task.ID)
 			detail := nodes[0].Scheduling.Interruption.Detail
-			if nodes[0].Reference.Equal(source) || detail.MissingManagedWorktree == nil || detail.SetupRecovery != nil {
+			if nodes[0].Reference.Equal(source) || detail.OriginalExecutionTargetUnavailable == nil || detail.SetupRecovery != nil {
 				t.Fatalf("completion did not preserve source and request successor selection: %+v", nodes[0])
 			}
 			if nodes[0].SessionID != nil || len(f.client.Requests()) != 1 {

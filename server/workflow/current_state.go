@@ -7,10 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 type TransitionBranchKey string
@@ -135,7 +138,7 @@ type CurrentNodeInterruptionDetail struct {
 	Code                                 string
 	Fields                               map[string]string
 	ConfiguredExecutionTargetUnavailable *ConfiguredExecutionTargetUnavailable `json:"configured_execution_target_unavailable,omitempty"`
-	MissingManagedWorktree               *MissingManagedWorktree               `json:"missing_managed_worktree,omitempty"`
+	OriginalExecutionTargetUnavailable   *taskpb.LockedExecutionTargetDetails  `json:"original_execution_target_unavailable,omitempty"`
 	SetupRecovery                        *CurrentNodeSetupRecoveryDetail       `json:"setup_recovery,omitempty"`
 }
 
@@ -168,11 +171,13 @@ func (d CurrentNodeInterruptionDetail) Validate() error {
 			return err
 		}
 	}
-	if d.MissingManagedWorktree != nil {
-		if d.SetupRecovery != nil || d.ConfiguredExecutionTargetUnavailable != nil {
-			return errors.New("missing Worktree selection cannot be a setup or configured-target failure")
+	if d.OriginalExecutionTargetUnavailable != nil {
+		if d.ConfiguredExecutionTargetUnavailable != nil {
+			return errors.New("original target failure cannot be a configured-target failure")
 		}
-		return d.MissingManagedWorktree.Validate()
+		if err := protovalidate.Validate(d.OriginalExecutionTargetUnavailable); err != nil {
+			return err
+		}
 	}
 	if d.SetupRecovery != nil {
 		if _, duplicated := d.Fields[CurrentNodeInterruptionDiagnosticField]; duplicated {
@@ -495,17 +500,8 @@ func cloneCurrentNodeScheduling(scheduling *CurrentNodeScheduling) *CurrentNodeS
 	if scheduling.Interruption != nil {
 		interruption := *scheduling.Interruption
 		interruption.Detail.Fields = cloneStringMap(interruption.Detail.Fields)
-		if missing := interruption.Detail.MissingManagedWorktree; missing != nil {
-			clonedMissing := *missing
-			if missing.SuggestedSelection != nil {
-				selection := *missing.SuggestedSelection
-				if selection.CustomRef != nil {
-					ref := *selection.CustomRef
-					selection.CustomRef = &ref
-				}
-				clonedMissing.SuggestedSelection = &selection
-			}
-			interruption.Detail.MissingManagedWorktree = &clonedMissing
+		if unavailable := interruption.Detail.OriginalExecutionTargetUnavailable; unavailable != nil {
+			interruption.Detail.OriginalExecutionTargetUnavailable = proto.Clone(unavailable).(*taskpb.LockedExecutionTargetDetails)
 		}
 		if unavailable := interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
 			clonedUnavailable := *unavailable

@@ -108,6 +108,7 @@ type WorkflowLockedExecutionTargetCause string
 
 const (
 	WorkflowLockedExecutionTargetCauseDetachedHead     WorkflowLockedExecutionTargetCause = "detached_head"
+	WorkflowLockedExecutionTargetCauseMissingBranch    WorkflowLockedExecutionTargetCause = "missing_branch"
 	WorkflowLockedExecutionTargetCauseInvalidRoot      WorkflowLockedExecutionTargetCause = "invalid_root"
 	WorkflowLockedExecutionTargetCauseRootInaccessible WorkflowLockedExecutionTargetCause = "root_inaccessible"
 	WorkflowLockedExecutionTargetCauseConflict         WorkflowLockedExecutionTargetCause = "conflict"

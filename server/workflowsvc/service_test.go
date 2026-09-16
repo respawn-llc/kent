@@ -381,7 +381,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				t.Fatal(err)
 			}
 			infrastructure := &recordingExecutionTargetInfrastructure{
-				restoreErr: &worktree.LockedTaskWorktreeError{Cause: worktree.LockedTaskWorktreeCauseMissingBranch},
+				restoreErr: &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch},
 			}
 			service.executionTargets = infrastructure
 			before, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
@@ -464,6 +464,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
+				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 				infrastructure.materializeErr = retained
 				var failure *serverapi.WorkflowSetupRetainedError
 				if _, err := service.MoveWorkflowTask(ctx, move); !errors.As(err, &failure) || failure.Details.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
@@ -484,12 +485,13 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				after.Task.Body != before.Task.Body || after.Task.Title != before.Task.Title {
 				t.Fatalf("replacement target/content = %+v: %v", after.Task, err)
 			}
-			if mode != workflow.ExecutionTargetModeNone && infrastructure.materializeRequest.Purpose != worktree.TaskExecutionRootCompletedReplacement {
+			if mode != workflow.ExecutionTargetModeNone && infrastructure.materializeRequest.Purpose != worktree.TaskExecutionRootReplacement {
 				t.Fatal("replacement did not use unbound preparation")
 			}
 			move.TargetNodeID = workflowServiceNodeIDByKey(t, definition.Definition, "implement")
+			infrastructure.restoreErr = nil
 			if _, err := service.MoveWorkflowTask(ctx, move); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
-				t.Fatalf("active Task accepted replacement: %v", err)
+				t.Fatalf("healthy locked target accepted replacement: %v", err)
 			}
 		})
 	}
@@ -2210,8 +2212,8 @@ type recordingExecutionTargetInfrastructure struct {
 	materializeTaskID         workflow.TaskID
 	materializeRequest        ExecutionTargetMaterializeRequest
 	restoreTaskID             workflow.TaskID
-	restoreRequest            workflow.ExecutionTargetValidationRequest
-	restoreRequests           chan<- workflow.ExecutionTargetValidationRequest
+	restoreRequest            workflow.ExecutionTargetRestoreRequest
+	restoreRequests           chan<- workflow.ExecutionTargetRestoreRequest
 	setupOperationID          *worktreecontract.SetupOperationID
 	setupRequirements         []worktreecontract.SetupRequirement
 	materialize               func(workflow.TaskID) (ExecutionTargetMaterialization, error)
@@ -2407,13 +2409,21 @@ func waitForTaskMutationLane(
 	}
 }
 
-func (i *recordingExecutionTargetInfrastructure) ValidateExecutionTarget(_ context.Context, req workflow.ExecutionTargetValidationRequest) error {
+func (i *recordingExecutionTargetInfrastructure) RestoreExecutionTarget(_ context.Context, req workflow.ExecutionTargetRestoreRequest) error {
 	i.restoreTaskID = req.TaskID
 	i.restoreRequest = req
 	if i.restoreRequests != nil {
 		i.restoreRequests <- req
 	}
 	return i.restoreErr
+}
+
+func (i *recordingExecutionTargetInfrastructure) InspectExecutionTarget(context.Context, workflow.ExecutionTargetRestoreRequest) error {
+	return i.restoreErr
+}
+
+func (i *recordingExecutionTargetInfrastructure) InspectReplacementBranch(context.Context, workflow.TaskID, *string) error {
+	return i.initialBranchErr
 }
 
 func (i *recordingExecutionTargetInfrastructure) ResolveExecutionTarget(_ context.Context, req ExecutionTargetResolveRequest) (workflowstore.ExecutionTargetSnapshot, error) {

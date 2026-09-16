@@ -44,6 +44,7 @@ setup *args: _node
 # Regenerate metadata queries and protobuf-derived Go and TypeScript sources.
 gen:
     @bash scripts/quiet-on-success.sh just _node _lint-protobuf _generate
+    @bash scripts/quiet-on-success.sh just _gen-metadata
 
 # Run active tests, or select server, desktop, tui, or explicit frozen rust.
 test *args:
@@ -108,7 +109,7 @@ _gen-metadata:
 
 [parallel]
 [private]
-_generate: _gen-go _gen-typescript _gen-metadata
+_generate: _gen-go _gen-typescript
 
 [private]
 _node:

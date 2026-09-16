@@ -383,15 +383,9 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 		}
 	})
 	service.currentNodeExecution = controller
-	restoreRequests := make(chan workflow.ExecutionTargetValidationRequest, 1)
+	restoreRequests := make(chan workflow.ExecutionTargetRestoreRequest, 1)
 	targets := &recordingExecutionTargetInfrastructure{
 		restoreRequests: restoreRequests,
-		restoreErr: &workflow.MissingManagedWorktree{
-			SuggestedSelection: &workflow.ExecutionTargetSelection{
-				Mode:      workflow.ExecutionTargetModeCustomRef,
-				CustomRef: textutil.Value("refs/heads/" + task.Task.ShortID),
-			},
-		},
 	}
 	service.executionTargets = targets
 
@@ -441,6 +435,7 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 	}
 
 	targets.initialBranchAssertionErr = nil
+	targets.restoreErr = &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch}
 	response, err = service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
 		TaskID:           task.Task.ID,
 		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
@@ -448,27 +443,7 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 	if err != nil {
 		t.Fatalf("ResumeWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
-		response.Applied != nil ||
-		response.SelectionRequired == nil ||
-		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonMissingManagedWorktree ||
-		response.SelectionRequired.SuggestedSelection == nil ||
-		response.SelectionRequired.SuggestedSelection.CustomRef == nil ||
-		*response.SelectionRequired.SuggestedSelection.CustomRef != existingBranchRef {
-		t.Fatalf("Resume response = %+v, want retained-branch selection", response)
-	}
-	select {
-	case restored := <-restoreRequests:
-		if restored.TaskID != taskID {
-			t.Fatalf("restored Task = %q, want %q", restored.TaskID, taskID)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("locked target was not validated")
-	}
-	currentNodes, err := service.store.ListCurrentNodes(ctx, taskID)
-	if err != nil || len(currentNodes) != 1 || currentNodes[0].Scheduling == nil ||
-		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
-		currentNodes[0].Reference != reference {
-		t.Fatalf("missing-target Resume changed Current Node: %v, %v", currentNodes, err)
+	if err != nil || response.SelectionRequired == nil || response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+		t.Fatalf("Resume response = %+v, %v; want original target selection", response, err)
 	}
 }

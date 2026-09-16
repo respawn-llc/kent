@@ -571,14 +571,33 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	}, err
 }
 
-func (i taskExecutionTargetInfrastructure) ValidateExecutionTarget(ctx context.Context, req workflow.ExecutionTargetValidationRequest) error {
+func (i taskExecutionTargetInfrastructure) RestoreExecutionTarget(ctx context.Context, req workflow.ExecutionTargetRestoreRequest) error {
 	if i.service == nil {
 		return errors.New("worktree service is required")
 	}
-	_, err := i.service.ValidateLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeValidationRequest{
-		TaskID:     req.TaskID,
-		BranchName: req.InitialBranchAssertion,
+	_, err := i.service.RestoreLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
+		TaskID:           req.TaskID,
+		BranchName:       req.InitialBranchAssertion,
+		SetupOperationID: req.SetupOperationID,
 	})
+	return executionTargetError(err)
+}
+
+func (i taskExecutionTargetInfrastructure) InspectExecutionTarget(ctx context.Context, req workflow.ExecutionTargetRestoreRequest) error {
+	return executionTargetError(i.service.InspectLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
+		TaskID: req.TaskID, BranchName: req.InitialBranchAssertion,
+	}))
+}
+
+func (i taskExecutionTargetInfrastructure) InspectReplacementBranch(ctx context.Context, taskID workflow.TaskID, branch *string) error {
+	return i.service.InspectTaskReplacementBranch(ctx, taskID, branch)
+}
+
+func executionTargetError(err error) error {
+	var locked *worktree.LockedTaskWorktreeError
+	if errors.As(err, &locked) {
+		return &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCause(locked.Cause)}
+	}
 	return err
 }
 

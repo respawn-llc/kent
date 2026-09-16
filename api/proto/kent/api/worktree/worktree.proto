@@ -1130,6 +1130,10 @@ message SetupFailureCause {
 }
 
 message SetupFailed {
+  SetupRecoveryDisposition recovery_disposition = 8 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   SetupRetryReadiness retry_readiness = 1 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]

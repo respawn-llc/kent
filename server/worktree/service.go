@@ -171,7 +171,7 @@ type TaskExecutionRootPreparationPurpose uint8
 
 const (
 	TaskExecutionRootInitial TaskExecutionRootPreparationPurpose = iota
-	TaskExecutionRootCompletedReplacement
+	TaskExecutionRootReplacement
 )
 
 type TaskExecutionRootPreparationRequest struct {
@@ -197,10 +197,10 @@ type InitialTaskWorktreeMaterializationRequest struct {
 	BranchName       *string
 }
 
-type LockedTaskWorktreeValidationRequest struct {
-	TaskID        workflow.TaskID
-	BranchName    *string
-	SetupRecovery *workflow.CurrentNodeSetupRecoveryDetail
+type LockedTaskWorktreeRestoreRequest struct {
+	TaskID           workflow.TaskID
+	SetupOperationID *worktreecontract.SetupOperationID
+	BranchName       *string
 }
 
 type LockedTaskWorktreeCause string
@@ -209,6 +209,7 @@ const (
 	LockedTaskWorktreeCauseDetachedHead     LockedTaskWorktreeCause = "detached_head"
 	LockedTaskWorktreeCauseInvalidRoot      LockedTaskWorktreeCause = "invalid_root"
 	LockedTaskWorktreeCauseRootInaccessible LockedTaskWorktreeCause = "root_inaccessible"
+	LockedTaskWorktreeCauseMissingBranch    LockedTaskWorktreeCause = "missing_branch"
 	LockedTaskWorktreeCauseConflict         LockedTaskWorktreeCause = "conflict"
 	LockedTaskWorktreeCauseGitFailure       LockedTaskWorktreeCause = "git_failure"
 )
@@ -528,9 +529,17 @@ func (s *Service) PrepareTaskExecutionRoot(ctx context.Context, req TaskExecutio
 		if task.ExecutionTargetMode.Valid {
 			return TaskExecutionRootPreparation{}, errors.New("initial task execution-root preparation requires an unlocked task")
 		}
-	case TaskExecutionRootCompletedReplacement:
+	case TaskExecutionRootReplacement:
 		if !task.ExecutionTargetMode.Valid || task.ExecutionTargetMode.String == string(workflow.ExecutionTargetModeNone) {
 			return TaskExecutionRootPreparation{}, errors.New("replacement preparation requires a locked managed target")
+		}
+		_, inspectionErr := s.resolveLockedTaskWorktree(ctx, LockedTaskWorktreeRestoreRequest{TaskID: req.TaskID}, task, workspace)
+		var unavailable *LockedTaskWorktreeError
+		if inspectionErr == nil {
+			return TaskExecutionRootPreparation{}, workflowstore.ErrExecutionTargetAlreadyLocked
+		}
+		if !errors.As(inspectionErr, &unavailable) {
+			return TaskExecutionRootPreparation{}, inspectionErr
 		}
 	default:
 		return TaskExecutionRootPreparation{}, errors.New("task execution-root preparation purpose is invalid")
@@ -621,15 +630,12 @@ func (s *Service) prepareManagedTaskWorktree(
 		}
 		return TaskWorktreeMaterialization{}, identityErr
 	}
-	branchName, err := taskCreationBranch(task, requestedBranchName, purpose)
+	branchName, err := s.inspectTaskCreationBranch(ctx, task, workspace, requestedBranchName, purpose)
 	if err != nil {
 		return TaskWorktreeMaterialization{}, err
 	}
-	if err := s.git.InspectProspectiveInitialTaskBranch(ctx, workspace.RootPath, branchName.Name()); err != nil {
-		return TaskWorktreeMaterialization{}, workflowTaskInitialBranchError(err)
-	}
 	var registeredRoots []string
-	if purpose == TaskExecutionRootCompletedReplacement {
+	if purpose == TaskExecutionRootReplacement {
 		registeredRoots, err = s.metadata.ListManagedWorktreeRoots(ctx)
 		if err != nil {
 			return TaskWorktreeMaterialization{}, err
@@ -669,6 +675,29 @@ func taskCreationBranch(task sqlitegen.TaskRecord, requested *string, purpose Ta
 	return newLocalBranchName(name)
 }
 
+func (s *Service) InspectTaskReplacementBranch(ctx context.Context, taskID workflow.TaskID, requested *string) error {
+	task, err := s.metadata.Queries().GetTask(ctx, string(taskID))
+	if err != nil {
+		return err
+	}
+	workspace, err := s.taskSourceWorkspace(ctx, task.ProjectID, task.SourceWorkspaceID.String)
+	if err != nil {
+		return err
+	}
+	_, err = s.inspectTaskCreationBranch(ctx, task, workspace, requested, TaskExecutionRootReplacement)
+	return err
+}
+
+func (s *Service) inspectTaskCreationBranch(ctx context.Context, task sqlitegen.TaskRecord, workspace taskSourceWorkspace, requested *string, purpose TaskExecutionRootPreparationPurpose) (localBranch, error) {
+	branch, err := taskCreationBranch(task, requested, purpose)
+	if err != nil {
+		return localBranch{}, err
+	}
+	if err := s.git.InspectProspectiveInitialTaskBranch(ctx, workspace.RootPath, branch.Name()); err != nil {
+		return localBranch{}, workflowTaskInitialBranchError(err)
+	}
+	return branch, nil
+}
 func taskExecutionRootPreparation(
 	root workflowstore.ExecutionRoot,
 	materialized TaskWorktreeMaterialization,
@@ -710,26 +739,6 @@ func (s *Service) releaseProvisionalTaskWorktree(
 	workspace taskSourceWorkspace,
 	record metadata.WorktreeRecord,
 ) (*worktreepb.RetainedPreviousWorktree, error) {
-	retained, err := s.releaseTaskWorktreeArtifact(ctx, workspace, record, func(ctx context.Context) error {
-		return s.unbindTaskManagedWorktree(ctx, task)
-	})
-	if err != nil {
-		return retained, err
-	}
-	if retained == nil {
-		if err := s.metadata.DeleteWorktreeRecordByID(ctx, record.ID); err != nil {
-			return nil, err
-		}
-	}
-	return retained, nil
-}
-
-func (s *Service) releaseTaskWorktreeArtifact(
-	ctx context.Context,
-	workspace taskSourceWorkspace,
-	record metadata.WorktreeRecord,
-	releaseBinding func(context.Context) error,
-) (*worktreepb.RetainedPreviousWorktree, error) {
 	recorded, err := worktreeGitMetadataFromRecord(record)
 	if err != nil {
 		return nil, err
@@ -754,10 +763,8 @@ func (s *Service) releaseTaskWorktreeArtifact(
 			return nil, err
 		}
 	}
-	if releaseBinding != nil {
-		if err := releaseBinding(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.unbindTaskManagedWorktree(ctx, task); err != nil {
+		return nil, err
 	}
 	if !safelyRecreatable {
 		return &worktreepb.RetainedPreviousWorktree{Worktree: topology.GetRegistered()}, nil
@@ -766,6 +773,9 @@ func (s *Service) releaseTaskWorktreeArtifact(
 		if err := s.git.deleteBranch(ctx, workspace.RootPath, branchName, true); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.metadata.DeleteWorktreeRecordByID(ctx, record.ID); err != nil {
+		return nil, err
 	}
 	return nil, nil
 }
@@ -785,7 +795,7 @@ func (s *Service) unbindTaskManagedWorktree(ctx context.Context, task sqlitegen.
 	return nil
 }
 
-func (s *Service) ValidateLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeValidationRequest) (TaskWorktreeMaterialization, error) {
+func (s *Service) RestoreLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeRestoreRequest) (TaskWorktreeMaterialization, error) {
 	if s == nil || s.metadata == nil || s.git == nil {
 		return TaskWorktreeMaterialization{}, errors.New("worktree service dependencies are required")
 	}
@@ -813,30 +823,52 @@ func (s *Service) ValidateLockedTaskWorktree(ctx context.Context, req LockedTask
 	if err != nil {
 		return TaskWorktreeMaterialization{}, err
 	}
+	apply, err := s.resolveLockedTaskWorktree(ctx, req, task, workspace)
+	if err != nil {
+		return TaskWorktreeMaterialization{}, err
+	}
+	return apply(ctx)
+}
+
+func (s *Service) InspectLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeRestoreRequest) error {
+	task, err := s.metadata.Queries().GetTask(ctx, string(req.TaskID))
+	if err != nil {
+		return err
+	}
+	workspace, err := s.taskSourceWorkspace(ctx, task.ProjectID, task.SourceWorkspaceID.String)
+	if err != nil {
+		return err
+	}
+	_, err = s.resolveLockedTaskWorktree(ctx, req, task, workspace)
+	return err
+}
+
+func (s *Service) resolveLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeRestoreRequest, task sqlitegen.TaskRecord, workspace taskSourceWorkspace) (func(context.Context) (TaskWorktreeMaterialization, error), error) {
 	if !isManagedExecutionTargetMode(task.ExecutionTargetMode) {
-		return TaskWorktreeMaterialization{}, errors.New("task does not have a locked managed execution target")
+		return nil, errors.New("task does not have a locked managed execution target")
 	}
 	if !task.ManagedWorktreeID.Valid || strings.TrimSpace(task.ManagedWorktreeID.String) == "" {
 		if req.BranchName != nil {
-			return TaskWorktreeMaterialization{}, &serverapi.WorkflowTaskInitialBranchError{
+			return nil, &serverapi.WorkflowTaskInitialBranchError{
 				Reason:     serverapi.WorkflowTaskInitialBranchErrorReasonOperationCannotCreateWorktree,
 				BranchName: *req.BranchName,
 			}
 		}
-		return s.validateUnboundLockedTaskWorktree(task, workspace)
+		_, err := s.restoreUnboundLockedTaskWorktree(task, workspace)
+		return nil, err
 	}
 	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
 	record, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
 	if err != nil {
-		return TaskWorktreeMaterialization{}, err
+		return nil, err
 	}
 	if req.BranchName != nil {
 		persistedBranch, err := persistedTaskWorktreeBranch(record)
 		if err != nil {
-			return TaskWorktreeMaterialization{}, err
+			return nil, err
 		}
 		if err := validateInitialTaskBranchAssertion(req.BranchName, persistedBranch); err != nil {
-			return TaskWorktreeMaterialization{}, err
+			return nil, err
 		}
 	}
 	identity, err := s.git.ValidateManagedWorktreeIdentity(ctx, ManagedWorktreeIdentitySpec{
@@ -846,20 +878,13 @@ func (s *Service) ValidateLockedTaskWorktree(ctx context.Context, req LockedTask
 	if err != nil {
 		var identityErr *ManagedWorktreeIdentityError
 		if errors.As(err, &identityErr) && identityErr.Kind == ManagedWorktreeIdentityErrorRootMissing {
-			return TaskWorktreeMaterialization{}, s.missingTaskWorktree(ctx, workspace, record)
+			return s.resolveMissingLockedTaskWorktree(ctx, req, task, workspace, record)
 		}
-		return TaskWorktreeMaterialization{}, lockedTaskWorktreeIdentityError(err)
+		return nil, lockedTaskWorktreeIdentityError(err)
 	}
-	if req.SetupRecovery != nil {
-		if err := validateRetainedTaskSetupRecovery(req.SetupRecovery, task, record); err != nil {
-			return TaskWorktreeMaterialization{}, err
-		}
-		// Retained setup artifacts keep their original checkout facts for the
-		// conservative recreation check, including setup changes to the branch.
-		bound, err := s.reuseProvisionalManagedTaskWorktree(ctx, task, workspace, record, identity)
-		return bound.materialization, err
-	}
-	return s.rebindHealthyManagedTaskWorktree(ctx, task, workspace, record, identity)
+	return func(ctx context.Context) (TaskWorktreeMaterialization, error) {
+		return s.rebindHealthyManagedTaskWorktree(ctx, task, workspace, record, identity)
+	}, nil
 }
 
 func isManagedExecutionTargetMode(mode sql.NullString) bool {
@@ -874,7 +899,7 @@ func isManagedExecutionTargetMode(mode sql.NullString) bool {
 	}
 }
 
-func (s *Service) validateUnboundLockedTaskWorktree(task sqlitegen.TaskRecord, workspace taskSourceWorkspace) (TaskWorktreeMaterialization, error) {
+func (s *Service) restoreUnboundLockedTaskWorktree(task sqlitegen.TaskRecord, workspace taskSourceWorkspace) (TaskWorktreeMaterialization, error) {
 	occupied, err := s.managedRoots.exactTaskRootOccupied(workspace.RootPath, task.ShortID)
 	if err != nil {
 		return TaskWorktreeMaterialization{}, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseRootInaccessible, Err: err}
@@ -882,7 +907,7 @@ func (s *Service) validateUnboundLockedTaskWorktree(task sqlitegen.TaskRecord, w
 	if occupied {
 		return TaskWorktreeMaterialization{}, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseConflict}
 	}
-	return TaskWorktreeMaterialization{}, &workflow.MissingManagedWorktree{}
+	return TaskWorktreeMaterialization{}, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseMissingBranch}
 }
 
 func (s *Service) inspectManagedTaskWorktree(
@@ -996,27 +1021,54 @@ type managedTaskWorktreeCreationRequest struct {
 	FreshBinding     bool
 }
 
-func (s *Service) missingTaskWorktree(ctx context.Context, workspace taskSourceWorkspace, record metadata.WorktreeRecord) error {
-	if _, err := s.managedRoots.resolveExplicitRoot(record.CanonicalRoot, workspace.RootPath); err != nil {
-		return &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
-	}
+func (s *Service) resolveMissingLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeRestoreRequest, task sqlitegen.TaskRecord, workspace taskSourceWorkspace, record metadata.WorktreeRecord) (func(context.Context) (TaskWorktreeMaterialization, error), error) {
 	gitMetadata, err := worktreeGitMetadataFromRecord(record)
 	if err != nil {
-		return &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
 	}
-	missing := &workflow.MissingManagedWorktree{}
-	if gitMetadata.RecordedBranch == nil {
-		return missing
+	if gitMetadata.Detached || gitMetadata.Branch == nil {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseMissingBranch}
 	}
-	exists, err := s.git.BranchExists(ctx, workspace.RootPath, gitMetadata.RecordedBranch.Name())
+	branchName := gitMetadata.Branch.Name()
+	exists, err := s.git.BranchExists(ctx, workspace.RootPath, branchName)
 	if err != nil {
-		return &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseGitFailure, Err: err}
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseGitFailure, Err: err}
 	}
-	if exists {
-		ref := gitMetadata.RecordedBranch.Ref()
-		missing.SuggestedSelection = &workflow.ExecutionTargetSelection{Mode: workflow.ExecutionTargetModeCustomRef, CustomRef: &ref}
+	if !exists {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseMissingBranch}
 	}
-	return missing
+	registered, err := s.registeredWorktreeRoot(ctx, workspace.RootPath, record.CanonicalRoot)
+	if err != nil {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseGitFailure, Err: err}
+	}
+	if registered {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseConflict}
+	}
+	return func(ctx context.Context) (TaskWorktreeMaterialization, error) {
+		return s.createManagedTaskWorktree(ctx, managedTaskWorktreeCreationRequest{
+			Task: task, Workspace: workspace,
+			CreateSpec: CreateSpec{BaseRef: branchName}, RequestedRoot: &record.CanonicalRoot,
+			SetupOperationID: req.SetupOperationID, ExistingRecord: &record,
+			CreationBaseOID: record.CreationBaseCommitOID,
+		})
+	}, nil
+}
+
+func (s *Service) registeredWorktreeRoot(ctx context.Context, workspaceRoot string, root string) (bool, error) {
+	canonicalRoot, err := config.CanonicalWorkspaceRoot(root)
+	if err != nil {
+		return false, err
+	}
+	worktrees, err := s.git.List(ctx, workspaceRoot)
+	if err != nil {
+		return false, err
+	}
+	for _, worktree := range worktrees {
+		if worktree.Root == canonicalRoot {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func pendingInitialTaskBranch(task sqlitegen.TaskRecord) (localBranch, error) {
@@ -1107,7 +1159,7 @@ func (s *Service) createManagedTaskWorktree(ctx context.Context, req managedTask
 		}
 		return TaskWorktreeMaterialization{}, err
 	}
-	if req.Purpose == TaskExecutionRootCompletedReplacement {
+	if req.Purpose == TaskExecutionRootReplacement {
 		bound, err := s.createAndRegisterManagedTaskWorktree(ctx, req)
 		if err != nil {
 			return TaskWorktreeMaterialization{}, err
@@ -1364,7 +1416,16 @@ func (s *Service) runReplacementTaskWorktreeSetup(
 	created boundManagedTaskWorktree,
 	setupOperationID *worktreecontract.SetupOperationID,
 	settings config.WorktreeSettings,
-) (TaskWorktreeMaterialization, error) {
+) (materialized TaskWorktreeMaterialization, failure error) {
+	defer func() {
+		if materialized.SetupResult != nil && materialized.SetupResult.Failed != nil {
+			materialized.SetupResult.Failed.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
+		}
+		var retained *worktreecontract.SetupRetainedError
+		if errors.As(failure, &retained) {
+			retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
+		}
+	}()
 	observer, err := s.taskSetupAttemptObserver(setupOperationID)
 	if err != nil {
 		return created.materialization, err
@@ -2518,7 +2579,8 @@ func (s *Service) executeSetupAttempt(ctx context.Context, attempt preparedSetup
 
 func setupFailureFromError(err error, retained *worktreepb.TopologyEntry) *worktreepb.SetupFailed {
 	failed := &worktreepb.SetupFailed{
-		RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
+		RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+		RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
 		Cause: &worktreepb.SetupFailureCause{
 			Cause: &worktreepb.SetupFailureCause_Operational{Operational: &emptypb.Empty{}},
 		},
@@ -2568,7 +2630,8 @@ func (s *Service) runSetupForWorktree(ctx context.Context, operationID worktreec
 		s.publishSetupEvent(&worktreepb.SetupEvent{
 			SetupOperationId: operationID.String(),
 			Phase: &worktreepb.SetupEvent_Failed{Failed: &worktreepb.SetupFailed{
-				RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_NON_RETRYABLE,
+				RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+				RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_NON_RETRYABLE,
 				Cause: &worktreepb.SetupFailureCause{
 					Cause: &worktreepb.SetupFailureCause_Operational{Operational: &emptypb.Empty{}},
 				},

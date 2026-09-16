@@ -543,7 +543,8 @@ func TestTaskSetupGuidanceContracts(t *testing.T) {
 	failed := &worktreepb.SetupEvent{
 		Phase: &worktreepb.SetupEvent_Failed{
 			Failed: &worktreepb.SetupFailed{
-				RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
+				RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+				RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
 				Cause: &worktreepb.SetupFailureCause{
 					Cause: &worktreepb.SetupFailureCause_ProcessExit{
 						ProcessExit: &worktreepb.SetupProcessExit{ExitCode: 1},

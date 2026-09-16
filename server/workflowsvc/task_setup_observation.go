@@ -11,6 +11,7 @@ import (
 	"core/server/worktree"
 	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -64,8 +65,8 @@ func (o *taskSetupObservation) finalize(finalization workflowexecution.TaskPrepa
 	preparationErr := o.preparationErr
 	o.mu.Unlock()
 
-	var missing *workflow.MissingManagedWorktree
-	if errors.As(preparationErr, &missing) {
+	var unavailable *serverapi.WorkflowLockedExecutionTargetError
+	if errors.As(preparationErr, &unavailable) {
 		return
 	}
 	event := &worktreepb.SetupEvent{SetupOperationId: o.setupOperationID.String()}
@@ -132,7 +133,8 @@ func preparationFailurePayload(result *worktree.WorktreeSetupResult, retainedWor
 		return failed
 	}
 	return &worktreepb.SetupFailed{
-		RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
+		RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+		RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
 		Cause: &worktreepb.SetupFailureCause{
 			Cause: &worktreepb.SetupFailureCause_TargetPreparation{TargetPreparation: &emptypb.Empty{}},
 		},
@@ -157,9 +159,10 @@ func nonRetryablePreparationFailure(kind worktreecontract.SetupFailureKind, caus
 		panic(fmt.Sprintf("unsupported non-retryable Task preparation failure kind %q", kind))
 	}
 	return &worktreepb.SetupFailed{
-		RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_NON_RETRYABLE,
-		Cause:          failureCause,
-		Diagnostic:     preparationDiagnostic(cause),
+		RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+		RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_NON_RETRYABLE,
+		Cause:               failureCause,
+		Diagnostic:          preparationDiagnostic(cause),
 	}
 }
 
@@ -203,7 +206,7 @@ func taskPreparationError(
 	}
 	if errors.As(err, &typed) {
 		detail = typed.InterruptionDetail()
-		if detail.SetupRecovery != nil || detail.MissingManagedWorktree != nil {
+		if detail.SetupRecovery != nil || detail.OriginalExecutionTargetUnavailable != nil {
 			return err
 		}
 	}
@@ -231,6 +234,9 @@ func taskPreparationError(
 		}
 	}
 	delete(detail.Fields, workflow.CurrentNodeInterruptionDiagnosticField)
+	if preflight.originalUnavailable != nil {
+		detail.OriginalExecutionTargetUnavailable = serverapi.NewWorkflowOriginalTargetSelectionRequirement(preflight.originalUnavailable.Cause).Details.GetOriginalTargetUnavailable()
+	}
 	detail.SetupRecovery = &workflow.CurrentNodeSetupRecoveryDetail{
 		SetupOperationID:         uuid.UUID(setupOperationID),
 		Cause:                    failureKind,

@@ -55,7 +55,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type executionTargetValidator interface {
-	ValidateExecutionTarget(context.Context, workflow.ExecutionTargetValidationRequest) error
+	RestoreExecutionTarget(context.Context, workflow.ExecutionTargetRestoreRequest) error
 }
 
 type Starter struct {
@@ -121,6 +121,9 @@ func (s *Starter) SteerCurrentNodeAssignment(
 	if input.Node.Kind != workflow.NodeKindAgent {
 		return nil, fmt.Errorf("current node %v is not executable", reference)
 	}
+	if err := s.prepareExecutableTarget(ctx, input); err != nil {
+		return nil, err
+	}
 	steer, err := s.prepareCurrentNodeAgentAssignment(ctx, input, true)
 	if err != nil {
 		return nil, err
@@ -136,9 +139,6 @@ func (s *Starter) prepareCurrentNodeAgentAssignment(
 	input workflowstore.CurrentNodeStartContext,
 	bindSession bool,
 ) (*currentNodeAgentAssignmentSteer, error) {
-	if err := s.prepareExecutableTarget(ctx, input); err != nil {
-		return nil, err
-	}
 	selection, err := currentNodeAgentExecutionSelection(input)
 	if err != nil {
 		return nil, err
@@ -168,12 +168,12 @@ func (s *Starter) prepareExecutableTarget(ctx context.Context, input workflowsto
 	if input.Task.ExecutionTarget == nil || input.Task.ExecutionTarget.Mode == workflow.ExecutionTargetModeNone {
 		return nil
 	}
-	err := s.executionTargets.ValidateExecutionTarget(ctx, workflow.ExecutionTargetValidationRequest{TaskID: input.Task.ID})
-	var missing *workflow.MissingManagedWorktree
-	if errors.As(err, &missing) {
+	err := s.executionTargets.RestoreExecutionTarget(ctx, workflow.ExecutionTargetRestoreRequest{TaskID: input.Task.ID})
+	var unavailable *serverapi.WorkflowLockedExecutionTargetError
+	if errors.As(err, &unavailable) {
 		return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
-			Code:                   "workflow_managed_worktree_missing",
-			MissingManagedWorktree: missing,
+			Code:                               "workflow_original_target_unavailable",
+			OriginalExecutionTargetUnavailable: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause).Details.GetOriginalTargetUnavailable(),
 		})
 	}
 	return err
@@ -534,6 +534,9 @@ func (s *Starter) StartAgentCurrentNode(
 	if assignmentSteer == nil && taskPromptDelivery == workflowruntime.TaskPromptDeliveryResume {
 		input, err := s.store.ResolveCurrentNodeStartContext(ctx, reference)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.prepareExecutableTarget(ctx, input); err != nil {
 			return nil, err
 		}
 		sessionPrepared, err := s.currentNodeResumeUsesPreparedSession(ctx, input)

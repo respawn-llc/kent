@@ -50,24 +50,6 @@ func (s *Store) ListCurrentNodes(ctx context.Context, taskID workflow.TaskID) ([
 	return s.listTaskCurrentNodes(ctx, s.queries, taskID)
 }
 
-func (s *Store) TaskSetupRecovery(ctx context.Context, taskID workflow.TaskID) (*workflow.CurrentNodeSetupRecoveryDetail, error) {
-	nodes, err := s.ListCurrentNodes(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	var recovery *workflow.CurrentNodeSetupRecoveryDetail
-	for _, node := range nodes {
-		if node.Scheduling == nil || node.Scheduling.Interruption == nil || node.Scheduling.Interruption.Detail.SetupRecovery == nil {
-			continue
-		}
-		if recovery != nil {
-			return nil, errors.New("Task has multiple canonical setup recoveries")
-		}
-		recovery = node.Scheduling.Interruption.Detail.SetupRecovery
-	}
-	return recovery, nil
-}
-
 func (s *Store) publishCurrentNodeTaskEvent(ctx context.Context, taskID workflow.TaskID, action serverapi.WorkflowProjectEventAction) error {
 	task, err := s.queries.GetTask(ctx, string(taskID))
 	if err != nil {
@@ -663,10 +645,9 @@ func (s *Store) InterruptCurrentNode(
 	)
 }
 
-func (s *Store) ReplaceCurrentNodeInterruptionWithPreparationFailure(
+func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 	ctx context.Context,
 	reference workflow.CurrentNodeReference,
-	expectedReason workflow.CurrentNodeInterruptionReason,
 	detail workflow.CurrentNodeInterruptionDetail,
 ) error {
 	if err := reference.Validate(); err != nil {
@@ -678,15 +659,14 @@ func (s *Store) ReplaceCurrentNodeInterruptionWithPreparationFailure(
 	}
 	now := s.now().UTC().UnixMilli()
 	branchKey, branchScoped := reference.TransitionBranchKey()
-	replaced, err := s.queries.ReplaceCurrentNodeInterruptionWithPreparationFailure(
+	replaced, err := s.queries.ReplaceUserInterruptionWithAssignmentFailure(
 		ctx,
-		sqlitegen.ReplaceCurrentNodeInterruptionWithPreparationFailureParams{
-			ExpectedInterruptionReason: nullableString(string(expectedReason)),
-			InterruptionDetailJson:     sql.NullString{String: string(detailJSON), Valid: true},
-			InterruptedAtUnixMs:        sql.NullInt64{Int64: now, Valid: true},
-			TaskID:                     string(reference.TaskID),
-			NodeID:                     string(reference.NodeID),
-			TransitionBranchKey:        sql.NullString{String: string(branchKey), Valid: branchScoped},
+		sqlitegen.ReplaceUserInterruptionWithAssignmentFailureParams{
+			InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
+			InterruptedAtUnixMs:    sql.NullInt64{Int64: now, Valid: true},
+			TaskID:                 string(reference.TaskID),
+			NodeID:                 string(reference.NodeID),
+			TransitionBranchKey:    sql.NullString{String: string(branchKey), Valid: branchScoped},
 		},
 	)
 	if err != nil {

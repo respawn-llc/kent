@@ -628,8 +628,6 @@ func (c *CurrentNodeController) ApplyPendingApproval(
 	return applied, err
 }
 
-type ManualMoveTargetPreparation func(context.Context, func(context.Context, *workflowstore.ExecutionTargetCandidate) error) error
-
 func (c *CurrentNodeController) RunManualMove(ctx context.Context, operation func(context.Context) error) error {
 	if c == nil || ctx == nil || operation == nil {
 		return errors.New("Manual Move owner, context, and operation are required")
@@ -650,61 +648,6 @@ func (c *CurrentNodeController) RunManualMove(ctx context.Context, operation fun
 		return preparationShutdownCause()
 	}
 	return operation(context.WithValue(owned, currentNodeLifecycleContextKey{}, c))
-}
-
-func (c *CurrentNodeController) ApplyManualMoveWithPreparation(
-	ctx context.Context,
-	prepared workflowstore.ManualMovePreparation,
-	prepare ManualMoveTargetPreparation,
-) (workflowstore.ManualMoveResult, error) {
-	return runCurrentNodeTaskMutation(ctx, c, prepared.TaskID(), func(ctx context.Context) (workflowstore.ManualMoveResult, error) {
-		if err := c.EnsureTaskQuiescent(prepared.TaskID()); err != nil {
-			return workflowstore.ManualMoveResult{}, err
-		}
-		store, ok := c.store.(interface {
-			ApplyManualMoveBeforePreparation(context.Context, workflowstore.ManualMovePreparation, *workflowstore.ExecutionTargetCandidate) (workflowstore.ManualMoveResult, error)
-		})
-		if !ok || prepare == nil {
-			return workflowstore.ManualMoveResult{}, errors.New("Manual Move target preparation is required")
-		}
-		var moved workflowstore.ManualMoveResult
-		var commitDiagnostic error
-		preparationErr := prepare(ctx, func(ctx context.Context, candidate *workflowstore.ExecutionTargetCandidate) error {
-			var err error
-			moved, err = store.ApplyManualMoveBeforePreparation(ctx, prepared, candidate)
-			if moved.Outcome == workflowstore.ManualMoveResultOutcomeApplied {
-				c.finalizeTaskAttentionResolution(moved.TaskAttentionResolution)
-				commitDiagnostic = err
-				return nil
-			}
-			if err == nil {
-				err = ErrManualMoveLifecycleConflict
-			}
-			return err
-		})
-		if moved.Outcome != workflowstore.ManualMoveResultOutcomeApplied {
-			if preparationErr == nil {
-				preparationErr = errors.New("target preparation completed without applying its Move")
-			}
-			return moved, preparationErr
-		}
-		if preparationErr != nil {
-			return moved, errors.Join(preparationErr, commitDiagnostic, c.RecordTaskPreparationFailure(ctx, prepared.TaskID(), preparationErr))
-		}
-		starts, err := currentNodeExplicitStarts(moved.Mutation.Created)
-		if err != nil {
-			return moved, errors.Join(commitDiagnostic, err)
-		}
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		for _, start := range starts {
-			start.taskPromptDelivery = workflowruntime.TaskPromptDeliveryAssignment
-			if err := c.queueExplicitStartLocked(start); err != nil {
-				return moved, errors.Join(commitDiagnostic, err)
-			}
-		}
-		return moved, commitDiagnostic
-	})
 }
 
 func (c *CurrentNodeController) ApplyManualMove(

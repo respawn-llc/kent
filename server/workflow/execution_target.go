@@ -3,6 +3,8 @@ package workflow
 import (
 	"errors"
 	"strings"
+
+	"core/shared/worktreecontract"
 )
 
 type ExecutionTargetMode string
@@ -25,28 +27,10 @@ type ExecutionTargetSelection struct {
 	CustomRef *string             `json:"custom_ref,omitempty"`
 }
 
-type ExecutionTargetValidationRequest struct {
+type ExecutionTargetRestoreRequest struct {
 	TaskID                 TaskID
 	InitialBranchAssertion *string
-	SetupRecovery          *CurrentNodeSetupRecoveryDetail
-}
-
-type MissingManagedWorktree struct {
-	SuggestedSelection *ExecutionTargetSelection `json:"suggested_selection,omitempty"`
-}
-
-func (m *MissingManagedWorktree) Error() string {
-	return "managed Worktree is missing; execution target selection is required"
-}
-
-func (m MissingManagedWorktree) Validate() error {
-	if m.SuggestedSelection == nil {
-		return nil
-	}
-	if m.SuggestedSelection.Mode != ExecutionTargetModeCustomRef {
-		return errors.New("missing Worktree suggestion must select a retained branch ref")
-	}
-	return m.SuggestedSelection.Validate()
+	SetupOperationID       *worktreecontract.SetupOperationID
 }
 
 type ExecutionTargetUnavailableCause string
