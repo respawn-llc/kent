@@ -86,14 +86,6 @@ func (m *Manager) ResolveCurrentState(ctx context.Context) (CurrentStateResoluti
 	return resolution, nil
 }
 
-func (m *Manager) EnsureStartupReady(ctx context.Context) error {
-	state, err := m.Load(ctx)
-	if err != nil {
-		return err
-	}
-	return EnsureStartupReady(state)
-}
-
 func (m *Manager) SwitchMethod(ctx context.Context, method Method, isIdle bool) (State, error) {
 	return m.SwitchMethodAndSetEnvAPIKeyPreference(ctx, method, EnvAPIKeyPreferenceUnspecified, false, isIdle)
 }
