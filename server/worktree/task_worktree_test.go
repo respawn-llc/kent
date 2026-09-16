@@ -216,6 +216,11 @@ func TestRestoreLockedTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *testing
 		t.Fatalf("UpdateWorktreeCanonicalRoot: %v", err)
 	}
 
+	inspectionErr := env.service.InspectLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	var unavailable *LockedTaskWorktreeError
+	if !errors.As(inspectionErr, &unavailable) || unavailable.Cause != LockedTaskWorktreeCauseInvalidRoot {
+		t.Fatalf("unsafe root inspection = %v, want invalid-root selection cause", inspectionErr)
+	}
 	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
 	if err == nil {
 		t.Fatal("RestoreLockedTaskWorktree accepted an existing root outside the server namespace")
@@ -1435,6 +1440,10 @@ func completedTaskWorktree(t *testing.T, env *serviceTestEnv) (workflowstore.Tas
 	if _, err := store.CompleteCurrentNode(env.ctx, workflowstore.CurrentNodeCompletionRequest{
 		Source: nodes[0].Reference, TransitionID: "done",
 	}); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, env.workspaceRoot, "worktree", "remove", "--force", taskWorktreeRoot(original.Worktree))
+	if err := os.MkdirAll(taskWorktreeRoot(original.Worktree), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return task, original, base

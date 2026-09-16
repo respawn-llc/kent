@@ -2,7 +2,6 @@ package workflowrunner
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,7 +22,6 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/metadata/sqlitegen"
 	"core/server/registry"
 	"core/server/runprompt"
 	agentruntime "core/server/runtime"
@@ -48,6 +46,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/worktreecontract"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -2592,34 +2591,9 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 				})
 			})
 			task := f.createTask(t, workflowID)
-			original := workflowstore.ManagedExecutionRoot{WorktreeID: runtimeids.NewGraphEntityID(), Root: filepath.Join(f.cfg.Settings.Worktrees.BaseDir, "original")}
-			if err := os.MkdirAll(original.Root, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			original.Root, err = config.CanonicalWorkspaceRoot(original.Root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := f.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
-				ID: original.WorktreeID, WorkspaceID: f.workspaceID, CanonicalRoot: original.Root, Managed: true,
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := f.metadata.Queries().BindInitialTaskManagedWorktree(ctx, sqlitegen.BindInitialTaskManagedWorktreeParams{
-				TaskID: string(task.ID), ManagedWorktreeID: sql.NullString{String: original.WorktreeID, Valid: true},
-				UpdatedAtUnixMs: time.Now().UnixMilli(),
-			}); err != nil {
-				t.Fatal(err)
-			}
-			initial := &workflowstore.ExecutionTargetCandidate{
-				Snapshot: workflowstore.ExecutionTargetSnapshot{
-					Mode: workflow.ExecutionTargetModeHead, RequestedRef: textutil.Value("HEAD"),
-					CommitOID: textutil.Value("fixture-commit"), Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-				},
-				Root: workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace, Managed: &original},
-			}
-			source := f.startTaskWithExecutionTarget(t, task, initial)
+			initial, worktrees := prepareMissingWorktreeCompletion(t, f, task)
+			original := *initial.Root.Managed
+			source := f.startTaskWithExecutionTarget(t, task, &initial)
 			initialNodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 				return len(nodes) == 1 && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
 			})
@@ -2669,19 +2643,16 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 			}
 			if managed {
 				replacement.Snapshot = initial.Snapshot
-				replacement.Root.Managed = &workflowstore.ManagedExecutionRoot{WorktreeID: runtimeids.NewGraphEntityID(), Root: filepath.Join(f.cfg.Settings.Worktrees.BaseDir, "replacement")}
-				if err := os.MkdirAll(replacement.Root.Managed.Root, 0o755); err != nil {
-					t.Fatal(err)
-				}
-				replacement.Root.Managed.Root, err = config.CanonicalWorkspaceRoot(replacement.Root.Managed.Root)
+				created, err := worktrees.CreateWorktree(ctx, &worktreepb.CreateRequest{
+					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+					Scope:            worktreecontract.WorkspaceManagementScope(f.projectID, f.workspaceID, nil),
+					Spec:             &worktreepb.CreateSpec{BaseRef: textutil.Value("HEAD"), CreateBranch: true, BranchName: textutil.Value("replacement")},
+				})
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := f.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
-					ID: replacement.Root.Managed.WorktreeID, WorkspaceID: f.workspaceID, CanonicalRoot: replacement.Root.Managed.Root, Managed: true,
-				}); err != nil {
-					t.Fatal(err)
-				}
+				facts := created.Worktree.Topology.GetRegistered()
+				replacement.Root.Managed = &workflowstore.ManagedExecutionRoot{WorktreeID: facts.Kent.WorktreeId, Root: facts.Git.CanonicalRoot}
 			}
 			for _, root := range []string{original.Root, replacement.Root.EffectiveRoot()} {
 				if err := os.WriteFile(filepath.Join(root, "relative-input"), []byte("preserved"), 0o644); err != nil {

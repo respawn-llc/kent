@@ -882,6 +882,10 @@ func (s *Service) resolveLockedTaskWorktree(ctx context.Context, req LockedTaskW
 		}
 		return nil, lockedTaskWorktreeIdentityError(err)
 	}
+	record.CanonicalRoot, err = s.managedRoots.validatePersistedRoot(record.CanonicalRoot, workspace.RootPath)
+	if err != nil {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
+	}
 	return func(ctx context.Context) (TaskWorktreeMaterialization, error) {
 		return s.rebindHealthyManagedTaskWorktree(ctx, task, workspace, record, identity)
 	}, nil
@@ -1022,6 +1026,9 @@ type managedTaskWorktreeCreationRequest struct {
 }
 
 func (s *Service) resolveMissingLockedTaskWorktree(ctx context.Context, req LockedTaskWorktreeRestoreRequest, task sqlitegen.TaskRecord, workspace taskSourceWorkspace, record metadata.WorktreeRecord) (func(context.Context) (TaskWorktreeMaterialization, error), error) {
+	if _, err := s.managedRoots.resolveExplicitRoot(record.CanonicalRoot, workspace.RootPath); err != nil {
+		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
+	}
 	gitMetadata, err := worktreeGitMetadataFromRecord(record)
 	if err != nil {
 		return nil, &LockedTaskWorktreeError{Cause: LockedTaskWorktreeCauseInvalidRoot, Err: err}
