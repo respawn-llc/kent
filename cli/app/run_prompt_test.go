@@ -171,21 +171,6 @@ func (h memoryAuthHandler) LookupEnv(key string) string {
 	return ""
 }
 
-var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
-	path, created, err := config.WriteDefaultSettingsFile()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded, err := req.ReloadConfig()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded.Source.CreatedDefaultConfig = created
-	reloaded.Source.SettingsPath = path
-	reloaded.Source.SettingsFileExists = true
-	return reloaded, nil
-})
-
 func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 	t.Helper()
 	loadCfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -221,7 +206,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -259,7 +244,7 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

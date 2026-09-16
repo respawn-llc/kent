@@ -224,7 +224,7 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{}, nil)
+	}, memoryAuthHandler{})
 	if err != nil {
 		t.Fatalf("start server: %v", err)
 	}

@@ -8,10 +8,8 @@ import (
 	"core/server/auth"
 	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/capabilityfacts"
 	"core/server/core"
 	"core/server/metadata"
-	"core/shared/apicontract"
 	"core/shared/config"
 )
 
@@ -38,16 +36,7 @@ type AuthHandler interface {
 	LookupEnv(key string) string
 }
 
-type OnboardingHandler func(ctx context.Context, req OnboardingRequest) (config.App, error)
-
-type OnboardingRequest struct {
-	Config                config.App
-	AuthManager           *auth.Manager
-	CapabilityFactsClient apicontract.CapabilityFactsService
-	ReloadConfig          func() (config.App, error)
-}
-
-func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*core.Core, error) {
+func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		return nil, err
@@ -60,24 +49,6 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 	}
 	if requireAuth {
 		if err := authservice.EnsureFlowReady(ctx, authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings.Theme, bootstrapReq.LookupEnv, authservice.StartupAuthRequired(cfg.Settings), false, authHandler); err != nil {
-			return nil, err
-		}
-	}
-	if onboardingHandler != nil {
-		factsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg, AuthManager: authSupport.AuthManager})
-		cfg, err = onboardingHandler(ctx, OnboardingRequest{
-			Config:                cfg,
-			AuthManager:           authSupport.AuthManager,
-			CapabilityFactsClient: factsService,
-			ReloadConfig: func() (config.App, error) {
-				refreshed, err := serverbootstrap.ResolveConfig(bootstrapReq)
-				if err != nil {
-					return config.App{}, err
-				}
-				return refreshed.Config, nil
-			},
-		})
-		if err != nil {
 			return nil, err
 		}
 	}

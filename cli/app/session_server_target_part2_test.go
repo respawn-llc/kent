@@ -17,13 +17,14 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
+	writeAppTestSettings(t)
 	fakeResponses, hits := newNoAuthFakeResponsesServer(t, []string{"rebound no-auth reply"})
 	defer fakeResponses.Close()
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		Model:                "gpt-5",
 		AllowUnauthenticated: true,
-	}, memoryAuthHandler{}, autoOnboarding)
+	}, memoryAuthHandler{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
