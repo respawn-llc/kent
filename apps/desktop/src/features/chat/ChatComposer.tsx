@@ -1,5 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -31,6 +31,8 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
   const root = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const pickerOpen = composer.suggestions.length > 0;
+  const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
+    availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
   useLayoutEffect(() => {
     const element = editor.current;
     if (element === null) return;
@@ -101,11 +103,7 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
           {pickerOpen && <ComposerSuggestions composer={composer} />}
         </PeekingSurface>
       )}
-      <Island
-        className="chat-composer-input"
-        style={availableHeight === null ? undefined : { maxHeight: availableHeight / 3 }}
-        unpadded
-      >
+      <Island className="chat-composer-input" style={heightStyle} unpadded>
         {composer.target.kind === "session" ? (
           <ChatPromptPicker target={composer.target}>{editorRegion}</ChatPromptPicker>
         ) : (

@@ -5,8 +5,12 @@ export function contextPresentation(used: number, window: number | null) {
   return {
     usedPercent: Math.round(ratio * 100),
     remainingPercent: Math.round((remaining / window) * 100),
-    remaining:
-      Math.abs(remaining) < 1000 ? remaining.toString() : `${Math.trunc(remaining / 1000).toString()}k`,
+    remaining: formatTokens(remaining),
+    window: formatTokens(window),
     extent: Math.min(1, Math.max(0, ratio)),
   };
+}
+
+function formatTokens(tokens: number): string {
+  return Math.abs(tokens) < 1000 ? tokens.toString() : `${Math.trunc(tokens / 1000).toString()}k`;
 }

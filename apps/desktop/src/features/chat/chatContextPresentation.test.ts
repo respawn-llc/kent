@@ -7,6 +7,7 @@ describe("Context presentation", () => {
       usedPercent: 39,
       remainingPercent: 61,
       remaining: "19k",
+      window: "32k",
       extent: 12540 / 32000,
     });
   });
@@ -18,6 +19,7 @@ describe("Context presentation", () => {
       usedPercent: 104,
       remainingPercent: -4,
       remaining: "-6k",
+      window: "186k",
       extent: 1,
     });
   });
@@ -35,13 +37,20 @@ describe("Context presentation", () => {
       usedPercent: 0,
       remainingPercent: 100,
       remaining: "999",
+      window: "999",
       extent: 0,
     });
     expect(contextPresentation(999, 999)).toEqual({
       usedPercent: 100,
       remainingPercent: 0,
       remaining: "0",
+      window: "999",
       extent: 1,
     });
+  });
+  it("formats the complete window with exact small values and truncated thousands", () => {
+    expect(contextPresentation(0, 999)?.window).toBe("999");
+    expect(contextPresentation(0, 1000)?.window).toBe("1k");
+    expect(contextPresentation(0, 1999)?.window).toBe("1k");
   });
 });

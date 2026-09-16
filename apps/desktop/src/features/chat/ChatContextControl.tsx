@@ -77,6 +77,7 @@ export function ChatContextControl(props: Props) {
               values={{
                 tokens: presentation.remaining,
                 percent: presentation.remainingPercent,
+                window: presentation.window,
               }}
               components={{ strong: <strong /> }}
             />
