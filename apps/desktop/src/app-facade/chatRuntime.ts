@@ -107,7 +107,7 @@ export class ChatRuntimeOwner {
       },
       onOpeningFailure: (error) => this.#host.onTranscriptError?.(error),
       onScratchRehydration: () => {
-        this.recoverTranscriptContinuity();
+        this.#observation?.rehydrateAfterCompaction();
       },
     });
     this.#snapshotCache = this.#projectSnapshot();
@@ -146,23 +146,17 @@ export class ChatRuntimeOwner {
       onEvent: (event) => {
         this.#admitTranscriptEvent(event);
       },
-      onIntegrityFailure: (error, recover) => {
+      onIntegrityFailure: (error) => {
         void recoverOrThrowDebugFailure({
           context: { sessionID: this.#target.sessionID },
           error,
           logger: this.#host.logger,
           message: "Transcript observation violated its integrity contract.",
-          recover,
+          recover: () => this.#host.onTranscriptError?.(error),
         });
       },
-      onTransportLoss: () => {
+      onObservationLoss: () => {
         this.transcript.observationLost();
-      },
-      onRecoveryBegin: () => {
-        this.transcript.recoveryStarted();
-      },
-      onForceMainViewRead: () => {
-        void this.forceMainViewRead();
       },
       onError: (error) => this.#host.onTranscriptError?.(error),
       onStateChange: () => {
@@ -199,14 +193,6 @@ export class ChatRuntimeOwner {
 
   retryTranscriptObservation(): void {
     this.#observation?.retry();
-  }
-
-  recoverTranscriptContinuity(): void {
-    this.#observation?.recoverContinuity();
-  }
-
-  controlReconnected(): void {
-    this.#observation?.replaceForReconnect();
   }
 
   replacePendingPrompts(prompts: readonly PendingPrompt[]): void {

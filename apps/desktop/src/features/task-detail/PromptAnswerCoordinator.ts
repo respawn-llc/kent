@@ -1,10 +1,12 @@
-import type { QuestionAttentionItem } from "@/api";
+import type { PromptAnswerBatchResponse, QuestionAttentionItem, TaskAttention } from "@/api";
+import type { QueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/app-facade";
 import { promptAnswerKey, samePromptAnswerKey, type PromptAnswerState } from "./PromptAnswerState";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 
 export type PromptAnswerFailure = Readonly<{
   cause: unknown;
-  kind: "delivery" | "reconciliation";
+  kind: "delivery" | "refresh";
   promptKey: ReturnType<typeof promptAnswerKey>;
   taskID: string;
   taskShortID: string;
@@ -12,10 +14,10 @@ export type PromptAnswerFailure = Readonly<{
 }>;
 
 type PromptAnswerCoordinatorDependencies = Readonly<{
+  queryClient: QueryClient;
   invalidateAttention(): Promise<void>;
   isMounted(): boolean;
   notifyFailure(failure: PromptAnswerFailure): void;
-  readAttention(): Promise<readonly QuestionAttentionItem[]>;
   task: Readonly<{ id: string; shortID: string; title: string }>;
   updateState(update: (state: PromptAnswerState) => PromptAnswerState): void;
 }>;
@@ -30,44 +32,55 @@ export class PromptAnswerCoordinator {
   }: Readonly<{
     attention: QuestionAttentionItem;
     selection: QuestionSelectionState;
-    send(): Promise<unknown>;
+    send(): Promise<PromptAnswerBatchResponse>;
   }>): Promise<void> {
     const key = promptAnswerKey(attention);
     this.dependencies.updateState((state) =>
       state.withSelection(key, selection).beginSubmission(key, attention),
     );
 
-    let deliveryFailed = false;
-    let deliveryFailure: unknown;
     try {
-      await send();
-    } catch (error: unknown) {
-      deliveryFailed = true;
-      deliveryFailure = error;
-    }
-
-    try {
-      await this.dependencies.invalidateAttention();
-      const freshAttention = await this.dependencies.readAttention();
-      if (!this.dependencies.isMounted()) {
-        if (deliveryFailed) {
-          this.notify("delivery", deliveryFailure, key);
-        }
-        return;
-      }
-      if (freshAttention.some((item) => samePromptAnswerKey(promptAnswerKey(item), key))) {
-        this.dependencies.updateState((state) => state.restoreSubmission(key));
-        if (deliveryFailed) {
-          this.notify("delivery", deliveryFailure, key);
-        }
-        return;
-      }
-      this.dependencies.updateState((state) => state.discardSubmission(key));
+      const response = await send();
+      this.dependencies.queryClient.setQueryData<TaskAttention>(
+        queryKeys.taskAttention(this.dependencies.task.id),
+        (current) =>
+          current === undefined
+            ? current
+            : {
+                ...current,
+                items: current.items.filter(
+                  (item) =>
+                    item.kind !== "question" ||
+                    !response.results.some((result) =>
+                      samePromptAnswerKey(promptAnswerKey(item), {
+                        ...key,
+                        toolCallID: result.toolCallID,
+                      }),
+                    ),
+                ),
+              },
+      );
     } catch (error: unknown) {
       if (this.dependencies.isMounted()) {
-        this.dependencies.updateState((state) => state.restoreSubmission(key));
+        const latest = this.dependencies.queryClient
+          .getQueryData<TaskAttention>(queryKeys.taskAttention(this.dependencies.task.id))
+          ?.items.filter((item) => item.kind === "question");
+        const resolved =
+          latest !== undefined && !latest.some((item) => samePromptAnswerKey(promptAnswerKey(item), key));
+        this.dependencies.updateState((state) =>
+          resolved ? state.discardSubmission(key) : state.restoreSubmission(key),
+        );
       }
-      this.notify("reconciliation", error, key);
+      this.notify("delivery", error, key);
+      return;
+    }
+    if (this.dependencies.isMounted()) {
+      this.dependencies.updateState((state) => state.discardSubmission(key));
+    }
+    try {
+      await this.dependencies.invalidateAttention();
+    } catch (error: unknown) {
+      this.notify("refresh", error, key);
     }
   }
 

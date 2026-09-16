@@ -6,7 +6,7 @@ import type {
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
 } from "@/api";
-import { ContractError } from "@/api";
+import { ContractError, TransportError } from "@/api";
 
 type TranscriptSubscriber = Pick<ChatApi, "subscribeTranscript">;
 
@@ -101,15 +101,12 @@ function isTerminalRuntimeUnavailable(event: ChatTranscriptMessage): boolean {
 
 export type ChatTranscriptHydrationKind = "initial" | "scratch" | "reattachment";
 export type ChatTranscriptObservationState =
-  | Readonly<{ kind: "loading" | "observing" | "recovering" | "disposed" }>
-  | Readonly<{ kind: "error"; error: Error }>;
+  Readonly<{ kind: "loading" | "observing" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;
 export type ChatTranscriptObservationHost = Readonly<{
   onHydration(kind: ChatTranscriptHydrationKind, hydration: ChatTranscriptPayloadByKind["hydration"]): void;
   onEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void;
-  onIntegrityFailure?(error: Error, recover: () => void): void;
-  onTransportLoss?(): void;
-  onRecoveryBegin(): void;
-  onForceMainViewRead(): void;
+  onIntegrityFailure?(error: Error): void;
+  onObservationLoss?(): void;
   onError(error: Error): void;
   onStateChange?(): void;
 }>;
@@ -126,8 +123,6 @@ export class ChatTranscriptObservation {
   #nextSequence = 0;
   #hydratedCommittedEventSequence: number | null = null;
   #lastLiveCommittedLocator: CommittedRowLocator | null = null;
-  #replacementInFlight = false;
-  #observationGeneration = 0;
   #hasHydrated = false;
   #disposed = false;
 
@@ -146,17 +141,13 @@ export class ChatTranscriptObservation {
     this.#openPhysical();
   }
 
-  recoverContinuity(): void {
-    if (this.#state.kind !== "recovering") this.#replaceObservation(true);
-  }
-
-  replaceForReconnect(): void {
-    this.#replaceObservation(true);
+  rehydrateAfterCompaction(): void {
+    this.#replaceObservation();
   }
 
   retry(): void {
     if (this.#state.kind !== "error") return;
-    this.#replaceObservation(false);
+    this.#replaceObservation();
   }
 
   rejectIntegrity(error: Error): void {
@@ -166,7 +157,6 @@ export class ChatTranscriptObservation {
   close(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#observationGeneration++;
     this.#physical?.close();
     this.#physical = null;
     this.#state = { kind: "disposed" };
@@ -175,7 +165,6 @@ export class ChatTranscriptObservation {
 
   #openPhysical(): void {
     if (this.#disposed) return;
-    this.#observationGeneration++;
     this.#physical = new ChatTranscriptPhysicalObservation(this.#api, this.#target, {
       onOpen: () => {
         if (this.#disposed) return;
@@ -190,7 +179,7 @@ export class ChatTranscriptObservation {
         this.#admit(event);
       },
       onTransportLoss: () => {
-        this.#host.onTransportLoss?.();
+        this.#continuityFailure(new TransportError("Transcript observation lost its transport."));
       },
       onComplete: (completion) => {
         this.#continuityFailure(
@@ -239,7 +228,6 @@ export class ChatTranscriptObservation {
     this.#lastLiveCommittedLocator = null;
     this.#nextSequence = 1;
     this.#hydrationKind = "initial";
-    this.#replacementInFlight = false;
     this.#hasHydrated = true;
     this.#state = { kind: "observing" };
     this.#host.onStateChange?.();
@@ -296,59 +284,35 @@ export class ChatTranscriptObservation {
 
   #continuityFailure(error: Error): void {
     if (this.#disposed) return;
-    if (this.#replacementInFlight) {
-      this.#physical?.close();
-      this.#physical = null;
-      this.#state = { kind: "error", error };
-      this.#host.onError(error);
-      this.#host.onStateChange?.();
-      return;
-    }
-    this.#replaceObservation(true);
+    this.#settleFailure(error);
+    this.#host.onError(error);
   }
 
   #integrityFailure(error: Error): void {
     if (this.#disposed || this.#physical === null) return;
-    const replacementFailed = this.#replacementInFlight;
-    const failureGeneration = ++this.#observationGeneration;
-    this.#physical.close();
-    this.#physical = null;
-    this.#nextSequence = 0;
-    this.#hydratedCommittedEventSequence = null;
-    this.#lastLiveCommittedLocator = null;
-    this.#replacementInFlight = true;
-    this.#state = { kind: "recovering" };
-    this.#host.onStateChange?.();
-    const recover = () => {
-      if (this.#disposed || failureGeneration !== this.#observationGeneration) return;
-      if (replacementFailed) {
-        this.#state = { kind: "error", error };
-        this.#host.onError(error);
-        this.#host.onStateChange?.();
-        return;
-      }
-      this.#hydrationKind = "scratch";
-      this.#host.onRecoveryBegin();
-      this.#host.onForceMainViewRead();
-      this.#openPhysical();
-    };
+    this.#settleFailure(error);
     if (this.#host.onIntegrityFailure === undefined) {
-      recover();
+      this.#host.onError(error);
       return;
     }
-    this.#host.onIntegrityFailure(error, recover);
+    this.#host.onIntegrityFailure(error);
   }
 
-  #replaceObservation(forceMainViewRead: boolean): void {
+  #settleFailure(error: Error): void {
+    this.#physical?.close();
+    this.#physical = null;
+    this.#state = { kind: "error", error };
+    this.#host.onObservationLoss?.();
+    this.#host.onStateChange?.();
+  }
+
+  #replaceObservation(): void {
     if (this.#disposed) return;
     this.#physical?.close();
     this.#physical = null;
     this.#nextSequence = 0;
     this.#hydrationKind = "scratch";
-    this.#replacementInFlight = true;
-    this.#state = { kind: "recovering" };
-    this.#host.onRecoveryBegin();
-    if (forceMainViewRead) this.#host.onForceMainViewRead();
+    this.#state = { kind: "loading" };
     this.#host.onStateChange?.();
     this.#openPhysical();
   }

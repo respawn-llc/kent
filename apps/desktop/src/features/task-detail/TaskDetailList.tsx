@@ -64,7 +64,6 @@ export function TaskDetailList({
   attention,
   comments,
   detail,
-  disabled,
   draft,
   descriptionPresentation,
   editingComment,
@@ -95,7 +94,6 @@ export function TaskDetailList({
   attention: ReturnType<typeof useTaskAttention>;
   comments: ReturnType<typeof useTaskComments>;
   detail: TaskDetail;
-  disabled: boolean;
   draft: TaskDraft;
   descriptionPresentation: DescriptionPresentationState;
   editingComment: Readonly<{ id: string; body: string }> | null;
@@ -124,7 +122,7 @@ export function TaskDetailList({
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
   const draftDirty = draft.title !== detail.title || draft.body !== detail.body;
-  const canSaveDraft = draftDirty && !disabled && !updatePending && draft.title.trim().length > 0;
+  const canSaveDraft = draftDirty && !updatePending && draft.title.trim().length > 0;
   const activityItems = useMemo(
     () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
     [activity.data],
@@ -241,7 +239,6 @@ export function TaskDetailList({
           canSaveDraft={canSaveDraft}
           draftDirty={draftDirty}
           detail={detail}
-          disabled={disabled}
           draft={draft}
           descriptionPresentation={descriptionPresentation}
           editingComment={editingComment}
@@ -290,7 +287,6 @@ type TaskDetailListRowProps = Readonly<{
   canSaveDraft: boolean;
   commentCount: number;
   detail: TaskDetail;
-  disabled: boolean;
   draft: TaskDraft;
   draftDirty: boolean;
   descriptionPresentation: DescriptionPresentationState;
@@ -358,7 +354,6 @@ function TaskDetailListRow(props: TaskDetailListRowProps): ReactNode {
 function HeaderRow({
   canSaveDraft,
   detail,
-  disabled,
   draft,
   onDraftChange,
   onSaveDraft,
@@ -368,7 +363,7 @@ function HeaderRow({
     <TaskHeaderIsland
       canSaveDraft={canSaveDraft}
       detail={detail}
-      disabled={disabled || updatePending}
+      disabled={updatePending}
       draft={draft}
       onDraftChange={onDraftChange}
       onSave={onSaveDraft}
@@ -378,7 +373,6 @@ function HeaderRow({
 
 function BodyRow({
   detail,
-  disabled,
   draft,
   draftDirty,
   mutations,
@@ -394,7 +388,6 @@ function BodyRow({
     <TaskDetailBodyIslands
       description={
         <DescriptionIsland
-          disabled={disabled}
           draft={draft}
           draftDirty={draftDirty}
           error={updateError}
@@ -405,21 +398,13 @@ function BodyRow({
           submitting={updatePending}
         />
       }
-      metadata={
-        <PropertiesIsland
-          detail={detail}
-          disabled={disabled}
-          mutations={mutations}
-          openSessionChat={openSessionChat}
-        />
-      }
+      metadata={<PropertiesIsland detail={detail} mutations={mutations} openSessionChat={openSessionChat} />}
     />
   );
 }
 
 function DependenciesRow({
   detail,
-  disabled,
   mutations,
   onAddDependency,
   onRemoveDependency,
@@ -430,9 +415,7 @@ function DependenciesRow({
   return (
     <TaskDependenciesArea
       dependencies={detail.dependencies}
-      disabled={disabled}
       navigationDisabled={
-        disabled ||
         !relationshipNavigationAvailable ||
         updatePending ||
         mutations.addComment.isPending ||
@@ -460,7 +443,6 @@ function TabsRow({ activityCount, commentCount, selectedTab, setTab }: TaskDetai
 }
 
 function CommentComposerRow({
-  disabled,
   editingComment,
   mutations,
   newCommentBody,
@@ -470,7 +452,6 @@ function CommentComposerRow({
   return (
     <CommentComposer
       body={newCommentBody}
-      disabled={disabled}
       editing={editingComment}
       mutations={mutations}
       onBodyChange={onNewCommentBodyChange}
@@ -493,7 +474,6 @@ function CommentsEmptyRow({ noCommentsTitle }: TaskDetailListRowProps): ReactNod
 }
 
 function CommentItemRow({
-  disabled,
   editingComment,
   item,
   mutations,
@@ -503,7 +483,6 @@ function CommentItemRow({
   return comment === undefined ? null : (
     <CommentRow
       comment={comment}
-      disabled={disabled}
       editing={editingComment?.id === comment.id}
       mutations={mutations}
       onEdit={(nextComment) => {

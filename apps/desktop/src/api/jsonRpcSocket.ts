@@ -589,25 +589,6 @@ export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSig
   });
 }
 
-export async function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const finish = () => {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", abort);
-      resolve();
-    };
-    const abort = () => {
-      finish();
-    };
-    const timeout = setTimeout(finish, milliseconds);
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
 export type SubscriptionMessageResult = Readonly<
   { kind: "active" } | { kind: "complete"; code: number; message: string }
 >;

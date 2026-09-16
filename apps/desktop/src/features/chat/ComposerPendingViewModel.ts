@@ -121,7 +121,7 @@ export function createComposerPendingViewModel({
   const stop = Atom.fn<undefined>()(
     () =>
       Effect.gen(function* () {
-        if (target.kind !== "session" || services.api.connection.snapshot().phase !== "connected") return;
+        if (target.kind !== "session") return;
         yield* Effect.tryPromise(async () => stopObserver.mutate(target)).pipe(Effect.ignore);
       }),
     { concurrent: true },
@@ -149,7 +149,7 @@ export function createComposerPendingViewModel({
   const discard = Atom.fn<Omit<DiscardRequest, "target">>()(
     (input) =>
       Effect.gen(function* () {
-        if (target.kind !== "session" || services.api.connection.snapshot().phase !== "connected") return;
+        if (target.kind !== "session") return;
         discardObserver.setOptions({
           ...discardOptions,
           mutationKey: [...discardKey, input.item.toJSONValue()],

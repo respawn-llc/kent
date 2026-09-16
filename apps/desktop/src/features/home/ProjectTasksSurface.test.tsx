@@ -148,7 +148,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     nativeBridge: { capabilities: { platform: "macos" } },
     storageNamespace: null,
   }),
-  useConnectionSnapshot: () => ({ generation: 1, phase: "connected" }),
   useOwnedSidebarRoots: () => ({ open: fixture.open }),
   useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
   useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
@@ -158,7 +157,7 @@ vi.mock("./projectTaskListData", async (importOriginal) => {
   const actual = await importOriginal<typeof ProjectTaskListData>();
   return {
     ...actual,
-    useProjectTaskListEvents: () => undefined,
+    useProjectTaskListEvents: () => ({ error: null, retry: vi.fn() }),
     useProjectTaskListData: () => ({
       counts: countsQuery(
         fixture.counts,

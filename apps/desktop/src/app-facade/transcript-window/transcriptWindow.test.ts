@@ -202,26 +202,26 @@ describe("bounded transcript window", () => {
     }
   });
 
-  it("begins in-place recovery by invalidating only active page admission", () => {
+  it("keeps active page admission after observation loss", () => {
     const window = new TranscriptWindow();
     open(window, page([row(30)], 300));
     const request = visit(window, "older");
     const before = window.snapshot.items;
 
-    expect(window.dispatch({ kind: "recovery-begin" }).kind).toBe("accepted");
+    expect(window.dispatch({ kind: "observation-loss" }).kind).toBe("accepted");
     expect(window.snapshot.items).toEqual(before);
-    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(window.snapshot.older).toEqual({ kind: "loading", cursor: 300 });
     expect(
       window.dispatch({
         kind: "page-success",
         request,
         page: page([row(20)], 200, 300),
       }).kind,
-    ).toBe("obsolete");
+    ).toBe("accepted");
     expect(visit(window, "older").admission).not.toBe(request.admission);
   });
 
-  it("begins in-place recovery by discarding provisional presentation without clearing membership", () => {
+  it("discards provisional presentation without clearing membership on observation loss", () => {
     const window = new TranscriptWindow();
     open(window, page([row(30)], 300));
     window.dispatch({
@@ -238,7 +238,7 @@ describe("bounded transcript window", () => {
     });
     expect(window.snapshot.items.at(-1)).toMatchObject({ kind: "assistant", state: "live" });
 
-    window.dispatch({ kind: "recovery-begin" });
+    window.dispatch({ kind: "observation-loss" });
 
     expect(sequences(window)).toEqual([30]);
     expect(window.snapshot.items).toHaveLength(1);
@@ -246,7 +246,7 @@ describe("bounded transcript window", () => {
     expect(window.snapshot.newer).toEqual({ kind: "idle", cursor: null });
   });
 
-  it("discards provisional presentation while invalidating a pending directional page", () => {
+  it("discards provisional presentation while retaining a pending directional page", () => {
     const window = new TranscriptWindow();
     open(window, page([row(30)], 300));
     window.dispatch({
@@ -263,18 +263,18 @@ describe("bounded transcript window", () => {
     });
     const request = visit(window, "older");
 
-    window.dispatch({ kind: "recovery-begin" });
+    window.dispatch({ kind: "observation-loss" });
 
     expect(sequences(window)).toEqual([30]);
     expect(window.snapshot.items).toHaveLength(1);
-    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(window.snapshot.older).toEqual({ kind: "loading", cursor: 300 });
     expect(
       window.dispatch({
         kind: "page-success",
         request,
         page: page([row(20)], 200, 300),
       }).kind,
-    ).toBe("obsolete");
+    ).toBe("accepted");
   });
 
   it("installs an initial hydration tail and closes the outstanding opening permit", () => {

@@ -11,9 +11,7 @@ import type { MessageNeighbors } from "./messageNeighbors";
 
 export type ChatUserMessageItem = Extract<TranscriptRenderItem, { kind: "user" }>;
 
-export type ChatMessageEditControl =
-  | Readonly<{ serverMutationAvailability: "disconnected" }>
-  | Readonly<{ serverMutationAvailability: "available"; onEdit(item: ChatUserMessageItem): void }>;
+export type ChatMessageEditControl = Readonly<{ onEdit(item: ChatUserMessageItem): void }>;
 
 export function ChatUserMessage({
   item,
@@ -50,14 +48,9 @@ export function ChatUserMessage({
             edit={
               item.value.RollbackTargetID == null ? null : (
                 <IconTooltipButton
-                  disabled={edit.serverMutationAvailability === "disconnected"}
-                  label={
-                    edit.serverMutationAvailability === "disconnected"
-                      ? t("app.readOnly")
-                      : t("chatTranscript.edit")
-                  }
+                  label={t("chatTranscript.edit")}
                   onClick={() => {
-                    if (edit.serverMutationAvailability === "available") edit.onEdit(item);
+                    edit.onEdit(item);
                   }}
                   size="icon-sm"
                 >

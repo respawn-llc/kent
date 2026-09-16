@@ -1,6 +1,6 @@
 import { createBrowserNativeBridge } from "@app/native-bridge";
 
-import { ApiClient, ConnectionStore, protocolVersion, type DescriptorRpcTransport } from "@/api/composition";
+import { ApiClient, protocolVersion, type DescriptorRpcTransport } from "@/api/composition";
 import type { AppServices } from "@/app-facade";
 
 function unavailable(): never {
@@ -18,7 +18,6 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
     clipboard: { ...browser.clipboard, writeText },
   };
   const transport: DescriptorRpcTransport = {
-    connection: new ConnectionStore(),
     call: unavailable,
     callDedicated: unavailable,
     callAttachedProject: unavailable,

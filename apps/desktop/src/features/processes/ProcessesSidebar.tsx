@@ -68,7 +68,6 @@ export function ProcessesSidebar({ projectID }: Readonly<{ projectID: string }>)
         );
         return (
           <ProcessRow
-            connected={data.isConnected}
             onTerminate={() => {
               void data.terminate(process.id).catch((error: unknown) => {
                 push({
@@ -90,13 +89,11 @@ export function ProcessesSidebar({ projectID }: Readonly<{ projectID: string }>)
 }
 
 function ProcessRow({
-  connected,
   onTerminate,
   presentation,
   stoppingLabel,
   terminateLabel,
 }: Readonly<{
-  connected: boolean;
   onTerminate: () => void;
   presentation: ProcessPresentation;
   stoppingLabel: string;
@@ -121,13 +118,7 @@ function ProcessRow({
         {presentation.stopping ? (
           <span className="shrink-0 text-xs text-[var(--color-muted)]">{stoppingLabel}</span>
         ) : presentation.terminable ? (
-          <IconTooltipButton
-            disabled={!connected}
-            label={terminateLabel}
-            onClick={onTerminate}
-            size="icon-sm"
-            variant="danger"
-          >
+          <IconTooltipButton label={terminateLabel} onClick={onTerminate} size="icon-sm" variant="danger">
             <Square aria-hidden="true" fill="currentColor" size={11} strokeWidth={0} />
           </IconTooltipButton>
         ) : null}

@@ -78,15 +78,8 @@ function combineDraft(original: string, draft: string): string {
   return draft === "" ? original : `${original}\n\n${draft}`;
 }
 
-export function useChatMessageEditActions(
-  model: ChatMessageEditViewModel,
-  serverMutationAvailability: "available" | "disconnected",
-) {
+export function useChatMessageEditActions(model: ChatMessageEditViewModel) {
   useAtomMount(model.request);
   const activate = useAtomSet(model.activate);
-  return {
-    activate(input: ChatMessageEditActivation) {
-      if (serverMutationAvailability === "available") activate(input);
-    },
-  };
+  return { activate };
 }

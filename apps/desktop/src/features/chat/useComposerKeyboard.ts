@@ -6,22 +6,25 @@ import type { useChatComposer } from "./useChatComposer";
 
 export function useComposerKeyboard(
   composer: ReturnType<typeof useChatComposer>,
-  connected: boolean,
   stoppable: boolean,
+  observationError: Error | null,
 ) {
   const { nativeBridge } = useAppServices();
   const platform = nativeBridge.capabilities.platform;
-  const stopAvailable = connected && stoppable;
+  const stopAvailable = stoppable;
   const focused = useWindowFocus();
   const deadline = useRef<number | null>(null);
+  useEffect(() => {
+    if (observationError !== null) deadline.current = null;
+  }, [observationError]);
   function advance(event: ComposerStopEvent) {
     const result = advanceComposerStop(deadline.current, event);
     deadline.current = result.deadline;
     return result.stop;
   }
   useEffect(() => {
-    if (!connected || !stoppable) deadline.current = null;
-  }, [connected, stoppable]);
+    if (!stoppable) deadline.current = null;
+  }, [stoppable]);
   useEffect(() => {
     deadline.current = null;
   }, [focused]);

@@ -16,11 +16,9 @@ const itemKey = (item: PendingWorkItem) => item.id.toJSONValue();
 export function ComposerPendingSheet({
   pending,
   visible,
-  disconnected,
 }: Readonly<{
   pending: ReturnType<typeof useComposerPendingWork>;
   visible: boolean;
-  disconnected: boolean;
 }>) {
   const { t } = useTranslation();
   const [element, setElement] = useState<HTMLDivElement | null>(null);
@@ -52,7 +50,7 @@ export function ComposerPendingSheet({
         onLoadMore={noPaging}
         onScrollElementChange={setElement}
         rowSpacing="tight"
-        renderItem={(item) => <PendingRow item={item} pending={pending} disconnected={disconnected} />}
+        renderItem={(item) => <PendingRow item={item} pending={pending} />}
       />
     </div>
   );
@@ -61,11 +59,9 @@ export function ComposerPendingSheet({
 function PendingRow({
   item,
   pending,
-  disconnected,
 }: Readonly<{
   item: PendingWorkItem;
   pending: ReturnType<typeof useComposerPendingWork>;
-  disconnected: boolean;
 }>) {
   const { t } = useTranslation();
   const loading = useAtomValue(pending.discardPending(item.id.toJSONValue()));
@@ -84,8 +80,7 @@ function PendingRow({
         {item.canonicalInput}
       </span>
       <IconTooltipButton
-        label={disconnected ? t("common.readOnly") : t("chatComposer.discard")}
-        disabled={disconnected}
+        label={t("chatComposer.discard")}
         onClick={() => {
           pending.discard(item.id);
         }}

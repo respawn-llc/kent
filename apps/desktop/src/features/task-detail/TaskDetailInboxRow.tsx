@@ -15,7 +15,6 @@ export function TaskDetailInboxRow({
   attentionItems,
   attentionPending,
   detail,
-  disabled,
   initialFocus,
   mutations,
   onQuestionSelectionChange,
@@ -26,7 +25,6 @@ export function TaskDetailInboxRow({
   attentionItems: readonly AttentionItem[];
   attentionPending: boolean;
   detail: TaskDetail;
-  disabled: boolean;
   initialFocus?: TaskDetailInitialFocus | undefined;
   mutations: ReturnType<typeof useTaskMutations>;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
@@ -42,7 +40,6 @@ export function TaskDetailInboxRow({
       answerQuestion={answerQuestion}
       currentVersion={detail.workflowVersion}
       detail={detail}
-      disabled={disabled}
       initialFocus={initialFocus}
       mutations={mutations}
       onQuestionSelectionChange={onQuestionSelectionChange}

@@ -45,11 +45,8 @@ export const englishResources = {
       collapse: "Collapse",
       expand: "Expand",
       loadingMore: "Loading more",
-      disconnected: "Server disconnected. Cached data remains visible; mutations are disabled.",
-      connected: "Connected",
-      reconnecting: "Reconnecting",
-      readOnly: "Read-only until connection returns.",
       attention: {
+        listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",
         approvalTitle: "Action required",

@@ -11,14 +11,12 @@ import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskD
 
 export function CommentComposer({
   body,
-  disabled,
   editing,
   mutations,
   onBodyChange,
   onEditingChange,
 }: Readonly<{
   body: string;
-  disabled: boolean;
   editing: Readonly<{ id: string; body: string }> | null;
   mutations: ReturnType<typeof useTaskMutations>;
   onBodyChange: (body: string) => void;
@@ -29,7 +27,7 @@ export function CommentComposer({
   const commentBody = editing?.body ?? body;
   const pending =
     mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
-  const interactionDisabled = disabled || pending;
+  const interactionDisabled = pending;
   const canSubmit = !interactionDisabled && commentBody.trim().length > 0;
 
   async function submit(): Promise<void> {
@@ -73,9 +71,6 @@ export function CommentComposer({
           disabled={interactionDisabled}
           id="task-comment-body"
           onChange={(event) => {
-            if (disabled) {
-              return;
-            }
             if (editing === null) {
               onBodyChange(event.target.value);
               return;
@@ -105,13 +100,11 @@ export function CommentComposer({
 
 export function CommentRow({
   comment,
-  disabled,
   editing,
   mutations,
   onEdit,
 }: Readonly<{
   comment: TaskComment;
-  disabled: boolean;
   editing: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   onEdit: (comment: TaskComment) => void;
@@ -120,7 +113,7 @@ export function CommentRow({
   const { push } = useStatusController();
   const pending =
     mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
-  const interactionDisabled = disabled || pending;
+  const interactionDisabled = pending;
   const authorLabel =
     comment.authorID ??
     t(comment.authorKind === "agent" ? "task.commentAuthorAgent" : "task.commentAuthorUser");

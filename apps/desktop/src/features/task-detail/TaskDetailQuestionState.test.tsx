@@ -526,7 +526,6 @@ function QuestionFormHarness({
     <QuestionFormView
       answerQuestion={answerQuestion}
       attention={attention}
-      disabled={false}
       onSelectionStateChange={setSelection}
       presentation={presentation}
       selectionState={selection}
@@ -615,7 +614,6 @@ function QuestionBoxHarness({
     <QuestionBox
       attention={attention}
       answerQuestion={questionAnswerMutation}
-      disabled={false}
       onSelectionStateChange={(nextSelection) => {
         setSelection(nextSelection);
         onSelectionChange(nextSelection);

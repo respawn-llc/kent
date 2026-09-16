@@ -3,9 +3,7 @@ import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ApiService, SessionCatalogPage, SessionCategory, WorkspaceCatalogPage } from "@/api";
 import {
-  invalidateProjectSessionCatalogs,
   mainSessionCatalogInfiniteQueryOptions,
-  subagentSessionCatalogInfiniteQueryOptions,
   workspaceCatalogInfiniteQueryOptions,
 } from "./projectCatalogQueries";
 import { queryKeys } from "./queryKeys";
@@ -101,36 +99,6 @@ describe("Project catalog query authority", () => {
     expect(requests.slice(-2)).toEqual([100, 0]);
     expect(observer.getCurrentResult().data?.pageParams).toEqual([0, 100, 200, 300]);
     unsubscribe();
-  });
-
-  it("invalidates both Session categories under one Project root", async () => {
-    const requests: SessionCategory[] = [];
-    const api: Pick<ApiService, "listSessionPage"> = {
-      listSessionPage: async (projectID: string, category: SessionCategory): Promise<SessionCatalogPage> => {
-        requests.push(category);
-        return { projectID, category, sessions: [], nextOffset: null };
-      },
-    };
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const main = new InfiniteQueryObserver(
-      queryClient,
-      mainSessionCatalogInfiniteQueryOptions(api, "project-1"),
-    );
-    const subagent = new InfiniteQueryObserver(
-      queryClient,
-      subagentSessionCatalogInfiniteQueryOptions(api, "project-1"),
-    );
-    const unsubscribeMain = main.subscribe(() => undefined);
-    const unsubscribeSubagent = subagent.subscribe(() => undefined);
-    await Promise.all([waitForSuccess(main), waitForSuccess(subagent)]);
-    requests.length = 0;
-
-    await invalidateProjectSessionCatalogs(queryClient, "project-1");
-
-    expect(requests).toEqual(["main", "subagent"]);
-    expect(queryClient.getQueryData(queryKeys.projectSessionCatalog("project-2", "main"))).toBeUndefined();
-    unsubscribeMain();
-    unsubscribeSubagent();
   });
 });
 

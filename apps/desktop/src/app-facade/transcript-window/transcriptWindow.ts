@@ -177,7 +177,6 @@ export class TranscriptWindow {
     input: Exclude<TranscriptWindowInput, { kind: "dispose" } | { hydration: Hydration }>,
   ): TranscriptWindowResult {
     if (input.kind === "observation-loss") return this.discardProvisional();
-    if (input.kind === "recovery-begin") return this.beginRecovery();
     if (input.kind === "opening-retry") return this.retryOpening();
     if ("permit" in input) return this.opening(input);
     if (input.kind === "committed-row") {
@@ -267,26 +266,6 @@ export class TranscriptWindow {
       operation: "replace",
       admitted: segment.entries,
       stagingPresentation: "page-only",
-    });
-    return { kind: "accepted", effects: [] };
-  }
-
-  private beginRecovery(): TranscriptWindowResult {
-    const pending = this.state.pending;
-    const snapshot =
-      pending === null
-        ? this.snapshot
-        : {
-            ...this.snapshot,
-            [pending.request.direction]: pending.previous,
-          };
-    this.state = project({
-      ...this.state,
-      pending: null,
-      provisional: [],
-      activity: null,
-      latestStatus: null,
-      snapshot,
     });
     return { kind: "accepted", effects: [] };
   }

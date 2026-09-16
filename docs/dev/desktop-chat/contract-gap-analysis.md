@@ -85,7 +85,7 @@ Desktop Worktree requires four explicit seams:
   above. React remains presentation-only and does not acquire Worktree business
   rules.
 - Desktop Chat needs one authoritative runtime-state projection for current
-  execution target, reconnect hydration, and later transition outcomes.
+  execution target, hydration, and later transition outcomes.
   Worktree UI must not introduce a local current-target authority or infer
   completion from its initiating request.
 
@@ -138,9 +138,8 @@ runtime activity, attention, model/provider facts, or workspace identity.
 
 ### Live Session-List Updates
 
-Desktop copies the TUI's read behavior and adds no Session-list subscription or
-polling loop. Entry and category changes read authoritative pages, reconnect
-invalidates visible pages, and a delivered local Session-creation result
+Desktop adds no Session-list subscription or polling loop. Entry and category
+changes read authoritative pages, and a delivered local Session-creation result
 invalidates the owning Project list. The client does not infer list state from
 transcript rows.
 

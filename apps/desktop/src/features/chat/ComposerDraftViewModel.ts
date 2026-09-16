@@ -107,7 +107,6 @@ export function createComposerDraftViewModel({
     (input, get) =>
       Effect.gen(function* () {
         if (!observer.getCurrentResult().isSuccess || get(persistence) === "destination-owned") return;
-        if (target.kind === "session" && services.api.connection.snapshot().phase !== "connected") return;
         if (input !== get(text)) return;
         yield* Effect.tryPromise(async () => saveObserver.mutate(input)).pipe(Effect.ignore);
       }),

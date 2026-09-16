@@ -6,17 +6,15 @@ import { SteppedSelector } from "./SteppedSelector";
 
 export function ThinkingSelector({
   thinking,
-  disabled,
   onCommit,
 }: Readonly<{
   thinking: Extract<ChatSettingsThinking, { kind: "enumerated" }>;
-  disabled: boolean;
   onCommit(value: string): void;
 }>) {
   return (
     <SteppedSelector
       activeTone={thinkingTone}
-      disabled={disabled || thinking.editability.kind !== "editable"}
+      disabled={thinking.editability.kind !== "editable"}
       onCommit={onCommit}
       value={thinking.value}
       values={thinking.values}

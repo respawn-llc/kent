@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { hasSelectedWorkflow, type BoardColumn, type SelectedWorkflowBoard } from "@/api";
 import { errorMessage } from "@/api";
 import { useAppNavigation } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useNativeDialogFallback } from "@/app-facade";
@@ -151,7 +150,7 @@ function BoardRouteData({
     // task into an error state. Close it too when it targets the deleted task.
     void navigation.closeProjectTask(projectId, workflowId).catch(reportBoardNavigationError);
   }, [navigation, projectId, reportBoardNavigationError, workflowId]);
-  useProjectBoardSubscription(projectId, workflowId, {
+  const observation = useProjectBoardSubscription(projectId, workflowId, {
     onBackgroundError: reportBoardLoadError,
     onSelectedTaskDeleted: handleSelectedTaskDeleted,
     selectedTaskID: selectedTaskId,
@@ -174,19 +173,31 @@ function BoardRouteData({
     );
   }
   if (board === undefined || !hasSelectedWorkflow(board)) {
-    return <BoardNoWorkflowState projectID={projectId} />;
+    return (
+      <>
+        <BoardNoWorkflowState projectID={projectId} />
+        {observation.error === null ? null : (
+          <BoardBackgroundRefreshNotice error={observation.error} onRetry={observation.retry} />
+        )}
+      </>
+    );
   }
 
   return (
-    <BoardContent
-      board={board}
-      boardQueryWorkflowID={workflowId}
-      boardRefreshError={boardQuery.isError ? boardQuery.error : null}
-      onBoardRefreshRetry={() => {
-        void boardQuery.refetch().catch(reportBoardLoadError);
-      }}
-      selectedTaskId={selectedTaskId}
-    />
+    <>
+      <BoardContent
+        board={board}
+        boardQueryWorkflowID={workflowId}
+        boardRefreshError={boardQuery.isError ? boardQuery.error : null}
+        onBoardRefreshRetry={() => {
+          void boardQuery.refetch().catch(reportBoardLoadError);
+        }}
+        selectedTaskId={selectedTaskId}
+      />
+      {observation.error === null ? null : (
+        <BoardBackgroundRefreshNotice error={observation.error} onRetry={observation.retry} />
+      )}
+    </>
   );
 }
 
@@ -212,7 +223,6 @@ function BoardContent({
   const navigation = useAppNavigation();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
   const { open } = useOwnedSidebarRoots();
-  const connection = useConnectionSnapshot();
   const actions = useBoardTaskActions(board.projectID);
   const reportActionError = useCallback(
     (id: string, title: string, error: unknown) => {
@@ -248,7 +258,6 @@ function BoardContent({
     actionsDisabled: initiatingActionsDisabled,
   } = useBoardInitiatingActionController({
     api,
-    connected: connection.phase === "connected",
     moveErrorTitle: t("board.moveFailed"),
     onActionError: reportActionError,
     onApplied: actions.refresh,
@@ -508,7 +517,6 @@ function BoardContent({
       <div className="flex shrink-0 items-center gap-[var(--space-2)] px-[var(--space-2)] pt-[var(--space-2)]">
         <BoardFilterRow
           activeWorkflow={board.selectedWorkflow}
-          canCreateTask={connection.phase === "connected"}
           onLinkWorkflow={openLinkWorkflow}
           onNewTask={openNewTask}
           onOpenTask={openTask}

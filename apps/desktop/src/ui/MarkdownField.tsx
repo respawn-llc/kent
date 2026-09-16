@@ -23,7 +23,7 @@ export type MarkdownFieldSubmitIntent = Readonly<{
 export type MarkdownFieldHeightClamp = MarkdownHeightClamp;
 
 type MarkdownFieldCommonProps = Readonly<{
-  disabled: boolean;
+  disabled?: boolean;
   editorMinHeight: number;
   error?: string | undefined;
   label: string;
@@ -89,7 +89,7 @@ export function CollapsibleMarkdownField({
 }
 
 function MarkdownFieldCore({
-  disabled,
+  disabled = false,
   editorMinHeight,
   error,
   label,
