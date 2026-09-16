@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
 
 import { TaskLabelAssignmentContext } from "./taskLabelAssignmentContext";
 import { useManagedTaskLabelAssignment } from "./taskLabelAssignmentData";
@@ -11,7 +12,8 @@ export function TaskLabelAssignmentProvider({
   children: ReactNode;
   taskID: string;
 }>) {
-  const { catalog, effects, projectID } = useProjectLabelData();
+  const { catalog: observation, effects, projectID } = useProjectLabelData();
+  const catalog = useAtomValue(observation);
   const availableLabelIDs = useMemo(
     () => catalog.data?.labels.map((label) => label.id) ?? [],
     [catalog.data],

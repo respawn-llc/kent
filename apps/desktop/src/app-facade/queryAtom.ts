@@ -21,11 +21,12 @@ export function queryAtom<Q, E, A, K extends QueryKey, P>(
 export function queryAtom<Q, E, A, D, K extends QueryKey>(
   observer: QueryObserver<Q, E, A, D, K>,
 ): Atom.Atom<QuerySnapshot<QueryObserverResult<A, E>>>;
-export function queryAtom<A, E, V>(
-  observer: MutationObserver<A, E, V>,
+export function queryAtom<A, E, V, C>(
+  observer: MutationObserver<A, E, V, C>,
 ): Atom.Atom<QuerySnapshot<MutationObserverResult<A, E, V>>>;
 export function queryAtom<Q, E, A, D, K extends QueryKey, V, P>(
-  observer: QueryObserver<Q, E, A, D, K> | MutationObserver<A, E, V> | InfiniteQueryObserver<Q, E, A, K, P>,
+  observer:
+    QueryObserver<Q, E, A, D, K> | MutationObserver<A, E, V, P> | InfiniteQueryObserver<Q, E, A, K, P>,
 ): Atom.Atom<
   QuerySnapshot<
     QueryObserverResult<A, E> | InfiniteQueryObserverResult<A, E> | MutationObserverResult<A, E, V>

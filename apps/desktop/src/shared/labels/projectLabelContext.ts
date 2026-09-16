@@ -1,16 +1,7 @@
 import { createContext, useContext } from "react";
-import type { UseQueryResult } from "@tanstack/react-query";
+import type { ProjectLabelsModel } from "./ProjectLabelsModel";
 
-import type { ProjectLabelCatalog } from "@/api";
-import type { ProjectLabelFilterController } from "./projectLabelFilter";
-import type { ProjectLabelEffects } from "./labelEventEffects";
-
-export type ProjectLabelDataContextValue = Readonly<{
-  catalog: UseQueryResult<ProjectLabelCatalog>;
-  effects: ProjectLabelEffects;
-  filter: ProjectLabelFilterController;
-  projectID: string;
-}>;
+export type ProjectLabelDataContextValue = ProjectLabelsModel;
 
 export const ProjectLabelDataContext = createContext<ProjectLabelDataContextValue | null>(null);
 

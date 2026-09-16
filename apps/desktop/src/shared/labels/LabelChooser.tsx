@@ -26,23 +26,16 @@ import {
   Spinner,
   fieldInputClassName,
 } from "@/ui";
-import {
-  LabelRenameEditor,
-  LabelResultRow,
-  UnlabeledResultRow,
-  type DeleteState,
-  type RenameState,
-} from "./LabelChooserRows";
+import { UnlabeledResultRow, type DeleteState, type RenameState } from "./LabelChooserRows";
 import type { LabelFilterAction, LabelFilterState } from "./labelFilterState";
 import {
   handleLabelChooserSearchKeyDown,
   labelMutationErrorMessage,
-  labelResultRowSelection,
   selectLabel,
   selectUnlabeled,
-  useLabelChooserMutationActions,
 } from "./labelChooserActions";
 import { useProjectLabelCatalog, useProjectLabelCatalogMutations } from "./projectLabelHooks";
+import { LabelCatalogRow } from "./LabelCatalogRow";
 
 export type LabelChooserInvocation =
   | Readonly<{
@@ -79,6 +72,10 @@ function labelNamesEqual(left: string, right: string): boolean {
 
 function labelNameContains(name: string, query: string): boolean {
   return prepareLabelComparison(name).includes(prepareLabelComparison(query));
+}
+
+function canCreateLabel(name: string, labels: readonly ProjectLabel[]): boolean {
+  return name.length > 0 && !labels.some((label) => labelNamesEqual(label.name, name));
 }
 
 function renderLabelChooserSearch({
@@ -143,14 +140,19 @@ function renderLabelChooserSearch({
           {canCreate ? (
             <span className="absolute top-1/2 right-[var(--space-1)] -translate-y-1/2">
               <IconTooltipButton
-                disabled={catalogAtLimit || catalogMutationPending}
+                disabled={catalogAtLimit}
+                aria-busy={catalogMutationPending}
                 label={
                   catalogAtLimit ? t("labels.catalogLimit") : t("labels.create", { name: preparedSearch })
                 }
                 onClick={onCreate}
                 size="icon-sm"
               >
-                <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                {catalogMutationPending ? (
+                  <Spinner />
+                ) : (
+                  <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                )}
               </IconTooltipButton>
             </span>
           ) : null}
@@ -215,8 +217,7 @@ export function LabelChooser({
     () => catalog.data?.labels.filter((label) => labelNameContains(label.name, preparedSearch)) ?? [],
     [catalog.data, preparedSearch],
   );
-  const canCreate =
-    preparedSearch.length > 0 && !labels.some((label) => labelNamesEqual(label.name, preparedSearch));
+  const canCreate = canCreateLabel(preparedSearch, labels);
   const catalogAtLimit = (catalog.data?.labels.length ?? 0) >= workflowLabelMaxIDs;
   const unlabeledName = t("labels.unlabeled");
   const showUnlabeledChoice =
@@ -228,19 +229,20 @@ export function LabelChooser({
     ...labels.map((label) => ({ kind: "label" as const, label })),
   ];
   const choiceCount = choices.length;
-  const { catalogMutationPending, commitRename, confirmDelete, createError, createLabel } =
-    useLabelChooserMutationActions({
-      deletion,
-      invocation,
-      mutations,
-      preparedSearch,
-      rename,
-      setDeletion,
-      setKeyboardHighlightedIndex,
-      setRename,
-      setSearch,
-      t,
+  const createError = mutations.create.isError ? labelMutationErrorMessage(mutations.create.error, t) : null;
+  const createLabel = () => {
+    const notify = invocation.kind === "assignment" ? invocation.onCreatePendingChange : undefined;
+    mutations.create.submit({
+      name: preparedSearch,
+      onStart: () => notify?.(true),
+      onSettled: () => notify?.(false),
+      onSuccess(label) {
+        if (invocation.kind === "assignment") selectLabel(invocation, label.id, true);
+        setSearch("");
+        setKeyboardHighlightedIndex(null);
+      },
     });
+  };
   const reorderEnabled = invocation.kind === "filter" && preparedSearch.length === 0 && labels.length >= 2;
   return (
     <Popover
@@ -261,8 +263,6 @@ export function LabelChooser({
           setRename(null);
           setDeletion(null);
           mutations.create.reset();
-          mutations.delete.reset();
-          mutations.rename.reset();
         }
       }}
       open={open}
@@ -291,15 +291,15 @@ export function LabelChooser({
           catalogAtLimit,
           choiceCount,
           createError,
-          catalogMutationPending,
+          catalogMutationPending: mutations.create.isPending,
           invocation,
           onCreate() {
-            void createLabel();
+            createLabel();
           },
           onKeyDown(event) {
             handleLabelChooserSearchKeyDown({
               canCreate,
-              catalogMutationPending,
+              catalogMutationPending: mutations.create.isPending,
               catalogAtLimit,
               createLabel,
               event,
@@ -323,8 +323,6 @@ export function LabelChooser({
         {renderLabelChooserResults({
           catalog,
           choices,
-          confirmDelete,
-          commitRename,
           deletion,
           invocation,
           keyboardHighlightedIndex,
@@ -337,9 +335,9 @@ export function LabelChooser({
           showUnlabeledChoice,
           labels,
           onReorder(nextLabels) {
-            void mutations.reorder
-              .mutateAsync(nextLabels.map((label) => label.id))
-              .catch((error: unknown) => {
+            mutations.reorder.submit({
+              labelIDs: nextLabels.map((label) => label.id),
+              onError(error) {
                 push({
                   body: labelMutationErrorMessage(error, t),
                   durationMs: Infinity,
@@ -347,10 +345,11 @@ export function LabelChooser({
                   title: t("labels.mutationFailed"),
                   tone: "danger",
                 });
-              });
+              },
+            });
           },
           reorderEnabled,
-          catalogMutationPending,
+          catalogMutationPending: mutations.reorder.isPending,
         })}
         {footer}
       </PopoverContent>
@@ -365,8 +364,6 @@ function labelChooserPopoverSide(side: LabelChooserProps["preferredSide"]): "bot
 function renderLabelChooserResults({
   catalog,
   choices,
-  confirmDelete,
-  commitRename,
   deletion,
   invocation,
   keyboardHighlightedIndex,
@@ -384,8 +381,6 @@ function renderLabelChooserResults({
 }: Readonly<{
   catalog: ReturnType<typeof useProjectLabelCatalog>;
   choices: readonly LabelChooserChoice[];
-  confirmDelete(): Promise<void>;
-  commitRename(): Promise<void>;
   deletion: DeleteState | null;
   invocation: LabelChooserInvocation;
   keyboardHighlightedIndex: number | null;
@@ -415,7 +410,7 @@ function renderLabelChooserResults({
         <span>{t("labels.loadFailed")}</span>
         <Button
           onClick={() => {
-            void catalog.refetch();
+            catalog.refetch();
           }}
           variant="primary"
         >
@@ -453,8 +448,6 @@ function renderLabelChooserResults({
           renderItem={(label, sortable) =>
             renderLabelChooserChoiceRow({
               choice: { kind: "label", label },
-              confirmDelete,
-              commitRename,
               deletion,
               highlighted: (() => {
                 const labelIndex = labelIndexes.get(label.id);
@@ -477,8 +470,6 @@ function renderLabelChooserResults({
         choices.map((choice, index) =>
           renderLabelChooserChoiceRow({
             choice,
-            confirmDelete,
-            commitRename,
             deletion,
             highlighted: index === keyboardHighlightedIndex,
             invocation,
@@ -496,8 +487,6 @@ function renderLabelChooserResults({
 
 function renderLabelChooserChoiceRow({
   choice,
-  confirmDelete,
-  commitRename,
   deletion,
   highlighted,
   invocation,
@@ -509,8 +498,6 @@ function renderLabelChooserChoiceRow({
   sortable,
 }: Readonly<{
   choice: LabelChooserChoice;
-  confirmDelete(): Promise<void>;
-  commitRename(): Promise<void>;
   deletion: DeleteState | null;
   highlighted: boolean;
   invocation: LabelChooserInvocation;
@@ -534,70 +521,18 @@ function renderLabelChooserChoiceRow({
       />
     );
   }
-  const { label } = choice;
-  if (rename?.labelID === label.id) {
-    return (
-      <LabelRenameEditor
-        key={label.id}
-        onCancel={() => {
-          setRename(null);
-        }}
-        onChange={(draft) => {
-          setRename({ ...rename, draft, error: null });
-        }}
-        onCommit={() => {
-          void commitRename();
-        }}
-        catalogMutationPending={catalogMutationPending}
-        rename={rename}
-      />
-    );
-  }
-  const selection = labelResultRowSelection(invocation, label.id);
-  const labelDeletion = deletion?.labelID === label.id ? deletion : null;
-  const row = (
-    <LabelResultRow
-      catalogMutationPending={catalogMutationPending}
-      deletion={labelDeletion}
-      highlighted={highlighted}
-      key={label.id}
-      label={label}
-      onDeleteConfirm={() => {
-        void confirmDelete();
-      }}
-      onDeleteOpenChange={(nextOpen) => {
-        if (nextOpen) {
-          setDeletion({
-            labelID: label.id,
-            error: null,
-            pending: false,
-          });
-          return;
-        }
-        setDeletion((current) => (current?.labelID === label.id && current.pending ? current : null));
-      }}
-      onRename={() => {
-        setRename({
-          labelID: label.id,
-          draft: label.name,
-          error: null,
-          pending: false,
-        });
-      }}
-      onSelect={() => {
-        selectLabel(invocation, label.id, selection.kind === "binary" ? !selection.selected : true);
-      }}
-      reorder={sortable}
-      selection={selection}
-      selectionDisabled={invocation.kind === "assignment" && invocation.disabled === true}
-    />
-  );
-  if (sortable === undefined) {
-    return row;
-  }
   return (
-    <div data-testid={`label-reorder-item-${label.id}`} ref={sortable.itemRef} style={sortable.style}>
-      {row}
-    </div>
+    <LabelCatalogRow
+      key={choice.label.id}
+      label={choice.label}
+      highlighted={highlighted}
+      deletion={deletion}
+      rename={rename}
+      invocation={invocation}
+      setDeletion={setDeletion}
+      setRename={setRename}
+      sortable={sortable}
+      reorderPending={catalogMutationPending}
+    />
   );
 }
