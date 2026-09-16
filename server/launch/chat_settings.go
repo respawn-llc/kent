@@ -256,10 +256,6 @@ func PrepareChatSettingsForTarget(authState auth.State, target PreparedBaseTarge
 	return PrepareChatSettingsForPreparedTarget(target, llm.SupportsFastModeProvider(capabilities))
 }
 
-func PrepareChatSettingsForTargetWithoutProviderReadiness(target PreparedBaseTarget) (PreparedChatSettings, error) {
-	return PrepareChatSettingsForPreparedTarget(target, true)
-}
-
 func PrepareChatSettingsForPreparedTarget(target PreparedBaseTarget, fastAvailable bool) (PreparedChatSettings, error) {
 	supervisor, valid := runtime.NormalizeReviewerFrequency(target.Settings.Reviewer.Frequency)
 	thinking := strings.TrimSpace(target.Settings.ThinkingLevel)
