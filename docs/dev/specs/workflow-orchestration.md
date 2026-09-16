@@ -281,6 +281,9 @@
 - In that retained control-only posture, Goal, settings, and valid Worktree controls remain available. Post-turn Queue input fails before acceptance and creates no Queue Item.
 - A human Send/Steer to the retained Session and explicit Workflow Resume are two entry points into the same Current Node reactivation path. Both durably resume the interrupted Current Node and start a fresh Workflow Exact Execution Scope; Send/Steer additionally submits its human input to that reactivated execution.
 - Send/Steer reactivation never starts an ordinary non-Workflow Session execution and never creates a second Transition authority. If the retained Session no longer belongs to that Current Node, reactivation fails before accepting the input.
+- After an Agent Node execution completes, ordinary conversation in its retained Session must remain available, including while its Transition waits for Approval and after the Workflow has moved beyond reusing that Session.
+- Ordinary conversation in that Session must not reactivate the completed Node, change its pending Approval, or move the Task.
+- Workflow execution requirements must govern execution of a Workflow Node, not ordinary conversation in a Session retained from completed Workflow work.
 - Send/Steer reactivation has the same completion contract and tool-choice policy as explicit Resume. It does not create a separate interactive completion mode.
 - Resume starts a fresh Exact Execution Scope while retaining the Session Contract generation's effective completion mode.
 - `complete_node` is always available in tool completion mode, regardless of the Assignee's configured tools.
