@@ -41,7 +41,7 @@ export function WorktreeCreateForm(props: Props) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const query = useQuery({ ...worktreeListQueryOptions(api, props.sessionID), enabled: false });
+  const query = useQuery(worktreeListQueryOptions(api, props.sessionID));
   const header = useMemo(
     () => (
       <IconTooltipButton

@@ -41,7 +41,9 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
         client,
         api,
         sessionID: destination.sessionID,
-        navigator,
+        onAccepted: () => {
+          navigator.close();
+        },
         push,
         t,
         refreshOpenWorktreeList: createRefreshOpenWorktreeList(client, api, currentSurface),

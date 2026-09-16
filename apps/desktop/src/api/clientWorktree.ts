@@ -35,11 +35,12 @@ import {
   authorizeWorktreeCreateTargetResolution,
   authorizeWorktreeDeletePreview,
   authorizeWorktreeListEntry,
+  authorizeWorktreeSelectorResolution,
   requireWorktreeAuthority,
   type WorktreeCreateInput,
   type WorktreeDeleteConfirmationChoice,
   type WorktreeDeletePreview,
-  type WorktreeSwitch,
+  type WorktreeTransition,
 } from "./schemas/worktree";
 import type { DescriptorRpcTransport } from "./transport";
 
@@ -78,6 +79,7 @@ export async function resolveWorktreeSelector(
     await transport.callDescriptor(method, create(method.input, { sessionId: sessionID, selector })),
   );
   if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeSelectorResolution(success);
   return success;
 }
 
@@ -152,11 +154,11 @@ export async function createWorktree(
 export async function switchWorktree(
   transport: DescriptorRpcTransport,
   sessionID: string,
-  operation: WorktreeSwitch,
+  operation: WorktreeTransition,
 ): Promise<ScheduledAcknowledgement> {
-  const authority = requireWorktreeAuthority(operation, "switch");
+  const selector = transitionSelector(operation);
   const operationID = crypto.randomUUID();
-  const enter = authority.kind === SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER;
+  const enter = selector !== null;
   const method = enter ? TransitionService.method.enter : TransitionService.method.leave;
   const result = enter
     ? await transport.callDescriptor(
@@ -164,7 +166,7 @@ export async function switchWorktree(
         create(TransitionService.method.enter.input, {
           operationId: operationID,
           sessionId: sessionID,
-          selector: required(authority.selector),
+          selector: required(selector),
         }),
       )
     : await transport.callDescriptor(
@@ -176,6 +178,20 @@ export async function switchWorktree(
     throw new ContractError("Server returned a different Worktree operation identity.");
   }
   return acknowledgement;
+}
+
+function transitionSelector(operation: WorktreeTransition): string | null {
+  if (operation.kind === "leave") return null;
+  if (operation.kind === "resolved") {
+    const entry = required(requireWorktreeAuthority(operation.resolution, "selector").worktree);
+    return required(entry.topology).topology.case === "mainWorkspace"
+      ? null
+      : required(entry.projection).selector;
+  }
+  const authority = requireWorktreeAuthority(operation, "switch");
+  return authority.kind === SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER
+    ? required(authority.selector)
+    : null;
 }
 
 export async function deleteWorktree(

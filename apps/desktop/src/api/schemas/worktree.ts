@@ -3,6 +3,7 @@ import type {
   DeletePreviewSuccess,
   ListEntry,
   SwitchOperation,
+  SelectorResolveSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import type { SetupOperationID } from "../setupOperationID";
@@ -21,10 +22,15 @@ type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
       ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
       : Value;
 
-type AuthorityKind = "switch" | "delete" | "create";
+type AuthorityKind = "switch" | "delete" | "create" | "selector";
 const authorities = new WeakMap<object, AuthorityKind>();
 
 export type WorktreeSwitch = DeepReadonly<SwitchOperation>;
+export type WorktreeSelectorResolution = DeepReadonly<SelectorResolveSuccess>;
+export type WorktreeTransition =
+  | WorktreeSwitch
+  | Readonly<{ kind: "leave" }>
+  | Readonly<{ kind: "resolved"; resolution: WorktreeSelectorResolution }>;
 export type WorktreeDeletePreview = DeepReadonly<DeletePreviewSuccess>;
 export type WorktreeCreateTargetResolution = DeepReadonly<CreateTargetResolution>;
 export type WorktreeDeleteConfirmationChoice = "confirm" | "confirm_and_branch";
@@ -40,6 +46,10 @@ export function authorizeWorktreeListEntry(entry: ListEntry): void {
   if (operation !== undefined) authorize("switch", operation);
 }
 
+export function authorizeWorktreeSelectorResolution(value: SelectorResolveSuccess): void {
+  authorize("selector", value);
+}
+
 export function authorizeWorktreeDeletePreview(value: DeletePreviewSuccess): WorktreeDeletePreview {
   authorize("delete", value);
   return value;
@@ -53,6 +63,10 @@ export function authorizeWorktreeCreateTargetResolution(
 }
 
 export function requireWorktreeAuthority(value: WorktreeSwitch, authority: "switch"): WorktreeSwitch;
+export function requireWorktreeAuthority(
+  value: WorktreeSelectorResolution,
+  authority: "selector",
+): WorktreeSelectorResolution;
 export function requireWorktreeAuthority(
   value: WorktreeDeletePreview,
   authority: "delete",

@@ -13,7 +13,7 @@ export type DialogProps = Readonly<{
   children: ReactNode;
   backdrop?: "dimmed" | "blur";
   className?: string;
-  chrome?: "header" | "floating-close";
+  chrome?: "header" | "floating-close" | "title-only";
   layout?: "standard" | "content";
   placement?: "center" | "command-palette";
   contentPadding?: "none" | "chrome";
@@ -178,13 +178,15 @@ function DialogChrome({
   title: string;
   titleID: string;
 }>) {
-  if (chrome === "header") {
+  if (chrome === "header" || chrome === "title-only") {
     return (
       <header className="flex items-center justify-between gap-[var(--space-4)]">
         <h2 className="m-0 text-[1.15rem] font-bold" id={titleID}>
           {title}
         </h2>
-        <DialogCloseButton closeLabel={closeLabel} disabled={closeDisabled} onClose={onClose} />
+        {chrome === "header" ? (
+          <DialogCloseButton closeLabel={closeLabel} disabled={closeDisabled} onClose={onClose} />
+        ) : null}
       </header>
     );
   }

@@ -45,6 +45,8 @@ import {
   type RuntimeOwnerOptions,
 } from "@/api/composition";
 
+export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
+
 type FakeJsonRoute = Readonly<{
   method: string;
   result?: unknown;
