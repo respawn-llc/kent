@@ -1448,9 +1448,10 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				Error: &worktreepb.CreateError{
 					Code: "setup_retained",
 					Detail: &worktreepb.CreateError_SetupRetained{SetupRetained: &worktreepb.SetupRetainedDetails{
-						Worktree:   retainedWorktree,
-						ScriptPath: "/repo/scripts/setup.sh",
-						Diagnostic: "setup failed",
+						Worktree:            retainedWorktree,
+						ScriptPath:          "/repo/scripts/setup.sh",
+						Diagnostic:          "setup failed",
+						RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 					}},
 				},
 			}},

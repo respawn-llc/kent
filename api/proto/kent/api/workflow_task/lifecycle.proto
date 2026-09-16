@@ -217,10 +217,16 @@ message ExecutionTargetSelection {
 }
 
 message SelectionRequired {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.selection_configured_managed_mode"
+    message: "configured unavailable selection requires a managed target mode"
+    expression: "!has(this.configured_target_unavailable) || this.configured_target_unavailable.mode in [2, 3, 4]"
+  };
   oneof reason {
     option (buf.validate.oneof).required = true;
     google.protobuf.Empty policy_requires_selection = 1;
     ConfiguredExecutionTargetUnavailableDetails configured_target_unavailable = 2;
+    LockedExecutionTargetDetails original_target_unavailable = 3;
   }
 }
 

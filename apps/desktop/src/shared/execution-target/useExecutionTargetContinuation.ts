@@ -5,7 +5,12 @@ import type {
   WorkflowExecutionTargetSelectionMode,
   WorkflowExecutionTargetSelectionRequirement,
 } from "@/api";
-import { decodeWorktreeSetupRetainedError, type WorktreeSetupRetainedError } from "@/api";
+import {
+  decodeWorktreeSetupRetainedError,
+  decodeExecutionTargetChoiceFailure,
+  type ExecutionTargetChoiceFailure,
+  type WorktreeSetupRetainedError,
+} from "@/api";
 import { reportNonCancelledError } from "@/app-facade";
 import {
   initialExecutionTargetSelectionDraft,
@@ -26,11 +31,13 @@ export type PendingTaskInitiatingAction =
       action: TaskInitiatingAction;
       requirement: WorkflowExecutionTargetSelectionRequirement;
       selection: ExecutionTargetSelectionDraft;
+      choiceFailure: ExecutionTargetChoiceFailure | null;
     }>
   | Readonly<{
       kind: "setup_recovery";
       action: Extract<TaskInitiatingAction, { kind: "move" }>;
       failure: WorktreeSetupRetainedError;
+      choiceFailure: ExecutionTargetChoiceFailure | null;
       retrySelection?: WorkflowExecutionTargetSelection;
     }>;
 
@@ -41,6 +48,7 @@ export type TaskInitiatingActionController = Readonly<{
   close(): void;
   selectMode(mode: WorkflowExecutionTargetSelectionMode): void;
   setCustomRef(customRef: string | null): void;
+  clearChoiceFailure(): void;
 }>;
 
 export function useTaskInitiatingActionController({
@@ -89,6 +97,7 @@ export function useTaskInitiatingActionController({
         action: result.action,
         requirement: result.response.selectionRequired,
         selection: initialExecutionTargetSelectionDraft(result.response.selectionRequired),
+        choiceFailure: null,
       });
     },
     [onApplied, onAppliedError, updatePending],
@@ -100,12 +109,22 @@ export function useTaskInitiatingActionController({
         await handleResult(await execute(action, selection));
       } catch (error) {
         if (action.kind !== "move") throw error;
+        const choiceFailure = decodeExecutionTargetChoiceFailure(error);
+        const current = pendingRef.current;
+        if (
+          choiceFailure !== null &&
+          (current?.kind === "execution_target" || current?.kind === "setup_recovery")
+        ) {
+          updatePending({ ...current, choiceFailure });
+          return;
+        }
         const failure = decodeWorktreeSetupRetainedError(error);
         if (failure === null) throw error;
         updatePending({
           kind: "setup_recovery",
           action,
           failure,
+          choiceFailure: null,
           ...(selection === undefined ? {} : { retrySelection: selection }),
         });
       }
@@ -162,6 +181,7 @@ export function useTaskInitiatingActionController({
       updatePending({
         ...current,
         selection: { ...current.selection, mode },
+        choiceFailure: null,
       });
     },
     [updatePending],
@@ -176,10 +196,18 @@ export function useTaskInitiatingActionController({
       updatePending({
         ...current,
         selection: { ...current.selection, customRef },
+        choiceFailure: null,
       });
     },
     [updatePending],
   );
+
+  const clearChoiceFailure = useCallback(() => {
+    const current = pendingRef.current;
+    if (current?.kind === "execution_target" && current.choiceFailure !== null) {
+      updatePending({ ...current, choiceFailure: null });
+    }
+  }, [updatePending]);
 
   return {
     pending,
@@ -188,5 +216,6 @@ export function useTaskInitiatingActionController({
     close,
     selectMode,
     setCustomRef,
+    clearChoiceFailure,
   };
 }

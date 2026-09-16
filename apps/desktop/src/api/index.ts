@@ -111,6 +111,8 @@ export {
   ContractError,
   ProtocolMismatchError,
   RpcError,
+  decodeExecutionTargetChoiceFailure,
+  type ExecutionTargetChoiceFailure,
   WorkflowLabelError,
   WorkflowTaskCreateSelectionError,
   WorkflowTaskDependencyError,

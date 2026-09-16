@@ -555,6 +555,31 @@ func TestApplyManualMoveRejectsScriptDestinationWithAgentFanoutWithoutAssignment
 	}
 }
 
+func TestManualMoveReopensCompletedTaskWithReplacementTarget(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	attachManagedWorktree(t, ctx, store, binding.WorkspaceID, task.ID, t.TempDir())
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := started.Mutation.Created[0]
+	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: source.Reference.NodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, noneManualMoveExecutionTargetCandidate(binding))
+	if err != nil || moved.Outcome != ManualMoveResultOutcomeApplied {
+		t.Fatalf("completed replacement Move = %+v: %v", moved, err)
+	}
+}
+
 func TestManualMoveForwardExecutableAgentReplacesSerialCurrentNode(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")

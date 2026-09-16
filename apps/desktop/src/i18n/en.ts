@@ -2,6 +2,7 @@ import { workflowEditorEnglish } from "./workflowEditorEn";
 import { chatComposerEnglish } from "./chatComposerEn";
 import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
+import { executionTargetEnglish } from "./executionTargetEn";
 
 export const englishResources = {
   translation: {
@@ -357,29 +358,7 @@ export const englishResources = {
       editWorkflow: "Edit workflow {{name}}",
       horizontalScroll: "Board horizontal scroll",
     },
-    executionTargetContinuation: {
-      title: "Choose where this task runs",
-      choice: "Execution target",
-      policyRequiresSelection:
-        "This workflow asks you to choose an execution target the first time automation runs.",
-      configuredTargetUnavailable:
-        "The workflow's configured target is unavailable. Choose a task-local target to continue.",
-      mode_none: "Source workspace",
-      mode_noneHelp: "Run in the task's source workspace without a managed worktree.",
-      mode_head: "Current source HEAD",
-      mode_headHelp: "Create the managed worktree from the source repository's current commit.",
-      mode_default_branch: "Repository default branch",
-      mode_default_branchHelp: "Create the managed worktree from the repository's default branch.",
-      mode_custom_ref: "Custom Git revision",
-      mode_custom_refHelp: "Create the managed worktree from a branch, tag, or commit you specify.",
-      customRef: "Git revision",
-      continue: "Continue",
-      unavailable_invalid_revision: "The configured Git revision could not be resolved.",
-      unavailable_non_commit: "The configured Git revision does not resolve to a commit.",
-      unavailable_default_branch_missing: "The repository has no detectable default branch.",
-      unavailable_default_branch_ambiguous: "The repository default branch is ambiguous.",
-      unavailable_git_failure: "Git could not resolve the configured target.",
-    },
+    executionTargetContinuation: executionTargetEnglish,
     taskDependencyConfirmation: {
       title: "Start task ahead of deps?",
       body: "This task has {{count}} unsatisfied dependencies. Do you still want to start it?",
