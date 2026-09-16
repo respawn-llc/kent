@@ -362,12 +362,12 @@
 - Source root and Execution Root are not separate facts. Unavailable expected facts are hidden; useful continuity facts may be empty or unassigned; unexpected meaningful absence is an unavailable or error state. Unavailable managed worktrees have no managed-worktree fact.
 - Visible values copy by selecting the value itself, with clipboard feedback that identifies the copied value on success and includes the error on failure. Short commit display copies the complete commit. Actions that copy deliberately hidden content remain explicit controls.
 - Source URL is read-only. Valid web, secure web, and mail links use their host as the label and open externally; other values are plain source text.
-- Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention has its own loading and retry state and never blocks core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
+- Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention loading must not block core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
 - Comments and Activity use 50 rows per page, newest first, and retain at most 10 nearby pages per feed.
 - Each feed uses edge-driven infinite scroll in both directions. Loading beyond the page budget evicts the farthest page on the opposite side, and returning to an evicted side reloads it.
 - Live feed changes refresh the retained bounded pages. Desktop keeps the visible row steady when it remains loaded and otherwise uses the nearest loaded position.
 - A page-edge failure retains loaded rows and offers Retry at that edge. A first-page failure and an empty feed use the standard feed error and empty states.
-- A non-attention Task Detail failure uses the standard error state; reopening or refreshing Task Detail is its recovery path. Deleted comments are hidden.
+- If core Task Detail, Task attention, or live Task observation fails, Task Detail must replace its page content with the standard error state. The error must not appear above a separate scrollable Task body. Attention and observation failures must offer Retry for the failed operation; core detail failures recover by reopening or refreshing Task Detail. Deleted comments are hidden.
 
 ## Task Dependencies
 

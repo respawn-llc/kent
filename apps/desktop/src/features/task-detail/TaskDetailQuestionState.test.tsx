@@ -256,6 +256,7 @@ describe("questionPresentation", () => {
     const approval = approvalAttention(["allow_once", "deny"]);
     const attention = {
       ...approval,
+      message: null,
       question: {
         ...approval.question,
         accessTargets: [

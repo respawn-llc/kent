@@ -130,7 +130,7 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
   ]);
 });
 
-it("disables Start while pending but permits it after an independent observation fails", async () => {
+it("disables Start while pending and restores actions after retrying a failed observation", async () => {
   let resolveStart: ((value: unknown) => void) | undefined;
   const services = mountTaskDetailSurface(
     taskWithActions({
@@ -173,7 +173,8 @@ it("disables Start while pending but permits it after an independent observation
   act(() => {
     services.transport.fail("workflow.subscribeProject", new Error("offline"));
   });
-  await waitFor(() => {
-    expect(start).toBeEnabled();
-  });
+  const error = await screen.findByTestId("error-state");
+  expect(screen.queryByTestId("task-detail-start")).not.toBeInTheDocument();
+  await user.click(within(error).getByRole("button", { name: appI18n.t("app.retry") }));
+  expect(await screen.findByTestId("task-detail-start")).toBeEnabled();
 });

@@ -12,6 +12,7 @@ import {
   useLocalSubscription,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
+import { useProjectLabelEffects } from "@/shared/labels";
 import {
   dependencyRelatedTaskIDs,
   optimisticTaskDependencyRemoval,
@@ -29,6 +30,7 @@ import {
 // flicker-free and never collapses the surface back to a loading state.
 export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
   const { api, logger } = useAppServices();
+  const labelEffects = useProjectLabelEffects();
   const queryClient = useQueryClient();
   const taskID = detail.id;
   const projectID = detail.projectID;
@@ -55,8 +57,8 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
         }),
       ]);
     };
-    const refreshOrReport = (): void => {
-      void refresh().catch((error: unknown) => {
+    const refreshOrReport = (operation: Promise<unknown>): void => {
+      void operation.catch((error: unknown) => {
         reportNonCancelledError(error, (failure) => {
           void logger.append("warn", "Task detail live refresh failed.", {
             error: errorMessage(failure),
@@ -66,13 +68,14 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
     };
     return {
       onOpen() {
-        refreshOrReport();
+        refreshOrReport(Promise.all([refresh(), labelEffects.refreshAfterSubscriptionBoundary()]));
       },
       onEvent(event: WorkflowProjectEvent) {
+        refreshOrReport(labelEffects.consumeProjectEvent(event));
         if (!workflowProjectEventAffectsDependencyDetail(event, taskID, relatedTaskIDs)) {
           return;
         }
-        refreshOrReport();
+        refreshOrReport(refresh());
       },
       onComplete() {
         return;

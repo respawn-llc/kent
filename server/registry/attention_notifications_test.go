@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -41,6 +42,23 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 	if desktopPending.Pending == nil || desktopPending.Pending.Target.ProjectID != "project-1" ||
 		desktopPending.Pending.Target.SessionID != "session-1" {
 		t.Fatalf("desktop pending = %+v", desktopPending)
+	}
+	encoded, err := json.Marshal(desktopPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Pending struct {
+			Question struct {
+				SkippedAskIDs []string `json:"skipped_ask_ids"`
+			} `json:"question"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Pending.Question.SkippedAskIDs == nil || len(payload.Pending.Question.SkippedAskIDs) != 0 {
+		t.Fatalf("ordinary Session question must encode an empty skipped-ID array: %s", encoded)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "ask-1")
 	resolved := nextRegistryAttentionEvent(t, sessionSub).GetResolved()

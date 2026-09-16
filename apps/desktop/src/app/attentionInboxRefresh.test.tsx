@@ -1,10 +1,13 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+import { toast } from "sonner";
 
 import { removeBrowserStorage } from "@/app-facade";
 import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { AppRoot } from "./AppRoot";
+
+vi.mock("@/shared/feature-flags", () => ({ desktopChatEnabled: false }));
 
 describe("open Inbox attention refresh", () => {
   beforeEach(() => {
@@ -78,6 +81,43 @@ describe("open Inbox attention refresh", () => {
       expect(attentionListCallCount(services)).toBe(2);
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
     });
+  });
+
+  it("ignores Session Chat questions in production without failing the notification stream", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.attention.list", handler: () => attentionResponse([]) },
+    ]);
+    const notify = vi.spyOn(services.nativeBridge.notifications, "notify");
+    render(<AppRoot services={services} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("home-route-root")).toBeInTheDocument();
+      expect(services.transport.subscriptions).toContainEqual({
+        method: "attention.notification.subscribe",
+        params: {},
+      });
+    });
+    const notices = toast.getToasts();
+    const logs = services.logger.entries();
+    await act(async () => {
+      services.transport.emit("attention.notification", {
+        event: {
+          ...pendingQuestionEvent.event,
+          pending: {
+            ...pendingQuestionEvent.event.pending,
+            target: {
+              kind: "session_prompt",
+              project_id: "project-1",
+              session_id: "session-1",
+            },
+          },
+        },
+      });
+    });
+    expect(toast.getToasts()).toEqual(notices);
+    expect(services.logger.entries()).toEqual(logs);
+    expect(notify).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
   });
 });
 

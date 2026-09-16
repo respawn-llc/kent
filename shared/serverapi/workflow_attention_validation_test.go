@@ -73,6 +73,28 @@ func TestWorkflowAttentionItemValidateEnforcesDiscriminatedVariants(t *testing.T
 		want bool
 	}{
 		{name: "question", item: validWorkflowAttentionQuestion(t), want: true},
+		{name: "ordinary question without message", item: question(func(item *WorkflowAttentionItem) { item.Message = nil }), want: false},
+		{name: "structured approval without message", item: func() WorkflowAttentionItem {
+			item := validWorkflowAttentionRuntimeApproval(t)
+			item.Message = nil
+			return item
+		}(), want: true},
+		{name: "structured approval with blank message", item: func() WorkflowAttentionItem {
+			item := validWorkflowAttentionRuntimeApproval(t)
+			item.Message = textutil.Value("")
+			return item
+		}(), want: false},
+		{name: "text approval without message", item: func() WorkflowAttentionItem {
+			item := validWorkflowAttentionRuntimeApproval(t)
+			item.Question.AccessTargets = nil
+			item.Message = nil
+			return item
+		}(), want: false},
+		{name: "text approval with message", item: func() WorkflowAttentionItem {
+			item := validWorkflowAttentionRuntimeApproval(t)
+			item.Question.AccessTargets = nil
+			return item
+		}(), want: true},
 		{name: "runtime approval question", item: validWorkflowAttentionRuntimeApproval(t), want: true},
 		{name: "approval", item: validWorkflowAttentionApproval(), want: true},
 		{name: "interrupted current node", item: validWorkflowAttentionInterrupted(), want: true},
