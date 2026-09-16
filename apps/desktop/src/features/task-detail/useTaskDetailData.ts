@@ -1,15 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useStableCallback } from "@/ui";
+import * as Effect from "effect/Effect";
 
-import type { OffsetPage, TaskDetail, WorkflowProjectEvent } from "@/api";
+import type { OffsetPage, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
 import {
   invalidateProjectBoardQueries,
   invalidateProjectTaskSearches,
   queryKeys,
   reportNonCancelledError,
-  useLocalSubscription,
+  useProjectObservation,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import {
@@ -28,76 +28,63 @@ import {
 // existing cache data during the background refetch, so the refresh is
 // flicker-free and never collapses the surface back to a loading state.
 export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
-  const { api, logger } = useAppServices();
+  const { logger } = useAppServices();
   const queryClient = useQueryClient();
   const taskID = detail.id;
   const projectID = detail.projectID;
   const relatedTaskIDs = useMemo(() => dependencyRelatedTaskIDs(detail.dependencies), [detail.dependencies]);
   const identity = useMemo(() => ({ taskID, projectID }), [taskID, projectID]);
-  const handlers = useStableCallback(() => {
-    const refresh = async (): Promise<void> => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.task(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.taskAttention(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.activity(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.comments(taskID),
-          refetchType: "active",
-        }),
-      ]);
-    };
-    const refreshOrReport = (): void => {
-      void refresh().catch((error: unknown) => {
-        reportNonCancelledError(error, (failure) => {
-          void logger.append("warn", "Task detail live refresh failed.", {
-            error: errorMessage(failure),
-          });
-        });
-      });
-    };
-    return {
-      onOpen() {
-        refreshOrReport();
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        if (!workflowProjectEventAffectsDependencyDetail(event, taskID, relatedTaskIDs)) {
-          return;
-        }
-        refreshOrReport();
-      },
-      onComplete() {
-        return;
-      },
-      onError(error: Error) {
-        void logger.append("warn", "Task detail subscription failed.", { error: errorMessage(error) });
-      },
-    };
-  });
-  return useLocalSubscription(
+  return useProjectObservation(
     enabled && taskID.length > 0 && projectID.length > 0 ? identity : null,
-    (reportFailure, isActive) =>
-      api.subscribeProject(projectID, {
-        onOpen: () => {
-          if (isActive()) handlers().onOpen();
-        },
-        onEvent: (event) => {
-          if (isActive()) handlers().onEvent(event);
-        },
-        onComplete: () => undefined,
-        onError: (error) => {
-          if (!isActive()) return;
-          reportFailure(error);
-          handlers().onError(error);
-        },
+    projectID,
+    (observation) =>
+      Effect.promise(async () => {
+        const refresh = async (): Promise<void> => {
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.task(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.taskAttention(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.activity(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.comments(taskID),
+              refetchType: "active",
+            }),
+          ]);
+        };
+        const refreshOrReport = async (): Promise<void> => {
+          await refresh().catch((error: unknown) => {
+            reportNonCancelledError(error, (failure) => {
+              void logger.append("warn", "Task detail live refresh failed.", {
+                error: errorMessage(failure),
+              });
+            });
+          });
+        };
+        switch (observation.kind) {
+          case "open":
+            await refreshOrReport();
+            break;
+          case "event":
+            if (workflowProjectEventAffectsDependencyDetail(observation.event, taskID, relatedTaskIDs)) {
+              await refreshOrReport();
+            }
+            break;
+          case "complete":
+            break;
+          case "error":
+            await logger.append("warn", "Task detail subscription failed.", {
+              error: errorMessage(observation.error),
+            });
+            break;
+        }
       }),
   );
 }

@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create, operationName } from "@app/server-api-contract";
 import {
   QuestionService,
@@ -49,7 +50,7 @@ it("combines generated freeform Questions and Approvals in creation order", asyn
       }),
     },
   ]);
-  const prompts = await new ApiClient(transport).chat.listPendingPrompts({
+  const prompts = await new ApiClient(transport, unexpectedProjectOverflow).chat.listPendingPrompts({
     sessionID,
     projectID: "project-1",
     workspace: { workspaceID: "workspace-1" },
@@ -68,7 +69,7 @@ it("attaches the Session for Session-scoped pending prompt reads", async () => {
       }),
     },
   ]);
-  const client = new ApiClient(transport);
+  const client = new ApiClient(transport, unexpectedProjectOverflow);
 
   await expect(client.listPendingAsks("session-1")).resolves.toEqual([]);
 
@@ -107,7 +108,7 @@ it("preserves pending-ask recommendation presence and rejects invalid indexes", 
         }),
       },
     ]);
-    const result = new ApiClient(transport).listPendingAsks("session-1");
+    const result = new ApiClient(transport, unexpectedProjectOverflow).listPendingAsks("session-1");
     if (recommendedOptionIndex === 3) {
       await expect(result).rejects.toThrow();
     } else {

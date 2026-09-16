@@ -1,3 +1,10 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
+import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import type { ApiService } from "./apiService";
 import { ApiClient } from "./client";
 import { ContractError } from "./errors";
@@ -27,12 +34,12 @@ const workflowProjectEvent: WorkflowProjectEvent = {
 };
 
 describe("ApiClient workflow subscriptions", () => {
-  it("adapts dependency change pairs through the typed Task event contract", () => {
+  it("adapts dependency change pairs through the typed Task event contract", async () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
 
-    client.subscribeProject("project-1", eventCollector(events));
+    observeProject(client, events);
     transport.emit("workflow.project", {
       event: {
         resource: "task",
@@ -45,6 +52,9 @@ describe("ApiClient workflow subscriptions", () => {
       },
     });
 
+    await waitFor(() => {
+      expect(events).toHaveLength(1);
+    });
     expect(events).toEqual([
       expect.objectContaining({
         action: "dependencies_changed",
@@ -54,20 +64,22 @@ describe("ApiClient workflow subscriptions", () => {
     ]);
   });
 
-  it("adapts project subscription events before feature code receives them", () => {
+  it("adapts project subscription events before feature code receives them", async () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
 
-    client.subscribeProject("project-1", eventCollector(events));
-    transport.emit("workflow.project", workflowProjectWireEvent);
+    observeProject(client, events);
+    await act(async () => {
+      transport.emit("workflow.project", workflowProjectWireEvent);
+    });
 
     expect(events).toEqual([workflowProjectEvent]);
   });
 
   it("adapts workflow subscription events before feature code receives them", () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
 
     client.subscribeWorkflow("11111111-1111-4111-8111-111111111111", eventCollector(events));
@@ -76,12 +88,12 @@ describe("ApiClient workflow subscriptions", () => {
     expect(events).toEqual([workflowProjectEvent]);
   });
 
-  it("adapts label catalog and task assignment events through typed scopes", () => {
+  it("adapts label catalog and task assignment events through typed scopes", async () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
 
-    client.subscribeProject("project-1", eventCollector(events));
+    observeProject(client, events);
     transport.emit("workflow.project", {
       event: {
         action: "renamed",
@@ -102,6 +114,9 @@ describe("ApiClient workflow subscriptions", () => {
       },
     });
 
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     expect(events).toEqual([
       {
         action: "renamed",
@@ -124,14 +139,16 @@ describe("ApiClient workflow subscriptions", () => {
     ]);
   });
 
-  it("rejects subscription event methods that do not match the subscribed stream", () => {
+  it("rejects subscription event methods that do not match the subscribed stream", async () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     const errors: Error[] = [];
 
-    client.subscribeProject("project-1", eventCollector(events, errors));
-    transport.emit("workflow.event", workflowProjectWireEvent);
+    observeProject(client, events, errors);
+    await act(async () => {
+      transport.emit("workflow.event", workflowProjectWireEvent);
+    });
 
     expect(events).toEqual([]);
     expect(errors).toHaveLength(1);
@@ -140,7 +157,7 @@ describe("ApiClient workflow subscriptions", () => {
 
   it("surfaces malformed workflow subscription events as contract errors", () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     const errors: Error[] = [];
 
@@ -160,13 +177,13 @@ describe("ApiClient workflow subscriptions", () => {
     expect(errors[0]).toBeInstanceOf(ContractError);
   });
 
-  it("rejects the removed task-canceled event action", () => {
+  it("rejects the removed task-canceled event action", async () => {
     const transport = new FakeRpcTransport([]);
-    const client: ApiService = new ApiClient(transport);
+    const client: ApiService = new ApiClient(transport, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     const errors: Error[] = [];
 
-    client.subscribeProject("project-1", eventCollector(events, errors));
+    observeProject(client, events, errors);
     transport.emit("workflow.project", {
       event: {
         action: "canceled",
@@ -178,11 +195,29 @@ describe("ApiClient workflow subscriptions", () => {
       },
     });
 
+    await waitFor(() => {
+      expect(errors).toHaveLength(1);
+    });
     expect(events).toEqual([]);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(ContractError);
   });
 });
+
+function observeProject(client: ApiService, events: WorkflowProjectEvent[], errors: Error[] = []) {
+  const observation = Atom.make(
+    Stream.runForEach(client.subscribeProject("project-1"), (value) =>
+      Effect.sync(() => {
+        if (value.kind === "event") events.push(value.event);
+        if (value.kind === "error") errors.push(value.error);
+      }),
+    ).pipe(Effect.as(null)),
+    { initialValue: null },
+  );
+  return renderHook(() => useAtomSuspense(observation), {
+    wrapper: ({ children }: { children: ReactNode }) => createElement(RegistryProvider, { children }),
+  });
+}
 
 function eventCollector(events: WorkflowProjectEvent[], errors: Error[] = []) {
   return {

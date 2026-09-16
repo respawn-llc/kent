@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import type { PendingPrompt } from "@/api";
 import { target } from "@/test-support/chat-runtime";
 import { create } from "@app/server-api-contract";
@@ -39,6 +40,7 @@ export function failedBatchWithFreeform(freeform: PendingPrompt) {
         }),
       },
     ]),
+    unexpectedProjectOverflow,
   ).chat;
 }
 

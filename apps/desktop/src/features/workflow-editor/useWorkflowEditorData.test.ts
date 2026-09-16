@@ -1,20 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "@/api";
+import { AppServicesProvider } from "@/app-facade";
+import { createTestServices } from "@/test-support/app-services";
 
 const fixture = vi.hoisted(() => {
   const noHandler = (): WorkflowProjectEventHandler | null => null;
   return {
-    projectHandler: noHandler(),
     push: vi.fn(),
     translate: vi.fn((key: string) => key),
     workflowHandler: noHandler(),
   };
 });
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal()),
   useTranslation: () => ({ t: fixture.translate }),
 }));
 
@@ -24,10 +27,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     api: {
       getWorkflow: async () => ({ workflow: { version: 1 } }),
       listProjectWorkflowLinks: async () => [{ projectID: "project-1", workflowID: "workflow-1" }],
-      subscribeProject: (_projectID: string, handler: WorkflowProjectEventHandler) => {
-        fixture.projectHandler = handler;
-        return { close: vi.fn() };
-      },
       subscribeWorkflow: (_workflowID: string, handler: WorkflowProjectEventHandler) => {
         fixture.workflowHandler = handler;
         return { close: vi.fn() };
@@ -61,7 +60,6 @@ function workflowEvent(
 
 describe("Workflow Editor event effects", () => {
   beforeEach(() => {
-    fixture.projectHandler = null;
     fixture.push.mockClear();
     fixture.translate.mockClear();
     fixture.workflowHandler = null;
@@ -85,7 +83,6 @@ describe("Workflow Editor event effects", () => {
     });
     await waitFor(() => {
       expect(fixture.workflowHandler).not.toBeNull();
-      expect(fixture.projectHandler).not.toBeNull();
     });
     invalidation.mockClear();
 
@@ -145,7 +142,13 @@ describe("Workflow Editor event effects", () => {
 });
 
 function queryWrapper(queryClient: QueryClient) {
+  const services = createTestServices([]);
   return function QueryWrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return createElement(QueryClientProvider, { children, client: queryClient });
+    return createElement(QueryClientProvider, {
+      client: queryClient,
+      children: createElement(RegistryProvider, {
+        children: createElement(AppServicesProvider, { services, children }),
+      }),
+    });
   };
 }

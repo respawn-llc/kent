@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create, validate } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
@@ -125,7 +126,10 @@ describe("Desktop Worktree client", () => {
     expect(() => {
       validate(ListResultSchema, result);
     }).not.toThrow();
-    const client = new ApiClient(new FakeRpcTransport([{ descriptor: ListService.method.list, result }]));
+    const client = new ApiClient(
+      new FakeRpcTransport([{ descriptor: ListService.method.list, result }]),
+      unexpectedProjectOverflow,
+    );
     await expect(client.listWorktrees("retained-session")).rejects.toSatisfy(
       (error: unknown) => error instanceof RpcError && error.code === rpcErrorCodes.workspaceNotRegistered,
     );
@@ -171,7 +175,7 @@ describe("Desktop Worktree client", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     expect(topologies.every(isValidTopology)).toBe(true);
     const detached = topologies[2];
@@ -281,7 +285,7 @@ describe("Desktop Worktree client", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     vi.spyOn(crypto, "randomUUID").mockReturnValueOnce(ids[0]).mockReturnValueOnce(ids[1]);
     const invokeCreate = async (
       resolution: typeof existing,
@@ -386,7 +390,7 @@ describe("Desktop Worktree client", () => {
       },
     ]);
     await expect(
-      new ApiClient(transport).createWorktree({
+      new ApiClient(transport, unexpectedProjectOverflow).createWorktree({
         sessionID: "caller",
         setupOperationID: newSetupOperationID(),
         resolution,
@@ -409,6 +413,7 @@ describe("Desktop Worktree client", () => {
             }),
           },
         ]),
+        unexpectedProjectOverflow,
       ).switchWorktree("session-1", operation),
     ).rejects.toThrow("different Worktree operation identity");
 
@@ -478,6 +483,7 @@ async function resolveTarget(kind: CreateTargetResolutionKind, input: string, re
         }),
       },
     ]),
+    unexpectedProjectOverflow,
   );
   const resolution = (await client.resolveWorktreeCreateTarget("session-1", input)).resolution;
   if (resolution === undefined) throw new Error("fixture omitted Create target resolution");
@@ -494,6 +500,7 @@ async function resolveSwitch(value: ListEntry) {
         }),
       },
     ]),
+    unexpectedProjectOverflow,
   );
   const operation = (await client.resolveWorktreeSelector("session-1", "feature")).worktree?.projection
     ?.switch;
@@ -522,6 +529,7 @@ async function resolvePreview(
         }),
       },
     ]),
+    unexpectedProjectOverflow,
   );
   return client.previewWorktreeDelete("session-1", "feature");
 }

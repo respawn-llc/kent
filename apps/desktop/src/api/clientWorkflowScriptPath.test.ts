@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
 
@@ -24,7 +25,7 @@ describe("ApiClient workflow script path validation", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.validateWorkflowScriptPath({

@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import {
   taskApproveResponseSchema,
@@ -64,7 +65,7 @@ describe("task lifecycle client", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "applied",

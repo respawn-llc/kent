@@ -52,6 +52,10 @@ type FakeJsonRoute = Readonly<{
   handler?: (params: JsonValue, callIndex: number) => unknown;
 }>;
 
+export async function unexpectedProjectOverflow(): Promise<never> {
+  throw new Error("Unexpected Project event overflow in API fixture.");
+}
+
 type FakeDescriptorRoute = Readonly<{
   descriptor: DescMethod;
   result?: Message;

@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import * as Effect from "effect/Effect";
 
-import { errorMessage, type WorkflowProjectEvent } from "@/api";
-import { queryKeys, reportNonCancelledError, useAppServices, useLocalSubscription } from "@/app-facade";
+import { errorMessage } from "@/api";
+import { queryKeys, reportNonCancelledError, useAppServices, useProjectObservation } from "@/app-facade";
 import { ErrorState, useStableCallback } from "@/ui";
 import { createProjectLabelEffects } from "./labelEventEffects";
 import { ProjectLabelDataContext } from "./projectLabelContext";
@@ -67,44 +68,26 @@ export function ProjectLabelsProvider({
       }),
     [filter.dispatch, projectID, queryClient, reportBackgroundError],
   );
-  const handlers = useStableCallback(() => {
-    const run = (operation: Promise<void>): void => {
-      void operation.catch(reportBackgroundError);
-    };
-    return {
-      onOpen() {
-        run(effects.refreshAfterSubscriptionBoundary());
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        run(effects.consumeProjectEvent(event));
-      },
-      onComplete(code: number) {
-        if (code !== 0) return;
-        run(effects.refreshAfterSubscriptionBoundary());
-      },
-      onError(error: Error) {
-        reportBackgroundError(error);
-      },
-    };
-  });
-  const { error, retry } = useLocalSubscription(
+  const { error, retry } = useProjectObservation(
     subscribeToProject && projectID.length > 0 ? projectID : null,
-    (reportFailure, isActive) =>
-      api.subscribeProject(projectID, {
-        onOpen: () => {
-          if (isActive()) handlers().onOpen();
-        },
-        onEvent: (event) => {
-          if (isActive()) handlers().onEvent(event);
-        },
-        onComplete: (code) => {
-          if (isActive()) handlers().onComplete(code);
-        },
-        onError: (error) => {
-          if (!isActive()) return;
-          reportFailure(error);
-          handlers().onError(error);
-        },
+    projectID,
+    (observation) =>
+      Effect.promise(async () => {
+        switch (observation.kind) {
+          case "open":
+            await effects.refreshAfterSubscriptionBoundary().catch(reportBackgroundError);
+            break;
+          case "event":
+            await effects.consumeProjectEvent(observation.event).catch(reportBackgroundError);
+            break;
+          case "complete":
+            if (observation.code === 0)
+              await effects.refreshAfterSubscriptionBoundary().catch(reportBackgroundError);
+            break;
+          case "error":
+            reportBackgroundError(observation.error);
+            break;
+        }
       }),
   );
   const value = useMemo(

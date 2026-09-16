@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import type { AttentionNotificationEvent } from "./attentionNotifications";
 import { ContractError } from "./errors";
@@ -6,7 +7,7 @@ import { FakeRpcTransport } from "@/test-support/api";
 describe("attention notification API", () => {
   it("subscribes to typed attention notifications and rejects malformed events at the API boundary", () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
     const errors: Error[] = [];
 
@@ -136,7 +137,7 @@ describe("attention notification API", () => {
 
   it("parses generic and Workflow Approvals as distinct payloads", () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
 
     client.subscribeAttentionNotifications({
@@ -214,7 +215,7 @@ describe("attention notification API", () => {
 
   it("parses interrupted-current-node attention notifications", () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
 
     client.subscribeAttentionNotifications({
@@ -264,7 +265,7 @@ describe("attention notification API", () => {
 
   it("rejects incoherent attention payloads and targets", () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const errors: Error[] = [];
 
     client.subscribeAttentionNotifications({

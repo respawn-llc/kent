@@ -6,7 +6,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { useStableCallback } from "@/ui";
+import * as Effect from "effect/Effect";
 
 import { boardNodeCardsPageSize, type BoardNodeCardsPage, type WorkflowProjectEvent } from "@/api";
 import {
@@ -14,7 +14,7 @@ import {
   invalidateProjectTaskSearches,
   queryKeys,
   reportNonCancelledError,
-  useLocalSubscription,
+  useProjectObservation,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { workflowProjectEventCanChangeTaskSearch } from "@/app-facade";
@@ -122,7 +122,6 @@ export function useProjectBoardSubscription(
     onSelectedTaskDeleted?: () => void;
   }>,
 ) {
-  const { api } = useAppServices();
   const queryClient = useQueryClient();
   const labelEffects = useProjectLabelEffects();
   const { onBackgroundError, onSelectedTaskDeleted, selectedTaskID, selectedWorkflowID } = input;
@@ -133,73 +132,60 @@ export function useProjectBoardSubscription(
     [onBackgroundError],
   );
 
-  const handlers = useStableCallback(() => {
-    async function refresh(): Promise<void> {
-      await invalidateProjectBoardQueries(queryClient, projectID);
-    }
-    async function refreshQuestionTask(event: WorkflowProjectEvent): Promise<void> {
-      const taskID = workflowProjectQuestionTaskID(event);
-      if (taskID === null) {
-        return;
+  return useProjectObservation(projectID.length > 0 ? projectID : null, projectID, (observation) =>
+    Effect.promise(async () => {
+      async function refresh(): Promise<void> {
+        await invalidateProjectBoardQueries(queryClient, projectID);
       }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID), refetchType: "active" }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID), refetchType: "active" }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks, refetchType: "active" }),
-      ]);
-    }
-    async function refreshTaskSearch(): Promise<void> {
-      await invalidateProjectTaskSearches(queryClient, projectID);
-    }
-    return {
-      onOpen() {
-        void labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError);
-        void refreshTaskSearch().catch(consumeBackgroundError);
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        void labelEffects.consumeProjectEvent(event).catch(consumeBackgroundError);
-        if (isDeletedTaskEvent(event, selectedTaskID)) {
-          onSelectedTaskDeleted?.();
+      async function refreshQuestionTask(event: WorkflowProjectEvent): Promise<void> {
+        const taskID = workflowProjectQuestionTaskID(event);
+        if (taskID === null) {
+          return;
         }
-        void refreshQuestionTask(event).catch(consumeBackgroundError);
-        if (workflowProjectEventCanChangeTaskSearch(event)) {
-          void refreshTaskSearch().catch(consumeBackgroundError);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks, refetchType: "active" }),
+        ]);
+      }
+      async function refreshTaskSearch(): Promise<void> {
+        await invalidateProjectTaskSearches(queryClient, projectID);
+      }
+      switch (observation.kind) {
+        case "open":
+          await Promise.all([
+            labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError),
+            refreshTaskSearch().catch(consumeBackgroundError),
+          ]);
+          break;
+        case "event": {
+          const { event } = observation;
+          await labelEffects.consumeProjectEvent(event).catch(consumeBackgroundError);
+          if (isDeletedTaskEvent(event, selectedTaskID)) {
+            onSelectedTaskDeleted?.();
+          }
+          await refreshQuestionTask(event).catch(consumeBackgroundError);
+          if (workflowProjectEventCanChangeTaskSearch(event)) {
+            await refreshTaskSearch().catch(consumeBackgroundError);
+          }
+          if (shouldRefreshBoardFromProjectEvent(event, boardQueryWorkflowID, selectedWorkflowID)) {
+            await refresh().catch(consumeBackgroundError);
+          }
+          break;
         }
-        if (shouldRefreshBoardFromProjectEvent(event, boardQueryWorkflowID, selectedWorkflowID)) {
-          void refresh().catch(consumeBackgroundError);
-        }
-      },
-      onComplete(code: number) {
-        if (code !== 0) return;
-        void labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError);
-        void refreshTaskSearch().catch(consumeBackgroundError);
-      },
-      onError(error: Error) {
-        consumeBackgroundError(error);
-      },
-    };
-  });
-  return useLocalSubscription(projectID.length > 0 ? projectID : null, (reportFailure, isActive) => {
-    return api.subscribeProject(projectID, {
-      onOpen: () => {
-        if (!isActive()) return;
-        handlers().onOpen();
-      },
-      onEvent: (event) => {
-        if (!isActive()) return;
-        handlers().onEvent(event);
-      },
-      onComplete: (code) => {
-        if (!isActive()) return;
-        handlers().onComplete(code);
-      },
-      onError: (error) => {
-        if (!isActive()) return;
-        reportFailure(error);
-        handlers().onError(error);
-      },
-    });
-  });
+        case "complete":
+          if (observation.code === 0)
+            await Promise.all([
+              labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError),
+              refreshTaskSearch().catch(consumeBackgroundError),
+            ]);
+          break;
+        case "error":
+          consumeBackgroundError(observation.error);
+          break;
+      }
+    }),
+  );
 }
 
 function isDeletedTaskEvent(event: WorkflowProjectEvent, taskID: string | undefined): boolean {

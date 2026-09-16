@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, vi } from "vitest";
@@ -10,9 +11,9 @@ import type {
   TaskListInput,
   TaskListPage,
   WorkflowProjectEvent,
-  WorkflowProjectEventHandler,
 } from "@/api";
-import { queryKeys } from "@/app-facade";
+import { AppServicesProvider, queryKeys } from "@/app-facade";
+import { createTestServices, type TestAppServices } from "@/test-support/app-services";
 import {
   projectTaskGroupPageSize,
   projectTaskGroupRetainedPages,
@@ -35,10 +36,9 @@ type TaskGroup = "active" | "backlog" | "done";
 interface TestState {
   countRequests: number;
   getCounts: () => Promise<ProjectTaskGroupCounts>;
-  handlers: WorkflowProjectEventHandler[];
+  handlers: Parameters<TestAppServices["transport"]["subscribe"]>[2][];
   listPage: (input: TaskListInput) => Promise<TaskListPage>;
   listRequests: TaskListInput[];
-  subscriptionCloses: number;
 }
 
 const state: TestState = {
@@ -47,7 +47,6 @@ const state: TestState = {
   handlers: [],
   listPage: async (input) => pageResponse(taskGroupForInput(input), input.offset ?? 0),
   listRequests: [],
-  subscriptionCloses: 0,
 };
 
 const mockedApi = {
@@ -58,14 +57,6 @@ const mockedApi = {
   listTasks: async (input: TaskListInput) => {
     state.listRequests.push(input);
     return state.listPage(input);
-  },
-  subscribeProject: (_projectID: string, handler: WorkflowProjectEventHandler) => {
-    state.handlers.push(handler);
-    return {
-      close() {
-        state.subscriptionCloses += 1;
-      },
-    };
   },
 };
 const mockedServices = {
@@ -88,7 +79,6 @@ describe("Project Task-list data ownership", () => {
     state.handlers.length = 0;
     state.listPage = async (input) => pageResponse(taskGroupForInput(input), input.offset ?? 0);
     state.listRequests.length = 0;
-    state.subscriptionCloses = 0;
   });
 
   it("starts counts and expanded first pages in parallel while collapsed groups stay absent", async () => {
@@ -520,7 +510,7 @@ describe("Project Task-list data ownership", () => {
     expect(edgeResult.current.active.tasks).toHaveLength(1);
   });
 
-  it("isolates retries and ignores failures delivered after destination cleanup", () => {
+  it("isolates retries and ignores failures delivered after destination cleanup", async () => {
     const harness = createHarness();
     const { result, rerender, unmount } = renderHook(
       ({ projectID }) => ({
@@ -533,17 +523,17 @@ describe("Project Task-list data ownership", () => {
     const second = state.handlers[1];
     if (first === undefined || second === undefined) throw new Error("Observations did not open");
     const failure = new Error("lost observation");
-    act(() => {
+    await act(async () => {
       first.onError(failure);
       second.onError(failure);
     });
-    act(() => {
+    await act(async () => {
       result.current.first.retry();
     });
     expect(state.handlers).toHaveLength(3);
     expect(result.current.first.error).toBeNull();
     expect(result.current.second.error).toBe(failure);
-    act(() => {
+    await act(async () => {
       first.onError(failure);
     });
     expect(result.current.first.error).toBeNull();
@@ -551,7 +541,7 @@ describe("Project Task-list data ownership", () => {
     expect(state.handlers).toHaveLength(4);
     expect(result.current.first.error).toBeNull();
     expect(result.current.second.error).toBe(failure);
-    act(() => state.handlers[3]?.onError(failure));
+    await act(async () => state.handlers[3]?.onError(failure));
     rerender({ projectID: "project-1" });
     rerender({ projectID: "project-3" });
     expect(result.current.first.error).toBeNull();
@@ -585,7 +575,7 @@ describe("Project Task-list data ownership", () => {
     });
 
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("task", "moved", "task-2"));
+      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "moved", "task-2"));
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -594,7 +584,10 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("task", "dependencies_changed", "task-2"));
+      state.handlers[0]?.onEvent(
+        "workflow.project",
+        workflowWireEvent("task", "dependencies_changed", "task-2"),
+      );
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -603,7 +596,7 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("label", "renamed", "label-1"));
+      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("label", "renamed", "label-1"));
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -611,15 +604,15 @@ describe("Project Task-list data ownership", () => {
     expect(invalidations).not.toContainEqual(queryKeys.projectLabels("project-1"));
 
     invalidations.length = 0;
-    act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("task", "comment_added", "task-1"));
+    await act(async () => {
+      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "comment_added", "task-1"));
     });
     await Promise.resolve();
     expect(invalidations).toEqual([]);
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("task", "labels_changed", "task-1"));
+      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "labels_changed", "task-1"));
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -628,7 +621,10 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("workflow", "graph_saved", "workflow-1"));
+      state.handlers[0]?.onEvent(
+        "workflow.project",
+        workflowWireEvent("workflow", "graph_saved", "workflow-1"),
+      );
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectBoardsRoot("project-1"));
@@ -637,7 +633,7 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(workflowEvent("workflow_link", "linked", "link-1"));
+      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("workflow_link", "linked", "link-1"));
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectBoardsRoot("project-1"));
@@ -646,11 +642,11 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     const failure = new Error("subscription unavailable");
-    act(() => {
+    await act(async () => {
       state.handlers[0]?.onComplete(409, "stream gap");
     });
     expect(invalidations).toEqual([]);
-    act(() => {
+    await act(async () => {
       state.handlers[0]?.onError(failure);
     });
     await Promise.resolve();
@@ -658,25 +654,47 @@ describe("Project Task-list data ownership", () => {
     expect(result.current.observation.error).toBe(failure);
     expect(state.handlers).toHaveLength(1);
     expect(invalidations).toEqual([]);
-    act(() => {
+    await act(async () => {
       result.current.observation.retry();
     });
     expect(state.handlers).toHaveLength(2);
 
     unmount();
-    expect(state.subscriptionCloses).toBe(2);
+    await waitFor(() => {
+      expect(harness.close).toHaveBeenCalledTimes(2);
+    });
     invalidateSpy.mockRestore();
   });
 });
 
 function createHarness() {
+  const services = createTestServices([]);
+  const close = vi.fn();
+  const subscribe = services.transport.subscribe.bind(services.transport);
+  vi.spyOn(services.transport, "subscribe").mockImplementation((method, params, handler) => {
+    state.handlers.push(handler);
+    const subscription = subscribe(method, params, handler);
+    return {
+      close() {
+        close();
+        subscription.close();
+      },
+    };
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return {
+    close,
     queryClient,
     render(children: ReactNode) {
-      return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+      return (
+        <QueryClientProvider client={queryClient}>
+          <RegistryProvider>
+            <AppServicesProvider services={services}>{children}</AppServicesProvider>
+          </RegistryProvider>
+        </QueryClientProvider>
+      );
     },
   };
 }
@@ -724,19 +742,21 @@ function pageResponse(group: TaskGroup, offset: number): TaskListPage {
   };
 }
 
-function workflowEvent(
+function workflowWireEvent(
   resource: WorkflowProjectEvent["resource"],
   action: WorkflowProjectEvent["action"],
   primaryEntityID: string,
-): WorkflowProjectEvent {
+) {
   return {
-    action,
-    occurredAtUnixMs: 1,
-    primaryEntityID,
-    projectID: resource === "workflow" ? null : "project-1",
-    relatedIDs: [],
-    resource,
-    workflowID: resource === "label" ? null : resource === "workflow" ? primaryEntityID : "workflow-1",
+    event: {
+      action,
+      occurred_at_unix_ms: 1,
+      primary_entity_id: primaryEntityID,
+      project_id: "project-1",
+      related_ids: [],
+      resource,
+      ...(resource === "label" ? {} : { workflow_id: "11111111-1111-4111-8111-111111111111" }),
+    },
   };
 }
 
