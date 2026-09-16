@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,16 +19,20 @@ import (
 	"testing"
 	"time"
 
+	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/registry"
+	"core/server/runprompt"
 	agentruntime "core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/session/sessiontest"
+	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	"core/server/workflow"
@@ -974,6 +980,191 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	meta := f.onlyProjectSessionMeta(t)
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "coder" {
 		t.Fatalf("fresh workflow Session continuation = %+v, want persisted coder identity", meta.Continuation)
+	}
+}
+
+func TestCompletedWorkflowSessionAllowsOrdinaryHeadlessContinuation(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"ready for approval"}`),
+		ScriptedToolBatch("inspect", llm.ToolCall{
+			ID:    "inspect",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"true"}`),
+		}),
+		ScriptedFinalAnswer("ordinary answer"),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Completed Session continuation",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Continue after approval."},
+		},
+		[]currentNodeLinearTransition{{
+			id:               "next",
+			mode:             workflow.ContextModeContinueSession,
+			requiresApproval: true,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	var providerRequests atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		switch providerRequests.Add(1) {
+		case 1:
+			writeWorkflowRunnerToolCallResponse(w)
+		case 2:
+			modelstub.WriteCompletedResponseStream(w, "ordinary answer", 1, 1)
+		default:
+			t.Errorf("provider request count exceeded two")
+			http.Error(w, "unexpected provider request", http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(provider.Close)
+	f.cfg.Settings.OpenAIBaseURL = provider.URL
+	source := f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+
+	beforeNodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list Current Nodes before continuation: %v", err)
+	}
+	beforeApprovals, err := f.store.ListPendingApprovals(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list pending Approvals before continuation: %v", err)
+	}
+	beforeAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session before continuation: %v", err)
+	}
+	beforeTarget, err := f.metadata.ResolveOptionalSessionExecutionTarget(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve execution target before rejection: %v", err)
+	}
+	beforeHistory, err := f.metadata.ReadPromptHistory(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("read prompt history before continuation: %v", err)
+	}
+	prompt := "continue this ordinary conversation"
+
+	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		SessionLaunch: sessionlaunch.NewService(launch.Planner{
+			Config:                   f.cfg,
+			ContainerDir:             filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+			StoreOptions:             f.metadata.AuthoritativeSessionStoreOptions(),
+			PersistedSessions:        f.metadata,
+			ExecutionTargets:         f.metadata,
+			ProjectWorkspaceBoundary: f.metadata,
+		}),
+		PromptHistory:    f.metadata,
+		RuntimeAuthority: f.authority,
+	})
+	response, err := headless.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+		Prompt: prompt,
+	}, nil)
+	if err != nil {
+		t.Fatalf("headless ordinary continuation: %v", err)
+	}
+	if response == nil || response.Result != "ordinary answer" {
+		t.Fatalf("headless response = %+v, want ordinary answer", response)
+	}
+	afterNodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list Current Nodes after continuation: %v", err)
+	}
+	if !reflect.DeepEqual(afterNodes, beforeNodes) {
+		t.Fatalf("Current Nodes after continuation = %+v, want unchanged %+v", afterNodes, beforeNodes)
+	}
+	afterApprovals, err := f.store.ListPendingApprovals(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list pending Approvals after continuation: %v", err)
+	}
+	if !reflect.DeepEqual(afterApprovals, beforeApprovals) ||
+		len(afterApprovals) != 1 ||
+		afterApprovals[0].ID != approval.ID ||
+		!afterApprovals[0].Source.Equal(source) {
+		t.Fatalf("pending Approvals after continuation = %+v, want unchanged %+v", afterApprovals, beforeApprovals)
+	}
+	afterAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session after continuation: %v", err)
+	}
+	if !reflect.DeepEqual(afterAssociation, beforeAssociation) || afterAssociation.SessionID != sessionID {
+		t.Fatalf("retained source association after continuation = %+v, want unchanged %+v", afterAssociation, beforeAssociation)
+	}
+	afterTarget, err := f.metadata.ResolveOptionalSessionExecutionTarget(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve execution target after continuation: %v", err)
+	}
+	if !reflect.DeepEqual(afterTarget, beforeTarget) {
+		t.Fatalf("execution target after continuation = %+v, want unchanged %+v", afterTarget, beforeTarget)
+	}
+	afterHistory, err := f.metadata.ReadPromptHistory(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("read prompt history after continuation: %v", err)
+	}
+	if len(afterHistory) != len(beforeHistory)+1 || afterHistory[len(afterHistory)-1] != prompt {
+		t.Fatalf("prompt history after continuation = %+v, want %q appended to %+v", afterHistory, prompt, beforeHistory)
+	}
+	if got := len(f.client.Requests()); got != 1 {
+		t.Fatalf("Workflow model requests = %d, want one initial Workflow request", got)
+	}
+	if got := providerRequests.Load(); got != 2 {
+		t.Fatalf("ordinary continuation provider requests = %d, want tool step plus final answer", got)
+	}
+}
+
+func writeWorkflowRunnerToolCallResponse(w http.ResponseWriter) {
+	const (
+		itemID = "fc-ordinary-1"
+		callID = "call-ordinary-1"
+	)
+	args := `{"cmd":"true"}`
+	writeWorkflowRunnerSSEJSON(w, map[string]any{
+		"type": "response.output_item.added",
+		"item": map[string]any{
+			"id": itemID, "type": "function_call", "name": string(toolspec.ToolExecCommand),
+			"call_id": callID, "arguments": "",
+		},
+	})
+	writeWorkflowRunnerSSEJSON(w, map[string]any{
+		"type":    "response.function_call_arguments.delta",
+		"item_id": itemID,
+		"delta":   args,
+	})
+	writeWorkflowRunnerSSEJSON(w, map[string]any{
+		"type": "response.completed",
+		"response": map[string]any{
+			"usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+			"output": []any{map[string]any{
+				"type": "function_call", "id": itemID, "name": string(toolspec.ToolExecCommand),
+				"call_id": callID, "arguments": args,
+			}},
+		},
+	})
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+}
+
+func writeWorkflowRunnerSSEJSON(w http.ResponseWriter, value any) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("marshal Workflow runner SSE fixture: %v", err))
+	}
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", encoded)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
 	}
 }
 
