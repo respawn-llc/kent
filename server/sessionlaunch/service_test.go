@@ -390,7 +390,7 @@ func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *t
 		false,
 	)
 	if state.Message != draft ||
-		state.Agent != want.Agent ||
+		state.Agent != want.AgentSelector() ||
 		!reflect.DeepEqual(state.Settings, want.Settings) {
 		t.Fatalf("created Chat state = %+v, want draft %q and settings %+v", state, draft, want)
 	}
@@ -602,9 +602,9 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 		}
 		t.Fatalf(
 			"rebased initial Chat settings = agent:%q settings:%+v, want agent:%q settings:%+v",
-			state.Agent,
+			state.AgentSelector(),
 			gotSettings,
-			want.Agent,
+			want.AgentSelector(),
 			wantSettings,
 		)
 	}
@@ -770,29 +770,59 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		PersistedSessions:        meta,
 		ProjectWorkspaceBoundary: meta,
 	})
-	worker := "worker"
 	workflowCallerID := workflowCaller.Meta().SessionID
 	workflowCallerRuntimeID := mustSessionLaunchIntentID(t, workflowCallerID)
-	_, err = service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:            launch.ModeHeadless,
-		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(workflowCallerRuntimeID)),
-		CallerSessionID: &workflowCallerID,
-		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	})
-	var denied *serverapi.SubagentLaunchDeniedError
-	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
-		t.Fatalf("workflow caller error = %T %v, want not-callable denial", err, err)
-	}
-
 	ordinaryCallerID := ordinaryCaller.Meta().SessionID
 	ordinaryCallerRuntimeID := mustSessionLaunchIntentID(t, ordinaryCallerID)
-	if _, err := service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:            launch.ModeHeadless,
-		Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(ordinaryCallerRuntimeID)),
-		CallerSessionID: &ordinaryCallerID,
-		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	}); err != nil {
-		t.Fatalf("ordinary caller target: %v", err)
+	for _, role := range []*string{textutil.Value("worker"), textutil.Value(config.DefaultSubagentRole), textutil.Value(config.BuiltInSubagentRoleFast), nil} {
+		_, err = service.PlanLaunchSession(ctx, PlanRequest{
+			Mode:            launch.ModeHeadless,
+			Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(workflowCallerRuntimeID)),
+			CallerSessionID: &workflowCallerID,
+			Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
+		})
+		var denied *serverapi.SubagentLaunchDeniedError
+		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
+			t.Fatalf("workflow caller error = %T %v, want not-callable denial", err, err)
+		}
+		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode:            launch.ModeHeadless,
+			Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(ordinaryCallerRuntimeID)),
+			CallerSessionID: &ordinaryCallerID,
+			Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
+		}); err != nil {
+			t.Fatalf("ordinary caller target: %v", err)
+		}
+	}
+	removed, err := session.Create(containerDir, "removed", workspace, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workflowEnabled := range []bool{false, true} {
+		if err := removed.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("removed")}); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Settings.Workflow.Subagents = workflowEnabled
+		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
+			WorkflowSubagentSet: true, WorkflowSubagent: false,
+		}
+		service := NewService(launch.Planner{
+			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta, ProjectWorkspaceBoundary: meta,
+		})
+		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
+		_, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,
+		})
+		var denied *serverapi.SubagentLaunchDeniedError
+		if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable {
+			t.Fatalf("removed role, workflow enabled=%t: error=%v, want not-callable denial", workflowEnabled, err)
+		}
+		if _, err := service.PlanLaunchSession(ctx, PlanRequest{
+			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &ordinaryCallerID,
+		}); err != nil {
+			t.Fatalf("ordinary caller resuming removed role: %v", err)
+		}
 	}
 }
 func TestPlanLaunchSessionPreservesLockedAgentRoleAndTools(t *testing.T) {
@@ -1081,7 +1111,7 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 		t.Fatalf("encode Session plan: %v", err)
 	}
 	if generated.Plan.ActivationAgentSelection == nil ||
-		generated.Plan.ActivationAgentSelection.Agent != "worker" ||
+		!textutil.EqualOptional(generated.Plan.ActivationAgentSelection.AgentRole, textutil.Value("worker")) ||
 		generated.Plan.ActivationAgentSelection.Baseline == nil ||
 		generated.Plan.ActivationAgentSelection.Baseline.Thinking != "high" {
 		t.Fatalf(
@@ -1208,7 +1238,7 @@ func assertSessionLaunchChatSettings(t *testing.T, sessionDir string, want sessi
 	if !reflect.DeepEqual(got, want) {
 		gotJSON, _ := json.Marshal(got.Settings)
 		wantJSON, _ := json.Marshal(want.Settings)
-		t.Fatalf("Chat settings state = agent %q settings %s, want agent %q settings %s", got.Agent, gotJSON, want.Agent, wantJSON)
+		t.Fatalf("Chat settings state = agent %q settings %s, want agent %q settings %s", got.AgentSelector(), gotJSON, want.AgentSelector(), wantJSON)
 	}
 }
 

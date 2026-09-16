@@ -13,7 +13,7 @@ func available(settings config.Settings, context config.SubagentInvocationContex
 			continue
 		}
 		lookup := config.LookupSubagentRole(settings, name)
-		if namedTargetAllowed(settings, context, lookup) {
+		if roleTargetAllowed(settings, context, lookup) {
 			out = append(out, name)
 		}
 	}

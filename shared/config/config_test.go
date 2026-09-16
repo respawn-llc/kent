@@ -501,6 +501,42 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultSubagentRoleLeavesBaseSettingsUnchanged(t *testing.T) {
+	_, _, cfg := loadConfigTestFileApp(t, `
+model = "base-model"
+thinking_level = "medium"
+[subagents.default]
+model = "headless-model"
+thinking_level = "low"
+agent_callable = false
+workflow_subagent = false
+[subagents.default.tools]
+patch = false
+`, LoadOptions{})
+
+	lookup := LookupSubagentRole(cfg.Settings, DefaultSubagentRole)
+	if lookup.Status != SubagentRoleLookupPresent {
+		t.Fatalf("default lookup = %q, want present", lookup.Status)
+	}
+	if cfg.Settings.Model != "base-model" || cfg.Settings.ThinkingLevel != "medium" || !cfg.Settings.EnabledTools[toolspec.ToolPatch] {
+		t.Fatalf("default role changed interactive base settings: %+v", cfg.Settings)
+	}
+	effective := OverlaySubagentRoleSettings(cfg.Settings, lookup.Role, true)
+	if effective.Model != "headless-model" || effective.ThinkingLevel != "low" || effective.EnabledTools[toolspec.ToolPatch] {
+		t.Fatalf("default role overrides not applied: %+v", effective)
+	}
+	if SubagentRoleCallable(lookup.Role) || SubagentRoleWorkflowCallable(lookup.Role) {
+		t.Fatal("default role callability flags were ignored")
+	}
+	for _, callableOnly := range []bool{false, true} {
+		for _, name := range AvailableSubagentRoleNames(cfg.Settings, callableOnly) {
+			if name == DefaultSubagentRole {
+				t.Fatal("default role duplicated in named-role catalog")
+			}
+		}
+	}
+}
+
 func TestLoadSubagentRoleSkillNamedEnabledToggle(t *testing.T) {
 	_, _, cfg := loadConfigTestFileApp(t, strings.Join([]string{
 		"[skills]",
@@ -648,7 +684,6 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 		body string
 		want configRejectionExpectation
 	}{
-		{name: "reserved name/default", body: "[subagents.default]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
 		{name: "reserved name/none", body: "[subagents.none]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
 		{name: "reserved name/self", body: "[subagents.self]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
 		{name: "invalid metadata/description type", body: "[subagents.worker]\ndescription = 123\n", want: configKeyTypeExpectation("string")},
@@ -767,7 +802,7 @@ func TestLookupSubagentRoleUsesConfiguredIdentity(t *testing.T) {
 		{name: "configured non-callable role", rawSelector: "blocked", wantNormalized: "blocked", wantSelector: true, wantStatus: SubagentRoleLookupPresent},
 		{name: "built-in fast", rawSelector: BuiltInSubagentRoleFast, wantNormalized: BuiltInSubagentRoleFast, wantSelector: true, wantStatus: SubagentRoleLookupPresent},
 		{name: "missing valid role", rawSelector: "missing", wantNormalized: "missing", wantSelector: true, wantStatus: SubagentRoleLookupMissing},
-		{name: "reserved default", rawSelector: "default", wantStatus: SubagentRoleLookupInvalid},
+		{name: "built-in default", rawSelector: " Default ", wantNormalized: DefaultSubagentRole, wantSelector: true, wantStatus: SubagentRoleLookupPresent},
 		{name: "reserved none", rawSelector: "none", wantStatus: SubagentRoleLookupInvalid},
 		{name: "reserved self", rawSelector: "self", wantStatus: SubagentRoleLookupInvalid},
 		{name: "empty after trim", rawSelector: " \t ", wantStatus: SubagentRoleLookupInvalid},

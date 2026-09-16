@@ -47,13 +47,31 @@ func PrepareChatAgentCatalog(
 	authState auth.State,
 	skipProviderReadinessValidation bool,
 ) (PreparedChatAgentCatalog, error) {
+	return prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{
+		Mode:                            ModeInteractive,
+		SkipProviderReadinessValidation: skipProviderReadinessValidation,
+	})
+}
+
+func PrepareSessionChatAgentCatalog(app config.App, authState auth.State, meta session.Meta) (PreparedChatAgentCatalog, error) {
+	return prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
+}
+
+func defaultAgentMode(meta session.Meta) Mode {
+	if role := session.ContinuationAgentRole(meta); role != nil && *role == config.DefaultSubagentRole {
+		return ModeHeadless
+	}
+	return ModeInteractive
+}
+
+func prepareChatAgentCatalog(app config.App, authState auth.State, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
 	selectors := append(
 		[]string{config.DefaultSubagentRole},
 		config.AvailableSubagentRoleNames(app.Settings, false)...,
 	)
 	entries := make([]PreparedChatAgentCatalogEntry, 0, len(selectors))
 	for _, selector := range selectors {
-		entry, err := prepareChatAgentCatalogEntry(app, authState, selector, skipProviderReadinessValidation)
+		entry, err := prepareChatAgentCatalogEntry(app, authState, selector, preparation)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
 		}
@@ -98,7 +116,7 @@ func prepareChatAgentCatalogEntry(
 	app config.App,
 	authState auth.State,
 	selector string,
-	skipProviderReadinessValidation bool,
+	preparation RunPromptPreparationContext,
 ) (PreparedChatAgentCatalogEntry, error) {
 	fail := func(category serverapi.ChatSettingsAgentPreparationCategory) (PreparedChatAgentCatalogEntry, error) {
 		return PreparedChatAgentCatalogEntry{}, &serverapi.ChatSettingsAgentPreparationError{
@@ -106,14 +124,14 @@ func prepareChatAgentCatalogEntry(
 		}
 	}
 	target, prepared, err := prepareChatSettingsTargetForAgent(
-		app, authState, selector, skipProviderReadinessValidation,
+		app, authState, selector, preparation,
 	)
 	if err != nil {
 		return fail(classifyChatAgentPreparationError(err))
 	}
 	var capabilities llm.ProviderCapabilities
 	var fastAvailable bool
-	if skipProviderReadinessValidation {
+	if preparation.SkipProviderReadinessValidation {
 		capabilities, _ = llm.ProviderCapabilitiesFromOverride(target.Settings.ProviderCapabilities)
 		fastAvailable = true
 	} else {
@@ -128,14 +146,15 @@ func prepareChatAgentCatalogEntry(
 		return fail(serverapi.ChatSettingsAgentInvalidConfiguration)
 	}
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
+	role := app.Settings.Subagents[selector]
 	entry := PreparedChatAgentCatalogEntry{
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
 			Model:              strings.TrimSpace(target.Settings.Model),
 			Thinking:           settings.Baseline.Thinking,
 			Tools:              toolspec.IDStrings(tools),
-			CustomCapabilities: chatAgentHasExplicitCapabilities(app.Settings, selector),
-			AgentCallable:      chatAgentCallable(app.Settings, selector),
+			CustomCapabilities: prepared.NamedTarget != nil && config.SubagentRoleHasCapabilityOverrides(role),
+			AgentCallable:      prepared.NamedTarget == nil || config.SubagentRoleCallable(role),
 		},
 		Settings:         settings,
 		ResolvedSettings: target.Settings,
@@ -161,26 +180,8 @@ func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPre
 	return serverapi.ChatSettingsAgentInternalPreparation
 }
 
-func chatAgentHasExplicitCapabilities(settings config.Settings, selector string) bool {
-	if selector == config.DefaultSubagentRole {
-		return false
-	}
-	lookup := config.LookupSubagentRole(settings, selector)
-	return lookup.Status == config.SubagentRoleLookupPresent &&
-		config.SubagentRoleHasCapabilityOverrides(lookup.Role)
-}
-
-func chatAgentCallable(settings config.Settings, selector string) bool {
-	if selector == config.DefaultSubagentRole {
-		return true
-	}
-	lookup := config.LookupSubagentRole(settings, selector)
-	return lookup.Status == config.SubagentRoleLookupPresent &&
-		config.SubagentRoleCallable(lookup.Role)
-}
-
 func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent string) (PreparedChatSettings, error) {
-	target, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, false)
+	target, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, RunPromptPreparationContext{Mode: ModeInteractive})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -193,8 +194,8 @@ func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent str
 	)
 }
 
-func PrepareSessionChatSettingsForAgent(app config.App, authState auth.State, agent string, promptFacing PreparedBaseTarget) (PreparedChatSettings, error) {
-	baselineTarget, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, false)
+func PrepareSessionChatSettingsForAgent(app config.App, authState auth.State, meta session.Meta, agent string, promptFacing PreparedBaseTarget) (PreparedChatSettings, error) {
+	baselineTarget, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -224,7 +225,7 @@ func prepareChatSettingsTargetForAgent(
 	app config.App,
 	authState auth.State,
 	agent string,
-	skipProviderReadinessValidation bool,
+	preparation RunPromptPreparationContext,
 ) (PreparedBaseTarget, PreparedRunPromptOverrides, error) {
 	var valid bool
 	agent, valid = session.NormalizeChatAgent(agent)
@@ -235,24 +236,12 @@ func prepareChatSettingsTargetForAgent(
 		app,
 		serverapi.RunPromptOverrides{AgentRole: &agent},
 		authState,
-		RunPromptPreparationContext{
-			SkipProviderReadinessValidation: skipProviderReadinessValidation,
-		},
+		preparation,
 	)
 	if err != nil {
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, err
 	}
-	target := prepared.BaseTarget
-	if agent != config.DefaultSubagentRole {
-		target = nil
-		if prepared.NamedTarget != nil {
-			target = &PreparedBaseTarget{
-				Settings:     prepared.NamedTarget.Settings,
-				Source:       prepared.NamedTarget.Source,
-				EnabledTools: prepared.NamedTarget.EnabledTools,
-			}
-		}
-	}
+	target := prepared.PromptFacingTarget()
 	if target == nil {
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, fmt.Errorf("prepare Chat Agent %q returned no target", agent)
 	}

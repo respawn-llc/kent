@@ -394,7 +394,11 @@ func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocati
 	lines := make([]string, 0, len(roles)+3)
 	lines = append(lines, "Available subagent roles:")
 	if defaultAllowed {
-		lines = append(lines, "- `default`: not specifying any role will invoke the default general-purpose agent")
+		description := strings.TrimSpace(b.subagentSettings.Subagents[config.DefaultSubagentRole].Description)
+		if description == "" {
+			description = "not specifying any role will invoke the default general-purpose agent"
+		}
+		lines = append(lines, "- `default`: "+description)
 	}
 	for _, role := range roles {
 		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
@@ -417,7 +421,7 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 	names := make([]string, 0, len(settings.Subagents))
 	for name := range settings.Subagents {
 		normalized := config.NormalizeSubagentRole(name)
-		if normalized == "" || normalized == config.BuiltInSubagentRoleFast {
+		if normalized == "" || normalized == config.BuiltInSubagentRoleFast || normalized == config.DefaultSubagentRole {
 			continue
 		}
 		names = append(names, normalized)

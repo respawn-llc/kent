@@ -267,7 +267,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 		workerVisible bool
 	}{
 		{name: "ordinary", settings: settings(false, false), workerVisible: true},
-		{name: "workflow default-only catalog", workflow: true, settings: settings(false, false), workerVisible: true},
+		{name: "workflow delegation disabled", workflow: true, settings: settings(false, false), workerVisible: false},
 		{name: "workflow globally enabled", workflow: true, settings: settings(true, false), workerVisible: true},
 		{name: "workflow default-only catalog with role disabled", workflow: true, settings: settings(true, true), workerVisible: true},
 	}

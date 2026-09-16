@@ -67,6 +67,24 @@ func TestConfigRoleResolverUsesConfiguredRoleIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkflowDefaultAssigneeUsesHeadlessSettings(t *testing.T) {
+	settings := config.Settings{
+		Model: "gpt-5",
+		Subagents: map[string]config.SubagentRole{
+			config.DefaultSubagentRole: {
+				Settings:         config.Settings{Model: "gpt-5-mini"},
+				Sources:          map[string]string{"model": "file"},
+				AgentCallableSet: true,
+				AgentCallable:    false,
+			},
+		},
+	}
+	role, ok := (configRoleResolver{settings: settings}).ResolveConfiguredRole(workflow.DefaultAgentRole)
+	if !ok || role.Model != "gpt-5-mini" {
+		t.Fatalf("direct default assignment = %+v, exists=%t", role, ok)
+	}
+}
+
 func TestWorkflowValidationUsesConfigRoleResolverIdentity(t *testing.T) {
 	settings := config.Settings{
 		ThinkingLevel: "medium",
