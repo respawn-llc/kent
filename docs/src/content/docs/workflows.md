@@ -304,6 +304,8 @@ Interrupt stops exact live work. Interrupting a Task stops every live Agent Sess
 
 Restarting Kent leaves saved tasks untouched and does not restart their work. Resume reconciles unfinished execution only when you explicitly request it. Opening or reconnecting the app does not replay notifications for existing interruptions, approvals, or questions.
 
+For an interrupted Agent Task whose retained Session was successfully manually compacted, use ordinary Task Resume to continue the same Task, Current Node, and Session. Kent restores the Current Node assignment before model work; retry Resume after an assignment or startup failure is reported.
+
 Delete permanently removes a quiescent Task. Interrupt preserves the task for Resume.
 
 Task Activity is an infinite-scroll stream of durable comments and retained Session creation. It records a Session as `Session started`.

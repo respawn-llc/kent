@@ -287,6 +287,99 @@ func TestWorkflowAssignmentApplicationPreservesPostCompletionBoundary(t *testing
 	}
 }
 
+func TestWorkflowResumeRestoresAssignmentAfterActualWorkflowCompaction(t *testing.T) {
+	t.Parallel()
+	currentNode := mustTestCurrentNodeReference(t, "task", "node", nil)
+	workflowIdentity := workflowruntime.CurrentNodePromptIdentity(currentNode)
+	client := &fakeCompactionClient{
+		compactionResponses: []llm.CompactionResponse{
+			remoteCompactionReplacement(1_000, 100, 200_000),
+		},
+		responses: []llm.Response{commentaryResponse(
+			"",
+			llm.ToolCall{
+				ID:    "complete",
+				Name:  string(toolspec.ToolCompleteNode),
+				Input: mustJSON(map[string]any{"transition": "done", "summary": "done"}),
+			},
+		)},
+	}
+	config := testWorkflowConfig(&externallyCompletedWorkflowController{}, "tool")
+	config.TaskPromptDelivery = workflowruntime.TaskPromptDeliveryResume
+	config.Instructions.CurrentNode = currentNode
+	engine := mustNewWorkflowTestEngine(
+		t,
+		mustCreateTestSession(t),
+		client,
+		config,
+		Config{Model: "gpt-5"},
+	)
+	if err := steerTestActiveStep(engine, "assignment", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventDefault,
+		true,
+		[]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
+			SourcePath:  textutil.Value(workflowIdentity),
+			Content:     textutil.Value("assignment"),
+		}},
+	)); err != nil {
+		t.Fatalf("persist assignment: %v", err)
+	}
+	if err := steerTestActiveStep(engine, "user", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventNone,
+		true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("carryover")}},
+	)); err != nil {
+		t.Fatalf("persist carryover: %v", err)
+	}
+	if err := steerTestActiveStep(engine, "terminal", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventDefault,
+		true,
+		[]llm.Message{{
+			Role:    llm.RoleAssistant,
+			Phase:   textutil.Value(llm.MessagePhaseFinal),
+			Content: textutil.Value("interrupted"),
+		}},
+	)); err != nil {
+		t.Fatalf("persist terminal output: %v", err)
+	}
+
+	stepID := runtimeTestStepID("actual-workflow-compaction")
+	restoreStep := setTestActiveStep(engine, stepID)
+	_, receipt, err := engine.compactNow(
+		context.Background(),
+		stepID,
+		compactionModeWorkflowPostCompletion,
+		compactionInstructionsInput{},
+		false,
+	)
+	restoreStep()
+	if err != nil || !receipt.Committed {
+		t.Fatalf("actual workflow compaction: receipt=%+v error=%v", receipt, err)
+	}
+	if assignment, err := engine.store.ActiveWorkflowAssignmentProjection(); err != nil {
+		t.Fatalf("load assignment after compaction: %v", err)
+	} else if assignment != nil {
+		t.Fatalf("assignment after post-completion compaction = %+v, want absent", assignment)
+	}
+
+	if _, err := engine.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("Resume after actual compaction: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls after actual compaction = %d, want one", len(client.calls))
+	}
+	assignments := workflowPromptMessages(requestMessages(client.calls[0]))
+	if len(assignments) != 1 || assignments[0].SourcePath == nil ||
+		*assignments[0].SourcePath != workflowIdentity {
+		t.Fatalf("restored assignments after actual compaction = %+v, want one exact assignment", assignments)
+	}
+}
+
 func workflowAssignmentForCompactionTest() WorkflowAssignment {
 	reference := workflow.CurrentNodeReference{
 		TaskID: "task-assignment-receipt",

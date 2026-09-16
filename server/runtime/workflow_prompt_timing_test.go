@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"errors"
 	"testing"
 
 	"core/prompts"
@@ -143,37 +142,49 @@ func TestSelectWorkflowTaskPromptAfterCompactionForAnotherNodeAssignment(t *test
 	}
 }
 
-func TestSelectWorkflowTaskPromptResumeRequiresMatchingAssignment(t *testing.T) {
+func TestSelectWorkflowTaskPromptResumeRestoresMissingOrDifferentAssignment(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		items   []llm.ResponseItem
-		wantErr bool
+		name       string
+		items      []llm.ResponseItem
+		wantKind   prompts.WorkflowTaskPromptKind
+		wantInject bool
 	}{
-		{items: nil, wantErr: true},
-		{items: workflowPromptItems("run-previous"), wantErr: true},
-		{items: workflowPromptItems("run-current")},
+		{
+			name:       "missing assignment",
+			items:      nil,
+			wantKind:   prompts.WorkflowTaskPromptInitialAssignment,
+			wantInject: true,
+		},
+		{
+			name:       "different assignment",
+			items:      workflowPromptItems("run-previous"),
+			wantKind:   prompts.WorkflowTaskPromptReassignment,
+			wantInject: true,
+		},
+		{
+			name:       "exact assignment",
+			items:      workflowPromptItems("run-current"),
+			wantKind:   prompts.WorkflowTaskPromptInitialAssignment,
+			wantInject: false,
+		},
 	} {
-		kind, inject, err := selectWorkflowTaskPrompt(
-			test.items,
-			"run-current",
-			workflowTaskPromptTriggerResumeDelivery,
-		)
-		if inject {
-			t.Fatalf(
-				"resume selected workflow assignment kind %d for items %+v; want no assignment",
-				kind,
-				test.items,
+		t.Run(test.name, func(t *testing.T) {
+			kind, inject, err := selectWorkflowTaskPrompt(
+				workflowAssignmentIdentityFromItems(test.items),
+				"run-current",
+				workflowTaskPromptTriggerResumeDelivery,
 			)
-		}
-		gotErr := errors.Is(err, errWorkflowResumeAssignmentUnavailable)
-		if gotErr != test.wantErr {
-			t.Fatalf(
-				"resume selection error = %v for items %+v, want error=%t",
-				err,
-				test.items,
-				test.wantErr,
-			)
-		}
+			if err != nil {
+				t.Fatalf("resume selection error = %v, want nil", err)
+			}
+			if kind != test.wantKind || inject != test.wantInject {
+				t.Fatalf(
+					"resume selection = kind %d, inject=%t for items %+v; want kind %d, inject=%t",
+					kind, inject, test.items, test.wantKind, test.wantInject,
+				)
+			}
+		})
 	}
 }
 
@@ -237,7 +248,7 @@ func selectWorkflowTaskPromptForTest(
 	trigger workflowTaskPromptTrigger,
 ) (prompts.WorkflowTaskPromptKind, bool) {
 	t.Helper()
-	kind, inject, err := selectWorkflowTaskPrompt(items, currentNodeIdentity, trigger)
+	kind, inject, err := selectWorkflowTaskPrompt(workflowAssignmentIdentityFromItems(items), currentNodeIdentity, trigger)
 	if err != nil {
 		t.Fatalf("selectWorkflowTaskPrompt: %v", err)
 	}

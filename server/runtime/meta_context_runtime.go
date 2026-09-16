@@ -9,9 +9,9 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/shared/config"
-	"core/shared/textutil"
 	"core/shared/transcript"
 )
 
@@ -19,9 +19,6 @@ import (
 // context must be prepared. Individual prompt families are owned here and by
 // meta_context.go; request entry points must not append those prompts directly.
 func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string) error {
-	if err := e.preflightWorkflowResumeAssignment(); err != nil {
-		return err
-	}
 	if !e.baseMetaInjected {
 		pendingRebind := e.store.Meta().RebindReminder != nil
 		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
@@ -102,30 +99,6 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 	return nil
 }
 
-func (e *Engine) preflightWorkflowResumeAssignment() error {
-	if !e.workflowPromptActive() {
-		return nil
-	}
-	delivery := e.currentNodeExecutionSnapshot().delivery
-	if delivery == nil {
-		return errors.New("workflow prompt delivery state is unavailable")
-	}
-	trigger := delivery.trigger(workflowTaskPromptTriggerTaskDelivery)
-	if trigger != workflowTaskPromptTriggerResumeDelivery {
-		return nil
-	}
-	prompt, configured := e.workflowPrompt()
-	if !configured {
-		return errors.New("workflow prompt is unavailable")
-	}
-	_, _, err := selectWorkflowTaskPrompt(
-		e.transcriptRuntimeState().SnapshotItems(),
-		prompt.Identity,
-		trigger,
-	)
-	return err
-}
-
 func (e *Engine) ensureMetaContextForCompaction(ctx context.Context, stepID string) error {
 	return e.steerBaseMetaContextIfNeeded(stepID)
 }
@@ -195,11 +168,19 @@ func latestActiveMetaContextForSlot(items []llm.ResponseItem, kind metaContextKi
 	return metaContextClassification{}, false
 }
 
-type workflowTaskPromptTrigger uint8
+func workflowAssignmentIdentityFromItems(items []llm.ResponseItem) *string {
+	current, ok := latestActiveMetaContextForSlot(items, metaContextKindWorkflow)
+	if !ok {
+		return nil
+	}
+	identity := strings.TrimSpace(current.sourcePath)
+	if identity == "" {
+		return nil
+	}
+	return &identity
+}
 
-var errWorkflowResumeAssignmentUnavailable = errors.New(
-	"workflow Resume requires the current Node assignment in model context",
-)
+type workflowTaskPromptTrigger uint8
 
 const (
 	workflowTaskPromptTriggerUnknown workflowTaskPromptTrigger = iota
@@ -238,10 +219,7 @@ func (e *Engine) withResolvedWorkflowMetaContext(
 		if shouldInject {
 			options.SubagentInvocationContext = resolved.SubagentInvocationContext
 			options.IncludeWorkflow = resolved.IncludeWorkflow
-			options.WorkflowCompletionMode = resolved.WorkflowCompletionMode
-			options.WorkflowPrompt = resolved.WorkflowPrompt
-			options.WorkflowTaskAwareness = resolved.WorkflowTaskAwareness
-			options.WorkflowTaskPromptKind = resolved.WorkflowTaskPromptKind
+			options.WorkflowMessage = resolved.WorkflowMessage
 		}
 		return fn(options, shouldInject)
 	}
@@ -259,7 +237,7 @@ func (e *Engine) resolveWorkflowMetaContext(
 		return metaContextBuildOptions{}, false, errors.New("workflow prompt is unavailable")
 	}
 	kind, shouldInject, err := selectWorkflowTaskPrompt(
-		e.transcriptRuntimeState().SnapshotItems(),
+		workflowAssignmentIdentityFromItems(e.transcriptRuntimeState().SnapshotItems()),
 		prompt.Identity,
 		trigger,
 	)
@@ -277,17 +255,26 @@ func (e *Engine) resolveWorkflowMetaContext(
 	if err != nil {
 		return metaContextBuildOptions{}, false, err
 	}
+	promptCopy := *prompt
+	promptCopy.CompletionMode = mode
+	promptCopy.TaskAwareness = awareness
+	assignment := WorkflowAssignment{
+		ContextMode:    workflow.ContextMode(promptCopy.Instructions.ContextMode),
+		CompletionMode: mode,
+		Prompt:         promptCopy,
+	}
+	message, err := buildWorkflowAssignmentMessageForKind(assignment, kind)
+	if err != nil {
+		return metaContextBuildOptions{}, false, err
+	}
 	return metaContextBuildOptions{
 		SubagentInvocationContext: config.SubagentInvocationContextWorkflow,
 		IncludeWorkflow:           true,
-		WorkflowCompletionMode:    mode,
-		WorkflowPrompt:            prompt,
-		WorkflowTaskAwareness:     awareness,
-		WorkflowTaskPromptKind:    kind,
+		WorkflowMessage:           &message,
 	}, true, nil
 }
 func selectWorkflowTaskPrompt(
-	items []llm.ResponseItem,
+	currentAssignmentIdentity *string,
 	currentNodeIdentity string,
 	trigger workflowTaskPromptTrigger,
 ) (prompts.WorkflowTaskPromptKind, bool, error) {
@@ -295,25 +282,19 @@ func selectWorkflowTaskPrompt(
 	if normalizedCurrentNodeIdentity == "" {
 		panic("select workflow task prompt: current node identity is required")
 	}
-	desired, ok := classifyMetaContextMessage(llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
-		SourcePath:  textutil.Value(normalizedCurrentNodeIdentity),
-	})
-	if !ok {
-		panic("select workflow task prompt: workflow-mode message classification failed")
-	}
-	current, hasWorkflowPrompt := latestActiveMetaContextForSlot(items, metaContextKindWorkflow)
 	if trigger == workflowTaskPromptTriggerResumeDelivery {
-		if !hasWorkflowPrompt || !sameMetaContextIdentity(current, desired) {
-			return prompts.WorkflowTaskPromptInitialAssignment, false, errWorkflowResumeAssignmentUnavailable
+		if currentAssignmentIdentity == nil {
+			return prompts.WorkflowTaskPromptInitialAssignment, true, nil
 		}
-		return prompts.WorkflowTaskPromptInitialAssignment, false, nil
+		if *currentAssignmentIdentity == normalizedCurrentNodeIdentity {
+			return prompts.WorkflowTaskPromptInitialAssignment, false, nil
+		}
+		return prompts.WorkflowTaskPromptReassignment, true, nil
 	}
-	if !hasWorkflowPrompt {
+	if currentAssignmentIdentity == nil {
 		return prompts.WorkflowTaskPromptInitialAssignment, true, nil
 	}
-	sameRun := sameMetaContextIdentity(current, desired)
+	sameRun := *currentAssignmentIdentity == normalizedCurrentNodeIdentity
 	switch trigger {
 	case workflowTaskPromptTriggerAssignmentDelivery:
 		return prompts.WorkflowTaskPromptReassignment, true, nil
@@ -538,19 +519,23 @@ func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {
 	return e.store.SetHeadlessActive(false)
 }
 
-func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) error {
+func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, _ string) error {
 	if !e.workflowPromptActive() {
 		return nil
+	}
+	delivery := e.currentNodeExecutionSnapshot().delivery
+	if delivery == nil {
+		return errors.New("workflow prompt delivery state is unavailable")
 	}
 	return e.withResolvedWorkflowMetaContext(ctx, workflowTaskPromptTriggerTaskDelivery, workflowMetaContextDeliveryConsume, metaContextBuildOptions{}, func(options metaContextBuildOptions, shouldInject bool) error {
 		if !shouldInject {
 			return nil
 		}
-		metaResult, err := e.activeMetaContextBuilder(e.cfg.Model, e.cfg.SkillPolicy).Build(options)
-		if err != nil {
-			return err
+		if options.WorkflowMessage == nil {
+			return errors.New("workflow message is unavailable")
 		}
-		return e.steerMetaContextIfChanged(stepID, metaResult.Workflow)
+		_, err := e.steerPreparedWorkflowMessage(*options.WorkflowMessage)
+		return err
 	})
 }
 
