@@ -127,6 +127,55 @@ describe("Goal sidebar", () => {
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
   });
 
+  it("preserves a draft edited after Save begins when Save succeeds", async () => {
+    const services = createTestServices([]);
+    const saveResult = deferred<GoalSetResult>();
+    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+      queueMicrotask(() => {
+        handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
+      });
+      return { close: vi.fn() };
+    };
+    const api = createGoalSidebarApi({
+      goal: goalValue("saved objective", "active"),
+      setGoal: vi.fn(async () => saveResult.promise),
+      subscribeGoal,
+    });
+    render(
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "session", api, target }} />
+      </TestAppProviders>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), "submitted objective");
+    await user.click(screen.getByTestId("goal-save"));
+
+    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    const postSubmitDraft = "new unsaved objective";
+    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), postSubmitDraft);
+    await act(async () => {
+      saveResult.resolve({
+        sessionID,
+        outcome: {
+          kind: "mutation",
+          mutation: {
+            kind: "authoritative_goal",
+            fact: { goal: goalValue("submitted objective", "active"), availability: "available" },
+          },
+          diagnostic: null,
+        },
+      });
+      await saveResult.promise;
+    });
+
+    expect(await screen.findByDisplayValue(postSubmitDraft)).toHaveFocus();
+    expect(screen.getByTestId("goal-save")).toBeInTheDocument();
+  });
+
   it("restores a failed Save draft against the latest subscribed Goal", async () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
@@ -205,6 +254,34 @@ describe("Goal sidebar", () => {
       target: exactTarget(),
       goal: null,
     });
+  });
+
+  it("keeps New Chat Save disabled for an unsupported Agent", async () => {
+    const services = createTestServices([]);
+    const setGoal = vi.fn(async () => {
+      throw new Error("Unsupported Agent must not send Goal Set.");
+    });
+    const api = createGoalSidebarApi({ goal: null, setGoal });
+    const binding = new NewChatGoalBinding({
+      api: { setGoal },
+      captureTarget: () => newChatTarget(),
+      onHostDelivery: () => undefined,
+    });
+    binding.setAvailability("agent_capability_missing");
+    render(
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+      </TestAppProviders>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsupported Agent Goal");
+
+    const save = screen.getByTestId("goal-save");
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleName("Unavailable for this Agent");
+    await user.click(save);
+    expect(setGoal).not.toHaveBeenCalled();
   });
 
   it("delivers New Chat Session/Goal before one warning while the sidebar is Loading", async () => {

@@ -170,6 +170,7 @@ type goalRuntimePendingState struct {
 	inFlightMutationSerial uint64
 	inFlightOperation      goalRuntimeOperation
 	inFlightObjective      string
+	inFlightClient         clientui.RuntimeClient
 	desiredOperation       goalRuntimeOperation
 	desiredObjective       string
 }
@@ -183,7 +184,12 @@ func goalRuntimeOperationMutates(operation goalRuntimeOperation) bool {
 	}
 }
 
-func (m *uiModel) beginGoalRuntimeMutation(operation goalRuntimeOperation, sessionID, objective string) (uint64, bool) {
+func (m *uiModel) beginGoalRuntimeMutation(
+	operation goalRuntimeOperation,
+	sessionID string,
+	objective string,
+	client clientui.RuntimeClient,
+) (uint64, bool) {
 	if m == nil {
 		return 0, false
 	}
@@ -207,6 +213,7 @@ func (m *uiModel) beginGoalRuntimeMutation(operation goalRuntimeOperation, sessi
 		inFlightMutationSerial: m.goalRuntimeMutationSerial,
 		inFlightOperation:      operation,
 		inFlightObjective:      objective,
+		inFlightClient:         client,
 		desiredOperation:       operation,
 		desiredObjective:       objective,
 	}
@@ -217,21 +224,55 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 	if m == nil {
 		return nil
 	}
-	client := m.runtimeClient()
+	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.sessionID), operation, objective)
+}
+
+func (m *uiModel) goalRuntimeCommandFor(
+	client clientui.RuntimeClient,
+	sessionID string,
+	operation goalRuntimeOperation,
+	objective string,
+) tea.Cmd {
+	if m == nil {
+		return nil
+	}
 	objective = strings.TrimSpace(objective)
-	sessionID := strings.TrimSpace(m.sessionID)
-	token, shouldStart := m.beginGoalRuntimeMutation(operation, sessionID, objective)
+	sessionID = strings.TrimSpace(sessionID)
+	token, shouldStart := m.beginGoalRuntimeMutation(operation, sessionID, objective, client)
 	if !shouldStart {
 		return nil
 	}
 	mutationSerial := m.goalRuntimeMutationSerial
+	return goalRuntimeRequestCommand(client, sessionID, operation, objective, token, mutationSerial)
+}
+
+func goalRuntimeRequestCommand(
+	client clientui.RuntimeClient,
+	sessionID string,
+	operation goalRuntimeOperation,
+	objective string,
+	token uint64,
+	mutationSerial uint64,
+) tea.Cmd {
 	if client == nil {
 		return func() tea.Msg {
-			return goalRuntimeDoneMsg{token: token, mutationSerial: mutationSerial, operation: operation, objective: objective}
+			return goalRuntimeDoneMsg{
+				token:          token,
+				sessionID:      sessionID,
+				mutationSerial: mutationSerial,
+				operation:      operation,
+				objective:      objective,
+			}
 		}
 	}
 	return func() tea.Msg {
-		msg := goalRuntimeDoneMsg{token: token, sessionID: sessionID, mutationSerial: mutationSerial, operation: operation, objective: objective}
+		msg := goalRuntimeDoneMsg{
+			token:          token,
+			sessionID:      sessionID,
+			mutationSerial: mutationSerial,
+			operation:      operation,
+			objective:      objective,
+		}
 		switch operation {
 		case goalRuntimeShow, goalRuntimeCheckSet, goalRuntimeCheckClear:
 			msg.goal, msg.err = client.ShowGoal()
@@ -356,16 +397,29 @@ func (m *uiModel) takeGoalRuntimeFollowUp() tea.Cmd {
 		m.goalRuntimePending = goalRuntimePendingState{}
 		return nil
 	}
-	m.goalRuntimePending.inFlight = false
 	operation := pending.desiredOperation
 	objective := pending.desiredObjective
-	return func() tea.Msg {
-		cmd := m.goalRuntimeCommand(operation, objective)
-		if cmd == nil {
-			return nil
-		}
-		return cmd()
+	m.goalRuntimeMutationSerial = nextNonZeroToken(m.goalRuntimeMutationSerial)
+	token := m.nextGoalRuntimeToken()
+	m.goalRuntimePending = goalRuntimePendingState{
+		token:                  token,
+		sessionID:              pending.sessionID,
+		inFlight:               true,
+		inFlightMutationSerial: m.goalRuntimeMutationSerial,
+		inFlightOperation:      operation,
+		inFlightObjective:      objective,
+		inFlightClient:         pending.inFlightClient,
+		desiredOperation:       operation,
+		desiredObjective:       objective,
 	}
+	return goalRuntimeRequestCommand(
+		pending.inFlightClient,
+		pending.sessionID,
+		operation,
+		objective,
+		token,
+		m.goalRuntimeMutationSerial,
+	)
 }
 
 func (m *uiModel) openGoalOverlay(goal *runtimepb.GoalView, err error) {

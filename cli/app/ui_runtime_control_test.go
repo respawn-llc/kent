@@ -399,8 +399,8 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 	if m.transientStatusKind != uiStatusNoticeWarning {
 		t.Fatalf("warning status kind = %v, want warning", m.transientStatusKind)
 	}
-	if cmd == nil || m.goalRuntimePending.inFlight {
-		t.Fatal("follow-up was constructed or started before warning settlement")
+	if cmd == nil || !m.goalRuntimePending.inFlight {
+		t.Fatal("follow-up was not admitted before warning settlement")
 	}
 	events = append(events, "warning-visible")
 	if message := cmd(); message == nil {
@@ -408,6 +408,62 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 	}
 	if got, want := strings.Join(events, ","), "warning-visible,pause-started"; got != want {
 		t.Fatalf("Goal follow-up order = %q, want %q", got, want)
+	}
+}
+
+func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
+	eventsA := []string{}
+	eventsB := []string{}
+	clientA := &runtimeControlFakeClient{goalCallEvents: &eventsA}
+	clientB := &runtimeControlFakeClient{goalCallEvents: &eventsB}
+	m := newProjectedClosedUIModel(clientA)
+	m.sessionID = "session-a"
+
+	setCmd := m.goalRuntimeCommand(goalRuntimeSet, "first")
+	if setCmd == nil {
+		t.Fatal("initial Goal Set did not start")
+	}
+	pending := m.goalRuntimePending
+	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd != nil {
+		t.Fatal("pending follow-up started before the first Goal Set settled")
+	}
+	followUp := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
+		token:          pending.token,
+		sessionID:      pending.sessionID,
+		mutationSerial: pending.inFlightMutationSerial,
+		operation:      goalRuntimeSet,
+		objective:      pending.inFlightObjective,
+		setResult: &runtimepb.GoalSetSuccess{
+			Outcome: &runtimepb.GoalSetSuccess_Mutation{
+				Mutation: &runtimepb.GoalMutationSuccess{
+					Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+					Goal: &runtimepb.Goal{Id: "goal-1", Objective: "first", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE},
+				},
+			},
+		},
+	})
+	if followUp == nil {
+		t.Fatal("Goal Set did not return its pending follow-up")
+	}
+	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != "session-a" {
+		t.Fatalf("follow-up admission = %+v, want captured session-a request", m.goalRuntimePending)
+	}
+
+	m.sessionID = "session-b"
+	m.engine = clientB
+	rawMessage := followUp()
+	msg, ok := rawMessage.(goalRuntimeDoneMsg)
+	if !ok {
+		t.Fatalf("follow-up message = %T, want goalRuntimeDoneMsg", rawMessage)
+	}
+	if msg.sessionID != "session-a" {
+		t.Fatalf("follow-up session = %q, want session-a", msg.sessionID)
+	}
+	if len(eventsA) != 1 || eventsA[0] != "pause-started" {
+		t.Fatalf("captured client events = %v, want pause-started", eventsA)
+	}
+	if len(eventsB) != 0 {
+		t.Fatalf("replacement client events = %v, want none", eventsB)
 	}
 }
 

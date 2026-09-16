@@ -1,9 +1,17 @@
-import type { ChatApi, ChatGoal, ChatGoalSetResult, ChatGoalSetTarget, ChatSessionTarget } from "@/api";
+import type {
+  ChatApi,
+  ChatGoal,
+  ChatGoalAvailability,
+  ChatGoalSetResult,
+  ChatGoalSetTarget,
+  ChatSessionTarget,
+} from "@/api";
 import { ContractError } from "@/api";
 
 export type NewChatGoalBindingSnapshot =
   | Readonly<{
       kind: "unresolved";
+      availability: ChatGoalAvailability | null;
       pending: boolean;
     }>
   | Readonly<{
@@ -29,6 +37,7 @@ export class NewChatGoalBinding {
   readonly #listeners = new Set<() => void>();
   #snapshot: NewChatGoalBindingSnapshot = {
     kind: "unresolved",
+    availability: null,
     pending: false,
   };
 
@@ -45,6 +54,14 @@ export class NewChatGoalBinding {
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  setAvailability(availability: ChatGoalAvailability | null): void {
+    if (this.#snapshot.kind !== "unresolved" || this.#snapshot.availability === availability) {
+      return;
+    }
+    this.#snapshot = { ...this.#snapshot, availability };
+    this.#notify();
   }
 
   async setGoal(objective: string): Promise<ChatGoalSetResult> {

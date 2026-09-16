@@ -68,7 +68,8 @@ function NewChatGoalSidebar({
     return <ExactGoalSidebar api={api} initialDraft={draft} target={snapshot.target} />;
   }
 
-  const canSave = draft.trim().length > 0 && !snapshot.pending;
+  const unavailable = snapshot.availability === "agent_capability_missing";
+  const canSave = draft.trim().length > 0 && !snapshot.pending && !unavailable;
   const save = () => {
     if (!canSave) return;
     setError(null);
@@ -125,7 +126,7 @@ function NewChatGoalSidebar({
             snapshot.pending || draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave}
-                label={t("chat.goal.save")}
+                label={unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save")}
                 onClick={save}
                 pending={snapshot.pending}
               />
@@ -210,6 +211,7 @@ type GoalMutationRunnerInput = Readonly<{
   actionsDisabled: boolean;
   currentFact: () => ChatGoalFact | null;
   draftState: DraftState;
+  draftRevision: Readonly<{ current: number }>;
   editing: boolean;
   expanded: boolean;
   logger: ReturnType<typeof useAppServices>["logger"];
@@ -234,6 +236,7 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       if (input.actionsDisabled || input.pendingIntent !== null || !input.mounted.current) {
         return;
       }
+      const submittedDraftRevision = input.draftRevision.current;
       const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
       input.setPendingIntent(intent);
       input.setError(null);
@@ -244,7 +247,7 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       }
       try {
         const result = await operation();
-        settleGoalMutation(input, action);
+        settleGoalMutation(input, action, submittedDraftRevision);
         if (action === "set" && result.diagnostic !== null) {
           reportGoalSetDiagnostic(input.push, input.t, result.diagnostic, goalSetDiagnosticNotificationID());
         }
@@ -274,14 +277,17 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
 function settleGoalMutation(
   input: GoalMutationRunnerInput,
   action: "set" | "pause" | "resume" | "reopen" | "clear",
+  submittedDraftRevision: number,
 ): void {
   if (!input.mounted.current) return;
   input.setPendingIntent(null);
   input.setError(null);
+  const fact = input.currentFact();
+  const draftChangedAfterSubmit = input.draftRevision.current !== submittedDraftRevision;
   input.setLocalDraft((current) =>
-    action === "set" || action === "clear"
-      ? localDraftForFact(input.currentFact())
-      : reconcileDraftState(current, input.currentFact(), null),
+    (action === "set" || action === "clear") && !draftChangedAfterSubmit
+      ? localDraftForFact(fact)
+      : reconcileDraftState(current, fact, null),
   );
 }
 
@@ -348,6 +354,7 @@ function useExactGoalSidebarModel(
   const { t } = useTranslation();
   const observation = useGoalObservation(api, target);
   const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
+  const draftRevision = useRef(0);
   const [pendingIntent, setPendingIntent] = useState<GoalMutationIntent | null>(null);
   const latestFact = useRef<ChatGoalFact | null>(observation.fact);
   const { push } = useStatusController();
@@ -387,6 +394,7 @@ function useExactGoalSidebarModel(
   const runMutation = useGoalMutationRunner({
     actionsDisabled,
     currentFact: () => latestFact.current,
+    draftRevision,
     draftState,
     editing: (creationMode && pendingIntent === null) || editing,
     expanded: (creationMode && pendingIntent === null) || expanded,
@@ -444,6 +452,7 @@ function useExactGoalSidebarModel(
   };
   const setDraft = useCallback(
     (value: string) => {
+      draftRevision.current += 1;
       setLocalDraft((current) => {
         const synchronized = reconcileDraftState(current, observation.fact, pendingIntent);
         return { ...synchronized, draft: value };

@@ -112,7 +112,7 @@ describe("New Chat Goal binding", () => {
 
     await expect(binding.setGoal("ship")).rejects.toBeInstanceOf(ContractError);
     expect(delivery).not.toHaveBeenCalled();
-    expect(binding.snapshot).toEqual({ kind: "unresolved", pending: false });
+    expect(binding.snapshot).toEqual({ kind: "unresolved", availability: null, pending: false });
   });
 
   it("waits for asynchronous host delivery before publishing the terminal Session", async () => {
@@ -128,7 +128,7 @@ describe("New Chat Goal binding", () => {
     const completion = binding.setGoal("ship");
 
     await vi.waitFor(() => {
-      expect(binding.snapshot).toEqual({ kind: "unresolved", pending: true });
+      expect(binding.snapshot).toEqual({ kind: "unresolved", availability: null, pending: true });
     });
     resolveDelivery();
     await expect(completion).resolves.toEqual(committedResult);

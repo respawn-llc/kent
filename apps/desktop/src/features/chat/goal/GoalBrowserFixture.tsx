@@ -89,6 +89,7 @@ export function GoalBrowserFixture({
         }),
         onHostDelivery: () => undefined,
       });
+      binding.setAvailability("available");
       return { kind: "new_chat", api: runtime.api, binding };
     }
     return { kind: "session", api: runtime.api, target: fixtureTarget };
