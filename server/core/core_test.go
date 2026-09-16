@@ -72,6 +72,18 @@ func TestNewBuildsReusableServerCore(t *testing.T) {
 	}
 }
 
+func TestCapabilityFactsClientReportsAbsenceForUnconfiguredCore(t *testing.T) {
+	var zeroCore Core
+	if client := zeroCore.CapabilityFactsClient(); client != nil {
+		t.Fatalf("zero Core capability facts client = %T, want nil", client)
+	}
+
+	var nilCore *Core
+	if client := nilCore.CapabilityFactsClient(); client != nil {
+		t.Fatalf("nil Core capability facts client = %T, want nil", client)
+	}
+}
+
 func TestPromptCommandCatalogUsesRequestedWorkspaceRoot(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()

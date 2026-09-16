@@ -33,7 +33,7 @@ import (
 
 type Bundles struct {
 	Auth        *AuthBundle
-	Capability  *CapabilityBundle
+	Capability  *capabilityfacts.Service
 	Chat        *ChatBundle
 	cleanup     []lifecycleResource
 	Persistence *PersistenceBundle
@@ -52,10 +52,6 @@ type AuthBundle struct {
 	authStatus    apicontract.AuthStatusService
 	serverStatus  apicontract.ServerStatusService
 	authRequired  bool
-}
-
-type CapabilityBundle struct {
-	facts apicontract.CapabilityFactsService
 }
 
 type ChatBundle struct {
@@ -134,9 +130,6 @@ func (b *Bundles) withDefaults() *Bundles {
 	if withDefaults.Auth == nil {
 		withDefaults.Auth = &AuthBundle{}
 	}
-	if withDefaults.Capability == nil {
-		withDefaults.Capability = &CapabilityBundle{}
-	}
 	if withDefaults.Chat == nil {
 		withDefaults.Chat = &ChatBundle{}
 	}
@@ -213,7 +206,7 @@ type bundleCompositionInput struct {
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
 		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authservice.StartupAuthRequired(in.cfg.Settings)),
-		Capability: newCapabilityBundle(in.capabilityFactsService),
+		Capability: in.capabilityFactsService,
 		Chat:       &ChatBundle{operations: in.chatOperationOwner},
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
@@ -276,10 +269,6 @@ func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *au
 		serverStatus:  serverStatusService,
 		authRequired:  authRequired,
 	}
-}
-
-func newCapabilityBundle(factsService *capabilityfacts.Service) *CapabilityBundle {
-	return &CapabilityBundle{facts: factsService}
 }
 
 func newPersistenceBundle(rootLease *RootLockLease, metadataStore *metadata.Store) *PersistenceBundle {

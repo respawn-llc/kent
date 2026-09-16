@@ -442,7 +442,11 @@ func (s *Core) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Capability.facts
+	capability := s.safeBundles().Capability
+	if capability == nil {
+		return nil
+	}
+	return capability
 }
 
 func (s *Core) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
