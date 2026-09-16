@@ -122,30 +122,27 @@ func newTerminalBackgroundEvent(eventType EventType, snapshot Snapshot, output c
 }
 
 type Snapshot struct {
-	ID                      string
-	ActivityID              uuid.UUID
-	OwnerSessionID          string
-	OwnerRunID              string
-	OwnerStepID             string
-	ExecutionCorrelation    *runtimeids.ExecutionCorrelation
-	State                   string
-	Command                 string
-	Workdir                 string
-	StartedAt               time.Time
-	FinishedAt              time.Time
-	ExitCode                *int
-	LogPath                 string
-	RecentOutput            string
-	OutputAvailable         bool
-	OutputRetainedFromBytes int64
-	OutputRetainedToBytes   int64
-	RawOutputRequested      bool
-	RawOutput               bool
-	Running                 bool
-	StdinOpen               bool
-	Backgrounded            bool
-	KillRequested           bool
-	LastUpdatedAt           time.Time
+	ID                   string
+	ActivityID           uuid.UUID
+	OwnerSessionID       string
+	OwnerRunID           string
+	OwnerStepID          string
+	ExecutionCorrelation *runtimeids.ExecutionCorrelation
+	State                string
+	Command              string
+	Workdir              string
+	StartedAt            time.Time
+	FinishedAt           time.Time
+	ExitCode             *int
+	LogPath              string
+	RecentOutput         string
+	RawOutputRequested   bool
+	RawOutput            bool
+	Running              bool
+	StdinOpen            bool
+	Backgrounded         bool
+	KillRequested        bool
+	LastUpdatedAt        time.Time
 }
 
 type ExecRequest struct {
@@ -266,7 +263,6 @@ type processEntry struct {
 	lastSignaledAt       time.Time
 	recentOutput         []byte
 	pendingOutput        []byte
-	outputBytes          int64
 	notify               chan struct{}
 	done                 chan struct{}
 	outputFinalized      chan struct{}
@@ -291,30 +287,27 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		recentOutput = postprocess.SanitizeOutput(recentOutput)
 	}
 	return Snapshot{
-		ID:                      p.id,
-		ActivityID:              p.activityID,
-		OwnerSessionID:          p.ownerSessionID,
-		OwnerRunID:              p.ownerRunID,
-		OwnerStepID:             p.ownerStepID,
-		ExecutionCorrelation:    cloneExecutionCorrelation(p.executionCorrelation),
-		State:                   p.state,
-		Command:                 p.command,
-		Workdir:                 p.workdir,
-		StartedAt:               p.startedAt,
-		FinishedAt:              p.finishedAt,
-		ExitCode:                textutil.Pointer(p.exitCode),
-		LogPath:                 p.logPath,
-		RecentOutput:            recentOutput,
-		OutputAvailable:         p.logPath != "",
-		OutputRetainedFromBytes: 0,
-		OutputRetainedToBytes:   p.outputBytes,
-		RawOutputRequested:      p.raw,
-		RawOutput:               p.preserveOutput,
-		Running:                 p.running,
-		StdinOpen:               p.stdinOpen,
-		Backgrounded:            p.backgrounded,
-		KillRequested:           p.killRequested,
-		LastUpdatedAt:           p.lastUpdatedAt,
+		ID:                   p.id,
+		ActivityID:           p.activityID,
+		OwnerSessionID:       p.ownerSessionID,
+		OwnerRunID:           p.ownerRunID,
+		OwnerStepID:          p.ownerStepID,
+		ExecutionCorrelation: cloneExecutionCorrelation(p.executionCorrelation),
+		State:                p.state,
+		Command:              p.command,
+		Workdir:              p.workdir,
+		StartedAt:            p.startedAt,
+		FinishedAt:           p.finishedAt,
+		ExitCode:             textutil.Pointer(p.exitCode),
+		LogPath:              p.logPath,
+		RecentOutput:         recentOutput,
+		RawOutputRequested:   p.raw,
+		RawOutput:            p.preserveOutput,
+		Running:              p.running,
+		StdinOpen:            p.stdinOpen,
+		Backgrounded:         p.backgrounded,
+		KillRequested:        p.killRequested,
+		LastUpdatedAt:        p.lastUpdatedAt,
 	}
 }
 
@@ -371,7 +364,6 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 			return err
 		}
 	}
-	p.outputBytes += int64(len(chunk))
 	p.pendingOutput = append(p.pendingOutput, chunk...)
 	if len(p.pendingOutput) > maxPendingOutputBytes {
 		p.pendingOutput = append([]byte(nil), p.pendingOutput[len(p.pendingOutput)-maxPendingOutputBytes:]...)

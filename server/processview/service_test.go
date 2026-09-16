@@ -33,7 +33,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 			return shelltool.Snapshot{}, false
 		}
 		process := entries[0]
-		if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
+		if process.LogPath == "" || process.RecentOutput == "" {
 			return shelltool.Snapshot{}, false
 		}
 		return process, true
@@ -58,8 +58,8 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	if !process.Backgrounded || !process.Running {
 		t.Fatalf("expected backgrounded running process, got %+v", process)
 	}
-	if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
-		t.Fatalf("expected retained output metadata, got %+v", process)
+	if process.LogPath == "" || process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview, got %+v", process)
 	}
 
 	got, err := fixture.service.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: process.Id})
@@ -69,8 +69,8 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	if got.Process == nil || got.Process.GetOwnerRunId() != "run-1" || got.Process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
-	if !got.Process.OutputAvailable || got.Process.OutputRetainedFromBytes != 0 || got.Process.OutputRetainedToBytes < process.OutputRetainedToBytes {
-		t.Fatalf("expected retained output metadata from get, got %+v", got.Process)
+	if got.Process.LogPath != process.LogPath || got.Process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview from get, got %+v", got.Process)
 	}
 }
 

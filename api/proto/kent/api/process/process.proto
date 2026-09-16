@@ -12,6 +12,8 @@ import "kent/api/shared/foundation.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/process;processpb";
 
 message BackgroundProcess {
+  reserved 12, 13, 14;
+
   string id = 1 [(buf.validate.field).string.min_len = 1];
   string owner_session_id = 2 [(buf.validate.field).string.min_len = 1];
   optional string owner_run_id = 3 [(buf.validate.field).string.min_len = 1];
@@ -23,27 +25,12 @@ message BackgroundProcess {
   optional google.protobuf.Timestamp finished_at = 9;
   optional int32 exit_code = 10;
   string log_path = 11;
-  bool output_available = 12;
-  int64 output_retained_from_bytes = 13 [(buf.validate.field).int64 = {
-    gte: 0
-    lte: 9007199254740991
-  }];
-  int64 output_retained_to_bytes = 14 [(buf.validate.field).int64 = {
-    gte: 0
-    lte: 9007199254740991
-  }];
   bool running = 15;
   bool stdin_open = 16;
   bool backgrounded = 17;
   bool kill_requested = 18;
   google.protobuf.Timestamp last_updated_at = 19 [(buf.validate.field).required = true];
   string recent_output = 20;
-
-  option (buf.validate.message).cel = {
-    id: "kent.process.retained_range"
-    message: "retained output end must not precede its start"
-    expression: "this.output_retained_to_bytes >= this.output_retained_from_bytes"
-  };
 }
 
 message ListRequest {
