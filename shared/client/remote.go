@@ -274,20 +274,6 @@ func (c *Remote) ProjectID() string {
 	return ""
 }
 
-func (c *Remote) WorkspaceRoot() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceRoot
-	}
-	return ""
-}
-
-func (c *Remote) WorkspaceID() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceID
-	}
-	return ""
-}
-
 func (c *Remote) ProjectBinding() (ProjectAttachment, bool) {
 	return c.projectBinding()
 }
