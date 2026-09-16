@@ -7,8 +7,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/server/tools"
-	"core/server/workflowruntime"
+	"core/shared/config"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -28,22 +27,15 @@ func TestWorkflowAgentPanicsBeforeSecondModelTurnWithoutWorkflowInstructions(t *
 		}},
 		Usage: llm.Usage{WindowTokens: 200_000},
 	}}}
-	engine := mustNewTestEngine(
+	engine := mustNewWorkflowTestEngine(
 		t,
 		mustCreateTestSession(t),
 		client,
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: fakeTool{name: toolspec.ToolExecCommand},
-		}),
+		testWorkflowConfig(nil, config.WorkflowCompletionModeShellCommand),
 		Config{
 			Model: "gpt-5",
 			EnabledTools: []toolspec.ID{
 				toolspec.ToolExecCommand,
-			},
-			WorkflowPrompt: &workflowruntime.PromptContract{
-				Identity:       "missing-workflow-instructions",
-				CompletionMode: workflowruntime.CompletionModeShellCommand,
 			},
 		},
 	)
