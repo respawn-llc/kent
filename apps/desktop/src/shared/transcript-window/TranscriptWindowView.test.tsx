@@ -3,10 +3,9 @@ import type { ReactElement } from "react";
 
 import { TranscriptWindow, type TranscriptCommittedItem, type TranscriptRenderSlots } from "@/app-facade";
 import { hydration } from "@/test-support/transcript-window";
-import { createVirtualizedPixelOffsetRequest } from "@/ui";
 import { installResizeObserverGeometry } from "@/test-support/resize-observer";
 
-import { TranscriptWindowView, type TranscriptViewportMeasurement } from "./index";
+import { TranscriptWindowView } from "./index";
 
 let geometry: ReturnType<typeof installResizeObserverGeometry>;
 
@@ -81,20 +80,6 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
   ];
 }
 
-function rect(top: number, height: number): DOMRect {
-  return {
-    bottom: top + height,
-    height,
-    left: 0,
-    right: 800,
-    top,
-    width: 800,
-    x: 0,
-    y: top,
-    toJSON: () => ({}),
-  };
-}
-
 const slots: TranscriptRenderSlots<ReactElement | null> = {
   user: (item) => <div data-testid={`family-${item.kind}`}>{item.value.Text}</div>,
   assistant: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
@@ -107,7 +92,7 @@ const slots: TranscriptRenderSlots<ReactElement | null> = {
     ),
 };
 
-describe("TranscriptWindowView promotion and measurements", () => {
+describe("TranscriptWindowView", () => {
   beforeEach(() => {
     geometry = installResizeObserverGeometry();
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(600);
@@ -119,7 +104,7 @@ describe("TranscriptWindowView promotion and measurements", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps typed family presentations mounted and reports a surviving anchor with raw viewport facts", () => {
+  it("keeps typed family presentations mounted through committed promotion", () => {
     const window = new TranscriptWindow();
     const initial = hydration([]);
     window.dispatch({
@@ -150,8 +135,6 @@ describe("TranscriptWindowView promotion and measurements", () => {
         ],
       },
     });
-    const measurements: TranscriptViewportMeasurement[] = [];
-    const correction = createVirtualizedPixelOffsetRequest("correction", 240);
     const onInput = vi.fn();
     const view = render(
       <TranscriptWindowView
@@ -159,39 +142,17 @@ describe("TranscriptWindowView promotion and measurements", () => {
         estimateSize={() => 60}
         loadingLabel="Loading"
         onInput={onInput}
-        onMeasurement={(measurement) => measurements.push(measurement)}
         retryLabel="Retry"
         slots={slots}
         snapshot={window.snapshot}
       />,
     );
-    const scrollport = screen.getByRole("list");
     const before = new Map(
       ["assistant", "tool", "reasoning_trace"].map((family) => [
         family,
         screen.getByTestId(`family-${family}`),
       ]),
     );
-    const mountedRows = within(scrollport).getAllByRole("listitem");
-    const presentationKeys = window.snapshot.items.map((item) => item.key);
-    geometry.setGeometry(scrollport, {
-      clientHeight: 300,
-      scrollHeight: 900,
-      rect: rect(100, 300),
-    });
-    presentationKeys.forEach((key, index) => {
-      const wrapper = mountedRows[index];
-      if (wrapper === undefined) throw new Error("Expected mounted transcript row wrapper.");
-      geometry.setGeometry(wrapper, { rect: rect(120 + index * 60, 40) });
-    });
-    scrollport.scrollTop = 120;
-    fireEvent.scroll(scrollport);
-
-    const firstPresentationKey = presentationKeys[0];
-    if (firstPresentationKey === undefined) throw new Error("Expected a first presentation key.");
-    const firstWrapper = mountedRows[0];
-    if (firstWrapper === undefined) throw new Error("Expected first mounted transcript row wrapper.");
-    geometry.setGeometry(firstWrapper, { rect: rect(145, 40) });
     for (const row of committedPromotions()) {
       expect(window.dispatch({ kind: "committed-row", row }).kind).toBe("accepted");
     }
@@ -201,8 +162,6 @@ describe("TranscriptWindowView promotion and measurements", () => {
         estimateSize={() => 60}
         loadingLabel="Loading"
         onInput={onInput}
-        onMeasurement={(measurement) => measurements.push(measurement)}
-        pixelOffsetRequest={correction}
         retryLabel="Retry"
         slots={slots}
         snapshot={window.snapshot}
@@ -214,18 +173,6 @@ describe("TranscriptWindowView promotion and measurements", () => {
       expect(presentation).toBe(before.get(family));
       expect(presentation).toHaveTextContent("committed");
     }
-    expect(scrollport.scrollTop).toBe(240);
-    expect(measurements).toContainEqual({
-      absoluteScrollOffsetPx: 240,
-      viewportExtentPx: 300,
-      loadedContentEndExtentPx: 900,
-      edges: { olderAvailable: true, newerAvailable: false },
-      anchor: {
-        presentationKey: firstPresentationKey,
-        beforeViewportOffsetPx: 20,
-        afterViewportOffsetPx: 45,
-      },
-    });
   });
 
   it("derives exact edge failure presentation from the reducer snapshot and emits its Retry transition", () => {
@@ -253,7 +200,6 @@ describe("TranscriptWindowView promotion and measurements", () => {
         estimateSize={() => 60}
         loadingLabel="Loading"
         onInput={onInput}
-        onMeasurement={() => undefined}
         retryLabel="Retry"
         slots={slots}
         snapshot={window.snapshot}
@@ -269,7 +215,6 @@ describe("TranscriptWindowView promotion and measurements", () => {
         estimateSize={() => 60}
         loadingLabel="Loading"
         onInput={onInput}
-        onMeasurement={() => undefined}
         retryLabel="Retry"
         slots={slots}
         snapshot={window.snapshot}

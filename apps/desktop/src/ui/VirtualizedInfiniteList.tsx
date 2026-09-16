@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { type VirtualItem, useVirtualizer } from "@tanstack/react-virtual";
+import {
+  scrollToNativeEnd,
+  useVirtualizedEndAnchoring,
+  type VirtualizedEndAnchoring,
+} from "./virtualizedEndAnchoring";
 
 import type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
@@ -49,6 +54,7 @@ import {
 
 export type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 export type { VirtualizedItemVisibilityTrigger } from "./virtualizedItemVisibilityTriggers";
+export type { VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
 export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   items: readonly TItem[];
@@ -93,6 +99,7 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   visibilityTriggers?: readonly VirtualizedItemVisibilityTrigger[] | undefined;
   pixelOffsetRequest?: VirtualizedPixelOffsetRequest | undefined;
   orientation?: "vertical" | "horizontal" | undefined;
+  endAnchoring?: VirtualizedEndAnchoring | undefined;
 }>;
 
 type VirtualizedInfiniteListResolvedProps<TItem> = Omit<
@@ -184,6 +191,7 @@ function VirtualizedInfiniteListContent<TItem>({
   visibilityTriggers,
   pixelOffsetRequest,
   orientation,
+  endAnchoring,
 }: VirtualizedInfiniteListResolvedProps<TItem>) {
   const horizontal = orientation === "horizontal";
   const getItemAnchorKeyForItem = getItemAnchorKey ?? getItemKey;
@@ -230,6 +238,7 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
+  const nativeEndOptions = useVirtualizedEndAnchoring(endAnchoring);
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
@@ -250,7 +259,15 @@ function VirtualizedInfiniteListContent<TItem>({
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
     rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
+    ...nativeEndOptions,
   });
+  const lastEndRequest = useRef<symbol | null>(null);
+  useLayoutEffect(() => {
+    const request = endAnchoring?.scrollRequest;
+    if (request == null || request === lastEndRequest.current) return;
+    lastEndRequest.current = request;
+    scrollToNativeEnd(virtualizer);
+  }, [endAnchoring?.scrollRequest, virtualizer]);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
     nonAdjustingResizeItemKey === undefined
       ? undefined
@@ -302,7 +319,7 @@ function VirtualizedInfiniteListContent<TItem>({
   }, [horizontal, items.length, validatedPixelOffsetRequest, virtualizer]);
 
   const onScroll = useVirtualizedLeadingAnchor({
-    behavior: layoutChangeScrollBehavior,
+    behavior: endAnchoring === undefined ? layoutChangeScrollBehavior : "natural",
     getItemAnchorKey: getItemAnchorKeyForItem,
     getItemOccurrenceKey: getItemOccurrenceKeyForItem,
     itemStartIndex,
