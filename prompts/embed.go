@@ -280,6 +280,7 @@ var (
 	ToolPreamblesPrompt                              = mustPrompt("tool_preambles_prompt.md")
 	CompactionPrompt                                 = mustPrompt("compaction_prompt.md")
 	CompactionContinuationReminder                   = strings.TrimSpace(mustPrompt("compaction_continuation_reminder.md"))
+	CompactionRunningShellsReminder                  = strings.TrimSpace(mustPrompt("compaction_running_shells_reminder.md"))
 	CompactionSummaryPrefix                          = renderCompactionSummaryPrefix()
 	CompactionSoonReminderPrompt                     = mustPrompt("compaction_soon_reminder.md")
 	CompactionSoonReminderTriggerHandoffPrompt       = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
@@ -379,6 +380,20 @@ func RenderCompactionSoonReminderPrompt(triggerHandoffEnabled bool, estimatedToo
 	}
 	rendered, err := renderNamedTemplate(name, text, compactionSoonReminderTemplateData{
 		EstimatedToolCallsTillForcedHandoff: estimatedToolCallsTillForcedHandoff,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return rendered
+}
+
+type compactionRunningShellsReminderTemplateData struct {
+	ActiveShells string
+}
+
+func RenderCompactionRunningShellsReminder(activeShells string) string {
+	rendered, err := renderNamedTemplate("compaction running shells reminder", CompactionRunningShellsReminder, compactionRunningShellsReminderTemplateData{
+		ActiveShells: activeShells,
 	})
 	if err != nil {
 		panic(err)

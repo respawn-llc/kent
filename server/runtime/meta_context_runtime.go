@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/shared/config"
+	"core/shared/textutil"
 	"core/shared/transcript"
 )
 
@@ -576,7 +578,43 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	if err != nil {
 		return metaContextProjection{}, err
 	}
-	return metaResult.Projection(), nil
+	projection := metaResult.Projection()
+	projection.RunningShells = e.compactionRunningShellReminder()
+	return projection, nil
+}
+
+const compactionRunningShellCommandPreviewLimit = 120
+
+func (e *Engine) compactionRunningShellReminder() []llm.Message {
+	manager := e.cfg.BackgroundShellManager
+	if manager == nil {
+		return nil
+	}
+	sessionID := e.store.Meta().SessionID
+	snapshots := manager.CurrentSnapshots()
+	lines := make([]string, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if !snapshot.Running || snapshot.OwnerSessionID != sessionID {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s: `%s`", snapshot.ID, compactionShellCommandPreview(snapshot.Command)))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return []llm.Message{{
+		Role:    llm.RoleDeveloper,
+		Content: textutil.Value(prompts.RenderCompactionRunningShellsReminder(strings.Join(lines, "\n"))),
+	}}
+}
+
+func compactionShellCommandPreview(command string) string {
+	normalized := strings.Join(strings.Fields(command), " ")
+	runes := []rune(normalized)
+	if len(runes) > compactionRunningShellCommandPreviewLimit {
+		runes = runes[:compactionRunningShellCommandPreviewLimit]
+	}
+	return string(runes)
 }
 func (e *Engine) currentWorkflowTaskAwareness(ctx context.Context) (workflowruntime.TaskAwareness, error) {
 	execution, active := e.currentNodeExecutionConfig()
