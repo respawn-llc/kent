@@ -93,8 +93,9 @@ const (
 )
 
 type metaContextProjection struct {
-	StablePrefix []llm.Message
-	Environment  []llm.Message
+	StablePrefix  []llm.Message
+	RunningShells []llm.Message
+	Environment   []llm.Message
 }
 
 func (r metaContextBuildResult) Projection() metaContextProjection {
