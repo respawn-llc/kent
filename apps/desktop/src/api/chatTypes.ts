@@ -32,7 +32,7 @@ export type {
 
 export type ChatWorkspaceSelector = Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
 export type ChatProjectTarget = Readonly<{ projectID: string; workspace: ChatWorkspaceSelector }>;
-export type ChatSessionTarget = ChatProjectTarget & Readonly<{ sessionID: string }>;
+export type ChatSessionTarget = Readonly<{ projectID: string; sessionID: string }>;
 export type ChatContextTarget = ChatSessionTarget;
 export type ChatSettingsTarget =
   (ChatProjectTarget & Readonly<{ kind: "new_chat" }>) | (ChatSessionTarget & Readonly<{ kind: "session" }>);

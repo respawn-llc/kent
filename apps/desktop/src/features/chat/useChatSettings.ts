@@ -71,7 +71,7 @@ export type ReadyChatSettings =
       }>);
 
 export type ChatSettingsFeature =
-  | Exclude<SettingsState, ReadyNewChat | ReadySession>
+  | (Exclude<SettingsState, ReadyNewChat | ReadySession> & Readonly<{ retry(): void }>)
   | (ReadyChatSettings & Readonly<{ settingsChip: ReactElement }>);
 
 type SettingsAction =
@@ -101,24 +101,28 @@ export function useChatSettings(options: ChatSettingsOptions): ChatSettingsFeatu
 
 function useSettingsState(
   options: ChatSettingsOptions,
-): Exclude<SettingsState, ReadyNewChat | ReadySession> | ReadyChatSettings {
+): (Exclude<SettingsState, ReadyNewChat | ReadySession> & Readonly<{ retry(): void }>) | ReadyChatSettings {
   const { target } = options;
   const { api } = useAppServices();
   const { t } = useTranslation();
   const { projectID } = target;
   const targetKind = target.kind;
   const sessionID = target.kind === "session" ? target.sessionID : null;
-  const workspaceKind = "workspaceID" in target.workspace ? "workspaceID" : "workspaceRoot";
-  const workspaceValue =
-    "workspaceID" in target.workspace ? target.workspace.workspaceID : target.workspace.workspaceRoot;
+  const workspaceID =
+    target.kind === "new_chat" && "workspaceID" in target.workspace ? target.workspace.workspaceID : null;
+  const workspaceRoot =
+    target.kind === "new_chat" && "workspaceRoot" in target.workspace ? target.workspace.workspaceRoot : null;
   const requestedTarget = useMemo<ChatSettingsTarget>(() => {
-    const project = {
+    if (sessionID !== null) return { kind: "session", projectID, sessionID };
+    const workspace =
+      workspaceID !== null ? { workspaceID } : workspaceRoot !== null ? { workspaceRoot } : null;
+    if (workspace === null) throw new Error("New Chat requires a workspace.");
+    return {
+      kind: "new_chat",
       projectID,
-      workspace:
-        workspaceKind === "workspaceID" ? { workspaceID: workspaceValue } : { workspaceRoot: workspaceValue },
+      workspace,
     };
-    return sessionID === null ? { ...project, kind: "new_chat" } : { ...project, kind: "session", sessionID };
-  }, [projectID, workspaceKind, workspaceValue, sessionID]);
+  }, [projectID, workspaceID, workspaceRoot, sessionID]);
   const [owned, dispatchOwned] = useReducer(
     (
       current: TargetState,
@@ -141,6 +145,7 @@ function useSettingsState(
     [requestedTarget],
   );
   const observation = useRef<ChatSettingsTarget | null>(null);
+  const [retryGeneration, retry] = useReducer((value: number) => value + 1, 0);
   const generation =
     "authoritativeRefreshGeneration" in options ? options.authoritativeRefreshGeneration : null;
   const observedRefresh = useRef<Readonly<{ target: ChatSettingsTarget; generation: unknown }> | null>(null);
@@ -174,7 +179,7 @@ function useSettingsState(
     return () => {
       observation.current = null;
     };
-  }, [api, requestedTarget, targetKind, dispatch]);
+  }, [api, requestedTarget, targetKind, dispatch, retryGeneration]);
 
   useEffect(() => {
     const previous = observedRefresh.current;
@@ -192,7 +197,8 @@ function useSettingsState(
   }, [state]);
 
   if (state.kind === "ready-session") {
-    if (target.kind !== "session" || !("onContextChange" in options)) return loadingState(target.kind);
+    if (target.kind !== "session" || !("onContextChange" in options))
+      return { ...loadingState(target.kind), retry };
     const ready: Extract<ReadyChatSettings, { kind: "ready-session" }> = {
       kind: state.kind,
       settings: state.settings,
@@ -218,7 +224,7 @@ function useSettingsState(
     };
     return ready;
   }
-  if (state.kind !== "ready-new-chat") return state;
+  if (state.kind !== "ready-new-chat") return { ...state, retry };
   return {
     ...state,
     activate: (operation) => {

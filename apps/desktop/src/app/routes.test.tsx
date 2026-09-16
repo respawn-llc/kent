@@ -19,6 +19,7 @@ vi.mock("./routeComponents", async () => {
   return {
     HomeShellRoute: () => null,
     ChatRoute: () => <div data-testid="standalone-chat-route" />,
+    NewChatRoute: () => <div data-testid="standalone-new-chat-route" />,
     ProjectRoute: () => null,
     ProjectTasksRoute: () =>
       fixture.triggerCatalogNavigation ? (

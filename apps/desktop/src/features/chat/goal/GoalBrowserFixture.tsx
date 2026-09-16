@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type {
   ApiSubscription,
@@ -18,7 +19,6 @@ import { useGoalSidebarLauncher } from "./useGoalSidebarLauncher";
 const fixtureSessionID = "123e4567-e89b-42d3-a456-426614174000";
 const fixtureTarget: ChatSessionTarget = {
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID: fixtureSessionID,
 };
 
@@ -59,6 +59,7 @@ export function GoalBrowserFixture({
 }: Readonly<{
   onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
 }> = {}) {
+  const client = useQueryClient();
   const [state, setState] = useState<GoalFixtureState>("absent");
   const [mutationMode, setMutationMode] = useState<FixtureMutationMode>("success");
   const [setMode, setSetMode] = useState<FixtureSetMode>("success");
@@ -73,6 +74,7 @@ export function GoalBrowserFixture({
   const input = useMemo<GoalSidebarInput>(() => {
     if (state === "new-chat" || state === "questions-off") {
       const binding = new NewChatGoalBinding({
+        client,
         api: { setGoal: runtime.api.setGoal },
         captureTarget: () => ({
           kind: "new_chat",
@@ -87,13 +89,15 @@ export function GoalBrowserFixture({
             autoCompactionEnabled: true,
           },
         }),
-        onHostDelivery: () => undefined,
+        onHostDelivery: (delivery) => {
+          binding.followSession(delivery.target);
+        },
       });
       binding.setAvailability("available");
       return { kind: "new_chat", api: runtime.api, binding };
     }
     return { kind: "session", api: runtime.api, target: fixtureTarget };
-  }, [runtime.api, state]);
+  }, [client, runtime.api, state]);
 
   return (
     <GoalBrowserFixtureControls

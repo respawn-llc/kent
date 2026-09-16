@@ -27,7 +27,7 @@ import { ChatService } from "@app/server-api-contract/gen/kent/api/chat/chat_pb"
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const projectTarget = { projectID: "project-1", workspace: { workspaceRoot: "/workspace" } } as const;
 const newChatTarget = { ...projectTarget, kind: "new_chat" } as const;
-const sessionTarget = { ...projectTarget, kind: "session", sessionID } as const;
+const sessionTarget = { projectID: projectTarget.projectID, kind: "session", sessionID } as const;
 
 function choice(role = "default") {
   return {
@@ -189,7 +189,7 @@ describe("Chat Settings descriptor adapter", () => {
       },
       session: { sessionID, previousSessionID: parentID, task: { taskID, shortID: "KENT-416" } },
     });
-    expect(transport.attachedProjectDescriptorCalls[0]?.request).toMatchObject({
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
       target: { case: "session", value: { sessionId: sessionID } },
     });
   });
@@ -225,7 +225,7 @@ describe("Chat Settings descriptor adapter", () => {
         },
       ]);
       const result = await new ApiClient(transport).chat.mutateSettings(sessionTarget, operation);
-      expect(transport.attachedProjectDescriptorCalls[0]?.request).toMatchObject({
+      expect(transport.descriptorCalls[0]?.request).toMatchObject({
         session: { sessionId: sessionID },
         operation: { operation: wire },
       });

@@ -92,6 +92,7 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
           className={cx(fieldInputClassName, "chat-composer-editor")}
           rows={1}
           value={composer.text}
+          readOnly={composer.navigationPending}
           onChange={(event) => {
             composer.edit(event.target.value);
           }}
@@ -142,15 +143,17 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
 }
 
 function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslation>["t"]) {
-  return composer.draft.kind === "loading"
-    ? t("chatComposer.loadingDraft")
-    : composer.submission.kind === "loading"
-      ? t("chatComposer.loadingSettings")
-      : composer.submission.kind === "failed"
-        ? errorMessage(composer.submission.error)
-        : !composer.canSubmit
-          ? t("chatComposer.empty")
-          : t("chatComposer.send");
+  return composer.navigationPending
+    ? t("chat.savingDraft")
+    : composer.draft.kind === "loading"
+      ? t("chatComposer.loadingDraft")
+      : composer.submission.kind === "loading"
+        ? t("chatComposer.loadingSettings")
+        : composer.submission.kind === "failed"
+          ? errorMessage(composer.submission.error)
+          : !composer.canSubmit
+            ? t("chatComposer.empty")
+            : t("chatComposer.send");
 }
 
 function ComposerControls({
@@ -185,7 +188,7 @@ function ComposerControls({
           composer.submit("send");
         }}
       >
-        {composer.inputPending || composer.draft.kind === "loading" ? (
+        {composer.inputPending || composer.navigationPending || composer.draft.kind === "loading" ? (
           <Spinner size="sm" className="text-[var(--color-on-primary)]" />
         ) : (
           <ArrowUp size={18} />

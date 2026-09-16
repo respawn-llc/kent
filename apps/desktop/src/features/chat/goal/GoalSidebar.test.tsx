@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
+import { QueryClient } from "@tanstack/react-query";
 
 import type { ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
 import { ChatOperationError, RpcError } from "@/api";
@@ -16,7 +17,6 @@ type GoalSetResult = Awaited<ReturnType<GoalSidebarApi["setGoal"]>>;
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
 
@@ -278,9 +278,13 @@ describe("Goal sidebar", () => {
     };
     const api = createGoalSidebarApi({ goal: null });
     const binding = new NewChatGoalBinding({
+      client: new QueryClient(),
       api: { setGoal: vi.fn(async () => result) },
       captureTarget: () => newChatTarget(),
-      onHostDelivery: hostDelivery,
+      onHostDelivery: (delivery) => {
+        hostDelivery(delivery);
+        binding.followSession(delivery.target);
+      },
     });
     render(
       <TestAppProviders services={services}>
@@ -308,6 +312,7 @@ describe("Goal sidebar", () => {
     });
     const api = createGoalSidebarApi({ goal: null, setGoal });
     const binding = new NewChatGoalBinding({
+      client: new QueryClient(),
       api: { setGoal },
       captureTarget: () => newChatTarget(),
       onHostDelivery: () => undefined,
@@ -344,9 +349,13 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     const binding = new NewChatGoalBinding({
+      client: new QueryClient(),
       api: { setGoal: vi.fn(async () => goalSetResult("New Chat Goal", "goal-new-chat")) },
       captureTarget: () => newChatTarget(),
-      onHostDelivery: hostDelivery,
+      onHostDelivery: (delivery) => {
+        hostDelivery(delivery);
+        binding.followSession(delivery.target);
+      },
     });
     render(
       <TestAppProviders services={services}>
@@ -385,9 +394,13 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     const binding = new NewChatGoalBinding({
+      client: new QueryClient(),
       api: { setGoal: vi.fn(async () => pending.promise) },
       captureTarget: () => newChatTarget(),
-      onHostDelivery: hostDelivery,
+      onHostDelivery: (delivery) => {
+        hostDelivery(delivery);
+        binding.followSession(delivery.target);
+      },
     });
     const view = render(
       <TestAppProviders services={services}>
@@ -452,7 +465,6 @@ function newChatTarget() {
 function exactTarget(): ChatSessionTarget {
   return {
     projectID: "project-1",
-    workspace: { workspaceID: "workspace-1" },
     sessionID,
   };
 }

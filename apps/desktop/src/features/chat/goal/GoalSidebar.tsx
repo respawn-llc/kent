@@ -69,7 +69,7 @@ function NewChatGoalSidebar({
   }
 
   const unavailable = snapshot.availability === "agent_capability_missing";
-  const canSave = draft.trim().length > 0 && !snapshot.pending && !unavailable;
+  const canSave = draft.trim().length > 0 && snapshot.ready && !snapshot.pending && !unavailable;
   const save = () => {
     if (!canSave) return;
     setError(null);
@@ -126,7 +126,13 @@ function NewChatGoalSidebar({
             snapshot.pending || draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave}
-                label={unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save")}
+                label={
+                  !snapshot.ready
+                    ? t("chatComposer.loadingSettings")
+                    : unavailable
+                      ? t("chat.goal.unavailableForAgent")
+                      : t("chat.goal.save")
+                }
                 onClick={save}
                 pending={snapshot.pending}
               />

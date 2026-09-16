@@ -42,6 +42,7 @@ import type {
   RpcTransport,
   ProjectAttachment,
   SessionAttachment,
+  SessionAttachmentTarget,
   RuntimeOwnerContext,
   RuntimeOwnerOptions,
 } from "./transport";
@@ -163,18 +164,21 @@ class JsonRpcWebSocketTransport implements RpcTransport {
   }
 
   async callDescriptorAttachedSession<Method extends DescMethod>(
-    sessionID: string,
+    target: SessionAttachmentTarget,
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
-    const attachedSessionID = sessionID.trim();
+    const attachedSessionID = target.sessionID.trim();
     if (attachedSessionID.length === 0) {
       throw new TransportError("Session attachment requires a Session ID.");
     }
     return this.#withDedicatedSocket(
       options,
-      async (socket, requestOptions) => sendSocketDescriptorRequest(socket, method, request, requestOptions),
+      async (socket, requestOptions, attachment) => {
+        requireSessionAttachment(attachment, { ...target, sessionID: attachedSessionID });
+        return sendSocketDescriptorRequest(socket, method, request, requestOptions);
+      },
       { sessionID: attachedSessionID },
     );
   }

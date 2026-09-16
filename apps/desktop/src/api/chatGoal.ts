@@ -39,7 +39,6 @@ export type ChatGoalSetTarget =
       kind: "session";
       sessionID: string;
       projectID?: string;
-      workspace?: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
     }>
   | Readonly<{
       kind: "new_chat";
@@ -230,14 +229,12 @@ export function createChatGoalApi(
       | typeof R.GoalService.method.clear,
   ) => {
     const sessionId = requireChatSessionID(target);
-    const call = await transport.callDescriptorAttachedProject({
-      projectID: target.projectID,
-      selector: target.workspace,
+    const result = await transport.callDescriptorAttachedSession(
+      target,
       method,
-      createRequest: () => create(method.input, { sessionId, actor: "user" }),
-    });
-    requireProjectAttachment(call.attachment, target);
-    const mutation = goalMutationFromGenerated(requireUnarySuccess(method, call.result));
+      create(method.input, { sessionId, actor: "user" }),
+    );
+    const mutation = goalMutationFromGenerated(requireUnarySuccess(method, result));
     const expectedKind = method === R.GoalService.method.clear ? "authoritative_clear" : "authoritative_goal";
     if (mutation.kind !== expectedKind) {
       throw new ContractError("Goal mutation response returned an illegal result.");
@@ -248,21 +245,19 @@ export function createChatGoalApi(
     async getGoal(target) {
       const sessionId = requireChatSessionID(target);
       const method = R.GoalService.method.show;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () => create(method.input, { sessionId }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      return goalFactFromWire(requireUnarySuccess(method, call.result));
+        create(method.input, { sessionId }),
+      );
+      return goalFactFromWire(requireUnarySuccess(method, result));
     },
     async setGoal(target, objective) {
       if (target.kind === "session") {
         const sessionID = target.sessionID.trim();
         if (!isValidChatSessionID(sessionID)) throw new TypeError("Session ID is required.");
         const result = await transport.callDescriptorAttachedSession(
-          sessionID,
+          { sessionID, ...(target.projectID === undefined ? {} : { projectID: target.projectID }) },
           R.GoalService.method.set,
           create(R.GoalSetRequestSchema, {
             target: create(ChatTargetSchema, {

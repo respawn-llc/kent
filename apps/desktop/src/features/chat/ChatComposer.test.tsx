@@ -1,7 +1,13 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import { RegistryProvider } from "@effect/atom-react";
-import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
+import type {
+  ChatInputMutationResult,
+  ChatTranscriptHandler,
+  InitialChatSettings,
+  ChatSettingsTarget,
+} from "@/api";
 import { ChatRuntimeProvider } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
@@ -12,7 +18,22 @@ import {
   TestAppProviders as AppProviders,
   type TestAppServices,
 } from "@/test-support/app-services";
-import { useChatComposer, type ComposerSubmission } from "./useChatComposer";
+import {
+  useChatComposer as useComposer,
+  type ChatComposerOptions,
+  type ComposerSubmission,
+} from "./useChatComposer";
+
+function useChatComposer(options: ChatSettingsTarget & Omit<ChatComposerOptions, "target">) {
+  const [target] = useState(() =>
+    Atom.make<ChatSettingsTarget>(
+      options.kind === "session"
+        ? { kind: "session", projectID: options.projectID, sessionID: options.sessionID }
+        : { kind: "new_chat", projectID: options.projectID, workspace: options.workspace },
+    ),
+  );
+  return useComposer({ ...options, target });
+}
 
 function TestAppProviders({
   children,
@@ -28,7 +49,6 @@ function TestAppProviders({
 const target = {
   kind: "session",
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID: "session-1",
 } as const;
 const accepted: ChatInputMutationResult = {
@@ -252,7 +272,11 @@ it("restores a failed request but does not restore an accepted input with a diag
 
 it("keeps New Chat typing while Settings load and delivers the identified Session even on rejection", async () => {
   const services = createTestServices([]);
-  const newChat = { kind: "new_chat", projectID: target.projectID, workspace: target.workspace } as const;
+  const newChat = {
+    kind: "new_chat",
+    projectID: target.projectID,
+    workspace: { workspaceID: "workspace-1" },
+  } as const;
   const settings: InitialChatSettings = {
     agentRole: "writer",
     supervisor: "off",
@@ -314,9 +338,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   await act(async () => {
     result.current.submit("send");
   });
-  await waitFor(() => {
-    expect(readPending).toHaveBeenCalledWith({ ...newChat, sessionID: accepted.sessionID });
-  });
+  expect(readPending).not.toHaveBeenCalled();
   expect(result.current.target).toEqual(newChat);
   expect(result.current.pending.items).toEqual([]);
 });

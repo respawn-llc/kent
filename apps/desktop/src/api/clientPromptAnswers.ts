@@ -27,7 +27,7 @@ export async function answerPromptBatch(
   });
   const success = requireUnarySuccess(
     method,
-    await transport.callDescriptorAttachedSession(input.sessionID, method, request),
+    await transport.callDescriptorAttachedSession({ sessionID: input.sessionID }, method, request),
   );
   const response: PromptAnswerBatchResponse = {
     results: success.results.map((result) => ({

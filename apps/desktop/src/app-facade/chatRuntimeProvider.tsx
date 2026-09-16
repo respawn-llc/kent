@@ -11,7 +11,7 @@ export type ChatRuntimeProviderApi = Readonly<{
 
 export type ChatRuntimeProviderProps = Readonly<{
   api: ChatRuntimeProviderApi;
-  target: ChatSessionTarget;
+  target: ChatSessionTarget | null;
   host: ChatRuntimeHost;
   children: ReactNode;
 }>;
@@ -19,11 +19,11 @@ export type ChatRuntimeProviderProps = Readonly<{
 export function ChatRuntimeProvider({ api, target, host, children }: ChatRuntimeProviderProps) {
   const queryClient = useQueryClient();
   const owner = useMemo(
-    () => new ChatRuntimeOwner(api.chat, target, queryClient, host),
+    () => (target === null ? null : new ChatRuntimeOwner(api.chat, target, queryClient, host)),
     [api.chat, host, queryClient, target],
   );
   useEffect(() => {
-    return owner.mount();
+    return owner?.mount();
   }, [owner]);
   return <ChatRuntimeContext.Provider value={owner}>{children}</ChatRuntimeContext.Provider>;
 }

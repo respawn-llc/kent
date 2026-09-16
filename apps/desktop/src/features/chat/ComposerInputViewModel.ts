@@ -36,6 +36,7 @@ type CompletedInput = Exclude<ComposerCommandResult, { kind: "local" }>;
 type SubmissionCallbacks = Readonly<{
   restore(input: ComposerTextRestoration): void;
   accepted(sessionID: string): void;
+  failed(): void;
   delivered?(result: CompletedInput): void;
 }>;
 type Request = SubmissionCallbacks &
@@ -43,7 +44,7 @@ type Request = SubmissionCallbacks &
     target: ChatMutationTarget;
     original: string;
     intent: "send" | "queue";
-    command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" }>;
+    command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>;
   }>;
 export type ComposerInputActivation = SubmissionCallbacks &
   Readonly<{
@@ -62,7 +63,7 @@ export function createComposerInputViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: ChatSettingsTarget;
+  target: Atom.Atom<ChatSettingsTarget>;
   draft: ComposerDraftViewModel;
   t: TFunction;
 }>) {
@@ -73,10 +74,13 @@ export function createComposerInputViewModel({
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
     onSuccess: (result, input) => {
-      complete(result, input, t);
+      if (observer.hasListeners()) complete(result, input, t);
     },
     onError: (error, input) => {
-      input.restore({ text: input.original, direction: "append" });
+      if (observer.hasListeners()) {
+        input.restore({ text: input.original, direction: "append" });
+        input.failed();
+      }
       showStatusToast({
         id: "chat-composer-input",
         tone: "danger",
@@ -103,7 +107,12 @@ export function createComposerInputViewModel({
           });
           return;
         }
-        const requestTarget = mutationTarget(target, input.submission);
+        if (command.kind === "unavailable") {
+          get.set(draft.edit, "");
+          command.notify();
+          return;
+        }
+        const requestTarget = mutationTarget(get(target), input.submission);
         get.set(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
           observer.mutate({ ...input, target: requestTarget, original, command }),
@@ -126,6 +135,7 @@ function mutationTarget(
 function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
   if ("kind" in result) return;
   if (result.outcome.kind === "accepted") {
+    if (input.target.kind === "new_chat") input.delivered?.(result);
     input.accepted(result.sessionID);
     const diagnostic = result.outcome.diagnostic;
     if (diagnostic !== null)
@@ -139,6 +149,7 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
       });
   } else {
     input.restore({ text: input.original, direction: "append" });
+    if (input.target.kind === "new_chat") input.delivered?.(result);
     showStatusToast({
       id: "chat-composer-input",
       tone: "danger",
@@ -149,7 +160,6 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
       ].join("\n"),
     });
   }
-  if (input.target.kind === "new_chat") input.delivered?.(result);
 }
 function rejectionDetails(reason: ChatNotAcceptedReason): readonly string[] {
   if ("command" in reason) return reason.command === null ? [] : [reason.command];

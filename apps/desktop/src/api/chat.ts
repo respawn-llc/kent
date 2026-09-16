@@ -26,7 +26,6 @@ import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
 import { enumValue, required } from "./chatWire";
-import { requireProjectAttachment } from "./chatAttachment";
 import { requireSessionAttachment } from "./jsonRpcSocket";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
 import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
@@ -82,7 +81,11 @@ export type {
 
 export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
   return {
-    listPendingPrompts: async (target) => listPendingPrompts(transport, requireChatSessionID(target)),
+    listPendingPrompts: async (target) =>
+      listPendingPrompts(transport, {
+        projectID: target.projectID,
+        sessionID: requireChatSessionID(target),
+      }),
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
     ...createChatDraftApi(transport),
@@ -91,52 +94,44 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
     async getMainView(target) {
       const sessionId = requireChatSessionID(target);
       const method = SessionReadService.method.getMainView;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () => create(method.input, { sessionId }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      return mainView(required(requireUnarySuccess(method, call.result).mainView), sessionId);
+        create(method.input, { sessionId }),
+      );
+      return mainView(required(requireUnarySuccess(method, result).mainView), sessionId);
     },
     async getContext(target) {
       const sessionId = requireChatSessionID(target);
       const method = ChatContextService.method.get;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () =>
-          create(method.input, {
-            target: { target: { case: "session", value: { sessionId } } },
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      return context(required(requireUnarySuccess(method, call.result).context));
+        create(method.input, {
+          target: { target: { case: "session", value: { sessionId } } },
+        }),
+      );
+      return context(required(requireUnarySuccess(method, result).context));
     },
     async getTranscriptPage(target, cursor) {
       const sessionId = requireChatSessionID(target);
       const method = ReadService.method.getPage;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () =>
-          create(method.input, {
-            sessionId,
-            ...(cursor === undefined
-              ? {}
-              : {
-                  direction: {
-                    case: cursor.direction === "older" ? "cursor" : "newerCursor",
-                    value: BigInt(cursor.value),
-                  },
-                }),
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      return transcriptPage(required(requireUnarySuccess(method, call.result).transcript), sessionId);
+        create(method.input, {
+          sessionId,
+          ...(cursor === undefined
+            ? {}
+            : {
+                direction: {
+                  case: cursor.direction === "older" ? "cursor" : "newerCursor",
+                  value: BigInt(cursor.value),
+                },
+              }),
+        }),
+      );
+      return transcriptPage(required(requireUnarySuccess(method, result).transcript), sessionId);
     },
     async activateRuntime(target) {
       const requestedSessionID = requireChatSessionID(target);

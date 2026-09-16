@@ -7,12 +7,14 @@ import type {
   ChatSessionTarget,
 } from "@/api";
 import { ContractError } from "@/api";
+import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 
 export type NewChatGoalBindingSnapshot =
   | Readonly<{
       kind: "unresolved";
       availability: ChatGoalAvailability | null;
       pending: boolean;
+      ready: boolean;
     }>
   | Readonly<{
       kind: "resolved_session";
@@ -25,30 +27,55 @@ export type NewChatGoalHostDelivery = Readonly<{
 }>;
 
 export type NewChatGoalBindingOptions = Readonly<{
+  client: QueryClient;
   api: Pick<ChatApi, "setGoal">;
   captureTarget: () => Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
-  onHostDelivery: (delivery: NewChatGoalHostDelivery) => void | Promise<void>;
+  onHostDelivery: (delivery: NewChatGoalHostDelivery) => void;
+  onFailure?(): void;
 }>;
+type GoalHost = Pick<NewChatGoalBindingOptions, "captureTarget" | "onHostDelivery" | "onFailure">;
 
 export class NewChatGoalBinding {
-  readonly #api: Pick<ChatApi, "setGoal">;
-  readonly #captureTarget: NewChatGoalBindingOptions["captureTarget"];
-  readonly #onHostDelivery: NewChatGoalBindingOptions["onHostDelivery"];
+  #host: GoalHost;
+  readonly #request: MutationObserver<
+    ChatGoalSetResult,
+    Error,
+    Readonly<{
+      target: Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
+      objective: string;
+    }>
+  >;
   readonly #listeners = new Set<() => void>();
   #snapshot: NewChatGoalBindingSnapshot = {
     kind: "unresolved",
     availability: null,
     pending: false,
+    ready: true,
   };
 
   constructor(options: NewChatGoalBindingOptions) {
-    this.#api = options.api;
-    this.#captureTarget = options.captureTarget;
-    this.#onHostDelivery = options.onHostDelivery;
+    this.#host = options;
+    this.#request = new MutationObserver(options.client, {
+      retry: false,
+      networkMode: "always",
+      mutationFn: async ({ target, objective }) => options.api.setGoal(target, objective),
+      onSuccess: (result, { target }) => {
+        if (result.sessionID.trim().length === 0)
+          throw new ContractError("Goal Set success Session is required.");
+        this.#host.onHostDelivery({
+          target: { projectID: target.projectID, sessionID: result.sessionID },
+          goal: result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null,
+        });
+      },
+      onError: () => this.#host.onFailure?.(),
+    });
   }
 
   get snapshot(): NewChatGoalBindingSnapshot {
     return this.#snapshot;
+  }
+  updateHost(host: GoalHost): void {
+    this.#host = host;
   }
 
   subscribe(listener: () => void): () => void {
@@ -64,37 +91,41 @@ export class NewChatGoalBinding {
     this.#notify();
   }
 
+  followSession(target: ChatSessionTarget): void {
+    if (this.#snapshot.kind === "resolved_session" && this.#snapshot.target.sessionID === target.sessionID)
+      return;
+    this.#snapshot = { kind: "resolved_session", target };
+    this.#notify();
+  }
+
+  setReady(ready: boolean): void {
+    if (this.#snapshot.kind !== "unresolved" || this.#snapshot.ready === ready) return;
+    this.#snapshot = { ...this.#snapshot, ready };
+    this.#notify();
+  }
+
+  get pending(): boolean {
+    return this.#request.getCurrentResult().isPending;
+  }
+
   async setGoal(objective: string): Promise<ChatGoalSetResult> {
     if (this.#snapshot.kind !== "unresolved") {
       throw new ContractError("New Chat Goal creation has already resolved.");
     }
-    if (this.#snapshot.pending) {
+    if (this.pending) {
       throw new ContractError("New Chat Goal creation is already pending.");
     }
-    const target = this.#captureTarget();
-    this.#snapshot = { ...this.#snapshot, pending: true };
-    this.#notify();
+    if (!this.#snapshot.ready) throw new ContractError("New Chat Settings are not ready.");
+    const target = this.#host.captureTarget();
+    const unsubscribe = this.#request.subscribe((result) => {
+      if (this.#snapshot.kind === "unresolved")
+        this.#snapshot = { ...this.#snapshot, pending: result.isPending };
+      this.#notify();
+    });
     try {
-      const result = await this.#api.setGoal(target, objective);
-      if (result.sessionID.trim().length === 0) {
-        throw new ContractError("Goal Set success Session is required.");
-      }
-      const exactTarget: ChatSessionTarget = {
-        projectID: target.projectID,
-        workspace: { workspaceID: target.workspaceID },
-        sessionID: result.sessionID,
-      };
-      const goal = result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null;
-      await this.#onHostDelivery({ goal, target: exactTarget });
-      this.#snapshot = { kind: "resolved_session", target: exactTarget };
-      this.#notify();
-      return result;
-    } catch (error) {
-      if (this.#snapshot.kind === "unresolved") {
-        this.#snapshot = { ...this.#snapshot, pending: false };
-      }
-      this.#notify();
-      throw error;
+      return await this.#request.mutate({ target, objective });
+    } finally {
+      unsubscribe();
     }
   }
 

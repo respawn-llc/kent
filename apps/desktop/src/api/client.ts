@@ -561,11 +561,11 @@ export class ApiClient implements ApiService {
   }
 
   async listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]> {
-    return taskDetail.listPendingAsks(this.#transport, sessionID);
+    return taskDetail.listPendingAsks(this.#transport, { sessionID });
   }
 
   async listPendingPrompts(sessionID: string) {
-    return listPendingPrompts(this.#transport, sessionID);
+    return listPendingPrompts(this.#transport, { sessionID });
   }
 
   subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription {

@@ -24,7 +24,6 @@ const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   kind: "session",
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
 const navigation = {
@@ -293,7 +292,7 @@ it("loads ordinary Session Settings through the same feature boundary", async ()
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
   });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   await act(async () => {
     read.resolve(initialRead);
     await read.promise;
@@ -485,7 +484,7 @@ it("drops old Session completions after target replacement and installs the newl
     void result.current.activate({ kind: "questions", enabled: false });
   });
   rerender({ ...connected, target: { ...target, sessionID: newSessionID }, onContextChange });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const rebased: Extract<ChatSettingsRead, { kind: "session" }> = {
     kind: "session",
     settings: {
@@ -555,7 +554,10 @@ it("replaces New Chat selection with ordinary Session loading before installing 
       return value;
     },
     {
-      initialProps: { target: { ...target, kind: "new_chat" }, onInitialSettingsChange: vi.fn() },
+      initialProps: {
+        target: { kind: "new_chat", projectID: target.projectID, workspace: { workspaceID: "workspace-1" } },
+        onInitialSettingsChange: vi.fn(),
+      },
       wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
         <TestAppProviders services={services}>{children}</TestAppProviders>
       ),
@@ -571,7 +573,7 @@ it("replaces New Chat selection with ordinary Session loading before installing 
   seen.length = 0;
   rerender({ ...connected, target, onContextChange: vi.fn() });
   expect(seen.every((kind) => kind === "loading-session")).toBe(true);
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const rebased: ChatSettingsRead = {
     ...initialRead,
     settings: {
@@ -595,7 +597,7 @@ it("replaces New Chat selection with ordinary Session loading before installing 
   expect(result.current).not.toHaveProperty("catalog");
 });
 
-it("exposes whole-Chat Session read failure without retained Settings or local Retry", async () => {
+it("exposes whole-Chat Session read failure without retained Settings", async () => {
   const services = createTestServices([]);
   const read = deferred<ChatSettingsRead>();
   vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
@@ -609,7 +611,7 @@ it("exposes whole-Chat Session read failure without retained Settings or local R
     read.reject(failure);
     await read.promise.catch(() => undefined);
   });
-  expect(result.current).toEqual({ kind: "failed-session", error: failure });
+  expect(result.current).toMatchObject({ kind: "failed-session", error: failure });
 });
 
 it("preserves exact custom Thinking input and returns distinct completions for the later editor", async () => {
@@ -880,7 +882,7 @@ it("discards old reads and mutations through A to B to A target replacement", as
     onContextChange,
   });
   rerender({ ...connected, target, onContextChange, authoritativeRefreshGeneration: generation });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const latest: ChatSettingsRead = {
     ...initialRead,
     settings: { ...settings, supervisor: { ...settings.supervisor, value: "all" } },

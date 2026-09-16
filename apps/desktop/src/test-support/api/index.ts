@@ -442,12 +442,12 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   }
 
   async callDescriptorAttachedSession<Method extends DescMethod>(
-    sessionID: string,
+    target: Readonly<{ sessionID: string; projectID?: string }>,
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
-    this.attachedSessionCalls.push({ sessionID, method: operationName(method) });
+    this.attachedSessionCalls.push({ sessionID: target.sessionID, method: operationName(method) });
     return this.callDescriptor(method, request, options);
   }
 
