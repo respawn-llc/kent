@@ -49,7 +49,6 @@ export type TaskInitiatingActionResult =
 export type ExecutionTargetSelectionDraft = Readonly<{
   mode: WorkflowExecutionTargetSelectionMode;
   customRef: string | null;
-  branchName: string | null;
 }>;
 
 export function startTaskInitiatingAction(
@@ -94,17 +93,13 @@ export function proceedWithTaskInitiatingAction(action: TaskInitiatingAction): T
 export function initialExecutionTargetSelectionDraft(
   requirement: WorkflowExecutionTargetSelectionRequirement,
 ): ExecutionTargetSelectionDraft {
-  if (requirement.reason === "missing_managed_worktree" && requirement.suggestedSelection !== null) {
-    return { ...requirement.suggestedSelection, branchName: null };
-  }
   if (requirement.reason === "configured_target_unavailable") {
     return {
       mode: requirement.configuredTarget.mode,
       customRef: requirement.configuredTarget.requestedRef,
-      branchName: null,
     };
   }
-  return { mode: "default_branch", customRef: null, branchName: null };
+  return { mode: "default_branch", customRef: null };
 }
 
 export function executionTargetBranchName(

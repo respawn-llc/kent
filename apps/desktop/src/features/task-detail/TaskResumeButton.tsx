@@ -113,7 +113,7 @@ export function TaskInitiatingActionProvider({
                   run({ ...action, branchName: executionTargetBranchName(selection, branchName) }, selection);
                 },
                 recovery,
-                targetScope: executionTarget === null ? "initial" : "replacement",
+                ...(executionTarget === null ? { retrySelection: recovery.executionTarget } : {}),
               }
         }
       />

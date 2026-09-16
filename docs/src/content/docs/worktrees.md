@@ -54,7 +54,7 @@ Dirty worktrees, or worktrees whose state cannot be determined, require `--force
 
 If Git retains the branch, deletion succeeds and the CLI prints `Kept branch <name>: <diagnostic>`.
 
-Deleting an ongoing Task's Worktree preserves the Task, its Sessions, and its managed binding. See [missing-Worktree recovery](../workflows/#recover-a-missing-task-worktree) before continuing its executable work.
+Deleting an ongoing Task's Worktree preserves the Task, its Sessions, and its managed binding. See [Task target recovery](../workflows/#recover-an-unavailable-task-target) before continuing its executable work.
 
 ## Configuration
 
