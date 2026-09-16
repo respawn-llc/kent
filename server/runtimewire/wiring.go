@@ -307,20 +307,8 @@ func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(con
 	}, nil
 }
 
-type providerRuntimeSettings struct {
-	Model                        string
-	ProviderOverride             string
-	OpenAIBaseURL                string
-	ModelVerbosity               config.ModelVerbosity
-	ProviderIdentifier           string
-	Store                        bool
-	ContextWindowTokens          int
-	Auth                         string
-	ProviderCapabilitiesOverride *llm.ProviderCapabilities
-}
-
-func mainProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	return providerRuntimeSettings{
+func mainProviderRuntimeSettings(active config.Settings) RuntimeClientProviderSettings {
+	return RuntimeClientProviderSettings{
 		Model:                        active.Model,
 		ProviderOverride:             active.ProviderOverride,
 		OpenAIBaseURL:                active.OpenAIBaseURL,
@@ -380,14 +368,14 @@ func modelCapabilitySourceConfigured(sources map[string]string, key string) bool
 	}
 }
 
-func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
+func reviewerProviderRuntimeSettings(active config.Settings) RuntimeClientProviderSettings {
 	reviewer := active.Reviewer
 	reviewerProvider := config.ResolveReviewerProviderSettings(config.Settings{
 		ProviderOverride: active.ProviderOverride,
 		OpenAIBaseURL:    active.OpenAIBaseURL,
 		Reviewer:         reviewer,
 	})
-	return providerRuntimeSettings{
+	return RuntimeClientProviderSettings{
 		Model:                        reviewer.Model,
 		ProviderOverride:             reviewerProvider.ProviderOverride,
 		OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
