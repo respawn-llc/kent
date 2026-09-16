@@ -63,6 +63,7 @@ export type BoardRailMotionControllerProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   pendingCardMove: PendingBoardCardMove | null;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
@@ -88,6 +89,7 @@ export function BoardRailMotionController({
   onResumeTask,
   pendingInterruptTaskIDs,
   pendingResumeTaskIDs,
+  pendingStartMoveTaskIDs,
   pendingCardMove,
   scrollportRef,
 }: BoardRailMotionControllerProps) {
@@ -467,6 +469,7 @@ export function BoardRailMotionController({
                     onResumeTask={onResumeTask}
                     pendingInterruptTaskIDs={pendingInterruptTaskIDs}
                     pendingResumeTaskIDs={pendingResumeTaskIDs}
+                    pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
                     scrollportRef={scrollportRef}
                   />
                 ))}
@@ -495,6 +498,7 @@ export function BoardRailMotionController({
                 onResumeTask={onResumeTask}
                 pendingInterruptTaskIDs={pendingInterruptTaskIDs}
                 pendingResumeTaskIDs={pendingResumeTaskIDs}
+                pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
                 scrollportRef={scrollportRef}
               />
             ),

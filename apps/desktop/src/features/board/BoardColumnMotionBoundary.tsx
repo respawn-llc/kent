@@ -38,6 +38,7 @@ export type BoardColumnMotionBoundaryProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
 
@@ -85,6 +86,7 @@ export function BoardColumnMotionBoundary({
   onResumeTask,
   pendingInterruptTaskIDs,
   pendingResumeTaskIDs,
+  pendingStartMoveTaskIDs,
   scrollportRef,
 }: BoardColumnMotionBoundaryProps) {
   const { t } = useTranslation();
@@ -194,6 +196,7 @@ export function BoardColumnMotionBoundary({
         onResumeTask={stableOnResumeTask}
         pendingInterruptTaskIDs={pendingInterruptTaskIDs}
         pendingResumeTaskIDs={pendingResumeTaskIDs}
+        pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
         pinnedItemKeys={pinnedItemKeys}
         previousBoundary={presentation.previousBoundary}
         replacementBoundary={presentation.replacementBoundary}

@@ -40,13 +40,18 @@ type BoardDragGesture =
 export function useBoardDragLifecycle({
   disabled,
   rootRef,
-  actionPending,
+  pendingTaskIDs,
+  confirmationTaskID,
 }: Readonly<{
   disabled: boolean;
   rootRef: RefObject<HTMLDivElement | null>;
-  actionPending: boolean;
+  pendingTaskIDs: ReadonlySet<string>;
+  confirmationTaskID: string | null;
 }>) {
   const [gesture, setGesture] = useState<BoardDragGesture | null>(null);
+  const actionPending =
+    gesture?.kind === "dropped" &&
+    (pendingTaskIDs.has(gesture.move.card.id) || confirmationTaskID === gesture.move.card.id);
   const activeDrag = !disabled && gesture?.kind === "dragging" ? gesture.drag : null;
   const pendingCardMove = gesture?.kind === "dropped" && actionPending ? gesture.move : null;
   const autoScroll = useBoardDragAutoScroll({ active: activeDrag !== null, rootRef });

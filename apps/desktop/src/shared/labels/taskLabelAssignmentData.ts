@@ -1,4 +1,9 @@
-import { MutationObserver, QueryObserver, type QueryClient, type QueryObserverResult } from "@tanstack/react-query";
+import {
+  MutationObserver,
+  QueryObserver,
+  type QueryClient,
+  type QueryObserverResult,
+} from "@tanstack/react-query";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
@@ -235,7 +240,9 @@ export function useTaskLabelAssignmentModel(model: TaskLabelAssignmentModel): Ta
   const setSelected = useAtomSet(model.setSelected, { mode: "value" });
   return {
     ...useAtomValue(model.state),
-    setSelected: (labelID, desiredSelected) => { setSelected({ labelID, desiredSelected }); },
+    setSelected: (labelID, desiredSelected) => {
+      setSelected({ labelID, desiredSelected });
+    },
     retry: useAtomSet(model.retry, { mode: "value" }),
     retryLoad: useAtomSet(model.retryLoad, { mode: "value" }),
   };

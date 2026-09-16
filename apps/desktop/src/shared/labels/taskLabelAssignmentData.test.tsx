@@ -669,9 +669,12 @@ function useManagedTaskLabelAssignment(
     () =>
       createTaskLabelAssignmentModel({
         api: appServiceMocks,
-        catalog: queryAtom(new QueryObserver<ProjectLabelCatalog>(client, {
-          queryKey: queryKeys.projectLabels(project), enabled: false,
-        })),
+        catalog: queryAtom(
+          new QueryObserver<ProjectLabelCatalog>(client, {
+            queryKey: queryKeys.projectLabels(project),
+            enabled: false,
+          }),
+        ),
         client,
         projectID: project,
         taskID: task,

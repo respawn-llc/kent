@@ -8,7 +8,7 @@ import type {
   TaskSetupRecovery,
 } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, TextInput } from "@/ui";
+import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, Spinner, TextInput } from "@/ui";
 import {
   executionTargetSelectionFromDraft,
   proceedWithTaskInitiatingAction,
@@ -75,13 +75,13 @@ export function TaskSetupRecoveryDialog({
             </Button>
             <Button
               data-testid="setup-recovery-retry"
-              disabled={running}
+              aria-busy={running}
               onClick={() => {
                 onSubmit(retrySelection);
               }}
               variant="primary"
             >
-              {t("app.retry")}
+              {running ? <Spinner /> : t("app.retry")}
             </Button>
           </div>
         ) : (
@@ -101,13 +101,14 @@ export function TaskSetupRecoveryDialog({
               <Button onClick={close}>{t("app.cancel")}</Button>
               <Button
                 data-testid="setup-recovery-target-submit"
-                disabled={selection === null || running}
+                disabled={selection === null}
+                aria-busy={running}
                 onClick={() => {
                   if (selection !== null) onSubmit(selection);
                 }}
                 variant="primary"
               >
-                {t("executionTargetContinuation.continue")}
+                {running ? <Spinner /> : t("executionTargetContinuation.continue")}
               </Button>
             </div>
           </>
@@ -140,6 +141,7 @@ export function TaskInitiatingActionDialogs({
         onClose(): void;
         onSubmit(selection?: WorkflowExecutionTargetSelection): void;
         recovery: TaskSetupRecovery;
+        running: boolean;
       }>
     | undefined;
 }>) {
@@ -150,7 +152,6 @@ export function TaskInitiatingActionDialogs({
         {...setupRecovery}
         open
         retrySelection={setupRecovery.recovery.executionTarget}
-        running={continuation.running}
       />
     );
   }
@@ -314,8 +315,14 @@ function ExecutionTargetForm({
       <ExecutionTargetChoices continuation={continuation} pending={pending} />
       <div className="flex justify-end gap-[var(--space-2)]">
         <Button onClick={continuation.close}>{t("app.cancel")}</Button>
-        <Button data-testid="execution-target-submit" disabled={!canSubmit} type="submit" variant="primary">
-          {t("executionTargetContinuation.continue")}
+        <Button
+          data-testid="execution-target-submit"
+          disabled={!canSubmit}
+          aria-busy={continuation.running}
+          type="submit"
+          variant="primary"
+        >
+          {continuation.running ? <Spinner /> : t("executionTargetContinuation.continue")}
         </Button>
       </div>
     </form>

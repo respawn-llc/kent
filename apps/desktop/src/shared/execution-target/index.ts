@@ -16,4 +16,3 @@ export {
   type TaskInitiatingActionController,
 } from "./useExecutionTargetContinuation";
 export { useTaskLifecycleAction } from "./useTaskLifecycleAction";
-export { useTaskResumeAction } from "./useTaskResumeAction";

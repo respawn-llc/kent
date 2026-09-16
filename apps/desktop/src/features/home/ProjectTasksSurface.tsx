@@ -29,7 +29,7 @@ import {
   type TaskInitiatingAction,
   type TaskInitiatingActionDialogResult,
   useTaskInitiatingActionController,
-  useTaskResumeAction,
+  resumeTaskInitiatingAction,
 } from "@/shared/execution-target";
 import {
   Button,
@@ -164,8 +164,10 @@ export function ProjectTasksSurface({
     execute: executeInitiatingAction,
     onApplied: refreshTaskSurfaces,
     onAppliedError: reportResumeError,
+    onError: (_action, error) => {
+      reportResumeError(error);
+    },
   });
-  const resumeAction = useTaskResumeAction(initiatingAction);
   const { layout: columnLayout, retainRenderedWidths } = useProjectTaskColumnLayout(data);
   const observation = useProjectTaskListEvents({ enabled: true, projectID });
   const workflowsInitialState = projectTaskWorkflowInitialState(
@@ -257,13 +259,13 @@ export function ProjectTasksSurface({
       setLabelEditorTaskID((current) => (current === taskID ? null : taskID));
     },
     onResumeTask: (taskID) => {
-      void resumeAction.execute(taskID).catch(reportResumeError);
+      initiatingAction.run(resumeTaskInitiatingAction(taskID));
     },
     onTaskActivate: openTaskDetail,
     onToggle: toggleGroup,
-    pendingResumeTaskIDs: resumeAction.pendingTaskIDs,
+    pendingResumeTaskIDs: initiatingAction.pendingResumeTaskIDs,
     projectID,
-    resumeDisabled: initiatingAction.pending !== null || initiatingAction.running,
+    resumeDisabled: false,
     taskDetailID,
     t,
   });
@@ -310,11 +312,7 @@ export function ProjectTasksSurface({
     if (result.action.kind !== "resume") {
       throw new Error(`Project Task list cannot continue a ${result.action.kind} action.`);
     }
-    const resumed =
-      result.selection === undefined
-        ? resumeAction.execute(result.action.taskID)
-        : resumeAction.continueExecution(result.action, result.selection);
-    void resumed.catch(reportResumeError);
+    initiatingAction.run(result.action, result.selection);
   }
 
   return (

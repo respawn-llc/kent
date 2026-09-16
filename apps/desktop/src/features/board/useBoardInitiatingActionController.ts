@@ -13,6 +13,7 @@ type BoardInitiatingActionControllerOptions = Readonly<{
   onApplied(): void | Promise<void>;
   startErrorTitle: string;
   moveErrorTitle: string;
+  resumeErrorTitle: string;
   refreshErrorTitle: string;
 }>;
 
@@ -22,6 +23,7 @@ export function useBoardInitiatingActionController({
   onApplied,
   startErrorTitle,
   moveErrorTitle,
+  resumeErrorTitle,
   refreshErrorTitle,
 }: BoardInitiatingActionControllerOptions) {
   const execute = useCallback(
@@ -39,24 +41,30 @@ export function useBoardInitiatingActionController({
     execute,
     onApplied,
     onAppliedError,
+    onError: (action, error) => {
+      onActionError(
+        action.kind === "start"
+          ? "board-start-error"
+          : action.kind === "resume"
+            ? "board-resume-error"
+            : "board-move-error",
+        action.kind === "start"
+          ? startErrorTitle
+          : action.kind === "resume"
+            ? resumeErrorTitle
+            : moveErrorTitle,
+        error,
+      );
+    },
   });
-  const { pending, run, running } = initiatingAction;
+  const { run } = initiatingAction;
   const runCardAction = useCallback(
     (action: TaskInitiatingAction, selection?: WorkflowExecutionTargetSelection): void => {
-      void run(action, selection).catch((error: unknown) => {
-        onActionError(
-          action.kind === "start" ? "board-start-error" : "board-move-error",
-          action.kind === "start" ? startErrorTitle : moveErrorTitle,
-          error,
-        );
-      });
+      run(action, selection);
     },
     [moveErrorTitle, onActionError, run, startErrorTitle],
   );
-  const actionPending = running || pending !== null;
   return {
-    actionPending,
-    actionsDisabled: actionPending,
     initiatingAction,
     runCardAction,
   };

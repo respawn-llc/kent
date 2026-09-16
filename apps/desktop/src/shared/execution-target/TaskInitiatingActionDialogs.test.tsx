@@ -300,6 +300,7 @@ function Harness({
   setupRecovery?: TaskSetupRecovery;
 }>) {
   const controller = useTaskInitiatingActionController({
+    onError: vi.fn(),
     execute: async (action, selection) => {
       const result = await execute(action, selection);
       if (action.kind !== "start") {
@@ -315,7 +316,7 @@ function Harness({
       <button
         data-testid="initiate-action"
         onClick={() => {
-          void controller.run(startTaskInitiatingAction("task-1"));
+          controller.run(startTaskInitiatingAction("task-1"));
         }}
         type="button"
       />
@@ -325,7 +326,7 @@ function Harness({
         setupRecovery={
           setupRecovery === undefined
             ? undefined
-            : { onClose: vi.fn(), onSubmit: vi.fn(), recovery: setupRecovery }
+            : { onClose: vi.fn(), onSubmit: vi.fn(), recovery: setupRecovery, running: false }
         }
       />
     </>
@@ -341,6 +342,7 @@ function MoveHarness({
   ): Promise<TaskInitiatingActionResult>;
 }>) {
   const controller = useTaskInitiatingActionController({
+    onError: vi.fn(),
     execute,
     onApplied: vi.fn(),
     onAppliedError: vi.fn(),
@@ -355,11 +357,17 @@ function MoveHarness({
   });
   return (
     <>
-      <button data-testid="initiate-move" onClick={() => void controller.run(action)} type="button" />
+      <button
+        data-testid="initiate-move"
+        onClick={() => {
+          controller.run(action);
+        }}
+        type="button"
+      />
       <TaskInitiatingActionDialogs
         continuation={controller}
         onResult={(result) => {
-          if (result.kind === "continue") void controller.run(result.action, result.selection);
+          if (result.kind === "continue") controller.run(result.action, result.selection);
         }}
       />
     </>
