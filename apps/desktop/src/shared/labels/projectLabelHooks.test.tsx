@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectLabel, ProjectLabelCatalog } from "@/api";
 import { queryKeys } from "@/app-facade";
-import { ProjectLabelDataContext } from "./projectLabelContext";
+import { LabelActionScopeContext, ProjectLabelDataContext } from "./projectLabelContext";
 import type { ProjectLabelEffects } from "./labelEventEffects";
 import { createTestServices } from "@/test-support/app-services";
 import { createProjectLabelsModel } from "./ProjectLabelsModel";
@@ -236,7 +236,10 @@ function renderMutations(initialCatalog: ProjectLabelCatalog) {
           QueryClientProvider,
           { client: queryClient },
           createElement(RegistryProvider, {
-            children: createElement(ProjectLabelDataContext.Provider, { value, children }),
+            children: createElement(ProjectLabelDataContext.Provider, {
+              value,
+              children: createElement(LabelActionScopeContext.Provider, { value: "chooser", children }),
+            }),
           }),
         );
       },

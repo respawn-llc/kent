@@ -16,6 +16,7 @@ import {
   ItemContent,
   ItemTitle,
   LoadingState,
+  Spinner,
   VirtualizedInfiniteList,
 } from "@/ui";
 import { WorkflowCreateForm } from "./WorkflowCreateForm";
@@ -200,7 +201,7 @@ function WorkflowLinkRow({
   workflow: WorkflowRecord;
 }>) {
   const { t } = useTranslation();
-  const row = (
+  const row = (loading: boolean) => (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)] rounded-md border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-3)] py-[var(--space-3)]">
       <ItemContent>
         <ItemTitle>{workflow.name}</ItemTitle>
@@ -214,9 +215,12 @@ function WorkflowLinkRow({
                 : t("workflowLibrary.reusableDefinition")}
         </span>
       </ItemContent>
-      <Button disabled={linking} onClick={onLink} variant={linked === undefined ? "primary" : "secondary"}>
-        {linked === undefined ? t("workflowLibrary.link") : t("workflowLibrary.select")}
-      </Button>
+      <div className="flex items-center gap-[var(--space-2)]">
+        {loading ? <Spinner size="sm" /> : null}
+        <Button disabled={linking} onClick={onLink} variant={linked === undefined ? "primary" : "secondary"}>
+          {linked === undefined ? t("workflowLibrary.link") : t("workflowLibrary.select")}
+        </Button>
+      </div>
     </div>
   );
   return (

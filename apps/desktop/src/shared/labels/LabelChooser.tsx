@@ -36,6 +36,7 @@ import {
 } from "./labelChooserActions";
 import { useProjectLabelCatalog, useProjectLabelCatalogMutations } from "./projectLabelHooks";
 import { LabelCatalogRow } from "./LabelCatalogRow";
+import { LabelActionScopeContext } from "./projectLabelContext";
 
 export type LabelChooserInvocation =
   | Readonly<{
@@ -241,115 +242,117 @@ export function LabelChooser({
   };
   const reorderEnabled = invocation.kind === "filter" && preparedSearch.length === 0 && labels.length >= 2;
   return (
-    <Popover
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && (rename !== null || deletion !== null) && !outsideInteractionRef.current) {
-          setRename(null);
-          setDeletion(null);
-          return;
-        }
-        outsideInteractionRef.current = false;
-        if (controlledOpen === undefined) {
-          setUncontrolledOpen(nextOpen);
-        }
-        onOpenChange?.(nextOpen);
-        if (!nextOpen) {
-          setSearch("");
-          setKeyboardHighlightedIndex(null);
-          setRename(null);
-          setDeletion(null);
-          mutations.create.reset();
-        }
-      }}
-      open={open}
-    >
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="max-h-[var(--radix-popover-content-available-height)] w-[min(25.3rem,calc(100vw-24px))] gap-[var(--space-2)] overflow-y-auto overscroll-contain p-[var(--space-2)]"
-        collisionPadding={12}
-        level={3}
-        onEscapeKeyDown={(event) => {
-          if (rename === null && deletion === null) {
+    <LabelActionScopeContext.Provider value={searchErrorID}>
+      <Popover
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && (rename !== null || deletion !== null) && !outsideInteractionRef.current) {
+            setRename(null);
+            setDeletion(null);
             return;
           }
-          event.preventDefault();
-          setRename(null);
-          setDeletion(null);
-        }}
-        onPointerDownOutside={() => {
-          outsideInteractionRef.current = true;
-        }}
-        side={labelChooserPopoverSide(preferredSide)}
-      >
-        {renderLabelChooserSearch({
-          canCreate,
-          catalogAtLimit,
-          choiceCount,
-          createError,
-          catalogMutationPending: mutations.create.isPending,
-          invocation,
-          onCreate() {
-            createLabel();
-          },
-          onKeyDown(event) {
-            handleLabelChooserSearchKeyDown({
-              canCreate,
-              catalogMutationPending: mutations.create.isPending,
-              catalogAtLimit,
-              createLabel,
-              event,
-              highlightedIndex: keyboardHighlightedIndex,
-              invocation,
-              policy: textFieldSubmitShortcutPolicyForPlatform(nativeBridge.capabilities.platform),
-              choices,
-              setHighlightedIndex: setKeyboardHighlightedIndex,
-            });
-          },
-          onSearchChange(value) {
-            setSearch(value);
+          outsideInteractionRef.current = false;
+          if (controlledOpen === undefined) {
+            setUncontrolledOpen(nextOpen);
+          }
+          onOpenChange?.(nextOpen);
+          if (!nextOpen) {
+            setSearch("");
             setKeyboardHighlightedIndex(null);
+            setRename(null);
+            setDeletion(null);
             mutations.create.reset();
-          },
-          preparedSearch,
-          search,
-          searchErrorID,
-          t,
-        })}
-        {renderLabelChooserResults({
-          catalog,
-          choices,
-          deletion,
-          invocation,
-          keyboardHighlightedIndex,
-          rename,
-          setDeletion,
-          setKeyboardHighlightedIndex,
-          setRename,
-          t,
-          unlabeledName,
-          showUnlabeledChoice,
-          labels,
-          onReorder(nextLabels) {
-            mutations.reorder.submit({
-              labelIDs: nextLabels.map((label) => label.id),
-              onError(error) {
-                push({
-                  body: labelMutationErrorMessage(error, t),
-                  durationMs: Infinity,
-                  id: "project-label-reorder-error",
-                  title: t("labels.mutationFailed"),
-                  tone: "danger",
-                });
-              },
-            });
-          },
-          reorderEnabled,
-          catalogMutationPending: mutations.reorder.isPending,
-        })}
-        {footer}
-      </PopoverContent>
-    </Popover>
+          }
+        }}
+        open={open}
+      >
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="max-h-[var(--radix-popover-content-available-height)] w-[min(25.3rem,calc(100vw-24px))] gap-[var(--space-2)] overflow-y-auto overscroll-contain p-[var(--space-2)]"
+          collisionPadding={12}
+          level={3}
+          onEscapeKeyDown={(event) => {
+            if (rename === null && deletion === null) {
+              return;
+            }
+            event.preventDefault();
+            setRename(null);
+            setDeletion(null);
+          }}
+          onPointerDownOutside={() => {
+            outsideInteractionRef.current = true;
+          }}
+          side={labelChooserPopoverSide(preferredSide)}
+        >
+          {renderLabelChooserSearch({
+            canCreate,
+            catalogAtLimit,
+            choiceCount,
+            createError,
+            catalogMutationPending: mutations.create.isPending,
+            invocation,
+            onCreate() {
+              createLabel();
+            },
+            onKeyDown(event) {
+              handleLabelChooserSearchKeyDown({
+                canCreate,
+                catalogMutationPending: mutations.create.isPending,
+                catalogAtLimit,
+                createLabel,
+                event,
+                highlightedIndex: keyboardHighlightedIndex,
+                invocation,
+                policy: textFieldSubmitShortcutPolicyForPlatform(nativeBridge.capabilities.platform),
+                choices,
+                setHighlightedIndex: setKeyboardHighlightedIndex,
+              });
+            },
+            onSearchChange(value) {
+              setSearch(value);
+              setKeyboardHighlightedIndex(null);
+              mutations.create.reset();
+            },
+            preparedSearch,
+            search,
+            searchErrorID,
+            t,
+          })}
+          {renderLabelChooserResults({
+            catalog,
+            choices,
+            deletion,
+            invocation,
+            keyboardHighlightedIndex,
+            rename,
+            setDeletion,
+            setKeyboardHighlightedIndex,
+            setRename,
+            t,
+            unlabeledName,
+            showUnlabeledChoice,
+            labels,
+            onReorder(nextLabels) {
+              mutations.reorder.submit({
+                labelIDs: nextLabels.map((label) => label.id),
+                onError(error) {
+                  push({
+                    body: labelMutationErrorMessage(error, t),
+                    durationMs: Infinity,
+                    id: "project-label-reorder-error",
+                    title: t("labels.mutationFailed"),
+                    tone: "danger",
+                  });
+                },
+              });
+            },
+            reorderEnabled,
+            catalogMutationPending: mutations.reorder.isPending,
+          })}
+          {footer}
+        </PopoverContent>
+      </Popover>
+    </LabelActionScopeContext.Provider>
   );
 }
 

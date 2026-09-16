@@ -1,10 +1,19 @@
-import { MutationObserver, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  MutationObserver,
+  matchMutation,
+  useQueryClient,
+  type QueryClient,
+  type MutationKey,
+  type MutationOptions,
+} from "@tanstack/react-query";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
 
 import type { ProjectLabel, ProjectLabelCatalog } from "@/api";
 import { queryAction, queryKeys, useAppServices, useQueryAction, type AppServices } from "@/app-facade";
-import { useProjectLabelData } from "./projectLabelContext";
+import { LabelActionScopeContext, useProjectLabelData } from "./projectLabelContext";
 import type { ProjectLabelEffects } from "./labelEventEffects";
 import type { ProjectLabelFilterController } from "./projectLabelFilter";
 import { pruneDeletedLabelFromExistingCaches } from "./taskLabelCache";
@@ -50,14 +59,16 @@ export function useProjectLabelCatalogMutations() {
 }
 
 export function useProjectLabelActions(labelID: string) {
+  const scope = useContext(LabelActionScopeContext);
+  if (scope === null) throw new Error("Label actions require their chooser scope.");
   const { api } = useAppServices();
   const { effects, projectID } = useProjectLabelData();
   const queryClient = useQueryClient();
   const model = useMemo(
-    () => createLabelActions({ api, effects, projectID, queryClient }, labelID),
-    [api, effects, projectID, queryClient, labelID],
+    () => createLabelActions({ api, effects, projectID, queryClient }, { labelID, scope }),
+    [api, effects, projectID, queryClient, labelID, scope],
   );
-  return { rename: useQueryAction(model.rename), delete: useQueryAction(model.delete) };
+  return { rename: useLabelAction(model.rename), delete: useLabelAction(model.delete) };
 }
 
 function createCatalogActions({ api, effects, projectID, queryClient }: CatalogActionContext) {
@@ -130,23 +141,26 @@ function createCatalogActions({ api, effects, projectID, queryClient }: CatalogA
   } as const;
 }
 
-function createLabelActions({ api, effects, projectID, queryClient }: CatalogActionContext, labelID: string) {
+function createLabelActions(
+  { api, effects, projectID, queryClient }: CatalogActionContext,
+  { labelID, scope }: Readonly<{ labelID: string; scope: string }>,
+) {
   const queryKey = queryKeys.projectLabels(projectID);
   return {
-    rename: queryAction(
-      new MutationObserver(queryClient, {
-        mutationFn: async (input: Completion<ProjectLabel> & Readonly<{ name: string }>) =>
-          api.renameProjectLabel(projectID, labelID, input.name),
-        async onSuccess(label, input) {
-          await cancelCatalog(queryClient, queryKey);
-          patchRenamedLabel(queryClient, queryKey, label);
-          effects.scheduleCatalogRefresh();
-          input.onSuccess?.(label);
-        },
-      }),
-    ),
-    delete: queryAction(
-      new MutationObserver<string, unknown, Completion<string>>(queryClient, {
+    rename: labelAction(queryClient, ["label-action", projectID, scope, labelID, "rename"], {
+      mutationFn: async (input: Completion<ProjectLabel> & Readonly<{ name: string }>) =>
+        api.renameProjectLabel(projectID, labelID, input.name),
+      async onSuccess(label, input) {
+        await cancelCatalog(queryClient, queryKey);
+        patchRenamedLabel(queryClient, queryKey, label);
+        effects.scheduleCatalogRefresh();
+        input.onSuccess?.(label);
+      },
+    }),
+    delete: labelAction<string, Completion<string>>(
+      queryClient,
+      ["label-action", projectID, scope, labelID, "delete"],
+      {
         mutationFn: async () => api.deleteProjectLabel(projectID, labelID),
         async onSuccess(deleted, input) {
           await cancelCatalog(queryClient, queryKey);
@@ -154,9 +168,55 @@ function createLabelActions({ api, effects, projectID, queryClient }: CatalogAct
           effects.scheduleDeleteRefresh();
           input.onSuccess?.(deleted);
         },
-      }),
+      },
     ),
   } as const;
+}
+
+function labelAction<A, V>(
+  client: QueryClient,
+  mutationKey: MutationKey,
+  options: MutationOptions<A, unknown, V>,
+) {
+  const cache = client.getMutationCache();
+  const filters = { mutationKey, exact: true };
+  const current = () => cache.findAll(filters).at(-1)?.state ?? null;
+  const request = Atom.make((get) => {
+    get.addFinalizer(
+      cache.subscribe((event) => {
+        if (event.mutation !== undefined && matchMutation(filters, event.mutation)) get.setSelf(current());
+      }),
+    );
+    return current();
+  });
+  const submit = Atom.fn<V>()(
+    (input) =>
+      Effect.gen(function* () {
+        if (client.isMutating(filters) > 0) return;
+        yield* Effect.tryPromise(async () =>
+          cache.build(client, { ...options, mutationKey }).execute(input),
+        ).pipe(Effect.ignore);
+      }),
+    { concurrent: true },
+  );
+  const reset = Atom.fn(() =>
+    Effect.sync(() => {
+      if (client.isMutating(filters) > 0) return;
+      for (const mutation of cache.findAll(filters)) cache.remove(mutation);
+    }),
+  );
+  return { request, submit, reset } as const;
+}
+
+function useLabelAction<A, V>(model: ReturnType<typeof labelAction<A, V>>) {
+  const request = useAtomValue(model.request);
+  return {
+    isPending: request?.status === "pending",
+    isError: request?.status === "error",
+    error: request === null ? null : request.error,
+    submit: useAtomSet(model.submit, { mode: "value" }),
+    reset: useAtomSet(model.reset, { mode: "value" }),
+  };
 }
 
 export function useProjectLabelFilter(): ProjectLabelFilterController {

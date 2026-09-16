@@ -83,8 +83,10 @@ export function useWorkflowDeleteLauncher(workflowID: string, onDeleted?: () => 
     opening: preview.isPending,
     submitting: deletion.isPending,
     openWorkflowDelete: () => {
-      setShown(model);
       open({
+        onOpening: () => {
+          setShown(model);
+        },
         onError(error, retry) {
           push({
             id: noticeID,
@@ -115,7 +117,12 @@ export function useWorkflowDeleteLauncher(workflowID: string, onDeleted?: () => 
                 impact={preview.data}
                 onCancel={cancel}
                 onConfirm={() => {
-                  confirm({ onCompleted: complete });
+                  confirm({
+                    onCommitted: () => {
+                      setShown((current) => (current === model ? null : current));
+                    },
+                    onCompleted: complete,
+                  });
                 }}
               />
             </Dialog>,

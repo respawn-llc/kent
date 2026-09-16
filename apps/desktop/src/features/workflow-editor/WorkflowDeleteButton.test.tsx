@@ -82,8 +82,13 @@ describe("WorkflowDeleteButton completion", () => {
     await user.click(await screen.findByRole("button", { name: "workflowEditor.workflowDeleteConfirm" }));
     await waitFor(() => {
       expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(onDeleted).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fixture.previewWorkflowDelete).toHaveBeenCalledOnce();
+    expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
 
     finishInvalidation();
     await waitFor(() => {

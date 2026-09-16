@@ -59,7 +59,9 @@ export function LabelCatalogRow({
           actions.rename.submit({
             name: rename.draft,
             onSuccess: () => {
-              setRename((latest) => (latest?.labelID === label.id ? null : latest));
+              setRename((latest) =>
+                latest?.labelID === label.id && latest.draft === rename.draft ? null : latest,
+              );
             },
           });
         }}

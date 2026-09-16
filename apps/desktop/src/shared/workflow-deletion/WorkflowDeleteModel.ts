@@ -5,8 +5,9 @@ import type { ApiService, WorkflowDeleteImpact } from "@/api";
 import { queryAtom, queryKeys } from "@/app-facade";
 import { workflowDeleteInputFromImpact } from "./workflowDeleteShared";
 
-type PreviewInput = Readonly<{ onError(error: unknown, retry: () => void): void }>;
-type DeleteInput = Readonly<{ impact: WorkflowDeleteImpact; onCompleted(): Promise<void> }>;
+type PreviewInput = Readonly<{ onOpening(): void; onError(error: unknown, retry: () => void): void }>;
+type DeleteCompletion = Readonly<{ onCommitted(): void; onCompleted(): Promise<void> }>;
+type DeleteInput = DeleteCompletion & Readonly<{ impact: WorkflowDeleteImpact }>;
 
 export function createWorkflowDeleteModel({
   api,
@@ -27,6 +28,7 @@ export function createWorkflowDeleteModel({
     async onSuccess(response, input) {
       if (!response.deleted) return;
       try {
+        input.onCommitted();
         await invalidateWorkflowDeleteQueries(client, workflowID);
         await input.onCompleted();
       } catch (error) {
@@ -41,6 +43,7 @@ export function createWorkflowDeleteModel({
         const read = preview.getCurrentResult();
         if (read.isPending || read.data !== undefined || current.isPending || current.data?.deleted === true)
           return;
+        input.onOpening();
         yield* Effect.tryPromise(async () => preview.mutate()).pipe(
           Effect.match({
             onSuccess: () => undefined,
@@ -54,15 +57,13 @@ export function createWorkflowDeleteModel({
       }),
     { concurrent: true },
   );
-  const confirm = Atom.fn<Readonly<{ onCompleted(): Promise<void> }>>()(
+  const confirm = Atom.fn<DeleteCompletion>()(
     (input) =>
       Effect.gen(function* () {
         const impact = preview.getCurrentResult().data;
         const current = deletion.getCurrentResult();
         if (impact === undefined || current.isPending || current.data?.deleted === true) return;
-        yield* Effect.tryPromise(async () =>
-          deletion.mutate({ impact, onCompleted: input.onCompleted }),
-        ).pipe(Effect.ignore);
+        yield* Effect.tryPromise(async () => deletion.mutate({ impact, ...input })).pipe(Effect.ignore);
       }),
     { concurrent: true },
   );

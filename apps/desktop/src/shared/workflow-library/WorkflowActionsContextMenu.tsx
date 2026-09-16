@@ -16,7 +16,7 @@ export function WorkflowActionsContextMenu({
   onEdit,
   workflowID,
 }: Readonly<{
-  children: ReactElement;
+  children(loading: boolean): ReactElement;
   onEdit: () => void;
   workflowID: string;
 }>) {
@@ -27,7 +27,9 @@ export function WorkflowActionsContextMenu({
     <>
       {deleteLauncher.dialog}
       <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuTrigger asChild>
+          {children(deleteLauncher.opening || deleteLauncher.submitting)}
+        </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={onEdit}>{t("workflowLibrary.edit")}</ContextMenuItem>
           <ContextMenuSeparator />

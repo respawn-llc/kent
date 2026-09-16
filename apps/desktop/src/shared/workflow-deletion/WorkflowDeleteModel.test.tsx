@@ -28,8 +28,8 @@ it("admits only one preview and one deletion for duplicate submissions", async (
     { wrapper: ({ children }) => <RegistryProvider>{children}</RegistryProvider> },
   );
   await act(async () => {
-    view.result.current.open({ onError: vi.fn() });
-    view.result.current.open({ onError: vi.fn() });
+    view.result.current.open({ onOpening: vi.fn(), onError: vi.fn() });
+    view.result.current.open({ onOpening: vi.fn(), onError: vi.fn() });
   });
   expect(preview).toHaveBeenCalledOnce();
   const previewImpact: WorkflowDeleteImpact = {
@@ -47,8 +47,8 @@ it("admits only one preview and one deletion for duplicate submissions", async (
     impact.resolve(previewImpact);
   });
   await act(async () => {
-    view.result.current.confirm({ onCompleted });
-    view.result.current.confirm({ onCompleted });
+    view.result.current.confirm({ onCommitted: vi.fn(), onCompleted });
+    view.result.current.confirm({ onCommitted: vi.fn(), onCompleted });
   });
   expect(deletion).toHaveBeenCalledOnce();
   await act(async () => {
