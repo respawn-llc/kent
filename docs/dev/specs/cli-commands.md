@@ -323,7 +323,8 @@
 - Without explicit Project or Workspace selection, current Session context or `--session` must add that Session's current-Worktree view.
 - Without Session context, Worktree lists must be markerless.
 - Worktree management must never infer a Session from Workspace history.
-- Agent Worktree deletion always retains branches.
+- CLI Worktree deletion must retain branches by default for both humans and agents. `--delete-branch` must attempt safe branch deletion without confirmation. `--delete-branch --force-delete-branch` must authorize deletion even when the branch is unmerged. A failed branch deletion must report the retained branch and its diagnostic.
+- When active Sessions block Worktree deletion, CLI must tell the caller to ask those Sessions to leave the Worktree or finish their work, then retry. CLI must present the bounded Session details defined in [Worktree Management](tui-transcript.md#worktree-management) as `<name> (<id>)`, using “Sessions” rather than “runs”.
 - CLI Worktree creation must stop after setup without entering the created Worktree.
 - When Session context exists, successful CLI Worktree creation must print a separate enter action.
 - For cross-Workspace creation, the enter action must use the created Worktree's absolute path.

@@ -679,7 +679,7 @@
 - After creation, an initiating request may repeat the exact branch recorded in managed Worktree metadata as an idempotent assertion, except when reopening a completed Task with a usable original Execution Target. That reopening must reject every explicit branch name, including the recorded branch. Outside the completed-Task replacement flow, a different branch is rejected as an attempted rename. The idempotent assertion also applies when an overlapping request supplied a post-snapshot replacement before the Worktree bound and encounters that Worktree afterward.
 - A custom branch name does not change automatic managed Worktree root naming, which remains based on the Task Short ID.
 - Task Worktree creation uses ordinary managed-root collision behavior; its initial branch follows the Task-specific collision rules above.
-- Worktree deletion/retargeting treats non-terminal tasks referencing a managed worktree as blockers.
+- Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must preserve the ongoing Task's managed binding and evidence for recovery.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It does not wait for or stop that work.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant. Durable target/reminder state changes before physical deletion.
 - If human input becomes accepted first, that delete attempt fails. If deletion retires and retargets first, later input activates or attaches to a Runtime on the new target.

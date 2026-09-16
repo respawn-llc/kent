@@ -48,11 +48,13 @@ Select a worktree by its exact ID, branch, display name, or path. IDs take prece
 
 ## Delete
 
-The Main Workspace and Git main worktree cannot be deleted. Deletion blocks while another session has active work in the worktree or a background process uses it. Idle sessions using the worktree move to the main workspace before removal.
+The Main Workspace and Git main worktree cannot be deleted. Deletion blocks while a Session has active work in the worktree or a background process uses it. Active-Session failures list up to 50 Session names and IDs and indicate when more exist. Ask those Sessions to leave or finish, then retry. Idle Sessions using the worktree move to the main workspace before removal.
 
-Dirty worktrees, or worktrees whose state cannot be determined, require `--force`. This flag applies only to the worktree folder. Agent-shell deletion always retains branches; other CLI callers can pass `--delete-branch` to delete a branch only when Git considers it safe. `--force-delete-branch` requires `--delete-branch` and deletes the branch without Git's merged-branch check.
+Dirty worktrees, or worktrees whose state cannot be determined, require `--force`. This flag applies only to the worktree folder. Agent and human CLI callers retain branches by default. `--delete-branch` deletes a branch without confirmation only when Git considers it safe. Supplying both `--delete-branch` and `--force-delete-branch` authorizes deletion even when the branch is unmerged.
 
 If Git retains the branch, deletion succeeds and the CLI prints `Kept branch <name>: <diagnostic>`.
+
+Deleting an ongoing Task's Worktree preserves the Task, its Sessions, and its managed binding. See [missing-Worktree recovery](../workflows/#recover-a-missing-task-worktree) before continuing its executable work.
 
 ## Configuration
 
