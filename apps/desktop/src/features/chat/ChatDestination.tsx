@@ -98,7 +98,7 @@ function ChatDestinationShell({
   const state: ChatShellState =
     draft.kind === "failed"
       ? { kind: "error", diagnostic: errorMessage(draft.error), onRetry: destination.composer.retryDraft }
-      : mainView.kind === "session" && mainView.status === "error" && mainView.data === undefined
+      : mainView.kind === "session" && mainView.status === "error"
         ? {
             kind: "error",
             diagnostic: errorMessage(mainView.error),
