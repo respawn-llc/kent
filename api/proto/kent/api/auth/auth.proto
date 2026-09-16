@@ -27,8 +27,6 @@ message BootstrapStatus {
   bool auth_ready = 1;
   bool auth_required = 2;
   bool no_auth_selected = 3;
-  bool auth_bootstrap_supported = 4;
-  repeated string allowed_pre_auth_methods = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
   repeated BootstrapMode supported_modes = 6 [
     (buf.validate.field).repeated = {
       unique: true

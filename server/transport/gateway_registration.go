@@ -118,24 +118,6 @@ func (r gatewayRegistration) validateAuthorityPartition(legacyRoutes []apicontra
 	return nil
 }
 
-func (r gatewayRegistration) AllowedPreAuthMethods() []string {
-	methods := make([]string, 0)
-	for name, operation := range r.operations {
-		if operation.Options.AuthenticationStage != sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_PRE_SERVER {
-			continue
-		}
-		if _, migrated := r.binary[name]; migrated {
-			methods = append(methods, name)
-			continue
-		}
-		if route, legacy := r.legacy[name]; legacy {
-			methods = append(methods, route.Method)
-		}
-	}
-	sort.Strings(methods)
-	return methods
-}
-
 func (r gatewayRegistration) LegacyOperation(method string) (protoapi.Operation, apicontract.Route, bool) {
 	for name, route := range r.legacy {
 		if route.Method == method {
