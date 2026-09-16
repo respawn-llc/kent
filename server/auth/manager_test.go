@@ -9,24 +9,8 @@ import (
 
 var managerTestNow = time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 
-type managerCountingStore struct {
-	state State
-	loads int
-}
-
-func (s *managerCountingStore) Load(context.Context) (State, error) {
-	s.loads++
-	return s.state, nil
-}
-
-func (*managerCountingStore) Save(context.Context, State) error {
-	return nil
-}
-
-func TestResolveCurrentStatePreservesLoadedStateOnRefreshFailure(t *testing.T) {
-	store := &managerCountingStore{
-		state: managerTestOAuthState("stale-token", "refresh-token", managerTestNow.Add(-time.Minute)),
-	}
+func TestCurrentStatePreservesStoredStateOnRefreshFailure(t *testing.T) {
+	store := NewMemoryStore(managerTestOAuthState("stale-token", "refresh-token", managerTestNow.Add(-time.Minute)))
 	refreshErr := errors.New("refresh failed")
 	mgr := NewManager(store, NewOAuthRefresher(
 		func() time.Time { return managerTestNow },
@@ -36,20 +20,13 @@ func TestResolveCurrentStatePreservesLoadedStateOnRefreshFailure(t *testing.T) {
 		},
 	))
 
-	resolution, err := mgr.ResolveCurrentState(context.Background())
+	_, err := mgr.CurrentState(context.Background())
 	if !errors.Is(err, refreshErr) {
-		t.Fatalf("ResolveCurrentState error = %v, want %v", err, refreshErr)
+		t.Fatalf("CurrentState error = %v, want %v", err, refreshErr)
 	}
-	if store.loads != 1 {
-		t.Fatalf("auth state loads = %d, want 1", store.loads)
-	}
-	if resolution.Loaded == nil ||
-		resolution.Loaded.Method.OAuth == nil ||
-		resolution.Loaded.Method.OAuth.AccessToken != "stale-token" {
-		t.Fatalf("loaded state = %+v, want stale OAuth state", resolution.Loaded)
-	}
-	if resolution.Current != nil {
-		t.Fatalf("current state = %+v, want absent after refresh failure", resolution.Current)
+	state := requireAuthState(t, store.Load)
+	if state.Method.OAuth == nil || state.Method.OAuth.AccessToken != "stale-token" {
+		t.Fatalf("stored state = %+v, want stale OAuth state", state)
 	}
 }
 
@@ -57,9 +34,11 @@ func TestSwitchMethodRequiresIdle(t *testing.T) {
 	store := NewMemoryStore(testAPIKeyState("old-key"))
 	mgr := NewManager(store, nil)
 
-	_, err := mgr.SwitchMethod(
+	_, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(
 		context.Background(),
 		managerTestOAuthMethod("token-a", "refresh-a", managerTestNow.Add(time.Hour)),
+		EnvAPIKeyPreferencePreferSaved,
+		true,
 		false,
 	)
 	if !errors.Is(err, ErrSwitchRequiresIdle) {
@@ -72,6 +51,9 @@ func TestSwitchMethodRequiresIdle(t *testing.T) {
 	}
 	if state.Method.APIKey == nil || state.Method.APIKey.Key != "old-key" {
 		t.Fatalf("unexpected api key state after failed switch: %+v", state.Method.APIKey)
+	}
+	if state.EnvAPIKeyPreference != EnvAPIKeyPreferenceUnspecified {
+		t.Fatalf("preference changed after failed switch: %q", state.EnvAPIKeyPreference)
 	}
 }
 
@@ -127,23 +109,6 @@ func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
 	}
 }
 
-func TestSetEnvAPIKeyPreferencePersistsChoice(t *testing.T) {
-	store := NewMemoryStore(EmptyState())
-	mgr := NewManager(store, nil)
-
-	state, err := mgr.SetEnvAPIKeyPreference(context.Background(), EnvAPIKeyPreferencePreferEnv, true)
-	if err != nil {
-		t.Fatalf("set env api key preference: %v", err)
-	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv {
-		t.Fatalf("expected env preference saved, got %q", state.EnvAPIKeyPreference)
-	}
-	persisted := requireAuthState(t, store.Load)
-	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv {
-		t.Fatalf("expected persisted env preference saved, got %q", persisted.EnvAPIKeyPreference)
-	}
-}
-
 func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
 	store := NewMemoryStore(EmptyState())
 	mgr := NewManager(store, nil)
@@ -173,39 +138,41 @@ func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
 	}
 }
 
-func TestClearMethodResetsEnvAPIKeyPreference(t *testing.T) {
+func TestSwitchToNoAuthPersistsSavedPreference(t *testing.T) {
 	persistedState := testAPIKeyState("sk-test")
 	persistedState.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferEnv
 	store := NewMemoryStore(persistedState)
 	mgr := NewManager(store, nil)
 
-	state, err := mgr.ClearMethod(context.Background(), true)
+	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), Method{Type: MethodNone}, EnvAPIKeyPreferencePreferSaved, true, true)
 	if err != nil {
 		t.Fatalf("clear method: %v", err)
 	}
 	if state.Method.Type != MethodNone {
 		t.Fatalf("expected cleared method, got %q", state.Method.Type)
 	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferenceUnspecified {
-		t.Fatalf("expected env preference reset, got %q", state.EnvAPIKeyPreference)
+	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
+		t.Fatalf("expected saved-auth preference, got %q", state.EnvAPIKeyPreference)
 	}
 	persisted := requireAuthState(t, store.Load)
 	if persisted.Method.Type != MethodNone {
 		t.Fatalf("expected persisted cleared method, got %q", persisted.Method.Type)
 	}
-	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferenceUnspecified {
-		t.Fatalf("expected persisted env preference reset, got %q", persisted.EnvAPIKeyPreference)
+	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
+		t.Fatalf("expected persisted saved-auth preference, got %q", persisted.EnvAPIKeyPreference)
 	}
 }
 
-func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
+func TestSwitchToOAuthDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 	base := NewMemoryStore(managerTestOAuthState("oauth-token", "oauth-refresh", managerTestNow.Add(time.Hour)))
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
 		return "sk-env", true
 	})
 	mgr := NewManager(store, nil)
 
-	state, err := mgr.SetEnvAPIKeyPreference(context.Background(), EnvAPIKeyPreferencePreferSaved, true)
+	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(),
+		managerTestOAuthMethod("new-token", "new-refresh", managerTestNow.Add(time.Hour)),
+		EnvAPIKeyPreferencePreferSaved, true, true)
 	if err != nil {
 		t.Fatalf("set env api key preference: %v", err)
 	}
@@ -216,6 +183,9 @@ func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 	if persisted.Method.Type != MethodOAuth {
 		t.Fatalf("expected persisted oauth method, got %q", persisted.Method.Type)
 	}
+	if persisted.Method.OAuth == nil || persisted.Method.OAuth.AccessToken != "new-token" {
+		t.Fatalf("expected selected oauth credentials, got %+v", persisted.Method.OAuth)
+	}
 	if persisted.Method.APIKey != nil {
 		t.Fatalf("did not expect bootstrap env key to persist, got %+v", persisted.Method.APIKey)
 	}
@@ -225,16 +195,18 @@ func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 }
 
 func TestSwitchMethodDoesNotPersistBootstrapEnvMethod(t *testing.T) {
-	base := NewMemoryStore(managerTestOAuthState("oauth-token", "oauth-refresh", managerTestNow.Add(time.Hour)))
+	initial := managerTestOAuthState("oauth-token", "oauth-refresh", managerTestNow.Add(time.Hour))
+	initial.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferEnv
+	base := NewMemoryStore(initial)
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
 		return "sk-env", true
 	})
 	mgr := NewManager(store, nil)
 
-	state, err := mgr.SwitchMethod(context.Background(), Method{
+	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), Method{
 		Type:   MethodAPIKey,
 		APIKey: &APIKeyMethod{Key: "sk-saved"},
-	}, true)
+	}, EnvAPIKeyPreferenceUnspecified, false, true)
 	if err != nil {
 		t.Fatalf("switch method: %v", err)
 	}
@@ -253,6 +225,10 @@ func TestSwitchMethodDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 	}
 	if persisted.Method.APIKey.Key == "sk-env" {
 		t.Fatal("did not expect bootstrap env api key to persist")
+	}
+	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv ||
+		persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv {
+		t.Fatal("switching without setting a preference must preserve the stored choice")
 	}
 }
 

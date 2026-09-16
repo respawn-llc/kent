@@ -52,10 +52,10 @@ func TestEnsureReadyLoopsAfterInteractionUntilAuthConfigured(t *testing.T) {
 			if !req.HasEnvAPIKey {
 				t.Fatal("expected env api key to be visible in interaction request")
 			}
-			_, err := req.Manager.SwitchMethod(ctx, auth.Method{
+			_, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(ctx, auth.Method{
 				Type:   auth.MethodAPIKey,
 				APIKey: &auth.APIKeyMethod{Key: "sk-after"},
-			}, true)
+			}, auth.EnvAPIKeyPreferenceUnspecified, false, true)
 			return FlowInteractionOutcome{}, err
 		},
 	})

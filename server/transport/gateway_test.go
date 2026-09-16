@@ -603,11 +603,11 @@ func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSup
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 	if ready {
-		if _, err := authSupport.AuthManager.SwitchMethod(context.Background(), auth.Method{
+		if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}, true); err != nil {
-			t.Fatalf("SwitchMethod: %v", err)
+		}, auth.EnvAPIKeyPreferenceUnspecified, false, true); err != nil {
+			t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
 		}
 	}
 	return authSupport

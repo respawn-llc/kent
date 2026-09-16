@@ -13,11 +13,6 @@ type Manager struct {
 	refresher  *OAuthRefresher
 }
 
-type CurrentStateResolution struct {
-	Loaded  *State
-	Current *State
-}
-
 func NewManager(store Store, refresher *OAuthRefresher) *Manager {
 	return &Manager{
 		store:     store,
@@ -63,31 +58,13 @@ func (m *Manager) loadState(ctx context.Context, persistedOnly bool) (State, err
 }
 
 func (m *Manager) CurrentState(ctx context.Context) (State, error) {
-	resolution, err := m.ResolveCurrentState(ctx)
-	if err != nil {
-		return State{}, err
-	}
-	return *resolution.Current, nil
-}
-
-func (m *Manager) ResolveCurrentState(ctx context.Context) (CurrentStateResolution, error) {
 	m.mutationMu.Lock()
 	defer m.mutationMu.Unlock()
 	state, err := m.Load(ctx)
 	if err != nil {
-		return CurrentStateResolution{}, err
+		return State{}, err
 	}
-	resolution := CurrentStateResolution{Loaded: &state}
-	current, err := m.resolveState(ctx, state)
-	if err != nil {
-		return resolution, err
-	}
-	resolution.Current = &current
-	return resolution, nil
-}
-
-func (m *Manager) SwitchMethod(ctx context.Context, method Method, isIdle bool) (State, error) {
-	return m.SwitchMethodAndSetEnvAPIKeyPreference(ctx, method, EnvAPIKeyPreferenceUnspecified, false, isIdle)
+	return m.resolveState(ctx, state)
 }
 
 func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
@@ -113,30 +90,6 @@ func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
 		if setPreference {
 			state.EnvAPIKeyPreference = preference
 		}
-		return nil
-	})
-}
-
-func (m *Manager) ClearMethod(ctx context.Context, isIdle bool) (State, error) {
-	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
-		return State{}, err
-	}
-	return m.updateState(ctx, func(state *State) error {
-		state.Method = Method{Type: MethodNone}
-		state.EnvAPIKeyPreference = EnvAPIKeyPreferenceUnspecified
-		return nil
-	})
-}
-
-func (m *Manager) SetEnvAPIKeyPreference(ctx context.Context, preference EnvAPIKeyPreference, isIdle bool) (State, error) {
-	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
-		return State{}, err
-	}
-	if err := preference.Validate(); err != nil {
-		return State{}, err
-	}
-	return m.updateState(ctx, func(state *State) error {
-		state.EnvAPIKeyPreference = preference
 		return nil
 	})
 }
