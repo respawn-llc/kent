@@ -305,6 +305,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Live approval")
 	request := workflowViewApprovalRequest()
+	request.Question = ""
 	prompt := fixture.startCurrentNodePrompt(t, started, request)
 	prompts := currentNodeViewPrompts{bySession: map[string][]PendingPromptSnapshot{
 		prompt.sessionID.String(): {{
@@ -340,6 +341,10 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 		t.Fatalf("live approval attention = %+v, want one item", response.Items)
 	}
 	item := response.Items[0]
+	if err := response.Validate(); err != nil {
+		t.Fatalf("validate structured approval attention: %v", err)
+	}
+	requireAttentionMessageOmitted(t, item)
 	if item.Kind != "question" ||
 		item.SessionID != nil ||
 		item.Question == nil ||

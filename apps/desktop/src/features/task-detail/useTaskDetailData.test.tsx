@@ -282,7 +282,7 @@ describe("Task Detail live refresh", () => {
     expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(subscriptionStarts);
   });
 
-  it("retains prompts after observation failure until explicit Retry opens that observation", async () => {
+  it("shows page recovery after observation failure until explicit Retry opens that observation", async () => {
     let attention = taskAttention("ask-1", 1);
     const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
@@ -300,11 +300,12 @@ describe("Task Detail live refresh", () => {
       services.transport.fail("workflow.subscribeProject", new Error("offline"));
     });
     attention = taskAttention("ask-2", 2);
-    await waitForQuestionOptionCount(1);
+    await screen.findByTestId("error-state");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
     expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(starts);
-    const retry = await screen.findAllByRole("button", { name: appI18n.t("app.retry") });
+    const retry = await screen.findByRole("button", { name: appI18n.t("app.retry") });
     act(() => {
-      retry[0]?.click();
+      retry.click();
     });
     await waitForProjectSubscription(() => services.transport.subscriptions);
     act(() => {

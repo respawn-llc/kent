@@ -365,7 +365,7 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 					TaskID:           task.ID,
 					TaskShortID:      task.ShortID,
 					TaskTitle:        task.Title,
-					Message:          textutil.Value(question.message),
+					Message:          textutil.OptionalExactString(question.message),
 					CurrentNode:      &currentNode,
 					Question:         question.prompt,
 					OccurredAtUnixMs: occurredAt,

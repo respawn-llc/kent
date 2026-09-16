@@ -41,7 +41,10 @@ export function emptyQuestionSelection(): QuestionSelectionState {
 
 export function questionPresentation(attention: QuestionAttentionItem): QuestionPresentation {
   if (attention.question.kind === "approval") {
-    return approvalQuestionPresentation(attention.message, attention.question.approvalDecisions);
+    return approvalQuestionPresentation(attention.message ?? undefined, attention.question.approvalDecisions);
+  }
+  if (attention.message === null) {
+    throw new Error("Ordinary question requires a message");
   }
   return ordinaryQuestionPresentation(attention.message, attention.question);
 }

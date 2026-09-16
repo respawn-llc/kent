@@ -2803,7 +2803,7 @@ func (r WorkflowAttentionItem) Validate() error {
 	}
 	switch r.Kind {
 	case "question":
-		if err := validateRequiredAttentionString("message", r.Message); err != nil {
+		if err := validateOptionalAttentionString("message", r.Message); err != nil {
 			return err
 		}
 		if r.CurrentNode == nil {
@@ -2823,6 +2823,11 @@ func (r WorkflowAttentionItem) Validate() error {
 		}
 		if err := r.Question.Validate(); err != nil {
 			return err
+		}
+		if r.Question.Kind != WorkflowAttentionQuestionKindApproval || len(r.Question.AccessTargets) == 0 {
+			if err := validateRequiredAttentionString("message", r.Message); err != nil {
+				return err
+			}
 		}
 		return validateWorkflowAttentionFieldsAbsent(r.Kind,
 			workflowAttentionFieldPresence{name: "approval_id", present: r.ApprovalID != nil},

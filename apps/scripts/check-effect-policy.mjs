@@ -99,7 +99,7 @@ async function embeddedSources(path) {
       {
         path: `${path}.tsx`,
         code: astroRequire("@astrojs/compiler/sync").convertToTSX(text, {
-          filename: path,
+          filename: pathToFileURL(path).href,
         }).code,
       },
     ];

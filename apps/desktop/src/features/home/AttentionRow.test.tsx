@@ -48,6 +48,26 @@ it("splits a Session-bearing attention card between Chat header and Task Detail 
   expect(openSidebar).toHaveBeenCalledOnce();
 });
 
+it("renders structured access approval paths without a message", () => {
+  renderAttention({
+    ...questionAttention,
+    message: null,
+    question: {
+      ...questionAttention.question,
+      kind: "approval",
+      approvalDecisions: ["allow_once", "deny"],
+      accessTargets: [
+        { requestedPath: "../outside", resolvedPath: "/outside" },
+        { requestedPath: "/other", resolvedPath: "/other" },
+      ],
+    },
+  });
+  expect(screen.getByText(appI18n.t("task.accessApprovalIntro", { count: 2 }))).toBeInTheDocument();
+  expect(screen.getByText("- ../outside → /outside")).toBeInTheDocument();
+  expect(screen.getByText("- /other")).toBeInTheDocument();
+  expect(screen.getByText(appI18n.t("task.accessApprovalQuestion"))).toBeInTheDocument();
+});
+
 const base = {
   id: "attention-1",
   occurredAt: 1,

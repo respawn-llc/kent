@@ -61,6 +61,31 @@ const interruptedCurrentNodeAttentionItem = {
 };
 
 describe("attentionItemSchema", () => {
+  it("allows absent text only for structured access approvals", () => {
+    const structured = {
+      ...baseAttentionItem,
+      message: undefined,
+      question: {
+        tool_call_id: "ask-1",
+        session_id: "session-1",
+        step_id: baseAttentionItem.question.step_id,
+        kind: "approval",
+        approval_decisions: ["allow_once", "deny"],
+        access_targets: [{ requested_path: "../outside", resolved_path: "/outside" }],
+      },
+    };
+    expect(attentionItemSchema.parse(structured).message).toBeNull();
+    expect(attentionItemSchema.parse({ ...structured, message: null }).message).toBeNull();
+    expect(() => attentionItemSchema.parse({ ...structured, message: "" })).toThrow();
+    expect(() =>
+      attentionItemSchema.parse({
+        ...structured,
+        question: { ...structured.question, access_targets: [] },
+      }),
+    ).toThrow();
+    expect(() => attentionItemSchema.parse({ ...baseAttentionItem, message: null })).toThrow();
+    expect(() => attentionItemSchema.parse({ ...baseAttentionItem, message: undefined })).toThrow();
+  });
   it("requires nullable session names for every attention variant", () => {
     const nullableItems = [
       { ...baseAttentionItem, session_name: null },
