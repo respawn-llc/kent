@@ -1,12 +1,14 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver, useQueryClient } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { vi } from "vitest";
 
-import type { TaskLabelAssignment } from "@/api";
-import { queryKeys } from "@/app-facade";
+import type { ApiService, ProjectLabelCatalog, TaskLabelAssignment } from "@/api";
+import { queryAtom, queryKeys } from "@/app-facade";
+import { useStableCallback } from "@/ui";
 import { pruneDeletedLabelFromExistingCaches, removeDeletedTaskFromExistingCaches } from "./taskLabelCache";
-import { useManagedTaskLabelAssignment } from "./taskLabelAssignmentData";
+import { createTaskLabelAssignmentModel, useTaskLabelAssignmentModel } from "./taskLabelAssignmentData";
 
 const taskID = "task-1";
 const projectID = "project-1";
@@ -15,22 +17,9 @@ const betaID = "942495c2-5958-4959-8445-94046ad74fbd";
 const remoteID = "2d6d42a1-461d-4a31-b8ad-858e98ea4058";
 
 const appServiceMocks = vi.hoisted(() => ({
-  getTaskLabels: vi.fn(),
-  updateTaskLabels: vi.fn(),
+  getTaskLabels: vi.fn<ApiService["getTaskLabels"]>(),
+  updateTaskLabels: vi.fn<ApiService["updateTaskLabels"]>(),
 }));
-
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useAppServices: () => ({
-      api: {
-        getTaskLabels: appServiceMocks.getTaskLabels,
-        updateTaskLabels: appServiceMocks.updateTaskLabels,
-      },
-    }),
-  };
-});
 
 describe("useManagedTaskLabelAssignment", () => {
   beforeEach(() => {
@@ -59,6 +48,7 @@ describe("useManagedTaskLabelAssignment", () => {
     );
 
     await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
       expect(result.current.selectedLabelIDs).toEqual([]);
     });
     expect(appServiceMocks.getTaskLabels).toHaveBeenCalledWith(taskID);
@@ -68,7 +58,9 @@ describe("useManagedTaskLabelAssignment", () => {
     });
     expect(result.current.selectedLabelIDs).toEqual([alphaID]);
     expect(result.current.pendingLabelIDs).toEqual([alphaID]);
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledWith(taskID, [alphaID], []);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledWith(taskID, [alphaID], []);
+    });
 
     update.resolve(assignment([alphaID, betaID]));
     await waitFor(() => {
@@ -127,8 +119,12 @@ describe("useManagedTaskLabelAssignment", () => {
       result.current.setSelected(alphaID, true);
       result.current.setSelected(remoteID, true);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [betaID], []);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [betaID], []);
+    });
 
     await act(async () => {
       beta.resolve(assignment([betaID]));
@@ -142,7 +138,9 @@ describe("useManagedTaskLabelAssignment", () => {
       queryKey: queryKeys.projectTaskListsRoot(projectID),
       refetchType: "active",
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
 
     queryClient.setQueryData(queryKeys.taskLabels(taskID), assignment([betaID]));
     queryClient.setQueryData(queryKeys.projectLabels(projectID), {
@@ -158,7 +156,9 @@ describe("useManagedTaskLabelAssignment", () => {
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [alphaID], []);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [alphaID], []);
+    });
 
     await act(async () => {
       alpha.resolve(assignment([alphaID]));
@@ -167,7 +167,9 @@ describe("useManagedTaskLabelAssignment", () => {
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(3);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [remoteID], []);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [remoteID], []);
+    });
 
     await act(async () => {
       remote.resolve(assignment([betaID, alphaID, remoteID]));
@@ -224,7 +226,9 @@ describe("useManagedTaskLabelAssignment", () => {
       result.current.retry(alphaID);
     });
     expect(result.current.selectedLabelIDs).toEqual([alphaID]);
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    });
     second.resolve(assignment([alphaID]));
     await waitFor(() => {
       expect(result.current.failures).toEqual([]);
@@ -259,7 +263,9 @@ describe("useManagedTaskLabelAssignment", () => {
       result.current.setSelected(alphaID, true);
       result.current.setSelected(betaID, true);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
     expect(result.current.selectedLabelIDs).toEqual([alphaID, betaID]);
 
     alpha.resolve(assignment([alphaID, remoteID]));
@@ -267,13 +273,17 @@ describe("useManagedTaskLabelAssignment", () => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
     });
     expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([alphaID]));
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [betaID], []);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [betaID], []);
+    });
     beta.resolve(assignment([alphaID, betaID]));
 
     await waitFor(() => {
       expect(result.current.pendingLabelIDs).toEqual([]);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("lets a background assignment result normalize queued Labels without replacing the in-flight intent", async () => {
@@ -306,13 +316,17 @@ describe("useManagedTaskLabelAssignment", () => {
       expect(result.current.selectedLabelIDs).toEqual([betaID, alphaID]);
       expect(result.current.pendingLabelIDs).toEqual([alphaID]);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
 
     update.resolve(assignment([alphaID, betaID]));
     await waitFor(() => {
       expect(result.current.pendingLabelIDs).toEqual([]);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("shares server query data without sharing destination pending or failure state", async () => {
@@ -399,7 +413,9 @@ describe("useManagedTaskLabelAssignment", () => {
       result.current[0].setSelected(alphaID, true);
       result.current[1].setSelected(betaID, true);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
+    });
 
     authoritative = assignment([alphaID, betaID]);
     newer.resolve(authoritative);
@@ -480,7 +496,9 @@ describe("useManagedTaskLabelAssignment", () => {
       result.current.setSelected(alphaID, true);
       result.current.setSelected(betaID, true);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
     removeDeletedTaskFromExistingCaches(queryClient, taskID);
     update.resolve(assignment([alphaID]));
 
@@ -488,7 +506,9 @@ describe("useManagedTaskLabelAssignment", () => {
       expect(result.current.pendingLabelIDs).toEqual([]);
       expect(result.current.failures).toEqual([]);
     });
-    expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+    });
     expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toBeUndefined();
     expect(queryClient.getQueryData(queryKeys.task(taskID))).toBeUndefined();
   });
@@ -526,7 +546,7 @@ describe("useManagedTaskLabelAssignment", () => {
     });
   });
 
-  it("drops queued work and late success or failure after unmount without touching caches", async () => {
+  it("discards unsent selections after owner cleanup while the submitted request completes", async () => {
     for (const succeeds of [true, false]) {
       appServiceMocks.getTaskLabels.mockReset();
       appServiceMocks.getTaskLabels.mockResolvedValue(assignment([]));
@@ -554,8 +574,18 @@ describe("useManagedTaskLabelAssignment", () => {
         view.result.current.setSelected(alphaID, true);
         view.result.current.setSelected(betaID, true);
       });
-      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      });
       view.unmount();
+      await waitFor(() => {
+        expect(
+          queryClient
+            .getQueryCache()
+            .find({ queryKey: queryKeys.taskLabels(taskID) })
+            ?.getObserversCount(),
+        ).toBe(0);
+      });
       if (succeeds) {
         update.resolve(assignment([alphaID]));
       } else {
@@ -566,11 +596,17 @@ describe("useManagedTaskLabelAssignment", () => {
         setTimeout(resolve, 0);
       });
 
-      expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([]));
-      expect(queryClient.getQueryData(queryKeys.task(taskID))).toMatchObject({ labelIDs: [] });
+      expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(
+        assignment(succeeds ? [alphaID] : []),
+      );
+      expect(queryClient.getQueryData(queryKeys.task(taskID))).toMatchObject({
+        labelIDs: succeeds ? [alphaID] : [],
+      });
       expect(scheduleCatalogRefresh).not.toHaveBeenCalled();
-      expect(scheduleTaskAssignmentRefresh).not.toHaveBeenCalled();
-      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      expect(scheduleTaskAssignmentRefresh).toHaveBeenCalledTimes(succeeds ? 1 : 0);
+      await waitFor(() => {
+        expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      });
 
       const { result: remountedResult, unmount: unmountRemounted } = renderHook(
         () => useManagedTaskLabelAssignment(input),
@@ -583,7 +619,9 @@ describe("useManagedTaskLabelAssignment", () => {
       });
       expect(remountedResult.current.pendingLabelIDs).toEqual([]);
       expect(remountedResult.current.failures).toEqual([]);
-      expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
+      });
       unmountRemounted();
     }
   });
@@ -606,8 +644,43 @@ function createQueryClient(labelIDs: readonly string[]): QueryClient {
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <RegistryProvider>{children}</RegistryProvider>
+      </QueryClientProvider>
+    );
   };
+}
+
+function useManagedTaskLabelAssignment(
+  input: Readonly<{
+    availableLabelIDs: readonly string[];
+    projectID: string;
+    taskID: string;
+    scheduleCatalogRefresh(): void;
+    scheduleTaskAssignmentRefresh(taskID: string): void;
+  }>,
+) {
+  const client = useQueryClient();
+  const scheduleCatalogRefresh = useStableCallback(input.scheduleCatalogRefresh);
+  const scheduleTaskAssignmentRefresh = useStableCallback(input.scheduleTaskAssignmentRefresh);
+  const { projectID: project, taskID: task } = input;
+  const model = useMemo(
+    () =>
+      createTaskLabelAssignmentModel({
+        api: appServiceMocks,
+        catalog: queryAtom(new QueryObserver<ProjectLabelCatalog>(client, {
+          queryKey: queryKeys.projectLabels(project), enabled: false,
+        })),
+        client,
+        projectID: project,
+        taskID: task,
+        scheduleCatalogRefresh,
+        scheduleTaskAssignmentRefresh,
+      }),
+    [client, project, task, scheduleCatalogRefresh, scheduleTaskAssignmentRefresh],
+  );
+  return useTaskLabelAssignmentModel(model);
 }
 
 function assignment(labelIDs: readonly string[]): TaskLabelAssignment {

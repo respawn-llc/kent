@@ -331,7 +331,7 @@
 - A board card lays out its dependency-progress chip before Label chips. Labels use only the remaining width and retain their `+N` behavior.
 - Task Label assignments can change in every Task state. Assignment changes update immediately, then adopt the server result; failures restore the prior state and show a persistent Retry error.
 - During connected use, Task Label assignment must accept rapid edits eagerly and queue them without requiring the operator to wait after each selection. Assignment loading must not block further Label selection.
-- Leaving the destination that owns queued Task Label edits must discard unsent selections without cancelling an already submitted request.
+- Leaving the destination that owns queued Task Label edits must discard selections that remain unsent when its scheduled local cleanup finishes. Queued selections may submit before cleanup finishes. Submitted requests must finish normally.
 
 ## Tasks
 

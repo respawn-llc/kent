@@ -1,17 +1,13 @@
 import { createContext, useContext } from "react";
 
-import type { TaskLabelAssignmentData } from "./taskLabelAssignmentData";
+import { useTaskLabelAssignmentModel, type TaskLabelAssignmentModel } from "./taskLabelAssignmentData";
 
-export const TaskLabelAssignmentContext = createContext<TaskLabelAssignmentData | null>(null);
+export const TaskLabelAssignmentContext = createContext<TaskLabelAssignmentModel | null>(null);
 
-export function useTaskLabelAssignment(): TaskLabelAssignmentData {
-  const value = useTaskLabelAssignmentOptional();
+export function useTaskLabelAssignment() {
+  const value = useContext(TaskLabelAssignmentContext);
   if (value === null) {
     throw new Error("TaskLabelAssignmentProvider is required");
   }
-  return value;
-}
-
-export function useTaskLabelAssignmentOptional(): TaskLabelAssignmentData | null {
-  return useContext(TaskLabelAssignmentContext);
+  return useTaskLabelAssignmentModel(value);
 }
