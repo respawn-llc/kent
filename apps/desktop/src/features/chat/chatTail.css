@@ -1,0 +1,31 @@
+.chat-tail-control {
+  position: absolute;
+  inset-inline-end: var(--space-3);
+  bottom: var(--space-3);
+  transform: scale(1);
+  transition: transform var(--motion-fast);
+}
+
+@starting-style {
+  .chat-tail-control {
+    transform: scale(0);
+  }
+}
+
+.chat-tail-control[data-phase="exiting"] {
+  transform: scale(0);
+  pointer-events: none;
+}
+
+.chat-tail-button {
+  width: 40px;
+  height: 40px;
+  background: var(--color-island-0);
+  border-color: var(--color-outline);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tail-control {
+    transition: none;
+  }
+}

@@ -127,6 +127,7 @@ export { dismissStatusToast, showStatusToast } from "./statusToast";
 export {
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListProps,
+  type VirtualizedEndAnchoring,
   type VirtualizedItemVisibilityTrigger,
 } from "./VirtualizedInfiniteList";
 export {

@@ -11,6 +11,7 @@ export type IconTooltipButtonProps = Readonly<{
   disabled?: boolean | undefined;
   size?: ButtonSize | undefined;
   variant?: ButtonVariant | undefined;
+  className?: string | undefined;
 }>;
 
 /**
@@ -27,13 +28,21 @@ export function IconTooltipButton({
   onClick,
   size = "icon",
   variant = "ghost",
+  className,
 }: IconTooltipButtonProps) {
   return (
     <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex">
-            <Button aria-label={label} disabled={disabled} onClick={onClick} size={size} variant={variant}>
+            <Button
+              className={className}
+              aria-label={label}
+              disabled={disabled}
+              onClick={onClick}
+              size={size}
+              variant={variant}
+            >
               {children}
             </Button>
           </span>

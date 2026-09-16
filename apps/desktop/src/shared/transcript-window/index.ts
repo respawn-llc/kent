@@ -1,2 +1,2 @@
 export { TranscriptWindowView } from "./TranscriptWindowView";
-export type { TranscriptViewportMeasurement, TranscriptWindowViewProps } from "./TranscriptWindowView";
+export type { TranscriptWindowViewProps } from "./TranscriptWindowView";

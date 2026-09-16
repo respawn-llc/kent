@@ -68,6 +68,7 @@ export type ThinkingStatusPresentation =
   | Readonly<{ kind: "working" | "compacting" | "running" | "reviewing" }>
   | Readonly<{ kind: "text"; text: string }>;
 export type TranscriptWindowEffect =
+  | Readonly<{ kind: "hydration-replaced" }>
   | Readonly<{ kind: "scratch-rehydration" }>
   | Readonly<{ kind: "page-request"; request: TranscriptPageRequest }>
   | Readonly<{ kind: "opening-page-request"; permit: symbol }>

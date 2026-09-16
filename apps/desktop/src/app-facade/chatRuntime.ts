@@ -51,6 +51,8 @@ export type ChatRuntimeOwnerSnapshot = Readonly<{
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
   transcript: ChatTranscriptHost["snapshot"];
+  transcriptPresentationUpdate: ChatTranscriptHost["presentationUpdate"];
+  jumpPending: boolean;
   disposed: boolean;
 }>;
 
@@ -317,6 +319,8 @@ export class ChatRuntimeOwner {
       goal: this.#goal,
       observation: this.#observation?.state ?? { kind: "loading" },
       transcript: this.transcript.snapshot,
+      transcriptPresentationUpdate: this.transcript.presentationUpdate,
+      jumpPending: this.transcript.jumpPending,
       disposed: this.#disposed,
     };
   }
