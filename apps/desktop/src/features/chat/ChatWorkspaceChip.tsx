@@ -77,7 +77,10 @@ export function ChatWorkspaceChip({
           <TooltipContent>{pending ? t("chat.workspacePending") : t("chat.workspace")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <PopoverContent align="start" className="w-80 max-w-[var(--radix-popover-content-available-width)]">
+      <PopoverContent
+        align="start"
+        className="w-80 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-rows-[minmax(0,1fr)] overflow-hidden"
+      >
         {catalog.isPending ? (
           <LoadingState title={t("states.loading")} />
         ) : catalog.isError && catalog.data === undefined ? (
@@ -116,7 +119,7 @@ export function ChatWorkspaceChip({
               </TooltipProvider>
             )}
             estimateSize={() => 40}
-            className="h-64"
+            className="h-64 min-h-0 overflow-y-auto"
             loadingLabel={t("states.loading")}
             hasNextPage={catalog.hasNextPage}
             isFetchingNextPage={catalog.isFetchingNextPage}
