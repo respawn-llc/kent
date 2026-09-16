@@ -2640,11 +2640,10 @@ SELECT
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
   AND (
-    CAST(sqlc.narg(before_updated_at_unix_ms) AS INTEGER) IS NULL
-    OR updated_at_unix_ms < sqlc.narg(before_updated_at_unix_ms)
-    OR (updated_at_unix_ms = sqlc.narg(before_updated_at_unix_ms) AND id < sqlc.narg(before_id))
+    sqlc.narg(after_id) IS NULL
+    OR id > sqlc.narg(after_id)
   )
-ORDER BY updated_at_unix_ms DESC, id DESC
+ORDER BY id ASC
 LIMIT sqlc.arg(page_size);
 
 -- name: InsertSessionPromptHistoryEntry :one
@@ -3072,7 +3071,7 @@ WHERE task_id = sqlc.arg(task_id)
   AND transition_branch_key = sqlc.arg(transition_branch_key)
   AND scheduling_state IN ('ready', 'admitted');
 
--- name: ReplaceUserInterruptionWithAssignmentFailure :execrows
+-- name: ReplaceCurrentNodeInterruptionWithPreparationFailure :execrows
 UPDATE task_current_nodes
 SET interruption_reason = 'workflow_runtime_start_failed',
     interruption_detail_json = sqlc.arg(interruption_detail_json),
@@ -3084,7 +3083,7 @@ WHERE task_id = sqlc.arg(task_id)
       OR transition_branch_key = sqlc.narg(transition_branch_key)
   )
   AND scheduling_state = 'interrupted'
-  AND interruption_reason = 'user_interrupt';
+  AND interruption_reason = sqlc.arg(expected_interruption_reason);
 
 -- name: ReconcileTaskResume :execrows
 UPDATE task_current_nodes

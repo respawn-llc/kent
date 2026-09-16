@@ -65,7 +65,6 @@ type WorktreeSessionBlocker struct {
 
 type WorktreeSessionCursor struct {
 	SessionID string
-	UpdatedAt time.Time
 }
 
 type WorktreeSessionPage struct {
@@ -698,8 +697,7 @@ func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeI
 		if strings.TrimSpace(before.SessionID) == "" {
 			return WorktreeSessionPage{}, errors.New("worktree session cursor id is required")
 		}
-		params.BeforeUpdatedAtUnixMs = sql.NullInt64{Int64: before.UpdatedAt.UnixMilli(), Valid: true}
-		params.BeforeID = sql.NullString{String: before.SessionID, Valid: true}
+		params.AfterID = sql.NullString{String: before.SessionID, Valid: true}
 	}
 	rows, err := s.queries.ListSessionsTargetingWorktreePage(ctx, params)
 	if err != nil {
@@ -711,7 +709,7 @@ func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeI
 	}
 	if len(rows) == pageSize {
 		last := page.Sessions[len(page.Sessions)-1]
-		page.Next = &WorktreeSessionCursor{SessionID: last.SessionID, UpdatedAt: last.UpdatedAt}
+		page.Next = &WorktreeSessionCursor{SessionID: last.SessionID}
 	}
 	return page, nil
 }

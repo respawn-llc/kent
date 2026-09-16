@@ -1325,7 +1325,7 @@ func TestCreateWorktreeSetupReplacesStaleParentReservedEnvironment(t *testing.T)
 	}
 }
 
-func TestPrepareTaskExecutionRootRecreatesCleanRootBeforeRetry(t *testing.T) {
+func TestPrepareTaskExecutionRootRetriesCleanRetainedRootExplicitly(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, _ := createTaskWorktreeTestTask(t, env)
 	base := resolveTaskWorktreeTestHEAD(t, env, env.workspaceRoot)
@@ -1333,29 +1333,22 @@ func TestPrepareTaskExecutionRootRecreatesCleanRootBeforeRetry(t *testing.T) {
 	scriptRelpath := filepath.Join("scripts", "retry-clean-setup.sh")
 	writeExecutableFile(t, filepath.Join(env.workspaceRoot, scriptRelpath), fmt.Sprintf("#!/bin/sh\ncount=0\nif [ -f %q ]; then count=$(cat %q); fi\ncount=$((count + 1))\nprintf '%%s' \"$count\" > %q\nif [ \"$count\" = \"1\" ]; then exit 3; fi\n", countPath, countPath, countPath))
 	env.service.setupScript = scriptRelpath
-	runner := &recordingGitCommandRunner{delegate: execGitCommandRunner{}}
-	env.service.git = NewGitInspector(runner)
-
-	_, err := prepareManagedTaskExecutionRoot(env.ctx, env.service, task.ID, nil, base)
-	if err != nil {
-		t.Fatalf("PrepareTaskExecutionRoot: %v", err)
+	first, err := prepareManagedTaskExecutionRoot(env.ctx, env.service, task.ID, nil, base)
+	if !errors.Is(err, worktreecontract.ErrWorktreeSetupRetained) {
+		t.Fatalf("first setup = %v, want retained failure", err)
+	}
+	if got := waitForFileText(t, countPath); got != "1" {
+		t.Fatalf("setup attempt count = %q, want 1", got)
+	}
+	retried, err := prepareManagedTaskExecutionRoot(env.ctx, env.service, task.ID, nil, base)
+	if err != nil || retried.SetupResult == nil || retried.SetupResult.Completed == nil {
+		t.Fatalf("explicit setup retry = %+v, %v", retried, err)
+	}
+	if taskWorktreeID(retried.Worktree) != taskWorktreeID(first.Worktree) || taskWorktreeRoot(retried.Worktree) != taskWorktreeRoot(first.Worktree) {
+		t.Fatal("explicit retry abandoned its retained Worktree")
 	}
 	if got := waitForFileText(t, countPath); got != "2" {
-		t.Fatalf("setup attempt count = %q, want 2", got)
-	}
-	adds, removes := 0, 0
-	for _, call := range runner.calls {
-		if len(call) >= 2 && call[0] == "worktree" {
-			switch call[1] {
-			case "add":
-				adds++
-			case "remove":
-				removes++
-			}
-		}
-	}
-	if adds != 2 || removes != 1 {
-		t.Fatalf("Git recreation calls = %d add, %d remove; want 2 add, 1 remove", adds, removes)
+		t.Fatalf("total attempts across two actions = %q, want 2", got)
 	}
 }
 
@@ -1369,6 +1362,10 @@ func TestPrepareTaskExecutionRootRetriesIgnoredOrEmptyChangedRootInPlace(t *test
 	env.service.setupScript = scriptRelpath
 
 	materialized, err := prepareManagedTaskExecutionRoot(env.ctx, env.service, task.ID, nil, base)
+	if !errors.Is(err, worktreecontract.ErrWorktreeSetupRetained) {
+		t.Fatalf("first setup = %v, want retained failure", err)
+	}
+	materialized, err = prepareManagedTaskExecutionRoot(env.ctx, env.service, task.ID, nil, base)
 	if err != nil {
 		t.Fatalf("PrepareTaskExecutionRoot: %v", err)
 	}
@@ -1506,13 +1503,13 @@ func TestPrepareTaskExecutionRootFinalSetupFailureRetainsCurrentRootAndBinding(t
 	if !errors.As(err, &retained) || retained.Details.GetWorktree() == nil {
 		t.Fatalf("PrepareTaskExecutionRoot error = %T %v, want retained setup failure", err, err)
 	}
-	if got := waitForFileText(t, countPath); got != "2" {
-		t.Fatalf("setup attempt count = %q, want 2", got)
+	if got := waitForFileText(t, countPath); got != "1" {
+		t.Fatalf("setup attempt count = %q, want 1", got)
 	}
 	if materialized.SetupResult == nil || materialized.SetupResult.Failed == nil ||
 		materialized.SetupResult.Failed.GetCause().GetProcessExit() == nil ||
-		materialized.SetupResult.Failed.GetCause().GetProcessExit().GetExitCode() != 7 {
-		t.Fatalf("setup result = %+v, want final process exit 7", materialized.SetupResult)
+		materialized.SetupResult.Failed.GetCause().GetProcessExit().GetExitCode() != 3 {
+		t.Fatalf("setup result = %+v, want process exit 3", materialized.SetupResult)
 	}
 	row, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
 	if err != nil {

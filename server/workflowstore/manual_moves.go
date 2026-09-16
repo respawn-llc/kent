@@ -37,6 +37,13 @@ type ManualMoveTargetAssignmentPreparation struct {
 
 type ManualMoveTargetAssignmentPreparer func(context.Context, []CurrentNodeStartContext) (ManualMoveTargetAssignmentPreparation, error)
 
+type manualMovePreparationPhase uint8
+
+const (
+	manualMoveAfterSetup manualMovePreparationPhase = iota
+	manualMoveBeforeSetup
+)
+
 type preparedManualMoveAssignments struct {
 	targets         []workflow.CurrentNode
 	assignments     []ManualMoveTargetAssignment
@@ -73,6 +80,17 @@ func (p ManualMovePreparation) CurrentNodes() []workflow.CurrentNode {
 	return append([]workflow.CurrentNode(nil), p.currentNodes...)
 }
 
+func (s *Store) RevalidateManualMove(ctx context.Context, prepared ManualMovePreparation) (ManualMovePreparation, error) {
+	current, err := s.PrepareManualMove(ctx, prepared.request)
+	if err != nil || current.IsNoOp() {
+		return current, err
+	}
+	if prepared.target == nil || current.target.Kind() != prepared.target.Kind() {
+		return ManualMovePreparation{}, errManualMoveTargetShapeChanged
+	}
+	return current, nil
+}
+
 func (p ManualMovePreparation) TaskID() workflow.TaskID {
 	return p.request.TaskID
 }
@@ -83,7 +101,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		return ManualMoveResult{}, err
 	}
 	if prepared.noOp || !executableNodeKind(prepared.target.Kind()) {
-		return s.applyManualMove(ctx, prepared, nil, nil)
+		return s.applyManualMove(ctx, prepared, nil, nil, manualMoveAfterSetup)
 	}
 	return ManualMoveResult{}, errors.New("executable Manual Move requires lifecycle assignment preparation")
 }
@@ -176,7 +194,23 @@ func (s *Store) ApplyManualMove(
 	if !prepared.noOp && executableNodeKind(prepared.target.Kind()) {
 		return ManualMoveResult{}, errors.New("executable Manual Move requires assignment preparation")
 	}
-	return s.applyManualMove(ctx, prepared, executionTarget, nil)
+	return s.applyManualMove(ctx, prepared, executionTarget, nil, manualMoveAfterSetup)
+}
+
+func (s *Store) ApplyManualMoveBeforePreparation(ctx context.Context, prepared ManualMovePreparation, candidate *ExecutionTargetCandidate) (ManualMoveResult, error) {
+	if candidate == nil || candidate.Replacement == nil {
+		return ManualMoveResult{}, errors.New("Move before preparation requires an explicit target replacement")
+	}
+	origins, err := s.ListCurrentNodes(ctx, prepared.TaskID())
+	if err != nil {
+		return ManualMoveResult{}, err
+	}
+	for _, node := range origins {
+		if node.Scheduling != nil {
+			return ManualMoveResult{}, errors.New("Move before preparation requires non-executable origins")
+		}
+	}
+	return s.applyManualMove(ctx, prepared, candidate, nil, manualMoveBeforeSetup)
 }
 
 func (s *Store) ApplyManualMoveWithTargetAssignments(
@@ -188,7 +222,7 @@ func (s *Store) ApplyManualMoveWithTargetAssignments(
 	if !prepared.noOp && executableNodeKind(prepared.target.Kind()) && prepareAssignments == nil {
 		return ManualMoveResult{}, errors.New("executable Manual Move requires assignment preparation")
 	}
-	return s.applyManualMove(ctx, prepared, executionTarget, prepareAssignments)
+	return s.applyManualMove(ctx, prepared, executionTarget, prepareAssignments, manualMoveAfterSetup)
 }
 
 func (s *Store) applyManualMove(
@@ -196,6 +230,7 @@ func (s *Store) applyManualMove(
 	prepared ManualMovePreparation,
 	executionTarget *ExecutionTargetCandidate,
 	prepareAssignments ManualMoveTargetAssignmentPreparer,
+	phase manualMovePreparationPhase,
 ) (result ManualMoveResult, resultErr error) {
 	task, err := s.queries.GetTask(ctx, string(prepared.request.TaskID))
 	if err != nil {
@@ -207,7 +242,7 @@ func (s *Store) applyManualMove(
 		return ManualMoveResult{}, err
 	}
 	defer lease.Release()
-	return s.applyManualMoveWithinWorkflowLane(ctx, prepared, executionTarget, prepareAssignments)
+	return s.applyManualMoveWithinWorkflowLane(ctx, prepared, executionTarget, prepareAssignments, phase)
 }
 
 func (s *Store) applyManualMoveWithinWorkflowLane(
@@ -215,6 +250,7 @@ func (s *Store) applyManualMoveWithinWorkflowLane(
 	prepared ManualMovePreparation,
 	executionTarget *ExecutionTargetCandidate,
 	prepareAssignments ManualMoveTargetAssignmentPreparer,
+	phase manualMovePreparationPhase,
 ) (result ManualMoveResult, resultErr error) {
 	defer func() {
 		reportWorkflowInvariantError(s.invariantPolicy, resultErr)
@@ -222,7 +258,7 @@ func (s *Store) applyManualMoveWithinWorkflowLane(
 	if strings.TrimSpace(string(prepared.request.TaskID)) == "" || (!prepared.noOp && prepared.target == nil) {
 		return ManualMoveResult{}, errors.New("manual move preparation is invalid")
 	}
-	executionTargetPreparation, err := s.prepareManualMoveExecutionTarget(ctx, prepared, executionTarget)
+	executionTargetPreparation, err := s.prepareManualMoveExecutionTarget(ctx, prepared, executionTarget, phase)
 	if err != nil {
 		return ManualMoveResult{}, err
 	}
@@ -428,6 +464,7 @@ func (s *Store) prepareManualMoveExecutionTarget(
 	ctx context.Context,
 	prepared ManualMovePreparation,
 	executionTarget *ExecutionTargetCandidate,
+	phase manualMovePreparationPhase,
 ) (preparedManualMoveExecutionTarget, error) {
 	if prepared.noOp {
 		return preparedManualMoveExecutionTarget{}, nil
@@ -490,7 +527,7 @@ func (s *Store) prepareManualMoveExecutionTarget(
 			kind:       targetNode.Kind(),
 			scriptPath: workflow.NodeScriptPath(targetNode),
 		}
-		if targetNode.Kind() == workflow.NodeKindScript {
+		if targetNode.Kind() == workflow.NodeKindScript && phase == manualMoveAfterSetup {
 			if err := s.validateScriptNodeForExecution(
 				ctx,
 				s.queries,

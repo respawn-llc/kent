@@ -198,8 +198,9 @@ type InitialTaskWorktreeMaterializationRequest struct {
 }
 
 type LockedTaskWorktreeValidationRequest struct {
-	TaskID     workflow.TaskID
-	BranchName *string
+	TaskID        workflow.TaskID
+	BranchName    *string
+	SetupRecovery *workflow.CurrentNodeSetupRecoveryDetail
 }
 
 type LockedTaskWorktreeCause string
@@ -712,6 +713,26 @@ func (s *Service) releaseProvisionalTaskWorktree(
 	workspace taskSourceWorkspace,
 	record metadata.WorktreeRecord,
 ) (*worktreepb.RetainedPreviousWorktree, error) {
+	retained, err := s.releaseTaskWorktreeArtifact(ctx, workspace, record, func(ctx context.Context) error {
+		return s.unbindTaskManagedWorktree(ctx, task)
+	})
+	if err != nil {
+		return retained, err
+	}
+	if retained == nil {
+		if err := s.metadata.DeleteWorktreeRecordByID(ctx, record.ID); err != nil {
+			return nil, err
+		}
+	}
+	return retained, nil
+}
+
+func (s *Service) releaseTaskWorktreeArtifact(
+	ctx context.Context,
+	workspace taskSourceWorkspace,
+	record metadata.WorktreeRecord,
+	releaseBinding func(context.Context) error,
+) (*worktreepb.RetainedPreviousWorktree, error) {
 	recorded, err := worktreeGitMetadataFromRecord(record)
 	if err != nil {
 		return nil, err
@@ -727,29 +748,27 @@ func (s *Service) releaseProvisionalTaskWorktree(
 		return nil, err
 	}
 	topology := registeredTopologyEntry(syncedWorktree{record: record, git: live})
-	if !safelyRecreatable {
-		if err := s.unbindTaskManagedWorktree(ctx, task); err != nil {
+	branchName, named := worktreeNamedBranch(live)
+	if safelyRecreatable {
+		if record.CreatedBranch && !named {
+			return nil, &ManagedWorktreeIdentityError{Kind: ManagedWorktreeIdentityErrorDetachedHead}
+		}
+		if err := s.git.Remove(ctx, workspace.RootPath, record.CanonicalRoot, false); err != nil {
 			return nil, err
 		}
+	}
+	if releaseBinding != nil {
+		if err := releaseBinding(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if !safelyRecreatable {
 		return &worktreepb.RetainedPreviousWorktree{Worktree: topology.GetRegistered()}, nil
-	}
-	branchName, named := worktreeNamedBranch(live)
-	if record.CreatedBranch && !named {
-		return nil, &ManagedWorktreeIdentityError{Kind: ManagedWorktreeIdentityErrorDetachedHead}
-	}
-	if err := s.git.Remove(ctx, workspace.RootPath, record.CanonicalRoot, false); err != nil {
-		return nil, err
-	}
-	if err := s.unbindTaskManagedWorktree(ctx, task); err != nil {
-		return nil, err
 	}
 	if record.CreatedBranch {
 		if err := s.git.deleteBranch(ctx, workspace.RootPath, branchName, true); err != nil {
 			return nil, err
 		}
-	}
-	if err := s.metadata.DeleteWorktreeRecordByID(ctx, record.ID); err != nil {
-		return nil, err
 	}
 	return nil, nil
 }
@@ -833,6 +852,15 @@ func (s *Service) ValidateLockedTaskWorktree(ctx context.Context, req LockedTask
 			return TaskWorktreeMaterialization{}, s.missingTaskWorktree(ctx, workspace, record)
 		}
 		return TaskWorktreeMaterialization{}, lockedTaskWorktreeIdentityError(err)
+	}
+	if req.SetupRecovery != nil {
+		if err := validateRetainedTaskSetupRecovery(req.SetupRecovery, task, record); err != nil {
+			return TaskWorktreeMaterialization{}, err
+		}
+		// Retained setup artifacts keep their original checkout facts for the
+		// conservative recreation check, including setup changes to the branch.
+		bound, err := s.reuseProvisionalManagedTaskWorktree(ctx, task, workspace, record, identity)
+		return bound.materialization, err
 	}
 	return s.rebindHealthyManagedTaskWorktree(ctx, task, workspace, record, identity)
 }
@@ -2291,7 +2319,7 @@ func (s *Service) runSetupRecovery(ctx context.Context, req setupRecoveryRequest
 	if req.Observer == nil {
 		return setupRecoveryResult{}, errors.New("setup attempt observer is required")
 	}
-	attempt, retryConsumed, err := s.prepareSetupAttemptForRecovery(req.Attempt, true)
+	attempt, err := s.prepareSetupAttempt(req.Attempt)
 	if err != nil {
 		if result, identified := setupPreparationFailureResult(err, req.Attempt.RetainedWorktree); identified {
 			return result, nil
@@ -2308,14 +2336,11 @@ func (s *Service) runSetupRecovery(ctx context.Context, req setupRecoveryRequest
 		}, nil
 	}
 	if req.RecreateBeforeFirstAttempt {
-		var preparationRetried bool
-		attempt, preparationRetried, err = s.recreateSetupAttemptIfClean(
+		attempt, err = s.recreateSetupAttemptIfClean(
 			ctx,
 			attempt,
 			req.Recreate,
-			!retryConsumed,
 		)
-		retryConsumed = retryConsumed || preparationRetried
 		if err != nil {
 			if result, identified := setupPreparationFailureResult(err, req.Attempt.RetainedWorktree); identified {
 				return result, nil
@@ -2323,57 +2348,16 @@ func (s *Service) runSetupRecovery(ctx context.Context, req setupRecoveryRequest
 			return setupRecoveryResult{}, err
 		}
 	}
-	firstErr := s.executeSetupAttempt(ctx, *attempt, req.Observer)
-	if firstErr == nil {
-		return setupRecoveryResult{
-			Result: WorktreeSetupResult{Completed: &worktreepb.SetupCompleted{}},
-		}, nil
-	}
-	if errors.Is(firstErr, context.Canceled) || errors.Is(firstErr, context.DeadlineExceeded) || ctx.Err() != nil {
-		return setupRecoveryResult{
-			Result: WorktreeSetupResult{Failed: setupFailureFromError(firstErr, attempt.retained)},
-			Err:    firstErr,
-		}, nil
-	}
-	if retryConsumed {
-		return setupRecoveryResult{
-			Result: WorktreeSetupResult{Failed: setupFailureFromError(firstErr, attempt.retained)},
-			Err:    firstErr,
-		}, nil
-	}
-	previousAttempt := attempt
-	attempt, _, err = s.recreateSetupAttemptIfClean(ctx, attempt, req.Recreate, false)
-	if err != nil {
-		if result, identified := setupPreparationFailureResult(err, previousAttempt.retained); identified {
-			return result, nil
-		}
-		return setupRecoveryResult{}, err
-	}
-	finalErr := s.executeSetupAttempt(ctx, *attempt, req.Observer)
-	if finalErr == nil {
+	attemptErr := s.executeSetupAttempt(ctx, *attempt, req.Observer)
+	if attemptErr == nil {
 		return setupRecoveryResult{
 			Result: WorktreeSetupResult{Completed: &worktreepb.SetupCompleted{}},
 		}, nil
 	}
 	return setupRecoveryResult{
-		Result: WorktreeSetupResult{Failed: setupFailureFromError(finalErr, attempt.retained)},
-		Err:    finalErr,
+		Result: WorktreeSetupResult{Failed: setupFailureFromError(attemptErr, attempt.retained)},
+		Err:    attemptErr,
 	}, nil
-}
-
-func (s *Service) prepareSetupAttemptForRecovery(
-	req setupExecutionRequest,
-	retryAvailable bool,
-) (*preparedSetupAttempt, bool, error) {
-	attempt, err := s.prepareSetupAttempt(req)
-	if err == nil || !retryAvailable {
-		return attempt, false, err
-	}
-	if !retryableSetupPreparationError(err) {
-		return nil, false, err
-	}
-	attempt, err = s.prepareSetupAttempt(req)
-	return attempt, true, err
 }
 
 func setupPreparationFailureResult(
@@ -2393,13 +2377,12 @@ func (s *Service) recreateSetupAttemptIfClean(
 	ctx context.Context,
 	attempt *preparedSetupAttempt,
 	recreate func(context.Context) (setupExecutionRequest, error),
-	preparationRetryAvailable bool,
-) (*preparedSetupAttempt, bool, error) {
+) (*preparedSetupAttempt, error) {
 	if recreate == nil {
-		return attempt, false, nil
+		return attempt, nil
 	}
 	if attempt.recreation == nil {
-		return nil, false, errors.New("setup recreation requires recorded checkout topology")
+		return nil, errors.New("setup recreation requires recorded checkout topology")
 	}
 	_, safelyRecreatable, err := s.inspectSafeWorktreeRecreation(
 		ctx,
@@ -2409,20 +2392,20 @@ func (s *Service) recreateSetupAttemptIfClean(
 		attempt.recreation.RecordedCheckout,
 	)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if !safelyRecreatable {
-		return attempt, false, nil
+		return attempt, nil
 	}
 	recreated, err := recreate(ctx)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if recreated.ResolvedSettings == nil {
 		settings := attempt.settings
 		recreated.ResolvedSettings = &settings
 	}
-	return s.prepareSetupAttemptForRecovery(recreated, preparationRetryAvailable)
+	return s.prepareSetupAttempt(recreated)
 }
 
 func (s *Service) prepareSetupAttempt(req setupExecutionRequest) (*preparedSetupAttempt, error) {
@@ -2724,11 +2707,6 @@ type setupScriptError struct {
 	ExitCode       *int
 	Stdout         string
 	Stderr         string
-}
-
-func retryableSetupPreparationError(err error) bool {
-	_, identified := setupScriptPathFromError(err)
-	return identified
 }
 
 func setupScriptPathFromError(err error) (string, bool) {

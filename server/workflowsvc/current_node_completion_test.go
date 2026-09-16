@@ -632,6 +632,14 @@ func (s *currentNodeCompletionExecutionStub) Interrupt(context.Context, workflow
 	return nil
 }
 
+func (*currentNodeCompletionExecutionStub) RecordTaskPreparationFailure(context.Context, workflow.TaskID, error) error {
+	return errors.New("unexpected replacement preparation failure")
+}
+
+func (*currentNodeCompletionExecutionStub) ApplyManualMoveWithPreparation(context.Context, workflowstore.ManualMovePreparation, workflowexecution.ManualMoveTargetPreparation) (workflowstore.ManualMoveResult, error) {
+	return workflowstore.ManualMoveResult{}, errors.New("unexpected Move before target preparation")
+}
+
 func (*currentNodeCompletionExecutionStub) InterruptForManualMove(context.Context, workflow.TaskID, func() error) error {
 	return nil
 }

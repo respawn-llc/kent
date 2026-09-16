@@ -28,6 +28,7 @@ type ExecutionTargetSelection struct {
 type ExecutionTargetValidationRequest struct {
 	TaskID                 TaskID
 	InitialBranchAssertion *string
+	SetupRecovery          *CurrentNodeSetupRecoveryDetail
 }
 
 type MissingManagedWorktree struct {

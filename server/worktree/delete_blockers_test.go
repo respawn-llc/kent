@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/server/session"
 	"core/server/sessionruntime"
 	"core/shared/worktreecontract"
 )
@@ -45,25 +46,37 @@ func holdWorktreeSessionExecution(t *testing.T, env *serviceTestEnv, target serv
 func TestDeleteWorktreeFindsActiveSessionAfterIdlePage(t *testing.T) {
 	env := newServiceTestEnv(t)
 	target := mustCreateWorktree(t, env, "feature/paged-blockers")
-	active := createServiceTestSession(t, env.store, env.cfg, env.binding)
-	if err := active.SetListingMetadata("active session", ""); err != nil {
-		t.Fatal(err)
-	}
-	id := active.Meta().SessionID
-	updateServiceTestSessionTarget(t, env, id, env.binding.WorkspaceID, target.WorktreeID, ".")
-	holdWorktreeSessionExecution(t, env, target, id)
-	for range 50 {
-		idle := createServiceTestSession(t, env.store, env.cfg, env.binding)
-		updateServiceTestSessionTarget(t, env, idle.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
+	sessions := make([]*session.Store, 0, 51)
+	for range 51 {
+		sess := createServiceTestSession(t, env.store, env.cfg, env.binding)
+		updateServiceTestSessionTarget(t, env, sess.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
+		sessions = append(sessions, sess)
 	}
 	firstPage, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	seen := make(map[string]struct{}, len(firstPage.Sessions))
 	for _, entry := range firstPage.Sessions {
-		if entry.SessionID == id {
-			t.Fatal("fixture requires an idle page before the active Session")
+		seen[entry.SessionID] = struct{}{}
+	}
+	var active *session.Store
+	for _, sess := range sessions {
+		if _, present := seen[sess.Meta().SessionID]; !present {
+			active = sess
 		}
+	}
+	if active == nil || firstPage.Next == nil {
+		t.Fatal("fixture requires a Session beyond the idle first page")
+	}
+	id := active.Meta().SessionID
+	holdWorktreeSessionExecution(t, env, target, id)
+	if err := active.SetListingMetadata("renamed active session", ""); err != nil {
+		t.Fatal(err)
+	}
+	next, err := env.store.ListSessionsTargetingWorktreePage(env.ctx, target.WorktreeID, firstPage.Next)
+	if err != nil || len(next.Sessions) != 1 || next.Sessions[0].SessionID != id {
+		t.Fatalf("renaming a later Session skipped it during discovery: %+v, %v", next, err)
 	}
 	state := captureDeleteTargetState(t, env, id, target)
 	_, err = env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, target.WorktreeID))

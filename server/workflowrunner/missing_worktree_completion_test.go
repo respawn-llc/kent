@@ -56,6 +56,7 @@ func (f *currentNodeRunnerFixture) ValidateExecutionTarget(ctx context.Context, 
 	}
 	_, err := f.executionTargets.ValidateLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeValidationRequest{
 		TaskID: req.TaskID, BranchName: req.InitialBranchAssertion,
+		SetupRecovery: req.SetupRecovery,
 	})
 	return err
 }
