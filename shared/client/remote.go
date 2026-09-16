@@ -292,11 +292,6 @@ func callUnscopedRPC[Req any, Resp any](c *Remote, ctx context.Context, method s
 	return resp, c.callUnscoped(ctx, method, req, &resp)
 }
 
-func callControlRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	return resp, c.call(ctx, method, req, &resp)
-}
-
 func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, requestID string, method string, req Req) (Resp, error) {
 	var resp Resp
 	return resp, c.callDedicated(ctx, requestID, method, req, &resp)
@@ -655,18 +650,6 @@ func (c *Remote) MutateChatSettings(
 	return response, nil
 }
 
-func callValidatedControlRPC[Request any, Response interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Request) (Response, error) {
-	response, err := callControlRPC[Request, Response](c, ctx, method, req)
-	if err != nil {
-		return response, err
-	}
-	if err := response.Validate(); err != nil {
-		var zero Response
-		return zero, invalidResponseError(method, err)
-	}
-	return response, nil
-}
-
 func (c *Remote) ensureOpen() error {
 	if c == nil {
 		return errors.New("remote client is required")
@@ -675,21 +658,6 @@ func (c *Remote) ensureOpen() error {
 		return errors.New("remote client is closed")
 	}
 	return nil
-}
-
-func (c *Remote) call(ctx context.Context, method string, params any, out any) error {
-	return c.callUnscoped(ctx, method, params, out)
-}
-
-func callValidatedRPC[Req any, Resp interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	if err := c.call(ctx, method, req, &resp); err != nil {
-		return resp, err
-	}
-	if err := resp.Validate(); err != nil {
-		return resp, fmt.Errorf("validate %s response: %w", method, err)
-	}
-	return resp, nil
 }
 
 func (c *Remote) callUnscoped(ctx context.Context, method string, params any, out any) error {
