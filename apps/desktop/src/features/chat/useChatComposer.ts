@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import type { ChatSettingsTarget } from "@/api";
 import { useAppServices, useDebouncedText } from "@/app-facade";
-import { composerSuggestions, type ComposerCommand, type ComposerCommandResult } from "./composerCommands";
+import {
+  compactCommand,
+  composerSuggestions,
+  type ComposerCommand,
+  type ComposerCommandResult,
+} from "./composerCommands";
 import { useComposerPendingWork } from "./useComposerPendingWork";
 import { createComposerDraftViewModel, useComposerDraftActions } from "./ComposerDraftViewModel";
 import {
@@ -14,6 +19,7 @@ import {
   type ComposerSubmission,
 } from "./ComposerInputViewModel";
 import { createComposerPendingViewModel } from "./ComposerPendingViewModel";
+import { chatCompactionFeedback } from "./chatCompactionFeedback";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
@@ -29,10 +35,18 @@ export type ChatComposerOptions = Readonly<
 const noCommands: readonly ComposerCommand[] = [];
 
 export function useChatComposer(options: ChatComposerOptions) {
-  const { submission = { kind: "loading" }, onDeliveredSession, commands = noCommands } = options;
+  const {
+    submission = { kind: "loading" },
+    onDeliveredSession,
+    commands: additionalCommands = noCommands,
+  } = options;
   const services = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
+  const commands = [
+    compactCommand(services.api.chat, client, t("chatComposer.context.compact")),
+    ...additionalCommands,
+  ];
   const [model] = useState(() => {
     const { projectID, workspace } = options;
     const target: ChatSettingsTarget =
@@ -63,6 +77,13 @@ export function useChatComposer(options: ChatComposerOptions) {
     [restoreAction],
   );
   const pending = useComposerPendingWork(model.pending, restoreAction);
+  const observation = useMemo(
+    () => ({
+      ...pending.observation,
+      ...(model.target.kind === "session" ? chatCompactionFeedback(services, model.target) : {}),
+    }),
+    [pending.observation, services, model.target],
+  );
   const [picker, setPicker] = useState<
     Readonly<{ kind: "dismissed" }> | Readonly<{ kind: "selecting"; token: string | null }>
   >({ kind: "selecting", token: null });
@@ -79,9 +100,10 @@ export function useChatComposer(options: ChatComposerOptions) {
     if (draft.kind === "ready" && debounced === text) saveDraft(debounced);
   }, [saveDraft, draft.kind, debounced, text]);
   const canSubmit = draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
-  function submit(intent: "send" | "queue") {
+  function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
     inputActions.submit({
       intent,
+      source,
       submission,
       commands,
       selectedToken: selectedCommand?.token ?? null,
@@ -89,7 +111,7 @@ export function useChatComposer(options: ChatComposerOptions) {
       accepted: pending.returnedSession,
       ...(onDeliveredSession === undefined ? {} : { delivered: onDeliveredSession }),
     });
-    setPicker({ kind: "selecting", token: null });
+    if (source === "editor") setPicker({ kind: "selecting", token: null });
   }
   return {
     target: model.target,
@@ -99,9 +121,13 @@ export function useChatComposer(options: ChatComposerOptions) {
     canSubmit,
     inputPending,
     submit,
+    compact: () => {
+      submit("send", "compact-button");
+    },
     suggestions,
     selectedCommand,
     pending,
+    observation,
     edit: (value: string) => {
       edit(value);
       setPicker({ kind: "selecting", token: null });

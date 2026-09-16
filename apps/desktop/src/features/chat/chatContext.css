@@ -1,0 +1,55 @@
+.chat-context-trigger {
+  display: grid;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-context-trigger-content {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.chat-context-popover {
+  width: max-content;
+  max-width: var(--radix-popover-content-available-width);
+}
+
+.chat-context-popover strong {
+  color: var(--color-on-island);
+}
+
+.chat-context-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.chat-context-track {
+  flex: 1;
+  min-width: var(--space-6);
+  height: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--color-outline);
+}
+
+.chat-context-gradient {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, var(--color-success), var(--color-warning), var(--color-error));
+  transition: clip-path var(--motion-morph);
+}
+
+.chat-context-ring {
+  transition: stroke-dasharray var(--motion-morph);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-context-gradient,
+  .chat-context-ring {
+    transition: none;
+  }
+}

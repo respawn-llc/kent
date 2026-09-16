@@ -10,7 +10,11 @@ import type {
 import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript, orderPendingPrompts } from "@/api";
 
 export type ChatAuthorityTuple = ChatMainView["version"];
+type CompactionFeedback =
+  | Readonly<{ kind: "completed" | "idle" }>
+  | Readonly<{ kind: "failed"; diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"] }>;
 export type ChatProjectionHostEffect =
+  | Readonly<{ kind: "compaction"; feedback: CompactionFeedback }>
   | Readonly<{ kind: "pending-work-hydrated"; sessionID: string }>
   | Readonly<{ kind: "pending-work-changed" }>
   | Readonly<{
@@ -27,8 +31,9 @@ export type ChatProjectionHostEffect =
     }>;
 type PendingMetadata = Readonly<{
   sessionIdentity?: ChatTranscriptPayloadByKind["session_identity"];
-  sessionStatus?: ChatTranscriptPayloadByKind["session_status"];
+  sessionStatus?: Omit<ChatTranscriptPayloadByKind["session_status"], "CompactionCount">;
   contextUsage?: ChatTranscriptPayloadByKind["context_usage"] | null;
+  compactionCount?: number;
   runtime?: Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }>;
 }>;
 export type ChatProjectionState = Readonly<{
@@ -107,22 +112,26 @@ function admitHydration(
 ): ChatProjectionResult {
   const metadata: PendingMetadata = {
     sessionIdentity: hydration.SessionIdentity,
-    sessionStatus: hydration.SessionStatus,
+    ...statusMetadata(hydration.SessionStatus),
     contextUsage: hydration.ContextUsage,
     runtime: {
       version: runtimeVersion(hydration.RuntimeReadModelUpdate.Version),
       activity: chatRuntimeActivity(hydration.RuntimeReadModelUpdate.Activity),
     },
   };
+  const next = {
+    ...admitMetadata(state, metadata),
+    pendingPrompts: orderPendingPrompts(
+      hydration.PendingPrompts.flatMap((update) => (update.state === "pending" ? [update.prompt] : [])),
+    ),
+  };
   return {
-    state: {
-      ...admitMetadata(state, metadata),
-      pendingPrompts: orderPendingPrompts(
-        hydration.PendingPrompts.flatMap((update) => (update.state === "pending" ? [update.prompt] : [])),
-      ),
-    },
+    state: next,
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
-    effects: [{ kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID }],
+    effects: [
+      { kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID },
+      ...idleEffects(next),
+    ],
   };
 }
 
@@ -134,8 +143,9 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
   if (event.kind === "prompt") return admitPrompt(state, event.payload);
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
   if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
-  if (event.kind === "session_status") return metadataResult(state, { sessionStatus: event.payload });
+  if (event.kind === "session_status") return metadataResult(state, statusMetadata(event.payload));
   if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
+  if (event.kind === "compaction_status") return admitCompaction(state, event.payload);
   if (event.kind === "goal_status") return result(state, { goalFact: goalFactFromTranscript(event.payload) });
   if (event.kind === "human_input_interrupted") {
     return result(state, {
@@ -148,6 +158,17 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
     });
   }
   return result(state);
+}
+
+function admitCompaction(
+  state: ChatProjectionState,
+  status: ChatTranscriptPayloadByKind["compaction_status"],
+): ChatProjectionResult {
+  const next = status.State === "completed" ? admitMetadata(state, { compactionCount: status.Count }) : state;
+  if (status.Mode !== "manual" || status.RequestID == null || status.State === "started") return result(next);
+  const feedback: CompactionFeedback =
+    status.State === "completed" ? { kind: "completed" } : { kind: "failed", diagnostic: status.Diagnostic };
+  return result(next, { effects: [{ kind: "compaction", feedback }] });
 }
 
 function admitPrompt(
@@ -180,7 +201,7 @@ function admitIncrementalRuntime(
   const incoming = runtimeVersion(update.Version);
   const current = state.view?.version ?? state.pendingMetadata?.runtime?.version ?? null;
   if (current === null) {
-    return result(
+    return runtimeResult(
       admitRuntime(state, {
         runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
       }),
@@ -188,13 +209,22 @@ function admitIncrementalRuntime(
   }
   const comparison = compareAuthorityTuple(current, incoming);
   if (comparison === "newer-sequence" || comparison === "forward-authority") {
-    return result(
+    return runtimeResult(
       admitRuntime(state, {
         runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
       }),
     );
   }
   return result(state);
+}
+
+function idleEffects(state: ChatProjectionState): readonly ChatProjectionHostEffect[] {
+  const activity = state.view?.activity ?? state.pendingMetadata?.runtime?.activity;
+  return activity?.state === "registered_idle" ? [{ kind: "compaction", feedback: { kind: "idle" } }] : [];
+}
+
+function runtimeResult(state: ChatProjectionState): ChatProjectionResult {
+  return result(state, { effects: idleEffects(state) });
 }
 
 function admitRuntime(state: ChatProjectionState, runtime: PendingMetadata): ChatProjectionState {
@@ -235,6 +265,11 @@ function mergeMetadata(previous: PendingMetadata | null, next: PendingMetadata):
   return { ...(previous ?? {}), ...next };
 }
 
+function statusMetadata(status: ChatTranscriptPayloadByKind["session_status"]): PendingMetadata {
+  const { CompactionCount: compactionCount, ...sessionStatus } = status;
+  return { sessionStatus, compactionCount };
+}
+
 function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): ChatMainView {
   let next = view;
   if (metadata.sessionIdentity !== undefined) {
@@ -270,7 +305,6 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
         navigationTargetSessionID: status.NavigationTargetSessionID ?? null,
         thinkingLevel: status.ThinkingLevel,
         compactionMode: status.CompactionMode,
-        compactionCount: status.CompactionCount,
         workflowSession:
           status.Workflow === null
             ? null
@@ -279,28 +313,16 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
     };
   }
   if ("contextUsage" in metadata) {
-    const usage = metadata.contextUsage;
     next = {
       ...next,
       status: {
         ...next.status,
-        contextUsage:
-          usage === null
-            ? {
-                usedTokens: 0,
-                windowTokens: 0,
-                cacheHitPercent: 0,
-                hasCacheHitPercentage: false,
-              }
-            : {
-                usedTokens: usage.UsedTokens,
-                windowTokens: usage.WindowTokens,
-                cacheHitPercent: usage.CacheHitPercent ?? 0,
-                hasCacheHitPercentage: usage.CacheHitPercent !== null,
-              },
+        contextUsage: projectedContextUsage(metadata.contextUsage),
       },
     };
   }
+  if (metadata.compactionCount !== undefined)
+    next = { ...next, status: { ...next.status, compactionCount: metadata.compactionCount } };
   if (metadata.runtime !== undefined) {
     const admitted = admitAuthorityActivity(next, {
       ...next,
@@ -310,6 +332,19 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
     next = { ...next, version: admitted.version, activity: admitted.activity };
   }
   return next;
+}
+
+function projectedContextUsage(
+  usage: ChatTranscriptPayloadByKind["context_usage"] | null,
+): ChatMainView["status"]["contextUsage"] {
+  return usage === null
+    ? { usedTokens: 0, windowTokens: 0, cacheHitPercent: 0, hasCacheHitPercentage: false }
+    : {
+        usedTokens: usage.UsedTokens,
+        windowTokens: usage.WindowTokens,
+        cacheHitPercent: usage.CacheHitPercent ?? 0,
+        hasCacheHitPercentage: usage.CacheHitPercent !== null,
+      };
 }
 
 function admitAuthorityActivity(

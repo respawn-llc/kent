@@ -13,6 +13,8 @@ import {
   fieldInputClassName,
 } from "@/ui";
 import { ComposerPendingSheet } from "./ComposerPendingSheet";
+import { ChatPromptPicker } from "./ChatPromptPicker";
+import { SessionChatContext } from "./SessionChatContext";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
 import "./chatComposer.css";
@@ -74,6 +76,23 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
         />
       </div>
     );
+  const editorRegion = (
+    <textarea
+      ref={editor}
+      className={cx(fieldInputClassName, "chat-composer-editor")}
+      rows={1}
+      value={composer.text}
+      onChange={(event) => {
+        composer.edit(event.target.value);
+      }}
+      onKeyDown={onEditorKeyDown}
+      placeholder={
+        stoppable && activity?.queueAccepting
+          ? t("chatComposer.queuePlaceholder")
+          : t("chatComposer.placeholder")
+      }
+    />
+  );
   return (
     <div className="chat-composer" ref={root}>
       {(pickerOpen || composer.pending.items.length > 0) && (
@@ -87,21 +106,11 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
         style={availableHeight === null ? undefined : { maxHeight: availableHeight / 3 }}
         unpadded
       >
-        <textarea
-          ref={editor}
-          className={cx(fieldInputClassName, "chat-composer-editor")}
-          rows={1}
-          value={composer.text}
-          onChange={(event) => {
-            composer.edit(event.target.value);
-          }}
-          onKeyDown={onEditorKeyDown}
-          placeholder={
-            stoppable && activity?.queueAccepting
-              ? t("chatComposer.queuePlaceholder")
-              : t("chatComposer.placeholder")
-          }
-        />
+        {composer.target.kind === "session" ? (
+          <ChatPromptPicker target={composer.target}>{editorRegion}</ChatPromptPicker>
+        ) : (
+          editorRegion
+        )}
         <ComposerControls composer={composer} settingsChip={settingsChip} stoppable={stoppable} />
       </Island>
     </div>
@@ -166,6 +175,7 @@ function ComposerControls({
   return (
     <div className="chat-composer-controls">
       <div className="min-w-0 flex-1">{settingsChip}</div>
+      {composer.target.kind === "session" && <SessionChatContext compact={composer.compact} />}
       {stoppable && (
         <IconTooltipButton
           label={t("chatComposer.stop")}

@@ -3,6 +3,7 @@ export type { AppLogger, AppLogLevel } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
 export * from "./chatRuntime";
+export { isCompacting } from "./chatCompaction";
 export * from "./chatRuntimeHooks";
 export * from "./chatRuntimeProvider";
 export * from "./chatTranscriptObservation";

@@ -41,7 +41,7 @@ type SubmissionCallbacks = Readonly<{
 type Request = SubmissionCallbacks &
   Readonly<{
     target: ChatMutationTarget;
-    original: string;
+    original: string | null;
     intent: "send" | "queue";
     command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" }>;
   }>;
@@ -51,6 +51,7 @@ export type ComposerInputActivation = SubmissionCallbacks &
     intent: "send" | "queue";
     selectedToken: string | null;
     commands: readonly ComposerCommand[];
+    source: "editor" | "compact-button";
   }>;
 
 export function createComposerInputViewModel({
@@ -76,7 +77,7 @@ export function createComposerInputViewModel({
       complete(result, input, t);
     },
     onError: (error, input) => {
-      input.restore({ text: input.original, direction: "append" });
+      if (input.original !== null) input.restore({ text: input.original, direction: "append" });
       showStatusToast({
         id: "chat-composer-input",
         tone: "danger",
@@ -90,10 +91,17 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (!get(draft.read).isSuccess || input.submission.kind !== "ready") return;
-        const original = get(draft.text);
-        if (original.trim().length === 0) return;
-        const command = resolveComposerCommand(input.selectedToken ?? original, input.commands);
+        if (input.source === "editor" && (!get(draft.read).isSuccess || input.submission.kind !== "ready"))
+          return;
+        const requestTarget = mutationTarget(target, input.submission);
+        if (requestTarget === null) return;
+        const text = input.source === "editor" ? get(draft.text) : "/compact";
+        if (text.trim().length === 0) return;
+        const original = input.source === "editor" ? text : null;
+        const command = resolveComposerCommand(
+          input.source === "compact-button" ? text : (input.selectedToken ?? text),
+          input.commands,
+        );
         if (command.kind === "unknown-prompt") {
           showStatusToast({
             id: "chat-composer-input",
@@ -103,8 +111,7 @@ export function createComposerInputViewModel({
           });
           return;
         }
-        const requestTarget = mutationTarget(target, input.submission);
-        get.set(draft.submit, undefined);
+        if (original !== null) get.set(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
           observer.mutate({ ...input, target: requestTarget, original, command }),
         ).pipe(Effect.ignore);
@@ -116,9 +123,10 @@ export function createComposerInputViewModel({
 
 function mutationTarget(
   target: ChatSettingsTarget,
-  submission: Extract<ComposerSubmission, { kind: "ready" }>,
-): ChatMutationTarget {
+  submission: ComposerSubmission,
+): ChatMutationTarget | null {
   if (target.kind === "session") return target;
+  if (submission.kind !== "ready") return null;
   if (!("initialSettings" in submission)) throw new Error("Ready New Chat requires initial settings.");
   return { ...target, initialSettings: submission.initialSettings };
 }
@@ -138,7 +146,7 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
           .join("\n"),
       });
   } else {
-    input.restore({ text: input.original, direction: "append" });
+    if (input.original !== null) input.restore({ text: input.original, direction: "append" });
     showStatusToast({
       id: "chat-composer-input",
       tone: "danger",

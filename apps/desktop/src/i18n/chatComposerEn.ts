@@ -1,4 +1,16 @@
 export const chatComposerEnglish = {
+  context: {
+    compact: "Compact",
+    compacting: "Compacting",
+    remaining: "<strong>{{tokens}}</strong> tokens remaining (<strong>{{percent}}%</strong>)",
+    autoOn: "<strong>Auto-compaction</strong> on",
+    autoOff: "<strong>Auto-compaction</strong> off",
+    disabled: "Compaction disabled by policy",
+    completed: "Completed compactions: <strong>{{count}}</strong>",
+    completedTitle: "Compaction complete",
+    completedBody: "Your Chat context is ready.",
+    failed: "Compaction failed",
+  },
   saveFailed: "Could not save Chat draft",
   submitFailed: "Could not submit input",
   acceptedDiagnostic: "Input accepted with a diagnostic",
