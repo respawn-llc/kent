@@ -25,10 +25,9 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
-	Choice           *chatsettingspb.AgentChoice
-	Settings         PreparedChatSettings
-	ResolvedSettings config.Settings
-	comparison       preparedChatAgentComparison
+	Choice     *chatsettingspb.AgentChoice
+	Settings   PreparedChatSettings
+	comparison preparedChatAgentComparison
 }
 
 type PreparedChatAgentCatalog struct {
@@ -156,8 +155,7 @@ func prepareChatAgentCatalogEntry(
 			CustomCapabilities: prepared.NamedTarget != nil && config.SubagentRoleHasCapabilityOverrides(role),
 			AgentCallable:      prepared.NamedTarget == nil || config.SubagentRoleCallable(role),
 		},
-		Settings:         settings,
-		ResolvedSettings: target.Settings,
+		Settings: settings,
 	}
 	entry.comparison = preparedChatAgentComparison{
 		Settings:             normalizeComparableSettings(target.Settings),
