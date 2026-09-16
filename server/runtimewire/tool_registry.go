@@ -121,13 +121,6 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 	}
 }
 
-func (b *LocalToolRegistryBinding) Registry() *tools.Registry {
-	if b == nil {
-		return nil
-	}
-	return b.registry
-}
-
 func (b *LocalToolRegistryBinding) ReplaceFilesystemContext(next tools.FilesystemContext) error {
 	if b == nil {
 		return fmt.Errorf("local tool registry binding is required")

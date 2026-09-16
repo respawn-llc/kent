@@ -206,7 +206,7 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
-	toolRegistry := localTools.Registry()
+	toolRegistry := localTools.registry
 	promptReloader := opts.PromptFacingSnapshotReloader
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{

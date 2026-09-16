@@ -178,7 +178,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
 	t.Cleanup(func() { _ = wiring.Close() })
-	if err := wiring.LocalTools.Registry().ReplaceHandlers(tools.HandlerRegistration{
+	if err := wiring.LocalTools.registry.ReplaceHandlers(tools.HandlerRegistration{
 		ID:      toolspec.ToolPatch,
 		Handler: mismatchedDeletionPresentationHandler{},
 	}); err != nil {
@@ -384,7 +384,7 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
 	})
 
-	patchHandler, ok := binding.Registry().Get(toolspec.ToolPatch)
+	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
 	if !ok {
 		t.Fatal("missing patch handler")
 	}
@@ -399,7 +399,7 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		t.Fatalf("sibling patch result = %+v, error=%v", patchResult, err)
 	}
 
-	viewImageHandler, ok := binding.Registry().Get(toolspec.ToolViewImage)
+	viewImageHandler, ok := binding.registry.Get(toolspec.ToolViewImage)
 	if !ok {
 		t.Fatal("missing view_image handler")
 	}
@@ -449,7 +449,7 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
 	})
 
-	patchHandler, ok := binding.Registry().Get(toolspec.ToolPatch)
+	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
 	if !ok {
 		t.Fatal("missing patch handler")
 	}
@@ -464,7 +464,7 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		t.Fatalf("temporary patch result = %+v, error=%v", patchResult, err)
 	}
 
-	viewImageHandler, ok := binding.Registry().Get(toolspec.ToolViewImage)
+	viewImageHandler, ok := binding.registry.Get(toolspec.ToolViewImage)
 	if !ok {
 		t.Fatal("missing view_image handler")
 	}
@@ -754,7 +754,7 @@ func TestRuntimewireGeneratedPolicyPreservedAcrossWorkspaceRebind(t *testing.T) 
 	if err := binding.ReplaceFilesystemContext(runtimewirefixture.FilesystemContext(t, t.TempDir())); err != nil {
 		t.Fatalf("rebind: %v", err)
 	}
-	patchHandler, ok := binding.Registry().Get(toolspec.ToolPatch)
+	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
 	if !ok {
 		t.Fatal("expected patch handler")
 	}
@@ -824,13 +824,13 @@ func TestLocalToolRegistryBindingRebindUpdatesExecCommandRoot(t *testing.T) {
 		t.Fatalf("mkdir rootB: %v", err)
 	}
 	binding := newRuntimeWireBinding(t, rootA, toolspec.ToolExecCommand)
-	if got := shellPwdOutput(t, binding.Registry()); got != canonicalPathForTest(t, rootA) {
+	if got := shellPwdOutput(t, binding.registry); got != canonicalPathForTest(t, rootA) {
 		t.Fatalf("pwd before rebind = %q, want %q", got, canonicalPathForTest(t, rootA))
 	}
 	if err := binding.ReplaceFilesystemContext(runtimewirefixture.FilesystemContext(t, rootB)); err != nil {
 		t.Fatalf("rebind: %v", err)
 	}
-	if got := shellPwdOutput(t, binding.Registry()); got != canonicalPathForTest(t, rootB) {
+	if got := shellPwdOutput(t, binding.registry); got != canonicalPathForTest(t, rootB) {
 		t.Fatalf("pwd after rebind = %q, want %q", got, canonicalPathForTest(t, rootB))
 	}
 }
@@ -899,26 +899,26 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 		t.Fatalf("ReplaceFilesystemContext: %v", err)
 	}
 
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + filepath.Join(rootB, "patch.txt") + "\n-before\n+after\n*** End Patch\n",
 	})
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolViewImage, map[string]any{
 		"path": filepath.Join(rootB, "image.pdf"),
 	})
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + filepath.Join(projectRootB, "patch.txt") + "\n-before\n+after\n*** End Patch\n",
 	})
 	if approvalRequests != 0 {
 		t.Fatalf("replacement roots triggered %d approval requests", approvalRequests)
 	}
 
-	assertRuntimeWireToolError(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolError(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + filepath.Join(rootA, "patch.txt") + "\n-before\n+after\n*** End Patch\n",
 	})
-	assertRuntimeWireToolError(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{
+	assertRuntimeWireToolError(t, binding.registry, toolspec.ToolViewImage, map[string]any{
 		"path": filepath.Join(rootA, "image.pdf"),
 	})
-	assertRuntimeWireToolError(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolError(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + filepath.Join(projectRootA, "patch.txt") + "\n-before\n+after\n*** End Patch\n",
 	})
 	if approvalRequests != 3 {
@@ -968,10 +968,10 @@ func TestReplaceFilesystemContextReplacesMutationManagedWorktreePolicyWithoutRes
 		t.Fatalf("ReplaceFilesystemContext: %v", err)
 	}
 
-	assertRuntimeWireToolError(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolError(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + foreignPatch + "\n-before\n+after\n*** End Patch\n",
 	})
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolViewImage, map[string]any{
 		"path": foreignImage,
 	})
 }
@@ -1010,11 +1010,11 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowSession}, nil
 	})
 
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolPatch, map[string]any{
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolPatch, map[string]any{
 		"patch": "*** Begin Patch\n*** Update File: " + patchBefore + "\n-before\n+after\n*** End Patch\n",
 	})
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{"path": imageBefore})
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{"path": imageBefore})
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolViewImage, map[string]any{"path": imageBefore})
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolViewImage, map[string]any{"path": imageBefore})
 	if approvalRequests != 2 {
 		t.Fatalf("fresh edit/read approval requests = %d, want 2", approvalRequests)
 	}
@@ -1030,7 +1030,7 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		t.Fatal("failed filesystem context replacement changed the active context")
 	}
 
-	assertRuntimeWireToolSuccess(t, binding.Registry(), toolspec.ToolViewImage, map[string]any{"path": imageAfter})
+	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolViewImage, map[string]any{"path": imageAfter})
 	if approvalRequests != 2 {
 		t.Fatalf("approval requests after rebuild = %d, want cached edit/read decisions", approvalRequests)
 	}
@@ -1120,7 +1120,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 	}
 	startBackground := func(callID string) shelltool.Snapshot {
 		t.Helper()
-		handler, ok := binding.Registry().Get(toolspec.ToolExecCommand)
+		handler, ok := binding.registry.Get(toolspec.ToolExecCommand)
 		if !ok {
 			t.Fatal("expected exec_command handler")
 		}
@@ -1246,7 +1246,7 @@ func TestRuntimeWiringExecCommandUsesEffectiveBuiltinInsteadOfBootstrapNone(t *t
 		t.Fatal("runtime wiring replaced the supplied global shell manager")
 	}
 
-	output := callRuntimeWireExec(t, wiring.LocalTools.Registry(), "printf '\\033[31mcolor\\033[0m'")
+	output := callRuntimeWireExec(t, wiring.LocalTools.registry, "printf '\\033[31mcolor\\033[0m'")
 	if output != "color" {
 		t.Fatalf("exec_command output = %q, want builtin output from supplied active settings", output)
 	}
@@ -1279,13 +1279,13 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
 	t.Cleanup(func() { _ = wiring.Close() })
-	if got := callRuntimeWireExec(t, wiring.LocalTools.Registry(), "printf original"); got != effectiveHook {
+	if got := callRuntimeWireExec(t, wiring.LocalTools.registry, "printf original"); got != effectiveHook {
 		t.Fatalf("effective hook output = %q, want %q", got, effectiveHook)
 	}
 	if err := wiring.LocalTools.ReplaceFilesystemContext(runtimewirefixture.FilesystemContext(t, rootB)); err != nil {
 		t.Fatalf("rebind: %v", err)
 	}
-	if got := callRuntimeWireExec(t, wiring.LocalTools.Registry(), "printf rebound"); got != effectiveHook {
+	if got := callRuntimeWireExec(t, wiring.LocalTools.registry, "printf rebound"); got != effectiveHook {
 		t.Fatalf("effective hook output after rebind = %q, want %q", got, effectiveHook)
 	}
 	if active.Shell.PostprocessHook == nil || *active.Shell.PostprocessHook != effectiveHookPath {
@@ -1645,7 +1645,7 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			handler, ok := wiring.LocalTools.Registry().Get(toolspec.ToolViewImage)
+			handler, ok := wiring.LocalTools.registry.Get(toolspec.ToolViewImage)
 			if !ok {
 				t.Fatal("missing view_image handler")
 			}
@@ -1736,7 +1736,7 @@ func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Log
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
 	}
-	return binding.Registry(), broker
+	return binding.registry, broker
 }
 
 func newRuntimeWireToolRegistryWithConfig(t *testing.T, workspace string, configRoot string, allowNonCwdEdits bool, enabled ...toolspec.ID) (*tools.Registry, *askquestion.AskQuestionBroker) {
@@ -1754,7 +1754,7 @@ func newRuntimeWireToolRegistryWithConfig(t *testing.T, workspace string, config
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
 	}
-	return binding.Registry(), broker
+	return binding.registry, broker
 }
 
 func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.ID) *LocalToolRegistryBinding {
