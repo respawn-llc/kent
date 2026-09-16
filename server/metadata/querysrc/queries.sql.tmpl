@@ -2848,6 +2848,30 @@ WHERE id = sqlc.arg(task_id)
   AND execution_target_provenance IS NULL
   AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
 
+-- name: ReplaceCompletedTaskExecutionTarget :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = sqlc.narg(managed_worktree_id),
+    pending_initial_managed_branch_name = NULL,
+    execution_target_mode = sqlc.narg(execution_target_mode),
+    execution_target_requested_ref = sqlc.narg(execution_target_requested_ref),
+    execution_target_resolved_ref = sqlc.narg(execution_target_resolved_ref),
+    execution_target_commit_oid = sqlc.narg(execution_target_commit_oid),
+    execution_target_provenance = sqlc.narg(execution_target_provenance),
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE tasks.id = sqlc.arg(task_id)
+  AND execution_target_mode IS NOT NULL
+  AND execution_target_mode != 'none'
+  AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id)
+  AND EXISTS (
+      SELECT 1 FROM task_current_nodes current_node
+      JOIN workflow_nodes node ON node.id = current_node.node_id
+      WHERE current_node.task_id = tasks.id AND node.kind = 'terminal'
+  );
+
+-- name: CountTaskManagedWorktreeReferences :one
+SELECT COUNT(*) FROM tasks WHERE managed_worktree_id = sqlc.arg(managed_worktree_id);
+
 -- name: TouchTaskUpdatedAt :execrows
 UPDATE tasks
 SET updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)

@@ -242,6 +242,7 @@
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current Session, but other Goal commands detect invocation by the agent and refuse it.
 - Agent `goal set` is allowed only when no active or paused Goal exists. Completed Goals do not block the next agent-set Goal.
 - Successful Goal mutation commands must print the committed result and return independently of model-visible reminder delivery, following [Core Runtime And Tools](core-runtime-tools.md#goals).
+- `kent goal set` prints the committed Goal result to standard output before one warning to standard error when the successful Set result carries a diagnostic, and exits 0.
 - Goal commands must share one 15-second budget across connection, inspection, and mutation. A timeout must advise the caller to inspect the Goal before retrying because server-owned work may still complete, rather than expose an internal deadline error.
 - Goal completion is explicit CLI state mutation, not natural-language inference.
 - After successful Goal completion, the CLI must print `Goal marked as completed, changes will come into effect in a few seconds. After that you may end your turn normally.`
@@ -482,10 +483,13 @@
 - Task move selects the Transition automatically when exactly one is usable.
 - Flat `name=value` Task move input is unavailable because it cannot distinguish same-named outputs from different Nodes.
 - Task start, resume, and move may select a concrete target for an unlocked Task even when the Workflow has a fixed policy.
+- Task move must also accept a replacement target when reopening a completed Task whose original Execution Target cannot be reused, as defined in [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Task creation has no target override.
 - Execution Target selection uses `--execution-target none|head|default-branch|ref:<revision>`.
 - Custom Git revisions require the explicit `ref:` namespace.
 - Task start, move, and resume accept `--branch-name <name>` for initial managed-branch selection or an exact assertion against an existing managed Worktree. The flag is rejected when the operation selects no managed Worktree or when Manual Move is a no-op or does not require Execution Target preparation.
+- During completed-Task Execution Target replacement, Task move must accept `--branch-name <name>` for the new branch without renaming the original branch.
+- When a completed Task's original Execution Target is reusable, Task move must reject an explicit replacement target or branch name with the locked-target error. Supplying only `--branch-name` must not bypass this rejection.
 - Task start, resume, approve, and move never prompt interactively.
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.

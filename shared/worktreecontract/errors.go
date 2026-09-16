@@ -85,6 +85,7 @@ func NewSetupRetainedError(
 			ScriptPath:               scriptPath,
 			Diagnostic:               diagnostic,
 			RetainedPreviousWorktree: retainedPreviousWorktree,
+			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 		},
 		cause: cause,
 	}, nil

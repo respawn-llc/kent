@@ -10,6 +10,8 @@ export const rpcErrorCodes = {
   workspaceDetachConflict: -32050,
   workspaceMutationFailed: -32051,
   workflowWorktreeSetupRetained: -32039,
+  workflowExecutionTargetResolution: -32035,
+  workflowTaskInitialBranch: -32060,
   workflowTaskNotFound: -32024,
   workflowTaskCreateSelection: -32045,
   workflowTaskDependency: -32049,

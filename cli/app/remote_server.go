@@ -159,6 +159,7 @@ func (s *remoteAppServer) RuntimeAttachmentClients() runtimeAttachmentClients {
 		ProcessViews:      s.remote,
 		PromptControl:     s.remote,
 		RuntimeControls:   s.remote,
+		GoalSet:           s.remote,
 		ChatSettings:      s.remote,
 		SessionTranscript: s.remote,
 		SessionRuntime:    s.remote,

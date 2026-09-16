@@ -2,7 +2,6 @@ export { useLocalSubscription } from "./useLocalSubscription";
 export type { AppLogger, AppLogLevel } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
-export * from "./chatGoalDestination";
 export * from "./chatRuntime";
 export * from "./chatRuntimeHooks";
 export * from "./chatRuntimeProvider";

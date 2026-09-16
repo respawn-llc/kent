@@ -162,7 +162,7 @@ export function DescriptionIsland({
       data-testid="task-description-input-frame"
     >
       <CollapsibleMarkdownField
-        collapsedHeightClamp={{ maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
+        collapsedHeightClamp={{ kind: "lines", maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
         editorMinHeight={220}
         error={descriptionError}
         editing={presentation.editing}

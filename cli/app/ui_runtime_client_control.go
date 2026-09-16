@@ -10,6 +10,7 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -91,11 +92,35 @@ func (c *sessionRuntimeClient) ShowGoal() (*runtimepb.GoalView, error) {
 	return runtimeGoalFromResponse(resp), nil
 }
 
-func (c *sessionRuntimeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
-	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalMutationSuccess, error) {
-		return c.controls.SetGoal(ctx, &runtimepb.GoalSetRequest{SessionId: c.sessionID, Objective: objective, Actor: "user"})
+func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
+	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalSetSuccess, error) {
+		if c.goalSet == nil {
+			return nil, errors.New("Goal Set service is required")
+		}
+		return c.goalSet.SetGoal(ctx, &runtimepb.GoalSetRequest{
+			Target: &chatpb.ChatTarget{
+				Target: &chatpb.ChatTarget_Session{
+					Session: &chatpb.ExistingSessionTarget{SessionId: c.sessionID},
+				},
+			},
+			Objective:       objective,
+			Actor:           "user",
+			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
+		})
 	})
-	return runtimeGoalMutationResult(resp, err)
+	if err != nil {
+		return nil, err
+	}
+	if err := protoapi.Validate(resp); err != nil {
+		return nil, err
+	}
+	if rejected := resp.GetRejected(); rejected != nil {
+		return nil, client.GoalSetErrorAsError(rejected)
+	}
+	if resp.GetMutation() == nil {
+		return nil, errors.New("Goal Set response did not contain a committed mutation")
+	}
+	return resp, nil
 }
 
 func (c *sessionRuntimeClient) PauseGoal() (clientui.GoalMutationResult, error) {

@@ -12,15 +12,18 @@ import (
 
 	"core/server/llm"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -38,6 +41,7 @@ type runtimeControlFakeClient struct {
 	pauseGoalCalls        int
 	resumeGoalCalls       int
 	clearGoalCalls        int
+	goalCallEvents        *[]string
 	appendCalls           int
 	appendedRole          string
 	appendedText          string
@@ -169,15 +173,24 @@ func (f *runtimeControlFakeClient) ShowGoal() (*runtimepb.GoalView, error) {
 	f.showGoalCalls++
 	return cloneRuntimeGoal(f.goal), f.err
 }
-func (f *runtimeControlFakeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
 	f.setGoalArg = objective
 	f.goal = runtimeControlTestGoal(objective, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
-	return clientui.GoalMutationResult{
-		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
-		Goal: f.goal.Goal}, f.err
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: "session-1"},
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{
+			Mutation: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+				Goal: f.goal.Goal,
+			},
+		},
+	}, f.err
 }
 func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
 	f.pauseGoalCalls++
+	if f.goalCallEvents != nil {
+		*f.goalCallEvents = append(*f.goalCallEvents, "pause-started")
+	}
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
@@ -311,7 +324,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          mutationToken,
 		sessionID:      m.sessionID,
-		mutationSerial: m.goalRuntimeMutationSerial,
+		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
 		mutation: clientui.GoalMutationResult{
 			Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
@@ -329,6 +342,128 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		m.goal.goal.Objective != "latest" ||
 		m.goal.goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED {
 		t.Fatalf("Goal projection = %+v, want latest paused mutation result", m.goal.goal)
+	}
+}
+
+func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
+	var events []string
+	previousSchedule := scheduleTransientStatusClear
+	scheduleTransientStatusClear = func(time.Duration, uint64) tea.Cmd {
+		return nil
+	}
+	t.Cleanup(func() { scheduleTransientStatusClear = previousSchedule })
+
+	client := &runtimeControlFakeClient{goalCallEvents: &events}
+	m := newProjectedClosedUIModel(client)
+	m.sessionID = "session-1"
+	if cmd := m.goalRuntimeCommand(goalRuntimeSet, "first"); cmd == nil {
+		t.Fatal("initial Goal Set did not start")
+	}
+	pending := m.goalRuntimePending
+	mutationSerial := m.goalRuntimeMutationSerial
+	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd != nil {
+		t.Fatal("pending follow-up started before the first Goal Set settled")
+	}
+	setResult := &runtimepb.GoalSetSuccess{
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{
+			Mutation: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+				Goal: &runtimepb.Goal{
+					Id:        "goal-1",
+					Objective: "first",
+					Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+				},
+			},
+		},
+		Diagnostic: &runtimepb.GoalSetError{
+			Code: "internal_failure",
+			Detail: &runtimepb.GoalSetError_InternalFailure{
+				InternalFailure: &sharedpb.InternalFailureDetails{
+					Operation: proto.String("runtime.detach"),
+					Cause:     proto.String("release failed"),
+				},
+			},
+		},
+	}
+	cmd := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
+		token:          pending.token,
+		sessionID:      m.sessionID,
+		mutationSerial: mutationSerial,
+		operation:      goalRuntimeSet,
+		objective:      "first",
+		setResult:      setResult,
+	})
+	if m.goal.goal == nil || m.goal.goal.Objective != "first" {
+		t.Fatalf("committed Goal was not applied before warning: %+v", m.goal.goal)
+	}
+	if m.transientStatusKind != uiStatusNoticeWarning {
+		t.Fatalf("warning status kind = %v, want warning", m.transientStatusKind)
+	}
+	if cmd == nil || !m.goalRuntimePending.inFlight {
+		t.Fatal("follow-up was not admitted before warning settlement")
+	}
+	events = append(events, "warning-visible")
+	if message := cmd(); message == nil {
+		t.Fatal("pending Goal follow-up did not start after warning")
+	}
+	if got, want := strings.Join(events, ","), "warning-visible,pause-started"; got != want {
+		t.Fatalf("Goal follow-up order = %q, want %q", got, want)
+	}
+}
+
+func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
+	eventsA := []string{}
+	eventsB := []string{}
+	clientA := &runtimeControlFakeClient{goalCallEvents: &eventsA}
+	clientB := &runtimeControlFakeClient{goalCallEvents: &eventsB}
+	m := newProjectedClosedUIModel(clientA)
+	m.sessionID = "session-a"
+
+	setCmd := m.goalRuntimeCommand(goalRuntimeSet, "first")
+	if setCmd == nil {
+		t.Fatal("initial Goal Set did not start")
+	}
+	pending := m.goalRuntimePending
+	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd != nil {
+		t.Fatal("pending follow-up started before the first Goal Set settled")
+	}
+	followUp := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
+		token:          pending.token,
+		sessionID:      pending.sessionID,
+		mutationSerial: pending.inFlightMutationSerial,
+		operation:      goalRuntimeSet,
+		objective:      pending.inFlightObjective,
+		setResult: &runtimepb.GoalSetSuccess{
+			Outcome: &runtimepb.GoalSetSuccess_Mutation{
+				Mutation: &runtimepb.GoalMutationSuccess{
+					Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+					Goal: &runtimepb.Goal{Id: "goal-1", Objective: "first", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE},
+				},
+			},
+		},
+	})
+	if followUp == nil {
+		t.Fatal("Goal Set did not return its pending follow-up")
+	}
+	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != "session-a" {
+		t.Fatalf("follow-up admission = %+v, want captured session-a request", m.goalRuntimePending)
+	}
+
+	m.sessionID = "session-b"
+	m.engine = clientB
+	rawMessage := followUp()
+	msg, ok := rawMessage.(goalRuntimeDoneMsg)
+	if !ok {
+		t.Fatalf("follow-up message = %T, want goalRuntimeDoneMsg", rawMessage)
+	}
+	if msg.sessionID != "session-a" {
+		t.Fatalf("follow-up session = %q, want session-a", msg.sessionID)
+	}
+	if len(eventsA) != 1 || eventsA[0] != "pause-started" {
+		t.Fatalf("captured client events = %v, want pause-started", eventsA)
+	}
+	if len(eventsB) != 0 {
+		t.Fatalf("replacement client events = %v, want none", eventsB)
 	}
 }
 

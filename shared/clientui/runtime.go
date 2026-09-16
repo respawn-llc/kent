@@ -96,7 +96,7 @@ type RuntimeClient interface {
 	SessionView() *runtimepb.SessionView
 	SetSessionName(name string) error
 	ShowGoal() (*runtimepb.GoalView, error)
-	SetGoal(objective string) (GoalMutationResult, error)
+	SetGoal(objective string) (*runtimepb.GoalSetSuccess, error)
 	PauseGoal() (GoalMutationResult, error)
 	ResumeGoal() (GoalMutationResult, error)
 	CompleteGoal() (GoalMutationResult, error)

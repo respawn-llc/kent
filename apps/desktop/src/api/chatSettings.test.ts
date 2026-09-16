@@ -736,7 +736,7 @@ describe("Chat Settings descriptor adapter", () => {
       },
       {
         wire: create(ReadErrorSchema, { code: "future_error" }),
-        expected: { kind: "unknown", code: "future_error" },
+        expected: { kind: "unknown", code: "future_error", knownDetail: null },
       },
     ];
     for (const { wire, expected } of cases) {

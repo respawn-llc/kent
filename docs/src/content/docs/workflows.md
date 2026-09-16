@@ -274,7 +274,7 @@ The editor shows draft validation and execution validation. Draft validation cat
 
 ## 6. Manage Tasks
 
-Graph edits can be blocked when active tasks would be affected. Prefer cleaning the board from in progress task when editing workflows.
+Current unfinished Nodes and pending Approvals can block graph edits that they depend on. Transition Branches referenced only by completed Tasks can be removed or retargeted without moving those Tasks or changing their results, parameter values, comments, or Session associations. A Terminal Node containing Tasks remains protected from deletion.
 
 Project Tasks spans every workflow linked to the project. Each task belongs to one project and one linked workflow; the project supplies workspaces and execution environment, while the workflow supplies the automation path.
 
@@ -462,7 +462,7 @@ The workflow's execution-target policy chooses where executable agent and script
 
 New workflows ask when execution starts. Kent Desktop offers all four concrete targets when selection is required, preselects the repository default branch, and uses the same dialog when a configured Git target cannot be resolved.
 
-Target selection occurs on the first executable start, manual move, or approval. The task locks the selected mode and managed requested/resolved commit facts only when that initiating action succeeds. Later workflow nodes reuse the locked target; a locked target cannot be replaced with another mode.
+Target selection occurs on the first executable start, manual move, or approval. The task locks the selected mode and managed requested/resolved commit facts only when that initiating action succeeds. Later workflow nodes reuse the locked target, with the completed-Task reopening exception below.
 
 Configure a workflow policy or select a concrete target when starting, approving, or manually moving a task:
 
@@ -475,6 +475,10 @@ kent task approve <transition-id> --execution-target none|head|default-branch|re
 kent task move <task> <target-node-id> --execution-target none|head|default-branch|ref:<revision>
 ```
 
-These task actions never prompt. Their override applies only to an unlocked task and does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current session and script target. Task detail does not perform live Git branch discovery; inspect the worktree when branch identity is needed.
+These task actions never prompt. Their override applies to an unlocked Task or to the replacement required when reopening a completed Task, and does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current session and script target. Task detail does not perform live Git branch discovery; inspect the worktree when branch identity is needed.
+
+When reopening a completed Task into executable work, Kent reuses its valid Worktree, including detached HEAD, or conservatively restores a surviving named branch. If the original target cannot be safely reused, Kent explains the cause and requires a replacement selection. The Task remains Done while you choose and prepare the target. Cancel, target-resolution failure, or setup failure leaves the Move unapplied and preserves Task content and the original location.
+
+Managed replacements default to the Task Short ID as their branch name. Use the optional Branch name in Desktop or `--branch-name <new-name>` with `kent task move` to choose another name when it collides. Kent leaves the original branch untouched. A failed replacement setup retains its Worktree and branch without binding them to the Task; choose a fresh target with another branch name or cancel, rather than retrying setup in the retained root. A healthy original target cannot be replaced by supplying another target or branch name. Resume and unfinished Tasks retain their locked-target rules.
 
 More about worktrees on the [Worktree](../worktrees/) page.

@@ -1387,6 +1387,110 @@ func TestPrepareTaskExecutionRootRetriesIgnoredOrEmptyChangedRootInPlace(t *test
 	}
 }
 
+func TestPrepareCompletedReplacementLeavesOriginalTargetBound(t *testing.T) {
+	env := newServiceTestEnv(t)
+	task, original, base := completedTaskWorktree(t, env)
+	script := filepath.Join("scripts", "replacement-success.sh")
+	writeExecutableFile(t, filepath.Join(env.workspaceRoot, script), "#!/bin/sh\nprintf prepared > \"$PWD/replacement-result\"\n")
+	env.service.setupScript = script
+	before, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := task.ShortID + "-reopened"
+	prepared, err := env.service.PrepareTaskExecutionRoot(env.ctx, TaskExecutionRootPreparationRequest{
+		TaskID: task.ID, Purpose: TaskExecutionRootCompletedReplacement,
+		ManagedTarget: &base, SetupRequirement: worktreecontract.SetupRequirementRequired,
+		BranchName: &branch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil || after != before {
+		t.Fatalf("preparation changed original Task: %+v -> %+v: %v", before, after, err)
+	}
+	if prepared.Materialization == nil || prepared.Root.Managed == nil ||
+		prepared.Root.Managed.WorktreeID == taskWorktreeID(original.Worktree) {
+		t.Fatalf("replacement root = %+v", prepared)
+	}
+	if got := taskWorktreeBranch(prepared.Materialization.Worktree); got != branch {
+		t.Fatalf("replacement branch = %q", got)
+	}
+	if _, err := os.Stat(taskWorktreeRoot(original.Worktree)); err != nil {
+		t.Fatalf("original root lost: %v", err)
+	}
+	if got := waitForFileText(t, filepath.Join(prepared.Root.Managed.Root, "replacement-result")); got != "prepared" {
+		t.Fatalf("replacement setup result = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(taskWorktreeRoot(original.Worktree), "replacement-result")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement setup affected original root: %v", err)
+	}
+}
+
+func completedTaskWorktree(t *testing.T, env *serviceTestEnv) (workflowstore.TaskRecord, TaskWorktreeMaterialization, GitRevision) {
+	t.Helper()
+	task, original, base := materializeAndLockTaskWorktree(t, env)
+	store, err := workflowstore.New(env.store, workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("workflow-test")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := store.ListCurrentNodes(env.ctx, task.ID)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("current Nodes = %+v: %v", nodes, err)
+	}
+	if _, err := store.CompleteCurrentNode(env.ctx, workflowstore.CurrentNodeCompletionRequest{
+		Source: nodes[0].Reference, TransitionID: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return task, original, base
+}
+
+func TestPrepareCompletedReplacementSetupFailureRetainsFreshUnboundRoot(t *testing.T) {
+	env := newServiceTestEnv(t)
+	task, original, base := completedTaskWorktree(t, env)
+	before, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join("scripts", "replacement-fails.sh")
+	writeExecutableFile(t, filepath.Join(env.workspaceRoot, script),
+		"#!/bin/sh\nprintf attempt >> \"$PWD/attempts\"\nexit 7\n")
+	env.service.setupScript = script
+	branch := task.ShortID + "-replacement"
+	req := TaskExecutionRootPreparationRequest{
+		TaskID: task.ID, Purpose: TaskExecutionRootCompletedReplacement,
+		ManagedTarget: &base, SetupRequirement: worktreecontract.SetupRequirementRequired, BranchName: &branch,
+	}
+	prepared, err := env.service.PrepareTaskExecutionRoot(env.ctx, req)
+	var retained *worktreecontract.SetupRetainedError
+	if !errors.As(err, &retained) {
+		t.Fatalf("replacement setup error = %v", err)
+	}
+	if prepared.Root.Managed == nil {
+		t.Fatal("missing retained replacement root")
+	}
+	if got := waitForFileText(t, filepath.Join(prepared.Root.Managed.Root, "attempts")); got != "attempt" {
+		t.Fatalf("setup ran more than once: %q", got)
+	}
+	after, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil || after != before {
+		t.Fatalf("failed preparation changed Task: %+v -> %+v: %v", before, after, err)
+	}
+	if _, err := os.Stat(filepath.Join(taskWorktreeRoot(original.Worktree), "attempts")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("setup affected original root: %v", err)
+	}
+	if _, err := env.service.PrepareTaskExecutionRoot(env.ctx, req); !errors.As(err, new(*serverapi.WorkflowTaskInitialBranchError)) {
+		t.Fatalf("fresh attempt reused retained branch: %v", err)
+	}
+	branch = task.ShortID + "-another"
+	another, err := env.service.PrepareTaskExecutionRoot(env.ctx, req)
+	if !errors.As(err, &retained) || another.Root.Managed == nil || another.Root.Managed.Root == prepared.Root.Managed.Root {
+		t.Fatalf("fresh attempt did not retain a distinct root: %+v: %v", another, err)
+	}
+}
+
 func TestPrepareTaskExecutionRootFinalSetupFailureRetainsCurrentRootAndBinding(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, _ := createTaskWorktreeTestTask(t, env)

@@ -59,6 +59,7 @@ type ChatMutationService interface {
 	Steer(ctx context.Context, req *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error)
 	Queue(ctx context.Context, req *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error)
 	Compact(ctx context.Context, req *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error)
+	SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error)
 }
 
 type PromptCommandCatalogService interface {
@@ -127,7 +128,6 @@ type RuntimeControlService interface {
 	Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error)
 	RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error
 	ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error)
-	SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error)
 	PauseGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
 	ResumeGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
 	CompleteGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)

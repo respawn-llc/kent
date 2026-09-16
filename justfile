@@ -41,9 +41,10 @@ setup *args: _node
         git config --local core.hooksPath .githooks
     '
 
-# Regenerate protobuf-derived Go and TypeScript sources.
+# Regenerate protobuf-derived sources and metadata queries.
 gen:
     @bash scripts/quiet-on-success.sh just _node _lint-protobuf _generate
+    @bash scripts/quiet-on-success.sh go generate ./server/metadata/sqlitegen
 
 # Run active tests, or select server, desktop, tui, or explicit frozen rust.
 test *args:

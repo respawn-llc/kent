@@ -21,6 +21,7 @@ type ManualMovePreparation struct {
 	currentNodes            []workflow.CurrentNode
 	noOp                    bool
 	requiresExecutionTarget bool
+	completedOrigin         bool
 }
 
 type ManualMoveTargetAssignment struct {
@@ -58,6 +59,10 @@ var errManualMoveTargetShapeChanged = errors.New("manual move target shape chang
 
 func (p ManualMovePreparation) RequiresExecutionTarget() bool {
 	return p.requiresExecutionTarget
+}
+
+func (p ManualMovePreparation) ReopensCompletedTask() bool {
+	return p.requiresExecutionTarget && p.completedOrigin
 }
 
 func (p ManualMovePreparation) IsNoOp() bool {
@@ -113,18 +118,40 @@ func (s *Store) PrepareManualMove(ctx context.Context, req ManualMoveRequest) (p
 			return ManualMovePreparation{}, err
 		}
 		choice := preview.Choices[0]
+		currentNodes, err := s.listTaskCurrentNodes(ctx, s.queries, req.TaskID)
+		if err != nil {
+			return ManualMovePreparation{}, err
+		}
+		completedOrigin, err := taskCurrentNodesAreCompleted(ctx, s.queries, req.TaskID, currentNodes)
+		if err != nil {
+			return ManualMovePreparation{}, err
+		}
 		return ManualMovePreparation{
 			request:                 req,
 			target:                  target,
 			choice:                  &choice,
 			requiresExecutionTarget: executableNodeKind(target.Kind()),
-			currentNodes:            preview.CurrentNodes,
+			currentNodes:            currentNodes,
+			completedOrigin:         completedOrigin,
 		}, nil
 	case ManualMovePreviewOutcomeBlocked:
 		return ManualMovePreparation{}, manualMovePreviewBlockerError(preview.Blocker)
 	default:
 		return ManualMovePreparation{}, fmt.Errorf("manual move preview cannot be prepared from outcome %q", preview.Outcome)
 	}
+}
+
+func taskCurrentNodesAreCompleted(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID, nodes []workflow.CurrentNode) (bool, error) {
+	for _, current := range nodes {
+		node, err := currentNodeDefinitionNodeFromTask(ctx, q, taskID, current.Reference.NodeID)
+		if err != nil {
+			return false, err
+		}
+		if node.Kind() == workflow.NodeKindTerminal {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func currentNodeDefinitionNodeFromTask(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID, nodeID workflow.NodeID) (workflow.Node, error) {
@@ -418,7 +445,30 @@ func (s *Store) prepareManualMoveExecutionTarget(
 	if err != nil {
 		return preparedManualMoveExecutionTarget{}, err
 	}
-	targetMutation, err := s.prepareExecutionTargetMutation(ctx, task, executionTarget)
+	var targetMutation preparedExecutionTargetMutation
+	if executionTarget != nil && task.ExecutionTargetMode.Valid {
+		currentNodes, readErr := s.listTaskCurrentNodes(ctx, s.queries, prepared.TaskID())
+		if readErr != nil {
+			return preparedManualMoveExecutionTarget{}, readErr
+		}
+		completed, readErr := taskCurrentNodesAreCompleted(ctx, s.queries, prepared.TaskID(), currentNodes)
+		if readErr != nil {
+			return preparedManualMoveExecutionTarget{}, readErr
+		}
+		if !completed || task.ExecutionTargetMode.String == string(workflow.ExecutionTargetModeNone) {
+			return preparedManualMoveExecutionTarget{}, ErrExecutionTargetAlreadyLocked
+		}
+		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *executionTarget, executionTargetCompletedReplacement); err != nil {
+			return preparedManualMoveExecutionTarget{}, err
+		}
+		targetMutation = preparedExecutionTargetMutation{
+			mode:          executionTargetCompletedReplacement,
+			executionRoot: executionTarget.Root,
+			candidate:     executionTarget,
+		}
+	} else {
+		targetMutation, err = s.prepareExecutionTargetMutation(ctx, task, executionTarget)
+	}
 	if err != nil {
 		return preparedManualMoveExecutionTarget{}, err
 	}

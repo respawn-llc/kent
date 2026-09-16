@@ -1,9 +1,18 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 
 import { CollapsibleMarkdownViewport, type MarkdownHeightClamp } from "./CollapsibleMarkdownViewport";
 import { StaticMarkdown } from "./MarkdownText";
 import { cx } from "./classes";
 import { fieldIslandInputClassName, type FieldIslandRadius } from "./fieldInputStyles";
+import { useOpacityExit } from "./motion";
 import {
   consumeTextFieldSubmitShortcut,
   type TextFieldSubmitShortcutPolicy,
@@ -26,6 +35,7 @@ type MarkdownFieldCommonProps = Readonly<{
   disabled?: boolean;
   editorMinHeight: number;
   error?: string | undefined;
+  floatingAction?: MarkdownFloatingAction | undefined;
   label: string;
   onChange: (value: string) => void;
   onEdit: () => void;
@@ -92,6 +102,7 @@ function MarkdownFieldCore({
   disabled = false,
   editorMinHeight,
   error,
+  floatingAction,
   label,
   onChange,
   onEdit,
@@ -118,13 +129,14 @@ function MarkdownFieldCore({
           : "grid-rows-[minmax(0,1fr)_auto] gap-[var(--space-2)]",
       )}
     >
-      <div className="min-h-0 min-w-0 max-w-full">
+      <div className="relative min-h-0 min-w-0 max-w-full">
         {showEditor ? (
           <MarkdownFieldEditor
             describedBy={errorText === undefined ? undefined : errorID}
             editorMinHeight={editorMinHeight}
             error={errorText !== undefined}
             fieldID={fieldID}
+            hasFloatingAction={floatingAction !== undefined}
             label={label}
             onBlur={() => {
               onEditingChange(false);
@@ -146,6 +158,7 @@ function MarkdownFieldCore({
         ) : (
           <MarkdownFieldReadViewport
             disabled={disabled}
+            hasFloatingAction={floatingAction !== undefined}
             label={label}
             onChange={onChange}
             onEdit={onEdit}
@@ -157,6 +170,7 @@ function MarkdownFieldCore({
             value={value}
           />
         )}
+        <MarkdownFieldFloatingAction action={floatingAction} />
       </div>
       {errorText === undefined ? null : (
         <span className="text-[var(--color-error)]" id={errorID}>
@@ -167,11 +181,67 @@ function MarkdownFieldCore({
   );
 }
 
+type MarkdownFloatingAction = Awaited<ReactNode>;
+
+function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloatingAction | undefined }>) {
+  const phase = useOpacityExit(action !== undefined);
+  const [retainedAction, setRetainedAction] = useState<MarkdownFloatingAction | undefined>(action);
+  const actionRef = useRef<HTMLDivElement | null>(null);
+  if (action !== undefined && action !== retainedAction) {
+    setRetainedAction(action);
+  }
+  if (phase === "hidden" && retainedAction !== undefined) {
+    setRetainedAction(undefined);
+  }
+  useEffect(() => {
+    if (phase !== "exiting") return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && actionRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, [phase]);
+  if (phase === "hidden") return null;
+  const renderedAction = action ?? retainedAction;
+  if (renderedAction === undefined) return null;
+  const exiting = phase === "exiting";
+  return (
+    <div
+      aria-hidden={exiting}
+      className={cx(
+        "pointer-events-none absolute right-[var(--space-2)] bottom-[var(--space-2)] z-10 transition-opacity motion-reduce:transition-none",
+        phase === "visible" ? "opacity-100" : "opacity-0",
+      )}
+      data-slot="markdown-field-floating-action"
+      inert={exiting}
+      onClickCapture={
+        exiting
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          : undefined
+      }
+      onKeyDownCapture={
+        exiting
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          : undefined
+      }
+      ref={actionRef}
+    >
+      <div className={exiting ? "pointer-events-none" : "pointer-events-auto"}>{renderedAction}</div>
+    </div>
+  );
+}
+
 function MarkdownFieldEditor({
   describedBy,
   editorMinHeight,
   error,
   fieldID,
+  hasFloatingAction,
   label,
   onBlur,
   onChange,
@@ -184,6 +254,7 @@ function MarkdownFieldEditor({
   editorMinHeight: number;
   error: boolean;
   fieldID: string;
+  hasFloatingAction: boolean;
   label: string;
   onBlur: () => void;
   onChange: (value: string) => void;
@@ -224,6 +295,7 @@ function MarkdownFieldEditor({
       className={cx(
         fieldIslandInputClassName(1, surfaceRadius),
         "block h-full min-h-0 min-w-0 resize-none p-[var(--space-2)] font-mono",
+        hasFloatingAction && "pb-12",
       )}
       id={fieldID}
       ref={editorRef}
@@ -240,6 +312,7 @@ function MarkdownFieldEditor({
 
 function MarkdownFieldReadViewport({
   disabled,
+  hasFloatingAction,
   label,
   onChange,
   onEdit,
@@ -251,6 +324,7 @@ function MarkdownFieldReadViewport({
   value,
 }: Readonly<{
   disabled: boolean;
+  hasFloatingAction: boolean;
   label: string;
   onChange: (value: string) => void;
   onEdit: () => void;
@@ -300,11 +374,13 @@ function MarkdownFieldReadViewport({
             : {})}
           {...(onExpand === undefined ? {} : { onExpand })}
         >
-          {value.trim().length > 0 ? (
-            <StaticMarkdown disabled={disabled} {...(taskListProps ?? {})} value={value} />
-          ) : (
-            <span className="text-[var(--color-muted)]">{placeholder}</span>
-          )}
+          <div className={cx("min-w-0 max-w-full", hasFloatingAction && "pb-12")}>
+            {value.trim().length > 0 ? (
+              <StaticMarkdown disabled={disabled} {...(taskListProps ?? {})} value={value} />
+            ) : (
+              <span className="text-[var(--color-muted)]">{placeholder}</span>
+            )}
+          </div>
         </CollapsibleMarkdownViewport>
       </div>
     </div>

@@ -2,6 +2,9 @@ package client
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -127,9 +130,63 @@ func (c *Remote) ShowGoal(ctx context.Context, request *runtimepb.GoalShowReques
 		func(failure *runtimepb.GoalShowError) error { return runtimeControlGeneratedError(failure) })
 }
 
-func (c *Remote) SetGoal(ctx context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
-	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "GoalService", "Set"), request, &runtimepb.GoalSetResult{},
-		func(failure *runtimepb.GoalSetError) error { return runtimeControlGeneratedError(failure) })
+func (c *Remote) SetGoal(ctx context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	method := bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "GoalService", "Set")
+	result := &runtimepb.GoalSetResult{}
+	if err := c.callBinary(ctx, method, request, result); err != nil {
+		return nil, err
+	}
+	classified, err := protoapi.ClassifyResult(result)
+	if err != nil {
+		return nil, fmt.Errorf("classify %s result: %w", method.FullName(), err)
+	}
+	switch classified.Outcome {
+	case protoapi.OperationSuccess:
+		return result.GetSuccess(), nil
+	case protoapi.OperationKnownFailure, protoapi.OperationGenericFailure:
+		failure := result.GetError()
+		if failure == nil {
+			return nil, fmt.Errorf("%s classified a failure without an error value", method.FullName())
+		}
+		return nil, goalSetGeneratedError(failure)
+	default:
+		return nil, fmt.Errorf("classify %s result: unknown outcome %d", method.FullName(), classified.Outcome)
+	}
+}
+
+type GoalSetGeneratedError struct {
+	Failure *runtimepb.GoalSetError
+}
+
+func (e *GoalSetGeneratedError) Error() string {
+	if e == nil || e.Failure == nil || e.Failure.Code == "" {
+		return "Goal Set failed"
+	}
+	return fmt.Sprintf("Goal Set failed with code %q", e.Failure.Code)
+}
+
+func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
+	if failure == nil {
+		return errors.New("Goal Set error is required")
+	}
+	if err := protoapi.Validate(failure); err != nil {
+		return fmt.Errorf("validate Goal Set error: %w", err)
+	}
+	switch failure.Code {
+	case "runtime_unavailable":
+		if detail := failure.GetRuntimeUnavailable(); detail != nil && strings.TrimSpace(detail.SessionId) != "" {
+			return fmt.Errorf("%w: %s", serverapi.ErrRuntimeUnavailable, detail.SessionId)
+		}
+		return serverapi.ErrRuntimeUnavailable
+	case "internal_failure":
+		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
+	default:
+		return &GoalSetGeneratedError{Failure: failure}
+	}
+}
+
+func GoalSetErrorAsError(failure *runtimepb.GoalSetError) error {
+	return goalSetGeneratedError(failure)
 }
 
 func (c *Remote) PauseGoal(ctx context.Context, request *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
