@@ -1651,6 +1651,11 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	if err != nil {
 		return serverapi.WorkflowTaskResumeResponse{}, err
 	}
+	if target.preparationKind == targetPreparationReplacement || target.preparationKind == targetPreparationSetupRetry {
+		if err := s.currentNodeExecution.EnsureTaskQuiescent(taskID); err != nil {
+			return serverapi.WorkflowTaskResumeResponse{}, err
+		}
+	}
 	var preparation *workflowexecution.TaskStartPreparation
 	if target.context.Task.ExecutionTarget == nil {
 		target.unavailable = initiatingActionTargetRequestSelection

@@ -436,11 +436,6 @@ func (c *CurrentNodeController) resumeTask(
 				CurrentNodes: classification.alreadyResumed,
 			}, nil
 		}
-		if preparation != nil {
-			if err := c.EnsureTaskQuiescent(taskID); err != nil {
-				return TaskResumeResult{}, err
-			}
-		}
 		var resumeErrs []error
 		if classification.validationErr != nil {
 			resumeErrs = append(resumeErrs, classification.validationErr)
