@@ -14,7 +14,14 @@ it("admits one Create and completes its accepted request after the destination l
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
   const submission = {
-    input: { projectID: "project-1", sourceWorkspaceID: "workspace-1", title: "Task", body: "", labelIDs: [], dependencyIntents: [] },
+    input: {
+      projectID: "project-1",
+      sourceWorkspaceID: "workspace-1",
+      title: "Task",
+      body: "",
+      labelIDs: [],
+      dependencyIntents: [],
+    },
     onSuccess,
     onError,
   };
@@ -25,7 +32,11 @@ it("admits one Create and completes its accepted request after the destination l
   expect(create).toHaveBeenCalledTimes(1);
   view.unmount();
   const created = { id: "task-1", shortID: "KENT-1", title: "Task", workflowID: "workflow-1" };
-  await act(async () => { response.resolve(created); });
-  await waitFor(() => { expect(onSuccess).toHaveBeenCalledWith(created); });
+  await act(async () => {
+    response.resolve(created);
+  });
+  await waitFor(() => {
+    expect(onSuccess).toHaveBeenCalledWith(created);
+  });
   expect(onError).not.toHaveBeenCalled();
 });

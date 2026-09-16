@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { taskSearchDebounceMs, useDebouncedText, useTaskSearch, type TaskSearchResult } from "@/app-facade";
+import { useTaskSearch, type TaskSearchResult } from "@/app-facade";
 import { TaskStatusIcon } from "@/shared/task-status";
 import {
   IconTooltipButton,
@@ -38,8 +38,7 @@ export function TaskDependencyPicker({
   const [pendingTaskID, setPendingTaskID] = useState<string | null>(null);
   const [acceptedTaskIDs, setAcceptedTaskIDs] = useState<ReadonlySet<string>>(() => new Set());
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const debouncedQuery = useDebouncedText(query, taskSearchDebounceMs);
-  const search = useTaskSearch(projectID, open && !disabled, debouncedQuery);
+  const search = useTaskSearch(projectID, open && !disabled, query);
   const results = useMemo(
     () =>
       search.results.filter(
@@ -176,7 +175,7 @@ function TaskDependencySearchResults({
       )}
       onLoadMore={() => {
         if (search.paginationUsesVisibleData) {
-          void search.request.fetchNextPage();
+          search.request.fetchNextPage();
         }
       }}
       renderItem={(result) => (
@@ -275,7 +274,7 @@ function taskDependencySearchBoundary(
       message: `${message} ${errorMessage(search.request.error)}`,
       retryLabel,
       onRetry: () => {
-        void search.request.fetchNextPage();
+        search.request.fetchNextPage();
       },
     };
   }
