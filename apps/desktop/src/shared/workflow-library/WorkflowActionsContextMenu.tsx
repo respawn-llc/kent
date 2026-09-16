@@ -7,6 +7,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  Spinner,
 } from "@/ui";
 import { useWorkflowDeleteLauncher } from "@/shared/workflow-deletion";
 
@@ -34,10 +35,14 @@ export function WorkflowActionsContextMenu({
             className="text-[var(--color-error)] data-[highlighted]:text-[var(--color-error)]"
             disabled={deleteLauncher.disabled}
             onSelect={() => {
-              void deleteLauncher.openWorkflowDelete();
+              deleteLauncher.openWorkflowDelete();
             }}
           >
-            {t("workflowLibrary.delete")}
+            {deleteLauncher.opening || deleteLauncher.submitting ? (
+              <Spinner size="sm" />
+            ) : (
+              t("workflowLibrary.delete")
+            )}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

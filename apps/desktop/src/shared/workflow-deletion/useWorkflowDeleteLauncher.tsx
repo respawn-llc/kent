@@ -1,243 +1,125 @@
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMatchRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useMemo, useState } from "react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-
-import type { WorkflowDeleteImpact } from "@/api";
 import { errorMessage } from "@/api";
-import { queryKeys, useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
+import { useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
 import { Dialog, useStableCallback } from "@/ui";
 import { WorkflowDeleteConfirmationContent } from "./WorkflowDeleteConfirmationContent";
-import {
-  workflowDeleteBlockersMessage,
-  workflowDeleteDialogWidth,
-  workflowDeleteInputFromImpact,
-} from "./workflowDeleteShared";
+import { workflowDeleteBlockersMessage, workflowDeleteDialogWidth } from "./workflowDeleteShared";
+import { createWorkflowDeleteModel } from "./WorkflowDeleteModel";
 
-type DeleteOperation = Readonly<{ impact: WorkflowDeleteImpact; ownerWorkflowID: string }>;
-type PreviewAdmission = Readonly<{ ownerWorkflowID: string }>;
-
-export function useWorkflowDeleteLauncher(
-  workflowID: string,
-  onDeleted?: () => void,
-): Readonly<{
-  disabled: boolean;
-  dialog: ReactNode;
-  openWorkflowDelete: () => Promise<void>;
-  opening: boolean;
-}> {
+export function useWorkflowDeleteLauncher(workflowID: string, onDeleted?: () => void) {
   const { t } = useTranslation();
   const { api } = useAppServices();
   const navigation = useAppNavigation();
-  const queryClient = useQueryClient();
+  const client = useQueryClient();
   const matchRoute = useMatchRoute();
   const { push, dismiss } = useStatusController();
-  const previewNoticeID = useId();
-  const [pending, setPending] = useState<DeleteOperation | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [committedOwner, setCommittedOwner] = useState<string | null>(null);
-  const [openingOwner, setOpeningOwner] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const workflowIDRef = useRef<string | null>(workflowID);
-  const previewAdmissionRef = useRef<PreviewAdmission | null>(null);
-  const submitAdmissionRef = useRef<DeleteOperation | null>(null);
-  const committedOwnerRef = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    workflowIDRef.current = workflowID;
-    return () => {
-      workflowIDRef.current = null;
-      dismiss(previewNoticeID);
-    };
-  }, [dismiss, previewNoticeID, workflowID]);
-
-  useEffect(() => {
-    const stalePreview = previewAdmissionRef.current;
-    const stalePending = pending;
-    const previewStale = stalePreview !== null && stalePreview.ownerWorkflowID !== workflowID;
-    const pendingStale =
-      stalePending !== null &&
-      stalePending.ownerWorkflowID !== workflowID &&
-      submitAdmissionRef.current !== stalePending;
-    if (!previewStale && !pendingStale) return;
-    queueMicrotask(() => {
-      if (previewStale && previewAdmissionRef.current === stalePreview) {
-        previewAdmissionRef.current = null;
-        setOpeningOwner((current) => (current === stalePreview.ownerWorkflowID ? null : current));
-      }
-      if (pendingStale) {
-        setPending((current) => (current === stalePending ? null : current));
-        setActionError(null);
-      }
+  const noticeID = useId();
+  const onCompletionError = useStableCallback((error: unknown) => {
+    push({
+      id: "workflow-delete-committed-notify-error",
+      tone: "warning",
+      title: t("workflowEditor.workflowDeleteTitle"),
+      body: t("workflowEditor.workflowDeleteCommittedNotifyError", { message: errorMessage(error) }),
     });
-  }, [pending, workflowID]);
-
-  const confirmDelete = useCallback(
-    async (operation: DeleteOperation): Promise<void> => {
-      if (
-        submitAdmissionRef.current !== null ||
-        committedOwnerRef.current === operation.ownerWorkflowID ||
-        workflowIDRef.current !== operation.ownerWorkflowID
-      ) {
-        return;
-      }
-      submitAdmissionRef.current = operation;
-      setActionError(null);
-      setSubmitting(true);
-      const retry = (message: string): void => {
-        if (submitAdmissionRef.current === operation) submitAdmissionRef.current = null;
-        setSubmitting(false);
-        if (workflowIDRef.current === operation.ownerWorkflowID) {
-          setActionError(message);
-        } else {
-          setPending((current) => (current === operation ? null : current));
-        }
-      };
-      try {
-        const response = await api.deleteWorkflow(workflowDeleteInputFromImpact(operation.impact));
-        if (!response.deleted) {
-          retry(workflowDeleteBlockersMessage(response.blockers, t("workflowEditor.workflowDeleteBlocked")));
-          return;
-        }
-      } catch (error) {
-        retry(errorMessage(error));
-        return;
-      }
-
-      committedOwnerRef.current = operation.ownerWorkflowID;
-      setCommittedOwner(operation.ownerWorkflowID);
-      submitAdmissionRef.current = null;
-      setSubmitting(false);
-      setPending((current) => (current === operation ? null : current));
-      try {
-        await invalidateWorkflowDeleteQueries(queryClient, operation.ownerWorkflowID);
-        onDeleted?.();
-        const routeMatches =
-          matchRoute({
-            to: "/workflows/$workflowId/editor",
-            params: { workflowId: operation.ownerWorkflowID },
-            pending: false,
-            fuzzy: false,
-            includeSearch: false,
-          }) !== false ||
-          matchRoute({
-            to: "/projects/$projectId",
-            search: { workflowId: operation.ownerWorkflowID },
-            pending: false,
-            fuzzy: false,
-            includeSearch: true,
-          }) !== false;
-        if (routeMatches) {
-          if ((await navigation.openWorkflowLibrary()) === "failed") {
-            throw new Error(t("workflowEditor.workflowDeleteNavigationError"));
-          }
-        }
-        push({
-          id: "workflow-delete-deleted",
-          tone: "success",
-          title: t("workflowEditor.workflowDeleted"),
-        });
-      } catch (error) {
-        push({
-          id: "workflow-delete-committed-notify-error",
-          tone: "warning",
-          title: t("workflowEditor.workflowDeleteTitle"),
-          body: t("workflowEditor.workflowDeleteCommittedNotifyError", {
-            message: errorMessage(error),
-          }),
-        });
-      }
-    },
-    [api, matchRoute, navigation, onDeleted, push, queryClient, t],
-  );
-
-  const retryPreview = useStableCallback((ownerWorkflowID: string) => {
-    if (workflowIDRef.current === ownerWorkflowID) void openWorkflowDelete();
   });
-  async function openWorkflowDelete(): Promise<void> {
-    if (
-      previewAdmissionRef.current !== null ||
-      submitAdmissionRef.current !== null ||
-      pending?.ownerWorkflowID === workflowID ||
-      committedOwnerRef.current === workflowID
-    ) {
-      return;
+  const model = useMemo(
+    () => createWorkflowDeleteModel({ api, client, workflowID, onCompletionError }),
+    [api, client, workflowID, onCompletionError],
+  );
+  const [shown, setShown] = useState<typeof model | null>(null);
+  useAtomMount(model.preview);
+  useAtomMount(model.deletion);
+  const preview = useAtomValue(model.preview);
+  const deletion = useAtomValue(model.deletion);
+  const open = useAtomSet(model.open, { mode: "value" });
+  const confirm = useAtomSet(model.confirm, { mode: "value" });
+  const reset = useAtomSet(model.cancel, { mode: "value" });
+  useLayoutEffect(
+    () => () => {
+      dismiss(noticeID);
+    },
+    [dismiss, model, noticeID],
+  );
+  const cancel = () => {
+    if (deletion.isPending) return;
+    setShown(null);
+    reset(undefined);
+  };
+  const complete = async () => {
+    onDeleted?.();
+    const routeMatches =
+      matchRoute({
+        to: "/workflows/$workflowId/editor",
+        params: { workflowId: workflowID },
+        pending: false,
+        fuzzy: false,
+        includeSearch: false,
+      }) !== false ||
+      matchRoute({
+        to: "/projects/$projectId",
+        search: { workflowId: workflowID },
+        pending: false,
+        fuzzy: false,
+        includeSearch: true,
+      }) !== false;
+    if (routeMatches && (await navigation.openWorkflowLibrary()) === "failed") {
+      throw new Error(t("workflowEditor.workflowDeleteNavigationError"));
     }
-    const admission = { ownerWorkflowID: workflowID };
-    previewAdmissionRef.current = admission;
-    setOpeningOwner(workflowID);
-    try {
-      const impact = await api.previewWorkflowDelete(workflowID);
-      if (previewAdmissionRef.current === admission && workflowIDRef.current === workflowID) {
-        setPending({ impact, ownerWorkflowID: workflowID });
-      }
-    } catch (error) {
-      if (previewAdmissionRef.current === admission && workflowIDRef.current === workflowID) {
-        push({
-          id: previewNoticeID,
-          tone: "danger",
-          title: t("workflowEditor.workflowDeleteTitle"),
-          body: errorMessage(error),
-          actionLabel: t("app.retry"),
-          onAction: () => {
-            retryPreview(workflowID);
-          },
-        });
-      }
-    } finally {
-      if (previewAdmissionRef.current === admission) previewAdmissionRef.current = null;
-      setOpeningOwner((current) => (current === workflowID ? null : current));
-    }
-  }
-
-  const cancelPending = useCallback(() => {
-    if (submitAdmissionRef.current !== null) return;
-    setPending(null);
-    setActionError(null);
-  }, []);
-  const currentPending = pending?.ownerWorkflowID === workflowID ? pending : null;
-  const opening = openingOwner === workflowID;
+    push({ id: "workflow-delete-deleted", tone: "success", title: t("workflowEditor.workflowDeleted") });
+  };
+  const committed = deletion.data?.deleted === true;
+  const actionError = deletion.isError
+    ? errorMessage(deletion.error)
+    : deletion.data !== undefined && !deletion.data.deleted
+      ? workflowDeleteBlockersMessage(deletion.data.blockers, t("workflowEditor.workflowDeleteBlocked"))
+      : undefined;
   return {
-    disabled: opening || submitting || currentPending !== null || committedOwner === workflowID,
+    disabled: committed,
+    opening: preview.isPending,
+    submitting: deletion.isPending,
+    openWorkflowDelete: () => {
+      setShown(model);
+      open({
+        onError(error, retry) {
+          push({
+            id: noticeID,
+            tone: "danger",
+            title: t("workflowEditor.workflowDeleteTitle"),
+            body: errorMessage(error),
+            actionLabel: t("app.retry"),
+            onAction: retry,
+          });
+        },
+      });
+    },
     dialog:
-      currentPending === null
+      shown !== model || preview.data === undefined || committed
         ? null
         : createPortal(
             <Dialog
               closeLabel={t("app.close")}
-              closeDisabled={submitting}
-              onClose={cancelPending}
+              closeDisabled={deletion.isPending}
+              onClose={cancel}
               open
               title={t("workflowEditor.workflowDeleteTitle")}
               width={workflowDeleteDialogWidth}
             >
               <WorkflowDeleteConfirmationContent
-                actionError={actionError ?? undefined}
-                disabled={submitting}
-                impact={currentPending.impact}
-                onCancel={cancelPending}
-                onConfirm={() => void confirmDelete(currentPending)}
+                actionError={actionError}
+                disabled={deletion.isPending}
+                impact={preview.data}
+                onCancel={cancel}
+                onConfirm={() => {
+                  confirm({ onCompleted: complete });
+                }}
               />
             </Dialog>,
             document.body,
           ),
-    openWorkflowDelete,
-    opening,
-  };
-}
-
-async function invalidateWorkflowDeleteQueries(queryClient: QueryClient, workflowID: string): Promise<void> {
-  queryClient.removeQueries({ queryKey: queryKeys.workflowDefinition(workflowID) });
-  queryClient.removeQueries({ queryKey: queryKeys.workflowValidation(workflowID, "execution") });
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflowDefinitions }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflowValidations }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflowGraphLayouts }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allProjectWorkflowLinks }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allBoards }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allAttention }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.allTasks }),
-  ]);
+  } as const;
 }
