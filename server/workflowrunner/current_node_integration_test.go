@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -953,26 +951,23 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	sessionID runtimeids.SessionID,
 	prompt string,
 	answer string,
-) (string, int32) {
+) (string, int) {
 	t.Helper()
-	var providerRequests atomic.Int32
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
-			http.NotFound(w, r)
-			return
-		}
-		switch providerRequests.Add(1) {
-		case 1:
-			writeWorkflowRunnerToolCallResponse(w)
-		case 2:
-			modelstub.WriteCompletedResponseStream(w, answer, 1, 1)
-		default:
-			t.Errorf("provider request count exceeded two")
-			http.Error(w, "unexpected provider request", http.StatusInternalServerError)
-		}
-	}))
-	t.Cleanup(provider.Close)
-	f.cfg.Settings.OpenAIBaseURL = provider.URL
+	provider, err := modelstub.StartScriptedResponsesStub(modelstub.Script{
+		Steps: []modelstub.ScriptStep{
+			modelstub.ToolBatch("inspect", llm.ToolCall{
+				ID:    "ordinary-tool",
+				Name:  string(toolspec.ToolExecCommand),
+				Input: json.RawMessage(`{"cmd":"true"}`),
+			}),
+			modelstub.FinalAnswer(answer),
+		},
+	})
+	if err != nil {
+		t.Fatalf("start scripted Responses provider: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Stop() })
+	f.cfg.Settings.OpenAIBaseURL = provider.URL()
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:                   f.cfg,
@@ -995,7 +990,7 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	if response == nil {
 		t.Fatal("headless ordinary continuation returned no response")
 	}
-	return response.Result, providerRequests.Load()
+	return response.Result, provider.ScriptedRequestCount()
 }
 
 func (f *currentNodeRunnerFixture) waitForPendingApproval(t *testing.T, taskID workflow.TaskID) workflow.PendingApproval {
@@ -1386,48 +1381,6 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	if len(after.history) != len(before.history)+1 ||
 		after.history[len(after.history)-1] != "continue the old ordinary conversation" {
 		t.Fatalf("prompt history after continuation = %+v, want one ordinary prompt appended to %+v", after.history, before.history)
-	}
-}
-
-func writeWorkflowRunnerToolCallResponse(w http.ResponseWriter) {
-	const (
-		itemID = "fc-ordinary-1"
-		callID = "call-ordinary-1"
-	)
-	args := `{"cmd":"true"}`
-	writeWorkflowRunnerSSEJSON(w, map[string]any{
-		"type": "response.output_item.added",
-		"item": map[string]any{
-			"id": itemID, "type": "function_call", "name": string(toolspec.ToolExecCommand),
-			"call_id": callID, "arguments": "",
-		},
-	})
-	writeWorkflowRunnerSSEJSON(w, map[string]any{
-		"type":    "response.function_call_arguments.delta",
-		"item_id": itemID,
-		"delta":   args,
-	})
-	writeWorkflowRunnerSSEJSON(w, map[string]any{
-		"type": "response.completed",
-		"response": map[string]any{
-			"usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
-			"output": []any{map[string]any{
-				"type": "function_call", "id": itemID, "name": string(toolspec.ToolExecCommand),
-				"call_id": callID, "arguments": args,
-			}},
-		},
-	})
-	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
-}
-
-func writeWorkflowRunnerSSEJSON(w http.ResponseWriter, value any) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		panic(fmt.Sprintf("marshal Workflow runner SSE fixture: %v", err))
-	}
-	_, _ = fmt.Fprintf(w, "data: %s\n\n", encoded)
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
 	}
 }
 
