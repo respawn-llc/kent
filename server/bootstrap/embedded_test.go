@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"core/prompts"
 	"core/server/auth"
 	"core/shared/config"
 )
@@ -39,8 +38,8 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
-	support, err := BuildRuntimeSupport(config.App{Settings: config.Settings{
+func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
+	background, err := BuildShellManager(config.App{Settings: config.Settings{
 		ShellOutputMaxChars: 321,
 		BGShellsOutput:      config.BGShellsOutputVerbose,
 		Shell: config.ShellSettings{
@@ -51,35 +50,10 @@ func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
 		t.Fatalf("build runtime support: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = support.Background.Close()
+		_ = background.Close()
 	})
-	if support.Background == nil {
+	if background == nil {
 		t.Fatal("expected background manager")
-	}
-}
-
-func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	result, err := BuildGeneratedSupport(context.Background(), "")
-	if err != nil {
-		t.Fatalf("BuildGeneratedSupport: %v", err)
-	}
-	wantSkillsRoot := filepath.Join(home, config.ConfigDirName, ".generated", "skills")
-	if result.GeneratedSkillsRoot != wantSkillsRoot {
-		t.Fatalf("generated skills root = %q, want %q", result.GeneratedSkillsRoot, wantSkillsRoot)
-	}
-	if entries, err := os.ReadDir(wantSkillsRoot); err != nil {
-		t.Fatalf("expected generated skills root to be seeded: %v", err)
-	} else if len(entries) == 0 {
-		t.Fatal("expected generated skills root to contain at least one skill")
-	}
-	if result.RecoveredWarning != "" {
-		t.Fatalf("did not expect recovered warning on clean seed, got %+v", result)
-	}
-	if prompts.RecoveredWarning() == "" {
-		t.Fatal("expected generated warning text to be available")
 	}
 }
 

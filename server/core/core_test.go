@@ -286,13 +286,13 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildAuthSupport B: %v", err)
 	}
-	runtimeSupportB, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
+	backgroundB, err := serverbootstrap.BuildShellManager(resolved.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport B: %v", err)
+		t.Fatalf("BuildShellManager B: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupportB.Background.Close() })
+	t.Cleanup(func() { _ = backgroundB.Close() })
 
-	_, err = New(resolved.Config, authSupportB, runtimeSupportB)
+	_, err = New(resolved.Config, authSupportB, backgroundB)
 	if !errors.Is(err, ErrPersistenceRootBusy) {
 		t.Fatalf("New second error = %v, want ErrPersistenceRootBusy", err)
 	}
@@ -667,12 +667,12 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, runtimeSupport, Options{
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, background, Options{
 		WorkspaceConfigLoadOptions: loadOptions,
 	})
 	if err != nil {

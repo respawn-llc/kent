@@ -84,7 +84,7 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 	if !cfg.Source.SettingsFileExists {
 		return nil, ErrOnboardingRequired
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +92,11 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 		ctx,
 		cfg,
 		authSupport,
-		runtimeSupport,
+		background,
 		coreOptionsForBootstrap(bootstrapReq, nil),
 	)
 	if err != nil {
-		_ = runtimeSupport.Background.Close()
+		_ = background.Close()
 		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}

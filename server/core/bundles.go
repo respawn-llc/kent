@@ -183,7 +183,7 @@ type bundleCompositionInput struct {
 	workspaceConfigResolver chatcontext.FixedRootWorkspaceResolver
 	authSupport             serverbootstrap.AuthSupport
 	capabilityFactsService  *capabilityfacts.Service
-	runtimeSupport          serverbootstrap.RuntimeSupport
+	background              *shelltool.Manager
 	rootLease               *RootLockLease
 	metadataStore           *metadata.Store
 	runtimeRegistry         *registry.RuntimeRegistry
@@ -218,7 +218,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
-			{name: "background manager", close: in.runtimeSupport.Background.Close},
+			{name: "background manager", close: in.background.Close},
 			{name: "update status service", close: in.updateStatusService.Close},
 			{name: "worktree transitions", close: func() error {
 				if in.worktreeService == nil {
@@ -261,7 +261,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Processes:   newProcessBundle(in.processService),
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
-		Runtime:     newRuntimeBundle(in.runtimeSupport, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
+		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.metadataStore),
 		Workflows:   newWorkflowBundle(in.workflowService, in.workflowController),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
@@ -316,9 +316,9 @@ func newPromptBundle(askService *promptcontrol.AskViewService, approvalService *
 	}
 }
 
-func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service, sessionRuntimeAPI *sessionruntime.API) *RuntimeBundle {
+func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service, sessionRuntimeAPI *sessionruntime.API) *RuntimeBundle {
 	return &RuntimeBundle{
-		background:          runtimeSupport.Background,
+		background:          background,
 		runtimeRegistry:     runtimeRegistry,
 		runtimeAuthority:    runtimeAuthority,
 		runtimeControls:     runtimeControlService,
@@ -352,8 +352,8 @@ func validateAuthBundleSupport(authSupport serverbootstrap.AuthSupport) error {
 	return nil
 }
 
-func validateRuntimeBundleSupport(runtimeSupport serverbootstrap.RuntimeSupport) error {
-	if runtimeSupport.Background == nil {
+func validateRuntimeBundleSupport(background *shelltool.Manager) error {
+	if background == nil {
 		return bundleResourceRequiredError("runtime", "background manager")
 	}
 	return nil

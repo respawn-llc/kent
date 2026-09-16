@@ -41,12 +41,12 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
 	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, runtimeSupport, options)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, background, options)
 	if err != nil {
 		t.Fatalf("core.NewWithContextOptions: %v", err)
 	}

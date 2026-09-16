@@ -437,7 +437,7 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 	if err != nil {
 		return d.activationError(resp, err)
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(refreshed.Config)
+	background, err := serverbootstrap.BuildShellManager(refreshed.Config)
 	if err != nil {
 		return d.activationError(resp, err)
 	}
@@ -445,11 +445,11 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 		ctx,
 		refreshed.Config,
 		d.authSupport,
-		runtimeSupport,
+		background,
 		coreOptionsForBootstrap(d.bootstrap, d.rootLease),
 	)
 	if err != nil {
-		_ = runtimeSupport.Background.Close()
+		_ = background.Close()
 		panicOnMetadataMigrationFailure(err)
 		return d.activationError(resp, err)
 	}

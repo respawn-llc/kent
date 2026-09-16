@@ -687,12 +687,12 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
+	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.New(resolvedA.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
