@@ -51,14 +51,14 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
     [api, client, currentSurface, destination.sessionID, navigator, push, t],
   );
   const actions = useWorktreeActions(model);
-  const switching = useAtomValue(model.switching);
+  const switching = useAtomValue(model.requestPending);
   if (destination.page === "create")
     return <WorktreeCreateForm sessionID={destination.sessionID} navigator={navigator} actions={model} />;
   return (
     <WorktreeBrowser
       sessionID={destination.sessionID}
       navigator={navigator}
-      switchPending={switching.isPending}
+      switchPending={switching}
       renderDelete={(operation) => (
         <WorktreeDeleteButton
           sessionID={destination.sessionID}

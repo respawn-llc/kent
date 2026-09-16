@@ -17,6 +17,7 @@ import {
   freshFetchWorktreeDeletePreview,
   worktreeDeletePreviewQueryOptions,
   queryAtom,
+  mutationPendingAtom,
   type StatusController,
 } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
@@ -60,22 +61,22 @@ export function createWorktreeDelete({
     client,
     api,
     sessionID,
-    close,
     refreshOpenWorktreeList,
     push,
     t,
     feedback: {
       kind: "inline",
+      close,
       reload: async () => {
         await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);
       },
     },
   });
   const confirm = Atom.fn<WorktreeDeleteConfirmationChoice>()(
-    (choice) =>
+    (choice, get) =>
       Effect.gen(function* () {
         const result = previewObserver.getCurrentResult();
-        if (!result.isSuccess) return;
+        if (!result.isSuccess || get(mutation.deletion).isPending) return;
         yield* Effect.promise(async () => mutation.submit({ preview: result.data, choice }));
       }),
     { concurrent: true },
@@ -89,21 +90,23 @@ export function createWorktreeDeletion({
   client,
   api,
   sessionID,
-  close,
   refreshOpenWorktreeList,
   push,
   t,
   feedback,
-}: Omit<Parameters<typeof createWorktreeDelete>[0], "selector"> &
+}: Omit<Parameters<typeof createWorktreeDelete>[0], "selector" | "close"> &
   Readonly<{
-    feedback: Readonly<{ kind: "dialog" }> | Readonly<{ kind: "inline"; reload(): Promise<void> }>;
+    feedback:
+      Readonly<{ kind: "command" }> | Readonly<{ kind: "inline"; close(): void; reload(): Promise<void> }>;
   }>) {
+  const mutationKey = ["worktree-delete", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
+    mutationKey,
     mutationFn: async ({ preview, choice }: DeleteRequest) => api.deleteWorktree(sessionID, preview, choice),
     retry: false,
     networkMode: "always",
     onSuccess: (result) => {
-      if (observer.hasListeners()) close();
+      if (feedback.kind === "inline" && observer.hasListeners()) feedback.close();
       refreshOpenWorktreeList(sessionID);
       const warnings: string[] = [];
       if (result.cleanup?.kind === BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED) {
@@ -125,8 +128,7 @@ export function createWorktreeDeletion({
         });
     },
     onError: async (error) => {
-      if (feedback.kind === "dialog" || !observer.hasListeners()) {
-        if (feedback.kind === "dialog" && observer.hasListeners()) close();
+      if (feedback.kind === "command" || !observer.hasListeners()) {
         push({
           id: crypto.randomUUID(),
           tone: "danger",
@@ -139,14 +141,14 @@ export function createWorktreeDeletion({
     },
   });
   const deletion = queryAtom(observer);
+  const requestPending = mutationPendingAtom(client, { mutationKey });
   const submit = async (request: DeleteRequest) => {
-    if (observer.getCurrentResult().isPending) return;
     await observer.mutate(request).catch(() => undefined);
   };
   const confirm = Atom.fn<DeleteRequest>()((request) => Effect.promise(async () => submit(request)), {
     concurrent: true,
   });
-  return { deletion, confirm, submit };
+  return { deletion, requestPending, confirm, submit };
 }
 
 export function useWorktreeDelete(model: ReturnType<typeof createWorktreeDelete>) {

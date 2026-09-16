@@ -387,6 +387,7 @@
 - Submitting a rejected Worktree command clears that command from the composer. Desktop does not create a transcript row or send it to the model.
 - In New Chat, every recognized Worktree command clears from the composer and shows one error Sonner explaining that a Session is required.
 - A Worktree slash command never creates a Session.
+- For an existing Session, Desktop must admit each valid Worktree slash command as an independent operation even while another Worktree request is pending. Desktop must not add command ordering or automatic retry guarantees.
 - New Chat omits the Worktree affordance because no Session exists yet. The affordance appears after Session creation.
 - Worktree management never creates a Session and is not a first-agentic trigger.
 - A Session owned by a Workflow Task uses the same Worktree affordance, sidebar, and mutations as an ordinary Session.

@@ -5,7 +5,7 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import type { TFunction } from "i18next";
 
 import { type ApiService, type WorktreeSwitch } from "@/api";
-import { queryAtom, type StatusController } from "@/app-facade";
+import { mutationPendingAtom, queryAtom, type StatusController } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeActions({
@@ -25,7 +25,9 @@ export function createWorktreeActions({
   t: TFunction;
   refreshOpenWorktreeList(sessionID: string): void;
 }>) {
+  const mutationKey = ["worktree-switch", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
+    mutationKey,
     mutationFn: async (operation: WorktreeSwitchRequest) => {
       if (operation.kind === "selector") {
         const resolution = await api.resolveWorktreeSelector(sessionID, operation.selector);
@@ -49,15 +51,19 @@ export function createWorktreeActions({
     },
   });
   const switching = queryAtom(observer);
+  const requestPending = mutationPendingAtom(client, { mutationKey });
   const submitSwitch = async (operation: WorktreeSwitchRequest) => {
-    if (observer.getCurrentResult().isPending) return;
     await observer.mutate(operation).catch(() => undefined);
   };
   const switchWorktree = Atom.fn<WorktreeSwitchRequest>()(
-    (operation) => Effect.promise(async () => submitSwitch(operation)),
+    (operation) =>
+      Effect.promise(async () => {
+        if (observer.getCurrentResult().isPending) return;
+        await submitSwitch(operation);
+      }),
     { concurrent: true },
   );
-  return { switching, switchWorktree, submitSwitch, refreshOpenWorktreeList };
+  return { switching, requestPending, switchWorktree, submitSwitch, refreshOpenWorktreeList };
 }
 
 type WorktreeSwitchRequest =

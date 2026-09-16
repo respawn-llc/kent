@@ -66,7 +66,6 @@ function SessionWorktreeCommands({ sessionID, focusComposer, children }: Props &
         focusComposer();
         setPreview(value);
       },
-      close,
     });
     const actions = createWorktreeCommandActions({
       ...dependencies,
@@ -78,16 +77,16 @@ function SessionWorktreeCommands({ sessionID, focusComposer, children }: Props &
       createWorktreeCommand({ push, t, execute: async (_sessionID, intent) => actions.execute(intent) }),
     ];
     return { deletion, actions, commands };
-  }, [api, client, close, currentSurface, focusComposer, push, roots, sessionID, t]);
+  }, [api, client, currentSurface, focusComposer, push, roots, sessionID, t]);
   useWorktreeActions(model.actions.transitions);
   const { confirm } = useWorktreeCommandDelete(model.deletion);
-  const preparing = useAtomValue(model.deletion.preparation);
-  const deleting = useAtomValue(model.deletion.deletion.deletion);
-  const switching = useAtomValue(model.actions.transitions.switching);
+  const preparing = useAtomValue(model.deletion.requestPending);
+  const deleting = useAtomValue(model.deletion.deletion.requestPending);
+  const switching = useAtomValue(model.actions.transitions.requestPending);
   return (
     <>
       {children(model.commands)}
-      {preparing.isPending || switching.isPending || (preview === null && deleting.isPending) ? (
+      {preparing || switching || deleting ? (
         <div className="flex items-center gap-[var(--space-2)] text-sm">
           <Spinner size="sm" />
           {t("chat.worktree.requestPending")}
@@ -96,10 +95,12 @@ function SessionWorktreeCommands({ sessionID, focusComposer, children }: Props &
       {preview === null ? null : (
         <WorktreeCommandDeleteDialog
           preview={preview}
-          pending={deleting.isPending}
           onDismiss={close}
           onChoice={(choice) => {
-            confirm({ preview, choice });
+            close();
+            queueMicrotask(() => {
+              confirm({ preview, choice });
+            });
           }}
         />
       )}
