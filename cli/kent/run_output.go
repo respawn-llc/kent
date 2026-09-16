@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"core/shared/client"
 	"core/shared/llmerrors"
 	"core/shared/protocol"
 	"core/shared/serverapi"
@@ -80,10 +79,6 @@ func runErrorMessage(err error) string {
 			return "the subagent launch request is invalid"
 		}
 	}
-	var continuation *serverapi.WorkflowContinuationRejectionError
-	if errors.As(err, &continuation) && continuation != nil {
-		return client.FormatWorkflowContinuationRejection(*continuation)
-	}
 	if message := llmerrors.UserFacingError(err); message != "" {
 		return message
 	}
@@ -103,10 +98,6 @@ func runErrorCode(err error) string {
 	var denied *serverapi.SubagentLaunchDeniedError
 	if errors.As(err, &denied) {
 		return "subagent_denied"
-	}
-	var continuation *serverapi.WorkflowContinuationRejectionError
-	if errors.As(err, &continuation) {
-		return "workflow_continuation_rejected"
 	}
 	var policy *protocol.SubagentLaunchPolicyError
 	if errors.As(err, &policy) && policy.Kind == protocol.SubagentLaunchPolicyMaxDepthExceeded {

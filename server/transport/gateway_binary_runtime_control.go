@@ -21,9 +21,6 @@ func binaryRuntimeControlFailure(sessionID string, err error) proto.Message {
 	var rejected *serverapi.RuntimeCommandNotAcceptedError
 	var notPending *serverapi.PendingWorkNotPendingError
 	var commandErr *serverapi.PromptCommandError
-	if detail := binaryWorkflowContinuationFailure(err); detail != nil {
-		return detail
-	}
 	switch {
 	case errors.As(err, &rejected):
 		return protoapi.RuntimeCommandNotAcceptedToProto(sessionID, rejected)

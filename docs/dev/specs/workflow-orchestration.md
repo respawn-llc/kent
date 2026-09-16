@@ -281,9 +281,6 @@
 - In that retained control-only posture, Goal, settings, and valid Worktree controls remain available. Post-turn Queue input fails before acceptance and creates no Queue Item.
 - A human Send/Steer to the retained Session and explicit Workflow Resume are two entry points into the same Current Node reactivation path. Both durably resume the interrupted Current Node and start a fresh Workflow Exact Execution Scope; Send/Steer additionally submits its human input to that reactivated execution.
 - Send/Steer reactivation never starts an ordinary non-Workflow Session execution and never creates a second Transition authority. If the retained Session no longer belongs to that Current Node, reactivation fails before accepting the input.
-- When Kent rejects continuation of a retained Session because its selected Current Node is waiting for Transition Approval, the error must identify the Task, explain the pending Approval, and direct the operator to review it.
-- When Kent rejects continuation because the retained Session does not belong to a Current Node, the error must identify the Task and direct the operator to inspect its current state.
-- These rejections must use the existing error display and JSON failure envelope without adding controls, approving a Transition, or moving the Task.
 - Send/Steer reactivation has the same completion contract and tool-choice policy as explicit Resume. It does not create a separate interactive completion mode.
 - Resume starts a fresh Exact Execution Scope while retaining the Session Contract generation's effective completion mode.
 - `complete_node` is always available in tool completion mode, regardless of the Assignee's configured tools.

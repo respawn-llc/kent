@@ -2,27 +2,18 @@ package transport
 
 import (
 	"context"
-	"errors"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"core/internal/testharness/testsetup"
-	"core/server/core"
-	"core/server/session"
-	"core/server/workflow"
-	"core/server/workflowstore"
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/sessioncontract"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -46,15 +37,6 @@ func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromp
 type runPromptTestDependencies struct {
 	GatewayDependencies
 	run apicontract.RunPromptService
-}
-
-type runtimeControlTestDependencies struct {
-	GatewayDependencies
-	runtime apicontract.RuntimeControlService
-}
-
-func (d runtimeControlTestDependencies) RuntimeControlClient() apicontract.RuntimeControlService {
-	return d.runtime
 }
 
 func (d runPromptTestDependencies) RunPromptClientForProjectWorkspace(context.Context, string, string) (apicontract.RunPromptService, error) {
@@ -198,214 +180,4 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	if finalResult.GetSuccess().GetResult() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
 	}
-}
-
-func TestRunPromptBinaryDeliversWorkflowContinuationRejection(t *testing.T) {
-	core, _ := newGatewayTestCore(t, true, true)
-	defer core.Close()
-	taskID, sessionID := createGatewayPendingApprovalFixture(t, core)
-	gateway, err := NewGateway(runPromptTestDependencies{
-		GatewayDependencies: core,
-		run:                 core.RunPromptClient(),
-	}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
-	defer server.Close()
-	client, err := remoteclient.DialRemoteURLForProject(
-		context.Background(),
-		"ws"+server.URL[len("http"):],
-		core.ProjectID(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	_, err = client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
-		Prompt: "continue",
-	}, nil)
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if !errors.As(err, &rejection) ||
-		rejection.TaskID != string(taskID) ||
-		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
-		t.Fatalf("RunPrompt error = %T %v, want typed continuation rejection", err, err)
-	}
-}
-
-func TestSubmitUserTurnBinaryDeliversWorkflowContinuationRejection(t *testing.T) {
-	core, _ := newGatewayTestCore(t, true, true)
-	defer core.Close()
-	taskID, sessionID := createGatewayPendingApprovalFixture(t, core)
-	gateway, err := NewGateway(runtimeControlTestDependencies{
-		GatewayDependencies: core,
-		runtime:             core.RuntimeControlClient(),
-	}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
-	defer server.Close()
-	client, err := remoteclient.DialRemoteURLForProject(
-		context.Background(),
-		"ws"+server.URL[len("http"):],
-		core.ProjectID(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	_, err = client.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: sessionID.String(),
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue"}},
-	})
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if !errors.As(err, &rejection) ||
-		rejection.TaskID != string(taskID) ||
-		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
-		t.Fatalf("SubmitUserTurn error = %T %v, want typed continuation rejection", err, err)
-	}
-}
-
-func createGatewayPendingApprovalFixture(
-	t *testing.T,
-	appCore *core.Core,
-) (workflow.TaskID, runtimeids.SessionID) {
-	t.Helper()
-	ctx := context.Background()
-	workflows := appCore.WorkflowClient()
-	created, err := workflows.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Continuation rejection Workflow"})
-	if err != nil {
-		t.Fatalf("CreateWorkflow: %v", err)
-	}
-	definition, err := workflows.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
-	if err != nil {
-		t.Fatalf("GetWorkflow: %v", err)
-	}
-	startID, terminalID := "", ""
-	for _, node := range definition.Definition.Nodes {
-		switch node.Kind {
-		case "start":
-			startID = node.ID
-		case "terminal":
-			terminalID = node.ID
-		}
-	}
-	agentID := runtimeids.NewGraphEntityID()
-	reviewID := runtimeids.NewGraphEntityID()
-	startGroupID := runtimeids.NewGraphEntityID()
-	reviewGroupID := runtimeids.NewGraphEntityID()
-	doneGroupID := runtimeids.NewGraphEntityID()
-	graph := serverapi.WorkflowGraphDraftFromDefinition(definition.Definition)
-	graph.Nodes = append(graph.Nodes,
-		serverapi.WorkflowGraphDraftNode{
-			ID: agentID, Key: "agent", Kind: "agent", DisplayName: "Agent",
-			SubagentRole: "coder", CompletionMode: "structured_output",
-		},
-		serverapi.WorkflowGraphDraftNode{
-			ID: reviewID, Key: "review", Kind: "agent", DisplayName: "Review",
-			SubagentRole: "reviewer", CompletionMode: "structured_output",
-		},
-	)
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: startGroupID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: reviewGroupID, SourceNodeID: agentID, TransitionID: "review", DisplayName: "Review"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: doneGroupID, SourceNodeID: reviewID, TransitionID: "done", DisplayName: "Done"},
-	)
-	graph.Edges = append(graph.Edges,
-		serverapi.WorkflowGraphDraftEdge{
-			ID: runtimeids.NewGraphEntityID(), TransitionGroupID: startGroupID, Key: "start",
-			TargetNodeID: agentID, AssigneeSelection: "configured", ThinkingSelection: "configured",
-			ContextMode: "new_session", PromptTemplate: "Do the work.",
-		},
-		serverapi.WorkflowGraphDraftEdge{
-			ID: runtimeids.NewGraphEntityID(), TransitionGroupID: reviewGroupID, Key: "review",
-			TargetNodeID: reviewID, AssigneeSelection: "configured", ThinkingSelection: "configured",
-			RequiresApproval: true, ContextMode: "continue_session",
-			ContextSource:  serverapi.WorkflowContextSource{Kind: "immediate_source"},
-			PromptTemplate: "Review the work.",
-		},
-		serverapi.WorkflowGraphDraftEdge{
-			ID: runtimeids.NewGraphEntityID(), TransitionGroupID: doneGroupID, Key: "done",
-			TargetNodeID: terminalID, AssigneeSelection: "configured", ThinkingSelection: "configured",
-			ContextMode: "new_session",
-		},
-	)
-	saved, err := workflows.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID:      created.Workflow.ID,
-		ExpectedVersion: definition.Definition.Workflow.Version,
-		Graph:           graph,
-	})
-	if err != nil || !saved.Saved {
-		t.Fatalf("SaveWorkflowGraph continuation fixture = %+v, err = %v", saved, err)
-	}
-	if _, err := workflows.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
-		ProjectID:     appCore.ProjectID(),
-		WorkflowID:    created.Workflow.ID,
-		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultAlways,
-	}); err != nil {
-		t.Fatalf("LinkWorkflowToProject: %v", err)
-	}
-	createdTask, err := workflows.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: appCore.ProjectID(),
-		Title:     "Continuation rejection Task",
-		Body:      "Reject invalid continuation.",
-	})
-	if err != nil {
-		t.Fatalf("CreateWorkflowTask: %v", err)
-	}
-	workflowStore, err := workflowstore.New(
-		appCore.MetadataStore(),
-		workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("coder", "reviewer")),
-	)
-	if err != nil {
-		t.Fatalf("workflowstore.New: %v", err)
-	}
-	started, err := workflowStore.StartTask(ctx, workflow.TaskID(createdTask.Task.ID))
-	if err != nil {
-		t.Fatalf("StartTask: %v", err)
-	}
-	if len(started.Mutation.Created) != 1 {
-		t.Fatalf("StartTask Current Nodes = %+v, want one", started.Mutation.Created)
-	}
-	sessionStore, err := session.Create(
-		filepath.Join(filepath.Join(appCore.Config().PersistenceRoot, "projects"), appCore.ProjectID(), "sessions"),
-		filepath.Base(appCore.Config().WorkspaceRoot),
-		appCore.Config().WorkspaceRoot,
-		sessioncontract.SessionCategorySubagent,
-		appCore.MetadataStore().AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	if err := sessionStore.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
-	sessionID, err := runtimeids.ParseSessionID(sessionStore.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
-	}
-	source := started.Mutation.Created[0].Reference
-	if _, err := workflowStore.BindSessionToCurrentNode(ctx, workflowstore.CurrentNodeSessionBindingRequest{
-		Association: workflowstore.TaskSessionAssociationRequest{
-			SessionID: sessionID, CurrentNode: source, AssociatedAt: time.Now().UTC(),
-		},
-	}); err != nil {
-		t.Fatalf("BindSessionToCurrentNode: %v", err)
-	}
-	completed, err := workflowStore.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
-		Source:       source,
-		TransitionID: "review",
-		Commentary:   "ready for review",
-	})
-	if err != nil {
-		t.Fatalf("CompleteCurrentNode: %v", err)
-	}
-	if completed.PendingApproval == nil {
-		t.Fatalf("CompleteCurrentNode result = %+v, want pending Approval", completed)
-	}
-	return workflow.TaskID(createdTask.Task.ID), sessionID
 }

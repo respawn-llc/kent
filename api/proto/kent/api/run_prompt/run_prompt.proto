@@ -60,10 +60,6 @@ message Error {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
     }];
-    kent.api.shared.WorkflowContinuationRejectionDetails workflow_continuation_rejection = 5 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "workflow_continuation_rejected"
-    }];
   }
 }
 

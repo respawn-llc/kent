@@ -22,10 +22,6 @@ type CurrentNodeAssignmentSteerer interface {
 	SteerCurrentNodeAssignment(context.Context, workflow.CurrentNodeReference) (CurrentNodeAssignmentSteer, error)
 }
 
-type WorkflowSessionContinuationValidator interface {
-	ValidateWorkflowSessionContinuation(context.Context, runtimeids.SessionID) error
-}
-
 type CurrentNodeManualMoveAssignmentPreparer interface {
 	PrepareManualMoveAssignments(
 		context.Context,
@@ -107,8 +103,6 @@ type CurrentNodeController struct {
 		ReconcileTaskResume(context.Context, workflow.TaskID) error
 		ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
 		CompleteCurrentNode(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error)
-		TaskIDForSession(context.Context, runtimeids.SessionID) (*workflow.TaskID, error)
-		ListPendingApprovals(context.Context, workflow.TaskID) ([]workflow.PendingApproval, error)
 		ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
 		ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
 		TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
@@ -163,8 +157,6 @@ func NewCurrentNodeController(
 		ReconcileTaskResume(context.Context, workflow.TaskID) error
 		ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
 		CompleteCurrentNode(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error)
-		TaskIDForSession(context.Context, runtimeids.SessionID) (*workflow.TaskID, error)
-		ListPendingApprovals(context.Context, workflow.TaskID) ([]workflow.PendingApproval, error)
 		ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
 		ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
 		TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)

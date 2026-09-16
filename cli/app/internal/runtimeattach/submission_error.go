@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/shared/client"
 	"core/shared/llmerrors"
-	"core/shared/serverapi"
 )
 
 var ErrSubmissionInterrupted = errors.New("interrupted")
@@ -19,10 +17,6 @@ func FormatSubmissionError(err error) string {
 	}
 	if errors.Is(err, ErrSubmissionInterrupted) || errors.Is(err, context.Canceled) {
 		return ""
-	}
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if errors.As(err, &rejection) && rejection != nil {
-		return client.FormatWorkflowContinuationRejection(*rejection)
 	}
 	if formatted := llmerrors.UserFacingError(err); strings.TrimSpace(formatted) != "" {
 		return formatted

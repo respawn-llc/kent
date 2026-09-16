@@ -22,20 +22,6 @@ message InternalFailureDetails {
   optional string cause = 2 [(buf.validate.field).string.min_len = 1];
 }
 
-enum WorkflowContinuationRejectionReason {
-  WORKFLOW_CONTINUATION_REJECTION_REASON_UNSPECIFIED = 0;
-  WORKFLOW_CONTINUATION_REJECTION_REASON_WAITING_FOR_TRANSITION_APPROVAL = 1;
-  WORKFLOW_CONTINUATION_REJECTION_REASON_NOT_CURRENT_WORKFLOW_NODE = 2;
-}
-
-message WorkflowContinuationRejectionDetails {
-  string task_id = 1 [(buf.validate.field).string.min_len = 1];
-  WorkflowContinuationRejectionReason reason = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
 enum TranscriptCloseReason {
   TRANSCRIPT_CLOSE_REASON_UNSPECIFIED = 0;
   TRANSCRIPT_CLOSE_REASON_SUBSCRIBER_OVERFLOW = 1;

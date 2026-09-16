@@ -387,18 +387,6 @@ type runtimeControlWorkflowSessionReactivatorFunc func(
 	runtimeids.SessionID,
 ) (sessionruntime.ExecutionHandle, error)
 
-type runtimeControlWorkflowSessionContinuationValidatorFunc func(
-	context.Context,
-	runtimeids.SessionID,
-) error
-
-func (f runtimeControlWorkflowSessionContinuationValidatorFunc) ValidateWorkflowSessionContinuation(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-) error {
-	return f(ctx, sessionID)
-}
-
 func (f runtimeControlWorkflowSessionReactivatorFunc) ReactivateWorkflowSession(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
@@ -787,12 +775,7 @@ func newRuntimeControlTestServiceWithFeeds(
 	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
 	service := NewService(authority).
 		WithPromptHistoryStore(history).
-		WithPersistedSessionResolver(runtimeControlTestSessionPersistence).
-		WithWorkflowSessionContinuationValidator(
-			runtimeControlWorkflowSessionContinuationValidatorFunc(func(context.Context, runtimeids.SessionID) error {
-				return nil
-			}),
-		)
+		WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
 	return store, engine, service
 }
 
@@ -910,60 +893,6 @@ func TestServiceSubmitUserTurnReactivatesRetainedWorkflowSessionBeforeSubmitting
 	}
 	if !engine.HasQueuedUserWork() {
 		t.Fatal("original input was not accepted by the reactivated Workflow execution")
-	}
-}
-
-func TestServiceSubmitUserTurnRejectsWorkflowContinuationBeforeAcceptance(t *testing.T) {
-	provider := finalResponseRuntimeControlClient()
-	store, engine, service := newRuntimeControlTestService(
-		t,
-		provider,
-		nil,
-		runtime.Config{Model: "gpt-5"},
-	)
-	config := runtimeControlExactExecution(t)
-	config.Instructions.WorkflowID = runtimeids.NewWorkflowID()
-	binding, err := engine.BindCurrentNodeExecution(config)
-	if err != nil {
-		t.Fatalf("bind retained Workflow activation: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := binding.Close(); err != nil && !errors.Is(err, runtime.ErrEngineClosed) {
-			t.Errorf("close retained Workflow activation: %v", err)
-		}
-	})
-	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("parse session id: %v", err)
-	}
-	taskID := config.Instructions.CurrentNode.TaskID
-	service.WithWorkflowSessionReactivator(runtimeControlWorkflowSessionReactivatorFunc(
-		func(_ context.Context, got runtimeids.SessionID) (sessionruntime.ExecutionHandle, error) {
-			if got != sessionID {
-				t.Fatalf("reactivated session = %s, want %s", got, sessionID)
-			}
-			return nil, &serverapi.WorkflowContinuationRejectionError{
-				TaskID: string(taskID),
-				Reason: serverapi.WorkflowContinuationWaitingForApproval,
-			}
-		},
-	))
-
-	_, err = service.SubmitUserTurn(
-		context.Background(),
-		runtimeControlUserTurnRequest(store, "reject-pending-approval", "do not accept"),
-	)
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if !errors.As(err, &rejection) ||
-		rejection.TaskID != string(taskID) ||
-		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
-		t.Fatalf("SubmitUserTurn error = %T %v, want typed continuation rejection", err, err)
-	}
-	if engine.HasQueuedUserWork() {
-		t.Fatal("rejected Workflow continuation accepted user input")
-	}
-	if provider.calls != 0 {
-		t.Fatalf("provider calls = %d, want none", provider.calls)
 	}
 }
 

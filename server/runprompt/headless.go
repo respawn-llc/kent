@@ -15,7 +15,6 @@ import (
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
-	"core/server/workflowexecution"
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -40,10 +39,9 @@ type promptHistoryStore interface {
 }
 
 type HeadlessBootstrap struct {
-	SessionLaunch                 *sessionlaunch.Service
-	PromptHistory                 promptHistoryStore
-	RuntimeAuthority              *sessionruntime.Authority
-	WorkflowContinuationValidator workflowexecution.WorkflowSessionContinuationValidator
+	SessionLaunch    *sessionlaunch.Service
+	PromptHistory    promptHistoryStore
+	RuntimeAuthority *sessionruntime.Authority
 	// ManagedWorktreeBaseDir is the server-owned managed Worktree namespace.
 	ManagedWorktreeBaseDir string
 }
@@ -65,14 +63,6 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if openingExisting && l.boot.RuntimeAuthority != nil {
 		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
 			return nil, ErrSessionRunning
-		}
-	}
-	if openingExisting {
-		if l.boot.WorkflowContinuationValidator == nil {
-			return nil, errors.New("workflow session continuation validator is required")
-		}
-		if err := l.boot.WorkflowContinuationValidator.ValidateWorkflowSessionContinuation(ctx, selectedSessionID); err != nil {
-			return nil, err
 		}
 	}
 	launchReq := sessionlaunch.PlanRequest{

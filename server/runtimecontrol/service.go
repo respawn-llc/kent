@@ -14,7 +14,6 @@ import (
 	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/sessionruntime"
-	"core/server/workflowexecution"
 	servicecontract "core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -67,7 +66,6 @@ type Service struct {
 	workflowTasks  WorkflowTaskSessionResolver
 	reactivator    WorkflowSessionReactivator
 	preparations   WorkflowSessionPreparationReader
-	continuation   workflowexecution.WorkflowSessionContinuationValidator
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
@@ -178,16 +176,6 @@ func (s *Service) WithWorkflowSessionPreparationReader(reader WorkflowSessionPre
 		return nil
 	}
 	s.preparations = reader
-	return s
-}
-
-func (s *Service) WithWorkflowSessionContinuationValidator(
-	validator workflowexecution.WorkflowSessionContinuationValidator,
-) *Service {
-	if s == nil {
-		return nil
-	}
-	s.continuation = validator
 	return s
 }
 

@@ -231,18 +231,6 @@ func binaryAuthFailure(err error) proto.Message {
 	return binaryInternalFailure(err)
 }
 
-func binaryWorkflowContinuationFailure(err error) proto.Message {
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if !errors.As(err, &rejection) {
-		return nil
-	}
-	detail, conversionErr := protoapi.WorkflowContinuationRejectionToProto(rejection)
-	if conversionErr != nil {
-		return binaryInternalFailure(errors.Join(err, conversionErr))
-	}
-	return detail
-}
-
 func binaryOnboardingFinalizeFailure(err error) proto.Message {
 	var finalizeErr *serverapi.OnboardingFinalizeError
 	if errors.As(err, &finalizeErr) {
