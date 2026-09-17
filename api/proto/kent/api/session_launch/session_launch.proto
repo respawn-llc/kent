@@ -217,18 +217,51 @@ message ReviewerSettings {
 }
 
 message SubagentRole {
+  reserved 2, 5, 7;
+  reserved "agent_callable_set", "workflow_subagent_set";
   Settings settings = 1 [(buf.validate.field).required = true];
-  repeated StringFact sources = 2;
+  repeated SourceFact sources = 8;
   string description = 3 [(buf.validate.field).string.max_len = 5000];
   bool agent_callable = 4;
-  bool agent_callable_set = 5;
   bool workflow_subagent = 6;
-  bool workflow_subagent_set = 7;
 }
 
-message StringFact {
+enum ConfigFileLayer {
+  CONFIG_FILE_LAYER_UNSPECIFIED = 0;
+  CONFIG_FILE_LAYER_GLOBAL = 1;
+  CONFIG_FILE_LAYER_WORKSPACE = 2;
+  CONFIG_FILE_LAYER_PRIVATE = 3;
+}
+
+message ConfigFileSource {
+  ConfigFileLayer layer = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  string path = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConfigPropertyAddress {
   string key = 1 [(buf.validate.field).string.min_len = 1];
-  string value = 2;
+  optional string role = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConfigOrigin {
+  ConfigPropertyAddress property = 1 [(buf.validate.field).required = true];
+  oneof source {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty default_value = 2;
+    ConfigFileSource file = 3;
+    string environment = 4 [(buf.validate.field).string.min_len = 1];
+    string cli_option = 5 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty input = 6;
+    google.protobuf.Empty session = 7;
+  }
+}
+
+message SourceFact {
+  string key = 1 [(buf.validate.field).string.min_len = 1];
+  ConfigOrigin origin = 2 [(buf.validate.field).required = true];
 }
 
 message BooleanFact {
@@ -329,6 +362,7 @@ message Settings {
 }
 
 message SourceReport {
+  reserved 9;
   string settings_path = 1;
   bool settings_file_exists = 2;
   bool created_default_config = 3;
@@ -337,7 +371,7 @@ message SourceReport {
   string workspace_settings_path = 6;
   bool workspace_settings_file_exists = 7;
   bool workspace_settings_layer_enabled = 8;
-  repeated StringFact sources = 9;
+  repeated SourceFact sources = 10;
 }
 
 message SessionPlanRequest {

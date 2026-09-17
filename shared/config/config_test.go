@@ -6,10 +6,50 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestConfigurationOriginsDistinguishEqualFileValues(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "model = \"gpt-5\"\n")
+	global := loadConfigTestApp(t, workspace, LoadOptions{})
+	sharedPath := filepath.Join(workspace, ConfigDirName, "config.toml")
+	writeConfigTestFile(t, sharedPath, "model = \"gpt-5\"\n")
+	shared := loadConfigTestApp(t, workspace, LoadOptions{})
+	if global.Settings.Model != shared.Settings.Model {
+		t.Fatal("equal declarations should resolve to the same model")
+	}
+	if global.Source.Sources["model"] == shared.Source.Sources["model"] {
+		t.Fatal("equal values from different configuration files must retain distinct origins")
+	}
+	for _, tc := range []struct {
+		app  App
+		file SourceFile
+	}{
+		{global, SourceFile{Layer: FileGlobal, Path: globalPath}},
+		{shared, SourceFile{Layer: FileWorkspace, Path: sharedPath}},
+	} {
+		origin := tc.app.Source.Sources["model"]
+		if origin.File == nil || *origin.File != tc.file || origin.Property.String() != "model" {
+			t.Fatalf("winning model declaration: %+v, want %v", origin, tc.file)
+		}
+	}
+}
+
+func TestReviewerInheritedFalseRetainsDeclarationOrigin(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "[model_capabilities]\nsupports_vision_inputs = false\n", LoadOptions{})
+	agent := app.Source.Sources["model_capabilities.supports_vision_inputs"]
+	supervisor := app.Source.Sources["reviewer.model_capabilities.supports_vision_inputs"]
+	if !reflect.DeepEqual(agent, supervisor) || !agent.Configured() {
+		t.Fatalf("inherited false must retain its declaration: agent=%+v supervisor=%+v", agent, supervisor)
+	}
+	if app.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatal("explicit false must survive inheritance")
+	}
+}
 
 func TestMain(m *testing.M) {
 	testenv.ClearAtProcessStart(PersistenceRootEnvName)
@@ -116,7 +156,7 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if !cfg.Settings.EnabledTools[toolspec.ToolTriggerHandoff] {
 		t.Fatalf("expected %s enabled in static defaults", toolspec.ToolTriggerHandoff)
 	}
-	if got := cfg.Source.Sources["tools.trigger_handoff"]; got != "default" {
+	if got := cfg.Source.Sources["tools.trigger_handoff"].Kind; got != "default" {
 		t.Fatalf("expected untouched %s source to remain default, got %q", toolspec.ToolTriggerHandoff, got)
 	}
 	if !cfg.Settings.EnabledTools[toolspec.ToolWebSearch] {
@@ -228,7 +268,7 @@ func TestLoadUsesPersistenceRootEnvForConfigAndData(t *testing.T) {
 	if cfg.PersistenceRoot != root {
 		t.Fatalf("persistence root = %q, want env root %q", cfg.PersistenceRoot, root)
 	}
-	if got := cfg.Source.Sources["persistence_root"]; got != "env" {
+	if got := cfg.Source.Sources["persistence_root"].Kind; got != "env" {
 		t.Fatalf("persistence_root source = %q, want env", got)
 	}
 }
@@ -246,8 +286,8 @@ func TestLoadFlagOverridesPersistenceRootEnv(t *testing.T) {
 	if cfg.PersistenceRoot != flagRoot {
 		t.Fatalf("persistence root = %q, want flag root %q", cfg.PersistenceRoot, flagRoot)
 	}
-	if got := cfg.Source.Sources["persistence_root"]; got != "flag" {
-		t.Fatalf("persistence_root source = %q, want flag", got)
+	if got := cfg.Source.Sources["persistence_root"].Kind; got != SourceCLI {
+		t.Fatalf("persistence_root source = %q, want cli", got)
 	}
 }
 
@@ -376,7 +416,7 @@ func TestLoadAppliesWorkspaceConfigBeforeEnvBeforeCLI(t *testing.T) {
 	if cfg.Source.SettingsPath != workspaceConfigPath || !cfg.Source.WorkspaceSettingsFileExists {
 		t.Fatalf("unexpected workspace source report: %+v", cfg.Source)
 	}
-	if cfg.Source.Sources["model"] != "env" || cfg.Source.Sources["thinking_level"] != "cli" {
+	if cfg.Source.Sources["model"].Kind != "env" || cfg.Source.Sources["thinking_level"].Kind != "cli" {
 		t.Fatalf("unexpected sources: %+v", cfg.Source.Sources)
 	}
 }
@@ -493,7 +533,7 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 	if want := filepath.Join(home, ConfigDirName, "fast-reviewer.md"); role.Settings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("role reviewer system prompt file = %q, want %q", role.Settings.Reviewer.SystemPromptFile, want)
 	}
-	if role.Sources["model"] != "file" || role.Sources["thinking_level"] != "file" || role.Sources["tools.patch"] != "file" || role.Sources["reviewer.system_prompt_file"] != "file" {
+	if role.Sources["model"].Kind != "file" || role.Sources["thinking_level"].Kind != "file" || role.Sources["tools.patch"].Kind != "file" || role.Sources["reviewer.system_prompt_file"].Kind != "file" {
 		t.Fatalf("unexpected role sources: %+v", role.Sources)
 	}
 	if _, exists := role.Sources["reviewer.model"]; exists {
@@ -563,7 +603,7 @@ func TestLoadSubagentRoleSkillNamedEnabledToggle(t *testing.T) {
 	if !ResolveSkillPolicy(reenabled.Settings).SkillEnabled("enabled") {
 		t.Fatal("explicit role skills.enabled=true must enable the skill named enabled")
 	}
-	if got := reenabled.Sources["skills.enabled"]; got != "file" {
+	if got := reenabled.Sources["skills.enabled"].Kind; got != "file" {
 		t.Fatalf("expected role skills.enabled source file, got %q", got)
 	}
 	if enabled, exists := reenabled.Settings.SkillToggles["enabled"]; !exists || !enabled {
@@ -605,14 +645,14 @@ func TestLoadSubagentRoleMetadataFromFile(t *testing.T) {
 	if role.Description != "Deep repo research" {
 		t.Fatalf("description = %q, want normalized description", role.Description)
 	}
-	if role.AgentCallable || !role.AgentCallableSet {
-		t.Fatalf("agent callable metadata = (%t, %t), want false set", role.AgentCallable, role.AgentCallableSet)
+	if role.AgentCallable || !role.AgentCallableSet() {
+		t.Fatalf("agent callable metadata = (%t, %t), want false set", role.AgentCallable, role.AgentCallableSet())
 	}
-	if _, exists := role.Sources["description"]; exists {
-		t.Fatalf("description should not be runtime source, got %+v", role.Sources)
+	if !role.Sources["description"].Declares("description") {
+		t.Fatalf("description declaration missing: %+v", role.Sources)
 	}
-	if _, exists := role.Sources["agent_callable"]; exists {
-		t.Fatalf("agent_callable should not be runtime source, got %+v", role.Sources)
+	if !role.Sources["agent_callable"].Declares("agent_callable") {
+		t.Fatalf("explicit false declaration missing: %+v", role.Sources)
 	}
 }
 
@@ -634,11 +674,8 @@ func TestLoadSubagentRoleWorkflowSubagentMetadata(t *testing.T) {
 			if lookup.Status != SubagentRoleLookupPresent {
 				t.Fatalf("role lookup = %q, want present", lookup.Status)
 			}
-			if lookup.Role.WorkflowSubagent != tt.want || lookup.Role.WorkflowSubagentSet != tt.wantSet {
-				t.Fatalf("workflow_subagent metadata = (%t, %t), want (%t, %t)", lookup.Role.WorkflowSubagent, lookup.Role.WorkflowSubagentSet, tt.want, tt.wantSet)
-			}
-			if _, exists := lookup.Role.Sources["workflow_subagent"]; exists {
-				t.Fatalf("workflow_subagent should not be runtime source, got %+v", lookup.Role.Sources)
+			if lookup.Role.WorkflowSubagent != tt.want || lookup.Role.WorkflowSubagentSet() != tt.wantSet {
+				t.Fatalf("workflow_subagent metadata = (%t, %t), want (%t, %t)", lookup.Role.WorkflowSubagent, lookup.Role.WorkflowSubagentSet(), tt.want, tt.wantSet)
 			}
 		})
 	}
@@ -758,14 +795,14 @@ func TestOverlaySubagentRoleSettingsDoesNotApplyProcessSettings(t *testing.T) {
 			Workflow:     WorkflowSettings{CompletionMode: "tool", Concurrency: 4, MaxInvalidCompletionAttempts: 5},
 			PreventSleep: "never",
 		},
-		Sources: map[string]string{
-			"worktrees.base_dir":                       "file",
-			"worktrees.setup_script":                   "file",
-			"worktrees.setup_timeout_seconds":          "file",
-			"workflow.completion_mode":                 "file",
-			"workflow.concurrency":                     "file",
-			"workflow.max_invalid_completion_attempts": "file",
-			"prevent_sleep":                            "file",
+		Sources: map[string]Origin{
+			"worktrees.base_dir":                       {Kind: SourceInput},
+			"worktrees.setup_script":                   {Kind: SourceInput},
+			"worktrees.setup_timeout_seconds":          {Kind: SourceInput},
+			"workflow.completion_mode":                 {Kind: SourceInput},
+			"workflow.concurrency":                     {Kind: SourceInput},
+			"workflow.max_invalid_completion_attempts": {Kind: SourceInput},
+			"prevent_sleep":                            {Kind: SourceInput},
 		},
 	}
 
@@ -781,12 +818,11 @@ func TestLookupSubagentRoleUsesConfiguredIdentity(t *testing.T) {
 		Subagents: map[string]SubagentRole{
 			"planner": {
 				Settings: Settings{ThinkingLevel: "medium"},
-				Sources:  map[string]string{"thinking_level": "file"},
+				Sources:  map[string]Origin{"thinking_level": {Kind: SourceInput}},
 			},
 			"blocked": {
-				AgentCallable:    false,
-				AgentCallableSet: true,
-				Sources:          map[string]string{"agent_callable": "file"},
+				AgentCallable: false,
+				Sources:       map[string]Origin{"agent_callable": {Kind: SourceInput}},
 			},
 		},
 	}
@@ -833,21 +869,20 @@ func TestSkillOnlyRoleAffectsCatalogWithoutChangingCallability(t *testing.T) {
 		Subagents: map[string]SubagentRole{
 			"worker": {
 				Settings: Settings{SkillToggles: map[string]bool{"enabled": false}},
-				Sources:  map[string]string{"skills.enabled": "file"},
+				Sources:  map[string]Origin{"skills.enabled": {Kind: SourceInput}},
 			},
 			"blocked": {
-				Settings:         Settings{SkillToggles: map[string]bool{"enabled": false}},
-				Sources:          map[string]string{"skills.enabled": "file"},
-				AgentCallableSet: true,
+				Settings: Settings{SkillToggles: map[string]bool{"enabled": false}},
+				Sources:  map[string]Origin{"skills.enabled": {Kind: SourceInput}, "agent_callable": {Kind: SourceInput}},
 			},
 			"visible": {
 				Settings: Settings{
 					ThinkingLevel: "high",
 					SkillToggles:  map[string]bool{"enabled": true},
 				},
-				Sources: map[string]string{
-					"thinking_level": "file",
-					"skills.enabled": "file",
+				Sources: map[string]Origin{
+					"thinking_level": {Kind: SourceInput},
+					"skills.enabled": {Kind: SourceInput},
 				},
 			},
 		},
@@ -892,7 +927,7 @@ func TestAppendSystemPromptFileFromConfigResolvesConfigRelativePath(t *testing.T
 func TestParseSubagentRoleSystemPromptFileResolvesConfigRelativePath(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), ConfigDirName, "config.toml")
 
-	role, err := parseSubagentRole(settingsFile{"system_prompt_file": "fast-system.md"}, configPath, "fast")
+	role, err := parseSubagentRole(settingsFile{"system_prompt_file": "fast-system.md"}, SourceFile{Layer: FileGlobal, Path: configPath}, "fast")
 	if err != nil {
 		t.Fatalf("parse subagent role: %v", err)
 	}
@@ -901,8 +936,8 @@ func TestParseSubagentRoleSystemPromptFileResolvesConfigRelativePath(t *testing.
 	if got := role.Settings.SystemPromptFiles; len(got) != 1 || got[0].Path != want || got[0].Scope != SystemPromptFileScopeSubagent {
 		t.Fatalf("subagent system prompt files = %+v, want %q %s", got, want, SystemPromptFileScopeSubagent)
 	}
-	if role.Sources["system_prompt_file"] != "file" {
-		t.Fatalf("system_prompt_file source = %q, want file", role.Sources["system_prompt_file"])
+	if role.Sources["system_prompt_file"].Kind != "file" {
+		t.Fatalf("system_prompt_file source = %+v, want file", role.Sources["system_prompt_file"])
 	}
 }
 
@@ -1028,7 +1063,7 @@ func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
 	}
 	state := configRegistry.defaultState()
 	sources := configRegistry.defaultSourceMap()
-	if err := configRegistry.applyFile(raw, path, settingsFileLayerGlobal, &state, sources); err != nil {
+	if err := configRegistry.applyFile(raw, path, FileGlobal, &state, sources); err != nil {
 		t.Fatalf("apply file: %v", err)
 	}
 	if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
@@ -1221,21 +1256,21 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 
 	t.Run("default source returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
-		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "default"}}}
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceDefault}}}}
 		if got := ExplicitPersistenceRootID(cfg); got != "" {
 			t.Fatalf("default-source id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit default root returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
-		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
 		if got := ExplicitPersistenceRootID(cfg); got != "" {
 			t.Fatalf("explicit-default id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit isolated root returns hash", func(t *testing.T) {
 		t.Setenv("HOME", home)
-		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "env"}}}
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceEnv}}}}
 		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("explicit-iso id = %q, want %q", got, want)
 		}
@@ -1244,7 +1279,7 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 		// HOME unset makes IsDefaultPersistenceRoot fail to resolve the default
 		// root; the explicit root must stay pinned rather than disabling the check.
 		t.Setenv("HOME", "")
-		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
 		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("error-case id = %q, want %q (must pin on default-resolution failure)", got, want)
 		}

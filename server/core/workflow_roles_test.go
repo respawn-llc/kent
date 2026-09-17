@@ -18,22 +18,35 @@ func TestConfigRoleResolverUsesConfiguredRoleIdentity(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"planner": {
 				Settings: config.Settings{ThinkingLevel: "medium"},
-				Sources:  map[string]string{"thinking_level": "file"},
+				Sources: map[string]config.Origin{"thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}},
+				},
 			},
 			"blocked": {
-				AgentCallable:    false,
-				AgentCallableSet: true,
-				Sources:          map[string]string{"agent_callable": "file"},
+				AgentCallable: false,
+
+				Sources: map[string]config.Origin{"agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}},
+				},
 			},
 			"workflow_hidden": {
 				Settings: config.Settings{ThinkingLevel: "high"},
-				Sources:  map[string]string{"thinking_level": "file"},
+				Sources: map[string]config.Origin{"thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}},
+				},
 			},
 			"role_hidden": {
-				Settings:            config.Settings{ThinkingLevel: "high"},
-				Sources:             map[string]string{"thinking_level": "file"},
-				WorkflowSubagent:    false,
-				WorkflowSubagentSet: true,
+				Settings: config.Settings{ThinkingLevel: "high"},
+				Sources: map[string]config.Origin{"thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}}, "workflow_subagent": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "workflow_subagent"}},
+				},
+				WorkflowSubagent: false,
 			},
 		},
 	}
@@ -72,10 +85,15 @@ func TestWorkflowDefaultAssigneeUsesHeadlessSettings(t *testing.T) {
 		Model: "gpt-5",
 		Subagents: map[string]config.SubagentRole{
 			config.DefaultSubagentRole: {
-				Settings:         config.Settings{Model: "gpt-5-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallableSet: true,
-				AgentCallable:    false,
+				Settings: config.Settings{Model: "gpt-5-mini"},
+				Sources: map[string]config.Origin{"model": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}},
+				},
+
+				AgentCallable: false,
 			},
 		},
 	}
@@ -93,13 +111,20 @@ func TestWorkflowValidationUsesConfigRoleResolverIdentity(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"planner": {
 				Settings: config.Settings{ThinkingLevel: "medium"},
-				Sources:  map[string]string{"thinking_level": "file"},
+				Sources: map[string]config.Origin{"thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}},
+				},
 			},
 			"role_hidden": {
-				Settings:            config.Settings{ThinkingLevel: "high"},
-				Sources:             map[string]string{"thinking_level": "file"},
-				WorkflowSubagent:    false,
-				WorkflowSubagentSet: true,
+				Settings: config.Settings{ThinkingLevel: "high"},
+				Sources: map[string]config.Origin{"thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}}, "workflow_subagent": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "workflow_subagent"}},
+				},
+				WorkflowSubagent: false,
 			},
 		},
 	}
@@ -178,7 +203,10 @@ func TestWorkflowValidationRejectsConfiguredRoleDisablingAskQuestion(t *testing.
 		Subagents: map[string]config.SubagentRole{
 			"planner": {
 				Settings: config.Settings{EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false}},
-				Sources:  map[string]string{"tools.ask_question": "file"},
+				Sources: map[string]config.Origin{"tools.ask_question": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "tools.ask_question"}},
+				},
 			},
 		},
 	}
@@ -196,7 +224,10 @@ func TestWorkflowValidationAcceptsConfiguredRoleReenablingAskQuestion(t *testing
 		Subagents: map[string]config.SubagentRole{
 			"planner": {
 				Settings: config.Settings{EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}},
-				Sources:  map[string]string{"tools.ask_question": "file"},
+				Sources: map[string]config.Origin{"tools.ask_question": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "tools.ask_question"}},
+				},
 			},
 		},
 	}
@@ -214,7 +245,10 @@ func TestWorkflowValidationRejectsBuiltInRoleDisablingAskQuestion(t *testing.T) 
 		Subagents: map[string]config.SubagentRole{
 			config.BuiltInSubagentRoleFast: {
 				Settings: config.Settings{EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false}},
-				Sources:  map[string]string{"tools.ask_question": "file"},
+				Sources: map[string]config.Origin{"tools.ask_question": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "tools.ask_question"}},
+				},
 			},
 		},
 	}

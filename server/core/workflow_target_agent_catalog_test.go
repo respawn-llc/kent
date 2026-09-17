@@ -14,18 +14,24 @@ func TestConfigTargetAgentCatalogSeparatesFallbackAndExplicitCallableRoles(t *te
 		EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
 		Subagents: map[string]config.SubagentRole{
 			"zeta": {
-				AgentCallable:       true,
-				AgentCallableSet:    true,
-				WorkflowSubagent:    false,
-				WorkflowSubagentSet: true,
+				AgentCallable: true,
+
+				WorkflowSubagent: false, Sources: map[string]config.Origin{"agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}}, "workflow_subagent": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "workflow_subagent"}}},
 			},
 			"alpha": {
-				AgentCallable:    true,
-				AgentCallableSet: true,
+				AgentCallable: true, Sources: map[string]config.Origin{"agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}}},
 			},
 			"blocked": {
-				AgentCallableSet: true,
-				AgentCallable:    false,
+
+				AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}}},
 			},
 			"implicit": {},
 		},
@@ -51,10 +57,15 @@ func TestConfigTargetAgentCatalogUsesEffectiveQuestionsForFallbackButSelectionFo
 		EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
 		Subagents: map[string]config.SubagentRole{
 			"silent": {
-				AgentCallable:    true,
-				AgentCallableSet: true,
-				Settings:         config.Settings{EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false}},
-				Sources:          map[string]string{"tools.ask_question": "file"},
+				AgentCallable: true,
+
+				Settings: config.Settings{EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false}},
+				Sources: map[string]config.Origin{"tools.ask_question": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "tools.ask_question"}}, "agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}},
+				},
 			},
 		},
 	}
@@ -81,16 +92,30 @@ func TestConfigTargetAgentCatalogResolvesFiniteAndOpenThinkingContracts(t *testi
 		ThinkingLevel: "medium",
 		Subagents: map[string]config.SubagentRole{
 			"finite": {
-				AgentCallable:    true,
-				AgentCallableSet: true,
-				Settings:         config.Settings{Model: "gpt-5.6-luna", ThinkingLevel: "high"},
-				Sources:          map[string]string{"model": "file", "thinking_level": "file"},
+				AgentCallable: true,
+
+				Settings: config.Settings{Model: "gpt-5.6-luna", ThinkingLevel: "high"},
+				Sources: map[string]config.Origin{"model": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}},
+				},
 			},
 			"open": {
-				AgentCallable:    true,
-				AgentCallableSet: true,
-				Settings:         config.Settings{Model: "custom-alias", ThinkingLevel: "medium"},
-				Sources:          map[string]string{"model": "file", "thinking_level": "file"},
+				AgentCallable: true,
+
+				Settings: config.Settings{Model: "custom-alias", ThinkingLevel: "medium"},
+				Sources: map[string]config.Origin{"model": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {
+					Kind:     config.SourceInput,
+					Property: config.PropertyAddress{Key: "agent_callable"}},
+				},
 			},
 		},
 	}

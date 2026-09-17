@@ -77,11 +77,21 @@ func IsSubagentRoleNameShape(raw string) bool {
 }
 
 func SubagentRoleCallable(role SubagentRole) bool {
-	return !role.AgentCallableSet || role.AgentCallable
+	return !role.AgentCallableSet() || role.AgentCallable
 }
 
 func SubagentRoleWorkflowCallable(role SubagentRole) bool {
-	return !role.WorkflowSubagentSet || role.WorkflowSubagent
+	return !role.WorkflowSubagentSet() || role.WorkflowSubagent
+}
+
+func (role SubagentRole) AgentCallableSet() bool {
+	_, present := role.Sources["agent_callable"]
+	return present
+}
+
+func (role SubagentRole) WorkflowSubagentSet() bool {
+	_, present := role.Sources["workflow_subagent"]
+	return present
 }
 
 type SubagentInvocationContext string

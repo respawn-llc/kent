@@ -219,8 +219,8 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("plan target parent: %v", err)
 	}
-	if plan.ActiveSettings.Model != "target-project-model" || plan.Source.Sources["model"] != "file" {
-		t.Fatalf("target plan model/source = %q/%q, want target-project-model/file", plan.ActiveSettings.Model, plan.Source.Sources["model"])
+	if plan.ActiveSettings.Model != "target-project-model" || plan.Source.Sources["model"].Kind != config.SourceFileKind {
+		t.Fatalf("target plan model/source = %q/%+v, want target-project-model/file", plan.ActiveSettings.Model, plan.Source.Sources["model"])
 	}
 	runtimePlan, request, err := prepareSessionUIRun(
 		context.Background(),

@@ -747,20 +747,44 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	hiddenSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"caller": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 		"hidden": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
+			AgentCallable: true,
 		},
 		"blocked": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 	}
 	worktreeRoot := filepath.Join(root, "worktrees")
@@ -959,15 +983,31 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	workerSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"current": {
-			Settings:         workerSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallableSet: true,
+			Settings: workerSettings,
+			Sources: map[string]config.Origin{"model": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "model",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 		"worker": {
-			Settings:         workerSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings: workerSettings,
+			Sources: map[string]config.Origin{"model": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "model",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
+			AgentCallable: true,
 		},
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)

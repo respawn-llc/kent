@@ -26,7 +26,7 @@ type AgentRuntimePlanOptions struct {
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
-	Sources                             map[string]string
+	Sources                             map[string]config.Origin
 	Headless                            bool
 	QuestionsEnabled                    *bool
 	AutoCompactionEnabled               *bool

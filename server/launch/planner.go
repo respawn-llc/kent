@@ -754,7 +754,7 @@ func baseConfigForPlan(plan SessionPlan) config.App {
 	}
 }
 
-type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool)
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool)
 
 // PrepareRunPromptOverrides resolves every config-backed part of a RunPrompt
 // target from one loaded application snapshot. It intentionally performs no
@@ -959,9 +959,9 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 	source = mergeOverrideSources(source, overrideConfig.Source)
 	if strings.TrimSpace(overrides.Model) != "" && modelLock == nil {
 		originalModel := settings.Model
-		explicitSources := map[string]string{}
+		explicitSources := map[string]config.Origin{}
 		for key, value := range source.Sources {
-			if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "default" {
+			if value.Configured() {
 				explicitSources[key] = value
 			}
 		}
@@ -1237,12 +1237,12 @@ func mergeOverrideSources(base config.SourceReport, override config.SourceReport
 	merged.SettingsPath = override.SettingsPath
 	merged.SettingsFileExists = override.SettingsFileExists
 	merged.CreatedDefaultConfig = override.CreatedDefaultConfig
-	merged.Sources = make(map[string]string, len(base.Sources)+len(override.Sources))
+	merged.Sources = make(map[string]config.Origin, len(base.Sources)+len(override.Sources))
 	for key, value := range base.Sources {
 		merged.Sources[key] = value
 	}
 	for key, value := range override.Sources {
-		if strings.TrimSpace(value) == "cli" {
+		if value.Kind == config.SourceCLI {
 			merged.Sources[key] = value
 		}
 	}
@@ -1261,14 +1261,14 @@ func sourceReportWithSubagentRoleSources(base config.SourceReport, role config.S
 	}
 	next := base
 	next.Sources = cloneMapOrEmpty(base.Sources)
-	if !allowModelOverride && strings.TrimSpace(next.Sources["model"]) == "default" {
-		next.Sources["model"] = "session"
+	if !allowModelOverride && next.Sources["model"].Kind == config.SourceDefault {
+		next.Sources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
 	}
-	for key := range role.Sources {
+	for key, origin := range role.Sources {
 		if key == "model" && !allowModelOverride {
 			continue
 		}
-		next.Sources[key] = "subagent"
+		next.Sources[key] = origin
 	}
 	return next
 }
@@ -1530,7 +1530,7 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 }
 
 func bothEditToolSourcesDefault(source config.SourceReport) bool {
-	return strings.TrimSpace(source.Sources["tools.patch"]) == "default" && strings.TrimSpace(source.Sources["tools.edit"]) == "default"
+	return source.Sources["tools.patch"].Kind == config.SourceDefault && source.Sources["tools.edit"].Kind == config.SourceDefault
 }
 
 func enabledToolIDs(enabled map[toolspec.ID]bool) []toolspec.ID {

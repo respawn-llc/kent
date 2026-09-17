@@ -37,19 +37,18 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 						toolspec.ToolPatch:       false,
 					},
 				},
-				Sources:     map[string]string{"model": "file", "thinking_level": "file", "tools.patch": "file"},
+				Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}},
 				Description: "Repo research specialist.",
 			},
 			"placebo": {
 				Settings:    config.Settings{Model: "gpt-5.6-sol"},
-				Sources:     map[string]string{"model": "file"},
+				Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				Description: "Sounds useful, but no behavior differs.",
 			},
 			"blocked": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			config.BuiltInSubagentRoleFast: {
 				Description: "ignored for now",
@@ -108,7 +107,7 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 						toolspec.ToolPatch:       true,
 					},
 				},
-				Sources: map[string]string{"model": "file", "thinking_level": "file", "priority_request_mode": "file", "tools.patch": "file"},
+				Sources: map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "priority_request_mode": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "priority_request_mode"}}, "tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}},
 			},
 		},
 	}
@@ -149,14 +148,13 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
@@ -185,23 +183,25 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 	t.Parallel()
 	baseSettings := func(globalEnabled bool, roleDisabled bool) config.Settings {
+		sources := map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}}
+		if roleDisabled {
+			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
+		}
 		return config.Settings{
 			Model:         "gpt-5.5",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
-					Settings:            config.Settings{ThinkingLevel: "high"},
-					Sources:             map[string]string{"thinking_level": "file"},
-					Description:         "Worker.",
-					WorkflowSubagent:    !roleDisabled,
-					WorkflowSubagentSet: roleDisabled,
+					Settings:         config.Settings{ThinkingLevel: "high"},
+					Sources:          sources,
+					Description:      "Worker.",
+					WorkflowSubagent: !roleDisabled,
 				},
 				"blocked": {
-					Settings:         config.Settings{ThinkingLevel: "high"},
-					Sources:          map[string]string{"thinking_level": "file"},
-					Description:      "Blocked.",
-					AgentCallableSet: true,
+					Settings:    config.Settings{ThinkingLevel: "high"},
+					Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+					Description: "Blocked.",
 				},
 				config.BuiltInSubagentRoleFast: {Description: "Fast."},
 			},
@@ -245,17 +245,20 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T) {
 	t.Parallel()
 	settings := func(globalEnabled bool, roleDisabled bool) config.Settings {
+		sources := map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}}
+		if roleDisabled {
+			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
+		}
 		return config.Settings{
 			Model:         "gpt-5.5",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
-					Settings:            config.Settings{ThinkingLevel: "high"},
-					Sources:             map[string]string{"thinking_level": "file"},
-					Description:         "Worker.",
-					WorkflowSubagent:    !roleDisabled,
-					WorkflowSubagentSet: roleDisabled,
+					Settings:         config.Settings{ThinkingLevel: "high"},
+					Sources:          sources,
+					Description:      "Worker.",
+					WorkflowSubagent: !roleDisabled,
 				},
 			},
 		}
@@ -317,7 +320,7 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Worker.",
 			},
 		},
@@ -374,14 +377,13 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
@@ -483,7 +485,7 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
@@ -574,7 +576,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},

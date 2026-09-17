@@ -420,26 +420,6 @@ func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) (map[string]bo
 	return result, nil
 }
 
-func stringFactsToProto(values map[string]string) []*sessionlaunchpb.StringFact {
-	keys := sortedStringKeys(values)
-	result := make([]*sessionlaunchpb.StringFact, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, &sessionlaunchpb.StringFact{Key: key, Value: values[key]})
-	}
-	return result
-}
-
-func stringFactsFromProto(values []*sessionlaunchpb.StringFact) (map[string]string, error) {
-	result := make(map[string]string, len(values))
-	for _, value := range values {
-		if _, exists := result[value.Key]; exists {
-			return nil, fmt.Errorf("duplicate string fact %q", value.Key)
-		}
-		result[value.Key] = value.Value
-	}
-	return result, nil
-}
-
 func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
 	values := base.Subagents
 	keys := sortedStringKeys(values)
@@ -452,12 +432,15 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", key, err)
 		}
+		sources, err := sourceFactsToProto(value.Sources)
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, &sessionlaunchpb.NamedSubagentRole{
 			Name: key,
 			Role: &sessionlaunchpb.SubagentRole{
-				Settings: settings, Sources: stringFactsToProto(value.Sources), Description: value.Description,
-				AgentCallable: value.AgentCallable, AgentCallableSet: value.AgentCallableSet,
-				WorkflowSubagent: value.WorkflowSubagent, WorkflowSubagentSet: value.WorkflowSubagentSet,
+				Settings: settings, Sources: sources, Description: value.Description,
+				AgentCallable: value.AgentCallable, WorkflowSubagent: value.WorkflowSubagent,
 			},
 		})
 	}
@@ -474,27 +457,30 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
 		}
-		sources, err := stringFactsFromProto(value.Role.Sources)
+		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q sources: %w", value.Name, err)
 		}
 		result[value.Name] = config.SubagentRole{
 			Settings: settings, Sources: sources, Description: value.Role.Description,
-			AgentCallable: value.Role.AgentCallable, AgentCallableSet: value.Role.AgentCallableSet,
-			WorkflowSubagent: value.Role.WorkflowSubagent, WorkflowSubagentSet: value.Role.WorkflowSubagentSet,
+			AgentCallable: value.Role.AgentCallable, WorkflowSubagent: value.Role.WorkflowSubagent,
 		}
 	}
 	return result, nil
 }
 
 func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.SourceReport, error) {
+	sources, err := sourceFactsToProto(source.Sources)
+	if err != nil {
+		return nil, err
+	}
 	message := &sessionlaunchpb.SourceReport{
 		SettingsPath: source.SettingsPath, SettingsFileExists: source.SettingsFileExists,
 		CreatedDefaultConfig: source.CreatedDefaultConfig, HomeSettingsPath: source.HomeSettingsPath,
 		HomeSettingsFileExists: source.HomeSettingsFileExists, WorkspaceSettingsPath: source.WorkspaceSettingsPath,
 		WorkspaceSettingsFileExists:   source.WorkspaceSettingsFileExists,
 		WorkspaceSettingsLayerEnabled: source.WorkspaceSettingsLayerEnabled,
-		Sources:                       stringFactsToProto(source.Sources),
+		Sources:                       sources,
 	}
 	return message, Validate(message)
 }
@@ -503,7 +489,7 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 	if err := Validate(message); err != nil {
 		return config.SourceReport{}, err
 	}
-	sources, err := stringFactsFromProto(message.Sources)
+	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err
 	}

@@ -36,13 +36,13 @@ supports_provider_verbosity = true
 	if !cfg.Settings.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected supports_provider_verbosity override from file, got %+v", cfg.Settings.ProviderCapabilities)
 	}
-	if got := cfg.Source.Sources["model_capabilities.supports_reasoning_effort"]; got != "file" {
+	if got := cfg.Source.Sources["model_capabilities.supports_reasoning_effort"].Kind; got != "file" {
 		t.Fatalf("expected model_capabilities.supports_reasoning_effort source file, got %q", got)
 	}
-	if got := cfg.Source.Sources["provider_capabilities.provider_id"]; got != "file" {
+	if got := cfg.Source.Sources["provider_capabilities.provider_id"].Kind; got != "file" {
 		t.Fatalf("expected provider_capabilities.provider_id source file, got %q", got)
 	}
-	if got := cfg.Source.Sources["provider_capabilities.supports_provider_verbosity"]; got != "file" {
+	if got := cfg.Source.Sources["provider_capabilities.supports_provider_verbosity"].Kind; got != "file" {
 		t.Fatalf("expected provider_capabilities.supports_provider_verbosity source file, got %q", got)
 	}
 }
@@ -71,13 +71,13 @@ func TestLoadCapabilityOverridesFromEnv(t *testing.T) {
 	if cfg.Settings.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected supports_provider_verbosity=false override from env, got %+v", cfg.Settings.ProviderCapabilities)
 	}
-	if got := cfg.Source.Sources["model_capabilities.supports_reasoning_effort"]; got != "env" {
+	if got := cfg.Source.Sources["model_capabilities.supports_reasoning_effort"].Kind; got != "env" {
 		t.Fatalf("expected model_capabilities.supports_reasoning_effort source env, got %q", got)
 	}
-	if got := cfg.Source.Sources["provider_capabilities.provider_id"]; got != "env" {
+	if got := cfg.Source.Sources["provider_capabilities.provider_id"].Kind; got != "env" {
 		t.Fatalf("expected provider_capabilities.provider_id source env, got %q", got)
 	}
-	if got := cfg.Source.Sources["provider_capabilities.supports_provider_verbosity"]; got != "env" {
+	if got := cfg.Source.Sources["provider_capabilities.supports_provider_verbosity"].Kind; got != "env" {
 		t.Fatalf("expected provider_capabilities.supports_provider_verbosity source env, got %q", got)
 	}
 }
@@ -117,10 +117,10 @@ supports_provider_verbosity = false
 	if cfg.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected reviewer supports_provider_verbosity=false from file, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
 	}
-	if got := cfg.Source.Sources["reviewer.model_capabilities.supports_reasoning_effort"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.model_capabilities.supports_reasoning_effort"].Kind; got != "file" {
 		t.Fatalf("expected reviewer model capability source file, got %q", got)
 	}
-	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"].Kind; got != "file" {
 		t.Fatalf("expected reviewer provider capability source file, got %q", got)
 	}
 
@@ -148,13 +148,13 @@ supports_provider_verbosity = false
 	if !cfg.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected reviewer supports_provider_verbosity=true from env, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
 	}
-	if got := cfg.Source.Sources["reviewer.model_context_window"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.model_context_window"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.model_context_window source env, got %q", got)
 	}
-	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"].Kind; got != "env" {
 		t.Fatalf("expected reviewer provider capability source env, got %q", got)
 	}
-	if got := cfg.Source.Sources["reviewer.provider_capabilities.supports_provider_verbosity"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.provider_capabilities.supports_provider_verbosity"].Kind; got != "env" {
 		t.Fatalf("expected reviewer supports_provider_verbosity source env, got %q", got)
 	}
 }
@@ -249,7 +249,7 @@ func TestValidateSettingsWithSourcesAllowsSubagentReviewerAnthropicOverride(t *t
 	settings.Reviewer.ProviderOverride = "anthropic"
 
 	sources := configRegistry.defaultSourceMap()
-	sources["reviewer.provider_override"] = "subagent"
+	sources["reviewer.provider_override"] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: "reviewer.provider_override"}}
 
 	err := ValidateSettingsWithSources(settings, sources)
 	if err != nil {
@@ -322,7 +322,7 @@ func TestLoadProviderOverrideFromFile(t *testing.T) {
 	if cfg.Settings.ProviderOverride != "openai" {
 		t.Fatalf("expected normalized provider_override from file, got %q", cfg.Settings.ProviderOverride)
 	}
-	if got := cfg.Source.Sources["provider_override"]; got != "file" {
+	if got := cfg.Source.Sources["provider_override"].Kind; got != "file" {
 		t.Fatalf("expected provider_override source file, got %q", got)
 	}
 }
@@ -366,7 +366,7 @@ func TestLoadProviderOverrideFromCLIWithExplicitFileModel(t *testing.T) {
 	if cfg.Settings.ProviderOverride != "openai" {
 		t.Fatalf("expected cli provider_override, got %q", cfg.Settings.ProviderOverride)
 	}
-	if got := cfg.Source.Sources["provider_override"]; got != "cli" {
+	if got := cfg.Source.Sources["provider_override"].Kind; got != "cli" {
 		t.Fatalf("expected provider_override source cli, got %q", got)
 	}
 }
@@ -445,7 +445,7 @@ func TestLoadPriorityRequestModeFromFile(t *testing.T) {
 	if !cfg.Settings.PriorityRequestMode {
 		t.Fatal("expected priority_request_mode=true from file")
 	}
-	if got := cfg.Source.Sources["priority_request_mode"]; got != "file" {
+	if got := cfg.Source.Sources["priority_request_mode"].Kind; got != "file" {
 		t.Fatalf("expected priority_request_mode source file, got %q", got)
 	}
 }
@@ -455,7 +455,7 @@ func TestLoadModelVerbosityFromFile(t *testing.T) {
 	if cfg.Settings.ModelVerbosity != ModelVerbosityHigh {
 		t.Fatalf("expected model_verbosity=high from file, got %q", cfg.Settings.ModelVerbosity)
 	}
-	if got := cfg.Source.Sources["model_verbosity"]; got != "file" {
+	if got := cfg.Source.Sources["model_verbosity"].Kind; got != "file" {
 		t.Fatalf("expected model_verbosity source file, got %q", got)
 	}
 }
@@ -516,13 +516,13 @@ verbose_output = true
 	if cfg.Settings.Reviewer.Frequency != "all" {
 		t.Fatalf("expected file reviewer.frequency=all, got %q", cfg.Settings.Reviewer.Frequency)
 	}
-	if got := cfg.Source.Sources["reviewer.frequency"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.frequency"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.frequency source file, got %q", got)
 	}
 	if cfg.Settings.Reviewer.Model != "gpt-file-reviewer" {
 		t.Fatalf("expected file reviewer.model, got %q", cfg.Settings.Reviewer.Model)
 	}
-	if got := cfg.Source.Sources["reviewer.model"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.model"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.model source file, got %q", got)
 	}
 	if !cfg.Settings.Reviewer.VerboseOutput {
@@ -531,28 +531,28 @@ verbose_output = true
 	if want := filepath.Join(home, ConfigDirName, "reviewer-global.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("expected file reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
-	if got := cfg.Source.Sources["reviewer.verbose_output"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.verbose_output"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.verbose_output source file, got %q", got)
 	}
-	if got := cfg.Source.Sources["reviewer.system_prompt_file"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.system_prompt_file"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.system_prompt_file source file, got %q", got)
 	}
 	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
 		t.Fatalf("expected file reviewer.provider_override=openai, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}
-	if got := cfg.Source.Sources["reviewer.provider_override"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.provider_override"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.provider_override source file, got %q", got)
 	}
 	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:11434/v1" {
 		t.Fatalf("expected file reviewer.openai_base_url, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
-	if got := cfg.Source.Sources["reviewer.openai_base_url"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.openai_base_url"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.openai_base_url source file, got %q", got)
 	}
 	if cfg.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected file reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
 	}
-	if got := cfg.Source.Sources["reviewer.auth"]; got != "file" {
+	if got := cfg.Source.Sources["reviewer.auth"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.auth source file, got %q", got)
 	}
 
@@ -581,37 +581,37 @@ verbose_output = true
 	if cfg.Settings.Reviewer.Frequency != "off" {
 		t.Fatalf("expected env reviewer.frequency=off, got %q", cfg.Settings.Reviewer.Frequency)
 	}
-	if got := cfg.Source.Sources["reviewer.frequency"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.frequency"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.frequency source env, got %q", got)
 	}
 	if cfg.Settings.Reviewer.Model != "gpt-env-reviewer" {
 		t.Fatalf("expected env reviewer.model, got %q", cfg.Settings.Reviewer.Model)
 	}
-	if got := cfg.Source.Sources["reviewer.model"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.model"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.model source env, got %q", got)
 	}
 	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
 		t.Fatalf("expected env reviewer.provider_override=openai, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}
-	if got := cfg.Source.Sources["reviewer.provider_override"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.provider_override"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.provider_override source env, got %q", got)
 	}
 	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://localhost:11434/v1" {
 		t.Fatalf("expected env reviewer.openai_base_url, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
-	if got := cfg.Source.Sources["reviewer.openai_base_url"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.openai_base_url"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.openai_base_url source env, got %q", got)
 	}
 	if cfg.Settings.Reviewer.Auth != "inherit" {
 		t.Fatalf("expected env reviewer.auth=inherit, got %q", cfg.Settings.Reviewer.Auth)
 	}
-	if got := cfg.Source.Sources["reviewer.auth"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.auth"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.auth source env, got %q", got)
 	}
 	if cfg.Settings.Reviewer.VerboseOutput {
 		t.Fatalf("expected env reviewer.verbose_output=false")
 	}
-	if got := cfg.Source.Sources["reviewer.verbose_output"]; got != "env" {
+	if got := cfg.Source.Sources["reviewer.verbose_output"].Kind; got != "env" {
 		t.Fatalf("expected reviewer.verbose_output source env, got %q", got)
 	}
 
@@ -632,7 +632,7 @@ func TestLoadWebSearchPrecedenceAndValidation(t *testing.T) {
 	if cfg.Settings.WebSearch != "native" {
 		t.Fatalf("expected file web_search=native, got %q", cfg.Settings.WebSearch)
 	}
-	if got := cfg.Source.Sources["web_search"]; got != "file" {
+	if got := cfg.Source.Sources["web_search"].Kind; got != "file" {
 		t.Fatalf("expected web_search source file, got %q", got)
 	}
 	if !cfg.Settings.EnabledTools[toolspec.ToolWebSearch] {
@@ -644,7 +644,7 @@ func TestLoadWebSearchPrecedenceAndValidation(t *testing.T) {
 	if cfg.Settings.WebSearch != "off" {
 		t.Fatalf("expected env web_search=off, got %q", cfg.Settings.WebSearch)
 	}
-	if got := cfg.Source.Sources["web_search"]; got != "env" {
+	if got := cfg.Source.Sources["web_search"].Kind; got != "env" {
 		t.Fatalf("expected web_search source env, got %q", got)
 	}
 	if !cfg.Settings.EnabledTools[toolspec.ToolWebSearch] {
@@ -662,7 +662,7 @@ func TestLoadWebSearchNativeRespectsExplicitToolToggle(t *testing.T) {
 	if cfg.Settings.EnabledTools[toolspec.ToolWebSearch] {
 		t.Fatalf("expected explicit tools.web_search=false to stay disabled")
 	}
-	if got := cfg.Source.Sources["tools.web_search"]; got != "file" {
+	if got := cfg.Source.Sources["tools.web_search"].Kind; got != "file" {
 		t.Fatalf("expected tools.web_search source file, got %q", got)
 	}
 }
@@ -672,7 +672,7 @@ func TestLoadTriggerHandoffToolToggleFromFile(t *testing.T) {
 	if !cfg.Settings.EnabledTools[toolspec.ToolTriggerHandoff] {
 		t.Fatalf("expected explicit tools.trigger_handoff=true to enable the tool")
 	}
-	if got := cfg.Source.Sources["tools.trigger_handoff"]; got != "file" {
+	if got := cfg.Source.Sources["tools.trigger_handoff"].Kind; got != "file" {
 		t.Fatalf("expected tools.trigger_handoff source file, got %q", got)
 	}
 }
@@ -685,10 +685,10 @@ func TestLoadSkillTogglesFromFile(t *testing.T) {
 	if !cfg.Settings.SkillToggles["local helper"] {
 		t.Fatalf("expected quoted skill key to stay enabled, got %+v", cfg.Settings.SkillToggles)
 	}
-	if got := cfg.Source.Sources["skills.apiresult"]; got != "file" {
+	if got := cfg.Source.Sources["skills.apiresult"].Kind; got != "file" {
 		t.Fatalf("expected skills.apiresult source file, got %q", got)
 	}
-	if got := cfg.Source.Sources["skills.local helper"]; got != "file" {
+	if got := cfg.Source.Sources["skills.local helper"].Kind; got != "file" {
 		t.Fatalf("expected skills.local helper source file, got %q", got)
 	}
 }
@@ -719,7 +719,7 @@ func TestLoadSkillNamedEnabledAsOrdinaryToggle(t *testing.T) {
 	if enabled, exists := cfg.Settings.SkillToggles["enabled"]; !exists || enabled {
 		t.Fatalf("enabled must remain an ordinary disabled skill toggle: %+v", cfg.Settings.SkillToggles)
 	}
-	if got := cfg.Source.Sources["skills.enabled"]; got != "file" {
+	if got := cfg.Source.Sources["skills.enabled"].Kind; got != "file" {
 		t.Fatalf("expected skills.enabled source file, got %q", got)
 	}
 }
@@ -860,10 +860,10 @@ model_request_seconds = 45
 	if !cfg.Settings.EnabledTools[toolspec.ToolPatch] {
 		t.Fatalf("expected env tool override to enable patch")
 	}
-	if got := cfg.Source.Sources["model"]; got != "cli" {
+	if got := cfg.Source.Sources["model"].Kind; got != "cli" {
 		t.Fatalf("expected model source cli, got %q", got)
 	}
-	if got := cfg.Source.Sources["thinking_level"]; got != "cli" {
+	if got := cfg.Source.Sources["thinking_level"].Kind; got != "cli" {
 		t.Fatalf("expected thinking_level source cli, got %q", got)
 	}
 }

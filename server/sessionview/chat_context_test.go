@@ -126,10 +126,12 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 	settings.Subagents = map[string]config.SubagentRole{
 		role: {
 			Settings: roleSettings,
-			Sources: map[string]string{
-				"model_context_window":                "file",
-				"context_compaction_threshold_tokens": "file",
-				"compaction_mode":                     "file",
+			Sources: map[string]config.Origin{
+				"model_context_window": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_context_window"}},
+
+				"context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}},
+
+				"compaction_mode": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "compaction_mode"}},
 			},
 		},
 	}

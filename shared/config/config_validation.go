@@ -4,17 +4,18 @@ import (
 	"core/shared/theme"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 )
 
 const MaxSupportedSubagentDepth = 30
 
-func validateSubagentRoleState(state settingsState, sources map[string]string) error {
+func validateSubagentRoleState(state settingsState, sources map[string]Origin) error {
 	if len(sources) == 0 {
 		return nil
 	}
 	candidate := state
-	inheritReviewerDefaultsWithSources(&candidate.Settings, sources)
+	inheritReviewerDefaultsWithSources(&candidate.Settings, maps.Clone(sources))
 
 	checks := []struct {
 		enabled bool
@@ -55,7 +56,7 @@ func validateSubagentRoleState(state settingsState, sources map[string]string) e
 	return nil
 }
 
-func validateSubagentRoleContext(state settingsState, sources map[string]string) error {
+func validateSubagentRoleContext(state settingsState, sources map[string]Origin) error {
 	hasWindow := hasExplicitSource(sources, "model_context_window")
 	hasThreshold := hasExplicitSource(sources, "context_compaction_threshold_tokens")
 	hasLead := hasExplicitSource(sources, "pre_submit_compaction_lead_tokens")
@@ -109,18 +110,18 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	return nil
 }
 
-func hasExplicitSource(sources map[string]string, keys ...string) bool {
+func hasExplicitSource(sources map[string]Origin, keys ...string) bool {
 	for _, key := range keys {
-		if strings.TrimSpace(sources[key]) == "file" {
+		if sources[key].Kind == SourceFileKind {
 			return true
 		}
 	}
 	return false
 }
 
-func hasExplicitPrefix(sources map[string]string, prefix string) bool {
+func hasExplicitPrefix(sources map[string]Origin, prefix string) bool {
 	for key, source := range sources {
-		if strings.TrimSpace(source) != "file" {
+		if source.Kind != SourceFileKind {
 			continue
 		}
 		if strings.HasPrefix(key, prefix) {
@@ -130,21 +131,21 @@ func hasExplicitPrefix(sources map[string]string, prefix string) bool {
 	return false
 }
 
-func validateModelNotEmpty(state settingsState, _ map[string]string) error {
+func validateModelNotEmpty(state settingsState, _ map[string]Origin) error {
 	if strings.TrimSpace(state.Settings.Model) == "" {
 		return errors.New("settings model must not be empty")
 	}
 	return nil
 }
 
-func validateProviderOverrideRequiresModel(state settingsState, sources map[string]string) error {
-	if strings.TrimSpace(state.Settings.ProviderOverride) != "" && strings.TrimSpace(sources["model"]) == "default" {
+func validateProviderOverrideRequiresModel(state settingsState, sources map[string]Origin) error {
+	if strings.TrimSpace(state.Settings.ProviderOverride) != "" && sources["model"].Kind == SourceDefault {
 		return fmt.Errorf("%w; set model alongside provider_override", errProviderOverrideRequiresModel)
 	}
 	return nil
 }
 
-func validateProviderOverrideValue(state settingsState, _ map[string]string) error {
+func validateProviderOverrideValue(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(state.Settings.ProviderOverride)) {
 	case "", "openai", "anthropic":
 		return nil
@@ -153,7 +154,7 @@ func validateProviderOverrideValue(state settingsState, _ map[string]string) err
 	}
 }
 
-func validateProviderIdentifier(state settingsState, _ map[string]string) error {
+func validateProviderIdentifier(state settingsState, _ map[string]Origin) error {
 	identifier := state.Settings.ProviderIdentifier
 	if identifier == "" {
 		return fmt.Errorf("%w: value must not be empty", errInvalidProviderIdentifier)
@@ -183,7 +184,7 @@ func isHTTPProductTokenByte(value byte) bool {
 	}
 }
 
-func validateOpenAIBaseURL(state settingsState, _ map[string]string) error {
+func validateOpenAIBaseURL(state settingsState, _ map[string]Origin) error {
 	provider := strings.ToLower(strings.TrimSpace(state.Settings.ProviderOverride))
 	if strings.TrimSpace(state.Settings.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
 		return fmt.Errorf("%w: provider_override %q; openai_base_url requires provider_override=openai or unset", errOpenAIBaseURLConflict, state.Settings.ProviderOverride)
@@ -191,7 +192,7 @@ func validateOpenAIBaseURL(state settingsState, _ map[string]string) error {
 	return nil
 }
 
-func validateProviderCapabilitiesProviderID(state settingsState, sources map[string]string) error {
+func validateProviderCapabilitiesProviderID(state settingsState, sources map[string]Origin) error {
 	capabilities := state.Settings.ProviderCapabilities
 	if strings.TrimSpace(capabilities.ProviderID) != "" {
 		return nil
@@ -202,7 +203,7 @@ func validateProviderCapabilitiesProviderID(state settingsState, sources map[str
 	return nil
 }
 
-func validateModelVerbosity(state settingsState, _ map[string]string) error {
+func validateModelVerbosity(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(string(state.Settings.ModelVerbosity))) {
 	case "", "low", "medium", "high":
 		return nil
@@ -211,7 +212,7 @@ func validateModelVerbosity(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateTheme(state settingsState, _ map[string]string) error {
+func validateTheme(state settingsState, _ map[string]Origin) error {
 	switch theme.Normalize(state.Settings.Theme) {
 	case theme.Auto, theme.Light, theme.Dark:
 		return nil
@@ -220,7 +221,7 @@ func validateTheme(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateNotificationMethod(state settingsState, _ map[string]string) error {
+func validateNotificationMethod(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(state.Settings.NotificationMethod)) {
 	case "auto", "osc9", "bel":
 		return nil
@@ -229,21 +230,21 @@ func validateNotificationMethod(state settingsState, _ map[string]string) error 
 	}
 }
 
-func validateServerHost(state settingsState, _ map[string]string) error {
+func validateServerHost(state settingsState, _ map[string]Origin) error {
 	if strings.TrimSpace(state.Settings.ServerHost) == "" {
 		return fmt.Errorf("server_host must not be empty")
 	}
 	return nil
 }
 
-func validateServerPort(state settingsState, _ map[string]string) error {
+func validateServerPort(state settingsState, _ map[string]Origin) error {
 	if state.Settings.ServerPort <= 0 || state.Settings.ServerPort > 65535 {
 		return fmt.Errorf("server_port must be between 1 and 65535")
 	}
 	return nil
 }
 
-func validateWebSearch(state settingsState, _ map[string]string) error {
+func validateWebSearch(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(state.Settings.WebSearch)) {
 	case "off", "native":
 		return nil
@@ -254,28 +255,28 @@ func validateWebSearch(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateTimeouts(state settingsState, _ map[string]string) error {
+func validateTimeouts(state settingsState, _ map[string]Origin) error {
 	if state.Settings.Timeouts.ModelRequestSeconds <= 0 {
 		return fmt.Errorf("timeouts.model_request_seconds must be > 0")
 	}
 	return nil
 }
 
-func validateShellOutputMaxChars(state settingsState, _ map[string]string) error {
+func validateShellOutputMaxChars(state settingsState, _ map[string]Origin) error {
 	if state.Settings.ShellOutputMaxChars <= 0 {
 		return fmt.Errorf("shell_output_max_chars must be > 0")
 	}
 	return nil
 }
 
-func validateMinimumExecToBgSeconds(state settingsState, _ map[string]string) error {
+func validateMinimumExecToBgSeconds(state settingsState, _ map[string]Origin) error {
 	if state.Settings.MinimumExecToBgSeconds <= 0 {
 		return fmt.Errorf("minimum_exec_to_bg_seconds must be > 0")
 	}
 	return nil
 }
 
-func validateBGShellsOutput(state settingsState, _ map[string]string) error {
+func validateBGShellsOutput(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(string(state.Settings.BGShellsOutput))) {
 	case "default", "verbose", "concise":
 		return nil
@@ -284,7 +285,7 @@ func validateBGShellsOutput(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateShellPostprocessing(state settingsState, _ map[string]string) error {
+func validateShellPostprocessing(state settingsState, _ map[string]Origin) error {
 	switch normalizeShellPostprocessingMode(string(state.Settings.Shell.PostprocessingMode)) {
 	case ShellPostprocessingModeNone, ShellPostprocessingModeBuiltin, ShellPostprocessingModeUser, ShellPostprocessingModeAll:
 	default:
@@ -296,7 +297,7 @@ func validateShellPostprocessing(state settingsState, _ map[string]string) error
 	return nil
 }
 
-func validateCacheWarningMode(state settingsState, _ map[string]string) error {
+func validateCacheWarningMode(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(string(state.Settings.CacheWarningMode))) {
 	case "off", "default", "verbose":
 		return nil
@@ -305,7 +306,7 @@ func validateCacheWarningMode(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateWorkflowSettings(state settingsState, _ map[string]string) error {
+func validateWorkflowSettings(state settingsState, _ map[string]Origin) error {
 	if value := state.Settings.Workflow.PreCompactionTokens; value != nil {
 		if *value <= 0 {
 			return fmt.Errorf("%w: workflow.pre_compaction_tokens must be > 0", errInvalidWorkflowSettings)
@@ -337,7 +338,7 @@ func validateWorkflowSettings(state settingsState, _ map[string]string) error {
 	return nil
 }
 
-func validateMaxSubagentDepth(state settingsState, _ map[string]string) error {
+func validateMaxSubagentDepth(state settingsState, _ map[string]Origin) error {
 	if state.Settings.MaxSubagentDepth < 0 {
 		return fmt.Errorf("max_subagent_depth must be between 0 and %d", MaxSupportedSubagentDepth)
 	}
@@ -350,7 +351,7 @@ func validateMaxSubagentDepth(state settingsState, _ map[string]string) error {
 	return nil
 }
 
-func validateContextWindow(state settingsState, _ map[string]string) error {
+func validateContextWindow(state settingsState, _ map[string]Origin) error {
 	if state.Settings.ContextCompactionThresholdTokens <= 0 {
 		return fmt.Errorf("context_compaction_threshold_tokens must be > 0")
 	}
@@ -390,7 +391,7 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 	return nil
 }
 
-func validateCompactionMode(state settingsState, _ map[string]string) error {
+func validateCompactionMode(state settingsState, _ map[string]Origin) error {
 	switch strings.ToLower(strings.TrimSpace(string(state.Settings.CompactionMode))) {
 	case "native", "local", "none":
 		return nil
@@ -399,7 +400,7 @@ func validateCompactionMode(state settingsState, _ map[string]string) error {
 	}
 }
 
-func validateReviewer(state settingsState, sources map[string]string) error {
+func validateReviewer(state settingsState, sources map[string]Origin) error {
 	reviewer := state.Settings.Reviewer
 	switch strings.ToLower(strings.TrimSpace(reviewer.Frequency)) {
 	case "off", "all", "edits":
@@ -456,7 +457,7 @@ func validateModelContextWindowMinimum(field string, window int) error {
 	)
 }
 
-func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride, sources map[string]string) error {
+func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride, sources map[string]Origin) error {
 	if strings.TrimSpace(capabilities.ProviderID) != "" {
 		return nil
 	}
@@ -466,16 +467,11 @@ func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverr
 	return nil
 }
 
-func hasConfiguredSource(sources map[string]string, key string) bool {
-	switch strings.TrimSpace(sources[key]) {
-	case "file", "env", "cli", "subagent":
-		return true
-	default:
-		return false
-	}
+func hasConfiguredSource(sources map[string]Origin, key string) bool {
+	return sources[key].Declares(key)
 }
 
-func validateSleepPreventionMode(state settingsState, _ map[string]string) error {
+func validateSleepPreventionMode(state settingsState, _ map[string]Origin) error {
 	switch state.Settings.PreventSleep {
 	case SleepPreventionModeAlways, SleepPreventionModeActive, SleepPreventionModeNever:
 		return nil

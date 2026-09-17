@@ -83,7 +83,7 @@ func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, prov
 	return true
 }
 
-func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool) {
+func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
 	if settings == nil || !allowModelOverride {
 		return
 	}
@@ -106,21 +106,21 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 	}
 }
 
-func applyReviewerInheritance(settings *config.Settings, sources map[string]string) {
+func applyReviewerInheritance(settings *config.Settings, sources map[string]config.Origin) {
 	if settings == nil {
 		return
 	}
-	if strings.TrimSpace(sources["reviewer.model"]) == "default" {
+	if sources["reviewer.model"].Inherited("reviewer.model") {
 		settings.Reviewer.Model = settings.Model
 	}
-	if strings.TrimSpace(sources["reviewer.thinking_level"]) == "default" {
+	if sources["reviewer.thinking_level"].Inherited("reviewer.thinking_level") {
 		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 	}
-	if strings.TrimSpace(sources["reviewer.model_verbosity"]) == "default" {
+	if sources["reviewer.model_verbosity"].Inherited("reviewer.model_verbosity") {
 		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
 	}
-	reviewerProviderSourceDefault := strings.TrimSpace(sources["reviewer.provider_override"]) == "default"
-	reviewerBaseURLSourceDefault := strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default"
+	reviewerProviderSourceDefault := sources["reviewer.provider_override"].Inherited("reviewer.provider_override")
+	reviewerBaseURLSourceDefault := sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url")
 	if reviewerProviderSourceDefault || reviewerBaseURLSourceDefault {
 		originalProviderOverride := settings.Reviewer.ProviderOverride
 		originalOpenAIBaseURL := settings.Reviewer.OpenAIBaseURL
@@ -142,10 +142,10 @@ func applyReviewerInheritance(settings *config.Settings, sources map[string]stri
 			settings.Reviewer.OpenAIBaseURL = originalOpenAIBaseURL
 		}
 	}
-	if strings.TrimSpace(sources["reviewer.model_context_window"]) == "default" {
+	if sources["reviewer.model_context_window"].Inherited("reviewer.model_context_window") {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 	}
-	if strings.TrimSpace(sources["reviewer.auth"]) == "default" {
+	if sources["reviewer.auth"].Inherited("reviewer.auth") {
 		settings.Reviewer.Auth = "inherit"
 	}
 	applyReviewerModelCapabilityInheritance(settings, sources)
@@ -153,61 +153,61 @@ func applyReviewerInheritance(settings *config.Settings, sources map[string]stri
 	applyReviewerProviderCapabilityInheritance(settings, sources, reviewerProviderSelectionExplicit)
 }
 
-func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]string) bool {
+func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]config.Origin) bool {
 	if settings == nil {
 		return false
 	}
 	candidate := *settings
-	if strings.TrimSpace(sources["reviewer.provider_override"]) == "default" {
+	if sources["reviewer.provider_override"].Inherited("reviewer.provider_override") {
 		candidate.Reviewer.ProviderOverride = ""
 	}
-	if strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default" {
+	if sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url") {
 		candidate.Reviewer.OpenAIBaseURL = ""
 	}
 	return config.ReviewerUsesIndependentProviderSelection(candidate)
 }
 
-func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]string) {
+func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]config.Origin) {
 	if settings == nil {
 		return
 	}
-	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_reasoning_effort"]) == "default" {
+	if sources["reviewer.model_capabilities.supports_reasoning_effort"].Inherited("reviewer.model_capabilities.supports_reasoning_effort") {
 		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
 	}
-	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_vision_inputs"]) == "default" {
+	if sources["reviewer.model_capabilities.supports_vision_inputs"].Inherited("reviewer.model_capabilities.supports_vision_inputs") {
 		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = settings.ModelCapabilities.SupportsVisionInputs
 	}
 }
 
-func applyReviewerProviderCapabilityInheritance(settings *config.Settings, sources map[string]string, reviewerProviderSelectionExplicit bool) {
+func applyReviewerProviderCapabilityInheritance(settings *config.Settings, sources map[string]config.Origin, reviewerProviderSelectionExplicit bool) {
 	if settings == nil || reviewerProviderSelectionExplicit {
 		return
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.provider_id"]) == "default" {
+	if sources["reviewer.provider_capabilities.provider_id"].Inherited("reviewer.provider_capabilities.provider_id") {
 		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_api"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_responses_api"].Inherited("reviewer.provider_capabilities.supports_responses_api") {
 		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_compact"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_responses_compact"].Inherited("reviewer.provider_capabilities.supports_responses_compact") {
 		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_prompt_cache_key"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_prompt_cache_key"].Inherited("reviewer.provider_capabilities.supports_prompt_cache_key") {
 		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_native_web_search"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_native_web_search"].Inherited("reviewer.provider_capabilities.supports_native_web_search") {
 		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_reasoning_encrypted"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_reasoning_encrypted"].Inherited("reviewer.provider_capabilities.supports_reasoning_encrypted") {
 		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_server_side_context_edit"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_server_side_context_edit"].Inherited("reviewer.provider_capabilities.supports_server_side_context_edit") {
 		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_provider_verbosity"]) == "default" {
+	if sources["reviewer.provider_capabilities.supports_provider_verbosity"].Inherited("reviewer.provider_capabilities.supports_provider_verbosity") {
 		settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = settings.ProviderCapabilities.SupportsProviderVerbosity
 	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.is_openai_first_party"]) == "default" {
+	if sources["reviewer.provider_capabilities.is_openai_first_party"].Inherited("reviewer.provider_capabilities.is_openai_first_party") {
 		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
 	}
 }

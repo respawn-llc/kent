@@ -30,14 +30,14 @@ func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.T
 	if err != nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	targetRole := targetAgentRoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet && lookup.Role.AgentCallable)
+	targetRole := targetAgentRoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet() && lookup.Role.AgentCallable)
 	return targetRole, true
 }
 
 func (r configTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
 	roles := make([]workflow.TargetAgentRole, 0, len(r.settings.Subagents))
 	for name, role := range r.settings.Subagents {
-		if !role.AgentCallableSet || !role.AgentCallable {
+		if !role.AgentCallableSet() || !role.AgentCallable {
 			continue
 		}
 		resolved, ok := r.ResolveConfiguredRole(name)

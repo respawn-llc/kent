@@ -46,11 +46,12 @@ func LoadWorktreeSetupSettings(workspaceRoot string, persistenceRoot string) (Wo
 		fileSetting.registerFileKeys(keyTree)
 	}
 	state := settingsState{}
-	sources := map[string]string{}
+	sources := map[string]Origin{}
 	for _, setting := range settings {
 		setting.applyDefault(&state)
 	}
-	for _, path := range []string{homePath, workspacePath} {
+	for _, source := range []SourceFile{{Layer: FileGlobal, Path: homePath}, {Layer: FileWorkspace, Path: workspacePath}} {
+		path := source.Path
 		file, err := readOptionalSettingsFile(path)
 		if err != nil {
 			return WorktreeSettings{}, err
@@ -61,7 +62,7 @@ func LoadWorktreeSetupSettings(workspaceRoot string, persistenceRoot string) (Wo
 			}
 		}
 		for _, setting := range settings {
-			if err := setting.applyFile(file, path, &state, sources); err != nil {
+			if err := setting.applyFile(file, source, &state, sources); err != nil {
 				return WorktreeSettings{}, fmt.Errorf("apply settings file %s: %w", path, err)
 			}
 		}

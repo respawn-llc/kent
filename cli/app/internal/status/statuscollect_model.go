@@ -10,10 +10,10 @@ import (
 func ConfigOverrideSources(src config.SourceReport) []string {
 	present := map[string]bool{}
 	for _, source := range src.Sources {
-		switch strings.TrimSpace(source) {
-		case "env":
+		switch source.Kind {
+		case config.SourceEnv:
 			present["ENV"] = true
-		case "cli":
+		case config.SourceCLI:
 			present["CLI ARGS"] = true
 		}
 	}

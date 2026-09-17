@@ -15,7 +15,7 @@ func TestApplyRunPromptOverridesAppliesWorkflowThinkingAfterRoleResolution(t *te
 	loaded.Settings.Subagents["reviewer"] = config.SubagentRole{
 		Description: "Reviewer",
 		Settings:    config.Settings{Model: "workflow-reviewer"},
-		Sources:     map[string]string{"model": "test"},
+		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	role := "reviewer"

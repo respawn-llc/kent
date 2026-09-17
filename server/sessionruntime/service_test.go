@@ -238,7 +238,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings:        settings,
 		EnabledToolIDs:        []string{string(toolspec.ToolExecCommand)},
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -320,7 +320,7 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(false),
 		AutoCompactionEnabled: textutil.Value(false),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -358,7 +358,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 				AutoCompaction: false,
 			},
 		},
-		Source: config.SourceReport{Sources: map[string]string{}},
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -410,7 +410,7 @@ func TestActivateSessionRuntimePreservesDefaultRoleIdentityAcrossTransport(t *te
 		attachment, err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
 			SessionID: fixture.store.Meta().SessionID, OwnerID: "default-role-identity",
 			ActiveSettings: settings, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-			AgentSelection: selection, Source: config.SourceReport{Sources: map[string]string{}},
+			AgentSelection: selection, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -459,7 +459,7 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 				AutoCompaction: true,
 			},
 		},
-		Source: config.SourceReport{Sources: map[string]string{}},
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -492,7 +492,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 		ActiveSettings:        sessionRuntimeFastSettings(false),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -524,7 +524,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testin
 		ActiveSettings:        stale,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -565,7 +565,7 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 		QuestionsEnabled:         textutil.Value(true),
 		AutoCompactionEnabled:    textutil.Value(true),
 		ThinkingOverrideExplicit: true,
-		Source:                   config.SourceReport{Sources: map[string]string{}},
+		Source:                   config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -598,7 +598,7 @@ func activateSessionRuntimeForFastTest(t *testing.T, api *API, sessionID string,
 		ActiveSettings:        settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]string{}},
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime %s: %v", owner, err)
@@ -683,7 +683,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -811,7 +811,7 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
-		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]string{}},
+		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -901,7 +901,7 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err == nil {
 		t.Fatal("ActivateSessionRuntime accepted a managed Worktree outside the server namespace")
@@ -983,7 +983,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 			Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		EnabledToolIDs: []string{string(toolspec.ToolExecCommand)},
-		Source:         config.SourceReport{Sources: map[string]string{}},
+		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)

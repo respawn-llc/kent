@@ -28,9 +28,11 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 		Model:         cfg.Settings.Model,
 		ThinkingLevel: cfg.Settings.ThinkingLevel,
 	}
-	cfg.Source.Sources["thinking_level"] = "file"
-	cfg.Source.Sources["reviewer.model"] = "file"
-	cfg.Source.Sources["reviewer.thinking_level"] = "file"
+	cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
+	cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+	cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
 
 	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
 	if err != nil {
@@ -104,7 +106,12 @@ func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *tes
 func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testing.T) {
 	cfg := onboardingSeedConfig()
 	cfg.Settings.Reviewer.ThinkingLevel = ""
-	cfg.Source.Sources["reviewer.thinking_level"] = "env"
+	cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceEnv,
+		Property: config.PropertyAddress{Key: "reviewer.thinking_level"}, Option: func() *string {
+			value :=
+				"KENT_REVIEWER_THINKING_LEVEL"
+			return &value
+		}()}
 
 	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
 	if err != nil {
@@ -139,7 +146,7 @@ func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *t
 		{
 			name: "unknown provenance",
 			mutate: func(cfg *config.App, _ *capabilitypb.Facts) {
-				cfg.Source.Sources["thinking_level"] = "mystery"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: "mystery", Property: config.PropertyAddress{Key: "thinking_level"}}
 			},
 		},
 		{
@@ -288,15 +295,22 @@ func onboardingSeedConfig() config.App {
 	settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 	return config.App{
 		Settings: settings,
-		Source: config.SourceReport{Sources: map[string]string{
-			"theme":                   "default",
-			"model":                   "default",
-			"thinking_level":          "default",
-			"model_verbosity":         "default",
-			"reviewer.frequency":      "default",
-			"reviewer.model":          "default",
-			"reviewer.thinking_level": "default",
-			"compaction_mode":         "default",
+		Source: config.SourceReport{Sources: map[string]config.Origin{
+			"theme": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "theme"}},
+
+			"model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "model"}},
+
+			"thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+			"model_verbosity": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "model_verbosity"}},
+
+			"reviewer.frequency": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.frequency"}},
+
+			"reviewer.model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model"}},
+
+			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
+
+			"compaction_mode": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "compaction_mode"}},
 		}},
 	}
 }

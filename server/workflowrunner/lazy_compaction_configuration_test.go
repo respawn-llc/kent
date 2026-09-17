@@ -152,8 +152,10 @@ func configureCompactionThinking(f *currentNodeRunnerFixture) {
 		settings := f.starter.cfg.Settings.Subagents[role]
 		settings.Settings.ThinkingLevel = effort
 		settings.Settings.ModelCapabilities.SupportsReasoningEffort = true
-		settings.Sources["thinking_level"] = "test"
-		settings.Sources["model_capabilities"] = "test"
+		settings.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
+		settings.Sources["model_capabilities"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities"}}
+
 		f.starter.cfg.Settings.Subagents[role] = settings
 	}
 }

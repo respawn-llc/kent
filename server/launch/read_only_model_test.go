@@ -59,7 +59,7 @@ func TestReadOnlyModelUsesCurrentConfigAndContinuationRole(t *testing.T) {
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
 					Settings: config.Settings{Model: "gpt-worker-model"},
-					Sources:  map[string]string{"model": "workspace"},
+					Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				},
 			},
 		},
@@ -88,7 +88,7 @@ func TestReadOnlyModelContinuationRoleInheritsBaseModel(t *testing.T) {
 			Subagents: map[string]config.SubagentRole{
 				role: {
 					Settings: config.Settings{ThinkingLevel: "high"},
-					Sources:  map[string]string{"thinking_level": "workspace"},
+					Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				},
 			},
 		},

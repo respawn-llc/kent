@@ -1559,7 +1559,7 @@ func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
-		map[string]string{"reviewer.model_capabilities.supports_reasoning_effort": "file"},
+		map[string]config.Origin{"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}}},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",
 	)
@@ -1603,10 +1603,11 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			}
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
-			sources := map[string]string{}
+			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
-				sources["model_capabilities.supports_vision_inputs"] = "file"
+				sources["model_capabilities.supports_vision_inputs"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_vision_inputs"}}
+
 			}
 			wiring, err := NewRuntimeWiring(
 				store, materializedRuntimeWireEventLog(t, store), active,
@@ -1665,7 +1666,7 @@ func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
-		map[string]string{"model_capabilities.supports_reasoning_effort": "file"},
+		map[string]config.Origin{"model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_reasoning_effort"}}},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",
 	)

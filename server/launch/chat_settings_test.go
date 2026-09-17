@@ -37,7 +37,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	settings.Subagents = map[string]config.SubagentRole{
 		"equivalent": {
 			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "medium"},
-			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"worker": {
 			Settings: config.Settings{
@@ -55,12 +55,15 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 					SupportsReasoningEffort: true,
 				},
 			},
-			Sources: map[string]string{
-				"model": "file", "thinking_level": "file", "system_prompt_file": "file",
-				"model_capabilities.supports_reasoning_effort": "file",
+			Sources: map[string]config.Origin{
+				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "system_prompt_file": {Kind: config.SourceInput,
+					Property: config.PropertyAddress{Key: "system_prompt_file"},
+				},
+
+				"model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_reasoning_effort"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}},
 			},
-			AgentCallableSet: true,
-			AgentCallable:    false,
+
+			AgentCallable: false,
 		},
 	}
 	catalog, err := PrepareChatAgentCatalog(config.App{Settings: settings}, auth.EmptyState(), true)
@@ -80,7 +83,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 
 	settings.Subagents["broken"] = config.SubagentRole{
 		Settings: config.Settings{ThinkingLevel: " "},
-		Sources:  map[string]string{"thinking_level": "file"},
+		Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 	}
 	_, err = PrepareChatAgentCatalog(config.App{Settings: settings}, auth.EmptyState(), true)
 	var typed *serverapi.ChatSettingsAgentPreparationError

@@ -184,11 +184,11 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	settings.Subagents = map[string]config.SubagentRole{
 		"coder": {
 			Settings: coderSettings,
-			Sources:  map[string]string{"model": "test"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		},
 		"reviewer": {
 			Settings: reviewerSettings,
-			Sources:  map[string]string{"model": "test"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		},
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{

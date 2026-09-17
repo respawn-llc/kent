@@ -45,7 +45,7 @@ type RuntimeWiringOptions struct {
 	Headless                            bool
 	QuestionsEnabled                    *bool
 	AutoCompactionEnabled               *bool
-	Sources                             map[string]string
+	Sources                             map[string]config.Origin
 	Client                              llm.Client
 	ClientFactory                       RuntimeClientFactory
 	ReviewerClientFactory               RuntimeClientFactory
@@ -361,7 +361,7 @@ func runtimeClientCapabilities(ctx context.Context, client llm.Client, override 
 	return provider.ProviderCapabilities(ctx)
 }
 
-func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]string, reasoningKey string, visionKey string) session.LockedModelCapabilities {
+func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]config.Origin, reasoningKey string, visionKey string) session.LockedModelCapabilities {
 	locked := llm.LockedModelCapabilitiesForModel(model, provider)
 	reasoningConfigured := inheritedModelCapabilitySourceConfigured(sources, reasoningKey)
 	visionConfigured := inheritedModelCapabilitySourceConfigured(sources, visionKey)
@@ -374,7 +374,7 @@ func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabil
 	return locked
 }
 
-func inheritedModelCapabilitySourceConfigured(sources map[string]string, key string) bool {
+func inheritedModelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
 	if modelCapabilitySourceConfigured(sources, key) {
 		return true
 	}
@@ -388,13 +388,8 @@ func inheritedModelCapabilitySourceConfigured(sources map[string]string, key str
 	}
 }
 
-func modelCapabilitySourceConfigured(sources map[string]string, key string) bool {
-	switch strings.TrimSpace(sources[key]) {
-	case "file", "env", "cli", "subagent":
-		return true
-	default:
-		return false
-	}
+func modelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
+	return sources[key].Configured()
 }
 
 func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {

@@ -194,13 +194,13 @@ func testChatSettingsApp() config.App {
 	settings.Subagents = map[string]config.SubagentRole{
 		config.BuiltInSubagentRoleFast: {
 			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "low"},
-			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"no-questions": {
 			Settings: config.Settings{
 				EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false},
 			},
-			Sources: map[string]string{"tools.ask_question": "file"},
+			Sources: map[string]config.Origin{"tools.ask_question": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.ask_question"}}},
 		},
 	}
 	return config.App{Settings: settings}

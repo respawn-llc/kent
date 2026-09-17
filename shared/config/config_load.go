@@ -138,16 +138,16 @@ func loadAll(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions)
 	state := configRegistry.defaultState()
 	state.PersistenceRoot = DefaultPersistence
 	sources := configRegistry.defaultSourceMap()
-	sources["persistence_root"] = "default"
+	sources["persistence_root"] = defaultOrigin("persistence_root")
 
-	if err := configRegistry.applyFile(homeFileConfig, homeSettingsPath, settingsFileLayerGlobal, &state, sources); err != nil {
+	if err := configRegistry.applyFile(homeFileConfig, homeSettingsPath, FileGlobal, &state, sources); err != nil {
 		return loadedConfig{}, err
 	}
 	if err := appendSystemPromptFileFromConfig(homeFileConfig, homeSettingsPath, SystemPromptFileScopeHomeConfig, &state); err != nil {
 		return loadedConfig{}, err
 	}
 	if workspaceSettingsLayerEnabled {
-		if err := configRegistry.applyFile(workspaceFileConfig, workspaceSettingsPath, settingsFileLayerWorkspace, &state, sources); err != nil {
+		if err := configRegistry.applyFile(workspaceFileConfig, workspaceSettingsPath, FileWorkspace, &state, sources); err != nil {
 			return loadedConfig{}, err
 		}
 		if err := appendSystemPromptFileFromConfig(workspaceFileConfig, workspaceSettingsPath, SystemPromptFileScopeWorkspaceConfig, &state); err != nil {
@@ -210,17 +210,17 @@ func loadAll(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions)
 // resolveConfigRoot picks the explicit config+data root from the
 // --persistence-root flag (opts.ConfigRoot) or the KENT_PERSISTENCE_ROOT env
 // var, returning the trimmed root and a source label for the source report.
-func resolveConfigRoot(opts LoadOptions) (root string, source string) {
+func resolveConfigRoot(opts LoadOptions) (root string, source Origin) {
 	if trimmed := strings.TrimSpace(opts.ConfigRoot); trimmed != "" {
-		return trimmed, "flag"
+		return trimmed, optionOrigin("persistence_root", SourceCLI, "--persistence-root")
 	}
 	if trimmed := strings.TrimSpace(os.Getenv(PersistenceRootEnvName)); trimmed != "" {
-		return trimmed, "env"
+		return trimmed, optionOrigin("persistence_root", SourceEnv, PersistenceRootEnvName)
 	}
-	return "", "default"
+	return "", defaultOrigin("persistence_root")
 }
 
-func applyConfigRootPersistence(configRoot string, source string, state *settingsState, sources map[string]string) {
+func applyConfigRootPersistence(configRoot string, source Origin, state *settingsState, sources map[string]Origin) {
 	if strings.TrimSpace(configRoot) == "" {
 		return
 	}

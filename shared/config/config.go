@@ -107,13 +107,11 @@ func (h ClientHooks) LifecycleCommand() []string {
 }
 
 type SubagentRole struct {
-	Settings            Settings
-	Sources             map[string]string
-	Description         string
-	AgentCallable       bool
-	AgentCallableSet    bool
-	WorkflowSubagent    bool
-	WorkflowSubagentSet bool
+	Settings         Settings
+	Sources          map[string]Origin
+	Description      string
+	AgentCallable    bool
+	WorkflowSubagent bool
 }
 
 type SystemPromptFileScope string
@@ -272,7 +270,7 @@ type SourceReport struct {
 	WorkspaceSettingsPath         string
 	WorkspaceSettingsFileExists   bool
 	WorkspaceSettingsLayerEnabled bool
-	Sources                       map[string]string
+	Sources                       map[string]Origin
 }
 
 type App struct {

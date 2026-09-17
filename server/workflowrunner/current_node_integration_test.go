@@ -272,12 +272,12 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	cfg.Settings.Subagents["coder"] = config.SubagentRole{
 		Description: "Coder",
 		Settings:    config.Settings{Model: "workflow-coder"},
-		Sources:     map[string]string{"model": "test"},
+		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	cfg.Settings.Subagents["reviewer"] = config.SubagentRole{
 		Description: "Reviewer",
 		Settings:    config.Settings{Model: "workflow-reviewer"},
-		Sources:     map[string]string{"model": "test"},
+		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {

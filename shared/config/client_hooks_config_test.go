@@ -19,7 +19,7 @@ func TestLoadInteractiveClientLifecycleHookIsAbsentByDefault(t *testing.T) {
 	if command := client.Hooks.LifecycleCommand(); command != nil {
 		t.Fatalf("lifecycle command = %#v, want absent", command)
 	}
-	if got := app.Source.Sources["hooks.client.lifecycle"]; got != "default" {
+	if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "default" {
 		t.Fatalf("lifecycle source = %q, want default", got)
 	}
 	rendered := settingsTOMLWithRenderingOptions(app.Settings, true, nil, nil)
@@ -83,7 +83,7 @@ func TestLoadInteractiveClientLifecycleHookFromGlobalFilePreservesAndCopiesArgv(
 	if got := client.Hooks.LifecycleCommand(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("mutating returned argv changed settings: %#v", got)
 	}
-	if got := app.Source.Sources["hooks.client.lifecycle"]; got != "file" {
+	if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "file" {
 		t.Fatalf("lifecycle source = %q, want file", got)
 	}
 }
@@ -121,7 +121,7 @@ func TestLoadInteractiveSharedSettingsFileIsGlobalOnly(t *testing.T) {
 			if got := client.Hooks.LifecycleCommand(); !reflect.DeepEqual(got, []string{"notify"}) {
 				t.Fatalf("lifecycle command = %#v, want global command", got)
 			}
-			if got := app.Source.Sources["hooks.client.lifecycle"]; got != "file" {
+			if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "file" {
 				t.Fatalf("lifecycle source = %q, want global file", got)
 			}
 			if got := app.Settings.SystemPromptFiles; !reflect.DeepEqual(got, []SystemPromptFile{{Path: filepath.Join(home, ConfigDirName, "system.md"), Scope: SystemPromptFileScopeHomeConfig}}) {

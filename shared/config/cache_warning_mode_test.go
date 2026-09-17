@@ -9,7 +9,7 @@ import (
 func TestValidateCacheWarningMode(t *testing.T) {
 	settings := configRegistry.defaultState().Settings
 	settings.CacheWarningMode = CacheWarningMode("loud")
-	err := configRegistry.validate(settingsState{Settings: settings}, map[string]string{"model": "default"})
+	err := configRegistry.validate(settingsState{Settings: settings}, map[string]Origin{"model": {Kind: SourceDefault}})
 	if !errors.Is(err, errInvalidCacheWarningMode) {
 		t.Fatalf("expected cache_warning_mode validation error, got %v", err)
 	}

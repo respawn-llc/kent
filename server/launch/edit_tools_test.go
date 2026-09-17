@@ -44,7 +44,7 @@ func TestActiveToolIDsRejectsEffectivePatchAndEdit(t *testing.T) {
 	settings := validLaunchSettings("claude-sonnet-4.5")
 	settings.EnabledTools[toolspec.ToolEdit] = true
 	source := defaultToolSources()
-	source.Sources["tools.edit"] = "file"
+	source.Sources["tools.edit"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}}
 
 	_, err := ActiveToolIDsForPlan(settings, source, nil)
 	if err == nil || !errors.Is(err, ErrPatchEditToolsConflict) {
@@ -103,9 +103,10 @@ func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 					toolspec.ToolEdit:  true,
 				},
 			},
-			Sources: map[string]string{
-				"tools.patch": "file",
-				"tools.edit":  "file",
+			Sources: map[string]config.Origin{
+				"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+				"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 			},
 		},
 	}
@@ -138,9 +139,10 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 					toolspec.ToolEdit:  true,
 				},
 			},
-			Sources: map[string]string{
-				"tools.patch": "file",
-				"tools.edit":  "file",
+			Sources: map[string]config.Origin{
+				"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+				"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 			},
 		},
 	}
@@ -158,15 +160,16 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
 		t.Fatalf("enabled tools = %+v, want explicit subagent edit preserved across model override", updated.EnabledTools)
 	}
-	if updated.Source.Sources["tools.edit"] != "subagent" || updated.Source.Sources["tools.patch"] != "subagent" {
+	if updated.Source.Sources["tools.edit"].Kind != config.SourceInput || updated.Source.Sources["tools.patch"].Kind != config.SourceInput {
 		t.Fatalf("tool sources = %+v, want subagent markers preserved", updated.Source.Sources)
 	}
 }
 
 func defaultToolSources() config.SourceReport {
-	sources := map[string]string{}
+	sources := map[string]config.Origin{}
 	for _, id := range toolspec.CatalogIDs() {
-		sources["tools."+toolspec.ConfigName(id)] = "default"
+		key := "tools." + toolspec.ConfigName(id)
+		sources[key] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: key}}
 	}
 	return config.SourceReport{Sources: sources}
 }

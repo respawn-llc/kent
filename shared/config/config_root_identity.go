@@ -147,11 +147,10 @@ func PersistenceRootHash(persistenceRoot string) string {
 // be resolved (for example HOME is unset in a stripped environment), the explicit
 // root stays pinned rather than silently disabling the check, so an isolated-root
 // client never falls back to a different server on the same TCP endpoint. The
-// source label is set by config.Load (see resolveConfigRoot): "default", "flag",
-// or "env".
+// source kind is set by config.Load (see resolveConfigRoot).
 func ExplicitPersistenceRootID(cfg App) string {
-	switch cfg.Source.Sources["persistence_root"] {
-	case "flag", "env":
+	switch cfg.Source.Sources["persistence_root"].Kind {
+	case SourceCLI, SourceEnv:
 		if isDefault, err := IsDefaultPersistenceRoot(cfg.PersistenceRoot); err == nil && isDefault {
 			return ""
 		}

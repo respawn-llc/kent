@@ -461,7 +461,7 @@ func fallbackSubagentDescription(base config.Settings, role config.SubagentRole)
 		thinking = role.Settings.ThinkingLevel
 	}
 	parts := []string{strings.TrimSpace(model), "thinking " + strings.TrimSpace(thinking)}
-	if role.Sources["priority_request_mode"] == "file" && role.Settings.PriorityRequestMode {
+	if role.Sources["priority_request_mode"].Configured() && role.Settings.PriorityRequestMode {
 		parts = append(parts, "fast mode on")
 	}
 	tools := config.EffectiveSubagentRoleTools(base.EnabledTools, role)

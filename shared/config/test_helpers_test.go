@@ -73,9 +73,9 @@ func unknownSettingsKeyReported(err error, key string) bool {
 	return slices.Contains(unknownErr.Keys, key)
 }
 
-func assertConfigSource(t *testing.T, cfg App, key string, want string) {
+func assertConfigSource(t *testing.T, cfg App, key string, want SourceKind) {
 	t.Helper()
-	if got := cfg.Source.Sources[key]; got != want {
+	if got := cfg.Source.Sources[key].Kind; got != want {
 		t.Fatalf("expected %s source %s, got %q", key, want, got)
 	}
 }

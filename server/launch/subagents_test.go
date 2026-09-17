@@ -16,7 +16,7 @@ func TestCloneSettingsCopiesShellPostprocessHook(t *testing.T) {
 				Settings: config.Settings{
 					Shell: config.ShellSettings{PostprocessHook: &hook},
 				},
-				Sources: map[string]string{"shell.postprocess_hook": "file"},
+				Sources: map[string]config.Origin{"shell.postprocess_hook": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "shell.postprocess_hook"}}},
 			},
 		},
 	}
@@ -48,9 +48,10 @@ func TestApplyReviewerInheritanceRecomputesDefaultBaseURLWhenReviewerProviderExp
 			OpenAIBaseURL:    "http://parent.local/v1",
 		},
 	}
-	applyReviewerInheritance(&settings, map[string]string{
-		"reviewer.provider_override": "subagent",
-		"reviewer.openai_base_url":   "default",
+	applyReviewerInheritance(&settings, map[string]config.Origin{
+		"reviewer.provider_override": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}},
+
+		"reviewer.openai_base_url": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}},
 	})
 
 	if settings.Reviewer.ProviderOverride != "openai" {
@@ -84,10 +85,12 @@ func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing
 				"enabled":   false,
 			},
 		},
-		Sources: map[string]string{
-			"provider_capabilities.supports_provider_verbosity": "file",
-			"skills.apiresult": "file",
-			"skills.enabled":   "file",
+		Sources: map[string]config.Origin{
+			"provider_capabilities.supports_provider_verbosity": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "provider_capabilities.supports_provider_verbosity"}},
+
+			"skills.apiresult": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "skills.apiresult"}},
+
+			"skills.enabled": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "skills.enabled"}},
 		},
 	}
 
@@ -118,8 +121,9 @@ func TestApplyReviewerInheritanceDoesNotCopyMainProviderCapabilitiesForExplicitR
 		},
 	}
 	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_override"] = "subagent"
-	sources["reviewer.openai_base_url"] = "subagent"
+	sources["reviewer.provider_override"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}}
+
+	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
 
 	applyReviewerInheritance(&settings, sources)
 
@@ -142,8 +146,9 @@ func TestApplyReviewerInheritanceCopiesMainProviderCapabilitiesForNoOpReviewerPr
 		},
 	}
 	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_override"] = "file"
-	sources["reviewer.openai_base_url"] = "default"
+	sources["reviewer.provider_override"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}}
+
+	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
 
 	applyReviewerInheritance(&settings, sources)
 
@@ -173,9 +178,10 @@ func TestApplyReviewerInheritanceMergesReviewerModelCapabilitiesPerField(t *test
 			},
 		},
 	}
-	applyReviewerInheritance(&settings, map[string]string{
-		"reviewer.model_capabilities.supports_reasoning_effort": "subagent",
-		"reviewer.model_capabilities.supports_vision_inputs":    "default",
+	applyReviewerInheritance(&settings, map[string]config.Origin{
+		"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}},
+
+		"reviewer.model_capabilities.supports_vision_inputs": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_vision_inputs"}},
 	})
 
 	want := config.ModelCapabilitiesOverride{SupportsVisionInputs: true}
@@ -207,10 +213,13 @@ func TestApplyReviewerInheritanceMergesReviewerProviderCapabilitiesPerField(t *t
 		},
 	}
 	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_capabilities.provider_id"] = "subagent"
-	sources["reviewer.provider_capabilities.supports_responses_api"] = "subagent"
-	sources["reviewer.provider_capabilities.supports_prompt_cache_key"] = "subagent"
-	sources["reviewer.provider_capabilities.supports_provider_verbosity"] = "subagent"
+	sources["reviewer.provider_capabilities.provider_id"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.provider_id"}}
+
+	sources["reviewer.provider_capabilities.supports_responses_api"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_responses_api"}}
+
+	sources["reviewer.provider_capabilities.supports_prompt_cache_key"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_prompt_cache_key"}}
+
+	sources["reviewer.provider_capabilities.supports_provider_verbosity"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_provider_verbosity"}}
 
 	applyReviewerInheritance(&settings, sources)
 
@@ -224,17 +233,25 @@ func TestApplyReviewerInheritanceMergesReviewerProviderCapabilitiesPerField(t *t
 	}
 }
 
-func reviewerProviderCapabilitySources() map[string]string {
-	sources := map[string]string{
-		"reviewer.provider_capabilities.provider_id":                       "default",
-		"reviewer.provider_capabilities.supports_responses_api":            "default",
-		"reviewer.provider_capabilities.supports_responses_compact":        "default",
-		"reviewer.provider_capabilities.supports_prompt_cache_key":         "default",
-		"reviewer.provider_capabilities.supports_native_web_search":        "default",
-		"reviewer.provider_capabilities.supports_reasoning_encrypted":      "default",
-		"reviewer.provider_capabilities.supports_server_side_context_edit": "default",
-		"reviewer.provider_capabilities.supports_provider_verbosity":       "default",
-		"reviewer.provider_capabilities.is_openai_first_party":             "default",
+func reviewerProviderCapabilitySources() map[string]config.Origin {
+	sources := map[string]config.Origin{
+		"reviewer.provider_capabilities.provider_id": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.provider_id"}},
+
+		"reviewer.provider_capabilities.supports_responses_api": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_responses_api"}},
+
+		"reviewer.provider_capabilities.supports_responses_compact": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_responses_compact"}},
+
+		"reviewer.provider_capabilities.supports_prompt_cache_key": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_prompt_cache_key"}},
+
+		"reviewer.provider_capabilities.supports_native_web_search": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_native_web_search"}},
+
+		"reviewer.provider_capabilities.supports_reasoning_encrypted": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_reasoning_encrypted"}},
+
+		"reviewer.provider_capabilities.supports_server_side_context_edit": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_server_side_context_edit"}},
+
+		"reviewer.provider_capabilities.supports_provider_verbosity": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_provider_verbosity"}},
+
+		"reviewer.provider_capabilities.is_openai_first_party": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.is_openai_first_party"}},
 	}
 	return sources
 }

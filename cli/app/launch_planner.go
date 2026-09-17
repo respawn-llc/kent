@@ -389,8 +389,8 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	return merged
 }
 
-func sourceIsCLI(sources map[string]string, key string) bool {
-	return strings.TrimSpace(sources[key]) == "cli"
+func sourceIsCLI(sources map[string]config.Origin, key string) bool {
+	return sources[key].Kind == config.SourceCLI
 }
 
 func hasCLIToolOverride(source config.SourceReport) bool {
