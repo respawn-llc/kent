@@ -28,7 +28,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   render(
     <TestAppProviders services={services}>
       <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
-        <SessionChatContext compact={vi.fn()} />
+        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session" }} />
       </ChatRuntimeProvider>
     </TestAppProviders>,
   );
@@ -117,7 +117,7 @@ it("retains admitted usage during a later Main View load", async () => {
         >
           Reload
         </button>
-        <SessionChatContext compact={vi.fn()} />
+        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session" }} />
       </>
     );
   }
@@ -151,7 +151,11 @@ it("does not mount Session Context before New Chat creation", async () => {
     });
     return (
       <ChatComposerSurface composer={composer}>
-        <ChatComposer availableHeight={null} onHeightChange={vi.fn()} />
+        <ChatComposer
+          availableHeight={null}
+          onHeightChange={vi.fn()}
+          settings={{ kind: "loading-new-chat" }}
+        />
       </ChatComposerSurface>
     );
   }

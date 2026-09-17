@@ -1,5 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -17,15 +17,16 @@ import { ChatPromptPicker } from "./ChatPromptPicker";
 import { SessionChatContext } from "./SessionChatContext";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
+import type { ChatSettingsFeature } from "./useChatSettings";
 import "./chatComposer.css";
 
 export type ChatComposerProps = Readonly<{
-  settingsChip?: ReactNode;
+  settings: ChatSettingsFeature;
   availableHeight: number | null;
   onHeightChange(height: number): void;
 }>;
 
-export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: ChatComposerProps) {
+export function ChatComposer({ settings, availableHeight, onHeightChange }: ChatComposerProps) {
   const { t } = useTranslation();
   const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
@@ -109,7 +110,7 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
         ) : (
           editorRegion
         )}
-        <ComposerControls composer={composer} settingsChip={settingsChip} stoppable={stoppable} />
+        <ComposerControls composer={composer} settings={settings} stoppable={stoppable} />
       </Island>
     </div>
   );
@@ -162,18 +163,20 @@ function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslati
 
 function ComposerControls({
   composer,
-  settingsChip,
+  settings,
   stoppable,
 }: Readonly<{
   composer: Composer;
-  settingsChip: ReactNode;
+  settings: ChatSettingsFeature;
   stoppable: boolean;
 }>) {
   const { t } = useTranslation();
   return (
     <div className="chat-composer-controls">
-      <div className="min-w-0 flex-1">{settingsChip}</div>
-      {composer.target.kind === "session" && <SessionChatContext compact={composer.compact} />}
+      <div className="min-w-0 flex-1">{"settingsChip" in settings ? settings.settingsChip : null}</div>
+      {composer.target.kind === "session" && (
+        <SessionChatContext compact={composer.compact} settings={settings} />
+      )}
       {stoppable && (
         <IconTooltipButton
           label={t("chatComposer.stop")}

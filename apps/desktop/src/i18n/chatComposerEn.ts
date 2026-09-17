@@ -4,10 +4,8 @@ export const chatComposerEnglish = {
     compacting: "Compacting",
     remaining:
       "<strong>{{tokens}}</strong> of <strong>{{window}}</strong> tokens remaining (<strong>{{percent}}%</strong>)",
-    autoOn: "<strong>Auto-compaction</strong> on",
-    autoOff: "<strong>Auto-compaction</strong> off",
     disabled: "Compaction disabled by policy",
-    completed: "Completed compactions: <strong>{{count}}</strong>",
+    completed: "Compactions: <strong>{{count}}</strong>",
     completedTitle: "Compaction complete",
     completedBody: "Your Chat context is ready.",
     failed: "Compaction failed",

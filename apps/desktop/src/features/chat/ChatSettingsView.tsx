@@ -7,7 +7,12 @@ import { errorMessage, type ChatSettingsMutation } from "@/api";
 import { runViewTransition, useAppServices } from "@/app-facade";
 import { Popover, PopoverContent, SegmentedControl } from "@/ui";
 
-import { settingsDisabledReason, settingsPresentation } from "./chatSettingsPresentation";
+import {
+  activateChatSetting,
+  settingsDisabledReason,
+  settingsPresentation,
+} from "./chatSettingsPresentation";
+import { ChatAutoCompactionSwitch } from "./ChatAutoCompactionSwitch";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { ChatSettingsChip } from "./ChatSettingsChip";
 import { CustomThinkingEditor } from "./CustomThinkingEditor";
@@ -36,14 +41,7 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
     policy?: Parameters<typeof settingsDisabledReason>[2],
   ) => settingsDisabledReason(t, editability, policy);
   function activate(operation: ChatSettingsMutation) {
-    if (!("activate" in feature)) return;
-    if (feature.kind === "ready-new-chat") {
-      feature.activate(operation);
-      return;
-    }
-    void feature.activate(operation).catch(() => {
-      // The controller has already rolled back and reported the operation failure.
-    });
+    activateChatSetting(feature, operation);
   }
   const supervisor = settings.supervisor;
   const agentReason = reason(settings.agentEditability);
@@ -200,18 +198,7 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
               }}
               reason={reason(settings.questions.editability)}
             />
-            <SettingsSwitch
-              checked={
-                settings.autoCompaction.policy === "disabled"
-                  ? settings.autoCompaction.stored
-                  : settings.autoCompaction.effective
-              }
-              label={t("chatSettings.autoCompaction")}
-              onChange={(enabled) => {
-                activate({ kind: "auto_compaction", enabled });
-              }}
-              reason={reason(settings.autoCompaction.editability, settings.autoCompaction.policy)}
-            />
+            <ChatAutoCompactionSwitch feature={feature} />
             {"navigation" in props ? (
               <ChatSettingsSessionFacts
                 facts={props.feature.session}

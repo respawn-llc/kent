@@ -277,7 +277,7 @@
 
 ## Context And Compaction
 
-- A Context meter must remain available below the editor and while a Question or Approval replaces the editor. Its normal compact trigger must be a light chip on the right before Send/Stop, with used-context percentage followed by a 20px circular used-context meter.
+- A Context meter must remain available below the editor and while a Question or Approval replaces the editor. Its normal compact trigger must be a content-sized light chip on the right before Send/Stop, with used-context percentage followed by a circular used-context meter matching the font size.
 - New Chat omits the Context trigger and pop-up until Session creation succeeds.
 - `/compact` remains a recognized New Chat command. One `chat.compact` request sends one typed lexical invocation from which the server derives both the byte-exact New Chat draft and normalized manual-compaction admission. Malformed lexical structure fails before Session creation. The server establishes the ordinary Session and then invokes normal manual-compaction admission. A truly fresh Session rejects it as too soon while still returning the resulting Session identity and preserving the exact reconstructed draft.
 - Desktop must enable `Compact` when Session policy permits compaction and compaction is not known to be active. Desktop must surface the server's typed too-soon rejection instead of inferring manual-compaction eligibility.
@@ -296,16 +296,17 @@
 - Presented Session policy and compaction activity may remain stale in an open pop-up until a later ordinary Session-status or context-usage broadcast. Server command admission must remain authoritative if the user acts on stale facts.
 - If a live Session becomes dormant during a Context read, the server returns one complete result from the Session's persisted facts. It does not mix live and persisted facts in one result.
 - The pop-up omits the TUI status inspection's detailed instruction, skill, and Agent-file token breakdown.
-- The Context details must be three plain-text lines: remaining usage, Auto-compaction state, and completed-compaction count. Important labels and numeric values use bold primary text; connective and explanatory text stays muted.
+- The Context details must have three rows: remaining usage, an Auto-compaction switch, and the completed-compaction count labeled `Compactions:`. Important labels and numeric values use bold primary text; connective and explanatory text stays muted.
+- The Auto-compaction switch must share the existing Settings value and mutation behavior, including eager value changes, rollback, disabled-policy explanation, and error feedback. It must not create a separate settings read or mutation owner.
 - The pop-up has no chips, badges, statistic cards, inset items, or other secondary containers.
 - A bottom row contains one wide progress bar and the `Compact` action. The bar visualizes used context exactly like the TUI meter, while the text states remaining context.
-- The progress fill uses one fixed smooth gradient from Success through Warning to Error across the complete 0–100% range. Current usage clips the revealed gradient; the unused track stays muted.
+- The progress fill uses one fixed soft gradient from Success through Warning to Error across the complete 0–100% range. Current usage clips the revealed gradient; the unused track stays muted.
 - The progress bar never recolors its complete fill when usage crosses a threshold.
 - Authoritative usage changes animate the progress value. Reduced motion applies the new value immediately.
 - The pop-up has no compaction-guidance field. Its `Compact` action is equivalent to `/compact` with no guidance.
 - Activating `Compact` closes the Context pop-up and uses the same Pending Work flow as `/compact`. Every other transient surface that initiates manual compaction also closes after accepting the action.
 - Manual compaction guidance is available only through `/compact <guidance>`.
-- While any compaction is active, the compact Context meter replaces its ordinary percentage and ring with a secondary-tone spinner and `Compacting` in the same trigger footprint.
+- While any compaction is active, the compact Context meter replaces its ordinary percentage and ring with a font-sized secondary-tone spinner and `Compacting`. The trigger wraps the visible content instead of reserving the compacting label's width while idle.
 - The compacting Context trigger remains interactive and can open the Context pop-up. The pop-up keeps the last authoritative usage values visible until new usage arrives.
 - Automatic compaction does not close an already-open Context pop-up. While compaction remains active, an open pop-up keeps its usage details visible and disables `Compact`.
 - Desktop never starts or queues another compaction after it knows compaction is active. A raced button activation or `/compact` request still reaches the server admission contract and surfaces its typed rejection.
@@ -316,7 +317,7 @@
 - When the Desktop window is unfocused, successful user-requested compaction sends a system notification only after its following Pending Work drain is idle. Activation focuses Desktop and opens the owning Session at its latest content.
 - Desktop must send at most one completion notification for the Session when that drain becomes idle, even if multiple user-requested compactions succeeded during it.
 - Automatic, pre-submit, and handoff compaction do not send this completion notification.
-- When Session policy disables compaction, the pop-up must show truthful disabled and unavailable text in the Auto-compaction line, and its `Compact` action must be unavailable.
+- When Session policy disables compaction, the Auto-compaction switch must use the existing Settings disabled-policy explanation, and its `Compact` action must be unavailable.
 - In that policy state, `/compact` remains a known command and surfaces the server's typed disabled-policy failure instead of becoming an ordinary user message.
 - Context and compaction lifecycle create no transcript status rows.
 

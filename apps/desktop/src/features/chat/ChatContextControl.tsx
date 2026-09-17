@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   Button,
@@ -15,7 +15,7 @@ import "./chatContext.css";
 type Props = Readonly<{
   used: number;
   window: number | null;
-  autoCompactionEnabled: boolean;
+  autoCompactionControl: ReactNode;
   policyDisabled: boolean;
   completedCount: number;
   compacting: boolean;
@@ -82,18 +82,7 @@ export function ChatContextControl(props: Props) {
               components={{ strong: <strong /> }}
             />
           </div>
-          <div>
-            <Trans
-              i18nKey={
-                props.policyDisabled
-                  ? "chatComposer.context.disabled"
-                  : props.autoCompactionEnabled
-                    ? "chatComposer.context.autoOn"
-                    : "chatComposer.context.autoOff"
-              }
-              components={{ strong: <strong /> }}
-            />
-          </div>
+          {props.autoCompactionControl}
           <div>
             <Trans
               i18nKey="chatComposer.context.completed"
@@ -134,39 +123,30 @@ function ContextMeter({
   presentation: ReturnType<typeof contextPresentation>;
 }>) {
   const { t } = useTranslation();
+  if (compacting)
+    return (
+      <>
+        <span>{t("chatComposer.context.compacting")}</span>
+        <Spinner tone="secondary" size="sm" className="chat-context-circle" />
+      </>
+    );
   return (
     <>
-      <span
-        className="chat-context-trigger-content"
-        style={{ visibility: compacting ? "visible" : "hidden" }}
-      >
-        <span>{t("chatComposer.context.compacting")}</span>
-        {compacting ? (
-          <Spinner tone="secondary" size="sm" className="h-5 w-5" />
-        ) : (
-          <span className="h-5 w-5" />
-        )}
-      </span>
-      <span
-        className="chat-context-trigger-content"
-        style={{ visibility: compacting ? "hidden" : "visible" }}
-      >
-        <span>{presentation?.usedPercent ?? 0}%</span>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="8" stroke="var(--color-outline)" strokeWidth="2" />
-          <circle
-            className="chat-context-ring"
-            cx="10"
-            cy="10"
-            r="8"
-            pathLength="1"
-            stroke="var(--color-secondary)"
-            strokeWidth="2"
-            strokeDasharray={`${(presentation?.extent ?? 0).toString()} 1`}
-            transform="rotate(-90 10 10)"
-          />
-        </svg>
-      </span>
+      <span>{presentation?.usedPercent ?? 0}%</span>
+      <svg className="chat-context-circle" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" stroke="var(--color-outline)" strokeWidth="2" />
+        <circle
+          className="chat-context-ring"
+          cx="10"
+          cy="10"
+          r="8"
+          pathLength="1"
+          stroke="var(--color-secondary)"
+          strokeWidth="2"
+          strokeDasharray={`${(presentation?.extent ?? 0).toString()} 1`}
+          transform="rotate(-90 10 10)"
+        />
+      </svg>
     </>
   );
 }
