@@ -1,8 +1,17 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { RegistryProvider } from "@effect/atom-react";
-import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
-import { ChatRuntimeProvider } from "@/app-facade";
+import { useLayoutEffect, useState, type ReactNode } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import type {
+  ChatInputMutationResult,
+  ChatTranscriptHandler,
+  InitialChatSettings,
+  ChatSettingsTarget,
+} from "@/api";
+import { ChatRuntimeProvider, useAppServices } from "@/app-facade";
+import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
 import { parsePendingWorkItemID } from "@/api";
@@ -12,10 +21,59 @@ import {
   TestAppProviders as AppProviders,
   type TestAppServices,
 } from "@/test-support/app-services";
-import { useChatComposer, type ComposerSubmission } from "./useChatComposer";
 import { createWorktreeCommand } from "./worktreeCommand";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import { appI18n } from "@/i18n";
+import {
+  useChatComposer as useComposer,
+  type ChatComposerOptions,
+  type ComposerSubmission,
+} from "./useChatComposer";
+
+import { createChatStorageFixture } from "./chatStorageFixture";
+
+beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
+afterEach(() => vi.unstubAllGlobals());
+
+function useChatComposer(
+  options: ChatSettingsTarget & Omit<ChatComposerOptions, "model"> & { submission?: ComposerSubmission },
+) {
+  const services = useAppServices();
+  const client = useQueryClient();
+  const { t } = useTranslation();
+  const [target] = useState(() =>
+    Atom.make<ChatSettingsTarget>(
+      options.kind === "session"
+        ? { kind: "session", projectID: options.projectID, sessionID: options.sessionID }
+        : { kind: "new_chat", projectID: options.projectID, workspace: options.workspace },
+    ),
+  );
+  const [submission] = useState(() =>
+    Atom.make<ComposerSubmission>(options.submission ?? { kind: "loading" }),
+  );
+  const setSubmission = useAtomSet(submission);
+  const state = options.submission?.kind ?? "loading";
+  const settings =
+    options.submission?.kind === "ready" && "initialSettings" in options.submission
+      ? options.submission.initialSettings
+      : null;
+  const error = options.submission?.kind === "failed" ? options.submission.error : null;
+  useLayoutEffect(() => {
+    setSubmission(
+      state === "ready"
+        ? settings === null
+          ? { kind: "ready" }
+          : { kind: "ready", initialSettings: settings }
+        : state === "failed"
+          ? { kind: "failed", error }
+          : { kind: "loading" },
+    );
+  }, [state, settings, error, setSubmission]);
+  const [model] = useState(() =>
+    createChatComposerViewModel({ services, client, t, target, submission, opening: options }),
+  );
+  return useComposer({ ...options, model });
+}
 
 function TestAppProviders({
   children,
@@ -31,7 +89,6 @@ function TestAppProviders({
 const target = {
   kind: "session",
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID: "session-1",
 } as const;
 const accepted: ChatInputMutationResult = {
@@ -66,29 +123,30 @@ it.each([
   );
   const push = vi.fn();
   const commands = [createWorktreeCommand({ execute, push, t: appI18n.t })];
-  function Probe() {
-    const composer = useChatComposer({
-      ...(newChat
-        ? {
-            kind: "new_chat" as const,
-            projectID: target.projectID,
-            workspace: target.workspace,
-            submission: {
-              kind: "ready" as const,
-              initialSettings: {
-                agentRole: "writer",
-                supervisor: "off" as const,
-                thinking: null,
-                fast: null,
-                questionsEnabled: true,
-                autoCompactionEnabled: false,
-              },
+  const options = {
+    ...(newChat
+      ? {
+          kind: "new_chat" as const,
+          projectID: target.projectID,
+          workspace: { workspaceID: "workspace-1" },
+          submission: {
+            kind: "ready" as const,
+            initialSettings: {
+              agentRole: "writer",
+              supervisor: "off" as const,
+              thinking: null,
+              fast: null,
+              questionsEnabled: true,
+              autoCompactionEnabled: false,
             },
-          }
-        : { ...target, submission: { kind: "ready" as const } }),
-      commands,
-      onDeliveredSession: delivered,
-    });
+          },
+        }
+      : { ...target, submission: { kind: "ready" as const } }),
+    commands,
+    onDeliveredSession: delivered,
+  };
+  function Probe() {
+    const composer = useChatComposer(options);
     const keyboard = useComposerKeyboard(composer, false, null);
     return (
       <textarea
@@ -340,7 +398,11 @@ it("restores a failed request but does not restore an accepted input with a diag
 
 it("keeps New Chat typing while Settings load and delivers the identified Session even on rejection", async () => {
   const services = createTestServices([]);
-  const newChat = { kind: "new_chat", projectID: target.projectID, workspace: target.workspace } as const;
+  const newChat = {
+    kind: "new_chat",
+    projectID: target.projectID,
+    workspace: { workspaceID: "workspace-1" },
+  } as const;
   const settings: InitialChatSettings = {
     agentRole: "writer",
     supervisor: "off",
@@ -402,9 +464,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   await act(async () => {
     result.current.submit("send");
   });
-  await waitFor(() => {
-    expect(readPending).toHaveBeenCalledWith({ ...newChat, sessionID: accepted.sessionID });
-  });
+  expect(readPending).not.toHaveBeenCalled();
   expect(result.current.target).toEqual(newChat);
   expect(result.current.pending.items).toEqual([]);
 });

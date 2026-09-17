@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BoardRoute } from "@/features/board";
-import { ChatShell } from "@/features/chat";
+import { ChatDestination, NewChatDestination } from "@/features/chat";
 import { createProjectTasksViewMemory, HomeRoute, ProjectTasksSurface } from "@/features/home";
 import { StartupGate } from "@/features/startup";
 import { StandaloneTaskRoute } from "@/features/task-detail";
@@ -13,6 +13,9 @@ import {
   readBrowserStorage,
   readLastProjectRoute,
   sessionChatRoutePath,
+  newChatRoutePath,
+  useAppNavigation,
+  useChatHistoryBookmark,
   SidebarRootOwner,
   writeBrowserStorage,
   writeLastProjectRoute,
@@ -38,6 +41,7 @@ const projectTasksRouteApi = getRouteApi("/projects/$projectId/tasks");
 const workflowEditorRouteApi = getRouteApi("/workflows/$workflowId/editor");
 const taskRouteApi = getRouteApi("/tasks/$taskId");
 const chatRouteApi = getRouteApi(sessionChatRoutePath);
+const newChatRouteApi = getRouteApi(newChatRoutePath);
 
 const routeRestoreSessionKey = "desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
@@ -204,18 +208,45 @@ export function TaskRoute() {
   return <StandaloneTaskRoute taskId={params.taskId} />;
 }
 
-const emptyChatContent = () => null;
-const emptyChatComposer = () => null;
-
 export function ChatRoute() {
   const params = chatRouteApi.useParams();
+  return <ChatRouteOpening projectID={params.projectId} sessionID={params.sessionId} />;
+}
+
+export function NewChatRoute() {
+  const params = newChatRouteApi.useParams();
+  return <ChatRouteOpening projectID={params.projectId} sessionID={null} />;
+}
+
+function ChatRouteOpening({
+  projectID,
+  sessionID,
+}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  const bookmark = useChatHistoryBookmark(projectID, sessionID);
+  const appNavigation = useAppNavigation();
+  const navigation = {
+    openTask: (taskID: string) => {
+      void appNavigation.openTask(taskID);
+    },
+    openParentSession: (previousSessionID: string) => {
+      void appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
+    },
+  };
   return (
-    <ChatShell
-      composer={emptyChatComposer}
-      content={emptyChatContent}
-      selectedSession={{ projectID: params.projectId, sessionID: params.sessionId }}
-      sessionName={null}
-      state={{ kind: "ready" }}
-    />
+    <SidebarRootOwner>
+      {bookmark.sessionID === null ? (
+        <NewChatDestination
+          projectID={projectID}
+          navigation={navigation}
+          onSessionDelivered={bookmark.delivered}
+        />
+      ) : (
+        <ChatDestination
+          opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
+          navigation={navigation}
+          onSessionDelivered={bookmark.delivered}
+        />
+      )}
+    </SidebarRootOwner>
   );
 }

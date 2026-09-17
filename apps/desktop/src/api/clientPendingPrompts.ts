@@ -4,19 +4,19 @@ import { listPendingAsks } from "./clientTaskDetail";
 import { approvalPrompt, orderPendingPrompts } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import type { PendingPrompt } from "./promptModels";
-import type { DescriptorRpcTransport } from "./transport";
+import type { DescriptorRpcTransport, SessionAttachmentTarget } from "./transport";
 
 export async function listPendingPrompts(
   transport: DescriptorRpcTransport,
-  sessionID: string,
+  target: SessionAttachmentTarget,
 ): Promise<readonly PendingPrompt[]> {
   const method = ApprovalService.method.listPending;
   const [questions, approvals] = await Promise.all([
-    listPendingAsks(transport, sessionID),
+    listPendingAsks(transport, target),
     transport.callDescriptorAttachedSession(
-      sessionID,
+      target,
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: target.sessionID }),
     ),
   ]);
   return orderPendingPrompts([

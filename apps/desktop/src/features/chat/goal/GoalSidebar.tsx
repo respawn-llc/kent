@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
+import { useAtomValue } from "@effect/atom-react";
 
-import type { ChatApi, ChatGoalFact, ChatGoalMutationResult, ChatGoalStatus, ChatSessionTarget } from "@/api";
+import type {
+  ChatApi,
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalSetResult,
+  ChatGoalStatus,
+  ChatSessionTarget,
+} from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
 import { Button, ErrorState, LoadingState } from "@/ui";
@@ -32,11 +40,12 @@ export type GoalSidebarInput =
       kind: "new_chat";
       api: GoalSidebarApi;
       binding: NewChatGoalBinding;
+      setGoal(objective: string): Promise<ChatGoalSetResult>;
     }>;
 
 export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>) {
   if (input.kind === "new_chat") {
-    return <NewChatGoalSidebar api={input.api} binding={input.binding} />;
+    return <NewChatGoalSidebar api={input.api} binding={input.binding} setGoal={input.setGoal} />;
   }
   return <ExactGoalSidebar api={input.api} target={input.target} />;
 }
@@ -44,11 +53,13 @@ export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>
 function NewChatGoalSidebar({
   api,
   binding,
+  setGoal,
 }: Readonly<{
   api: GoalSidebarApi;
   binding: NewChatGoalBinding;
+  setGoal(objective: string): Promise<ChatGoalSetResult>;
 }>) {
-  const snapshot = useBindingSnapshot(binding);
+  const snapshot = useAtomValue(binding.state);
   const { t } = useTranslation();
   const { push } = useStatusController();
   const { logger } = useAppServices();
@@ -69,13 +80,12 @@ function NewChatGoalSidebar({
   }
 
   const unavailable = snapshot.availability === "agent_capability_missing";
-  const canSave = draft.trim().length > 0 && !snapshot.pending && !unavailable;
+  const canSave = draft.trim().length > 0 && snapshot.ready && !snapshot.pending && !unavailable;
   const save = () => {
     if (!canSave) return;
     setError(null);
     setEditing(false);
-    void binding
-      .setGoal(draft)
+    void setGoal(draft)
       .then((result) => {
         if (result.outcome.kind === "rejected") {
           const message = goalErrorMessage(result.outcome.error.detail, t);
@@ -126,7 +136,13 @@ function NewChatGoalSidebar({
             snapshot.pending || draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave}
-                label={unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save")}
+                label={
+                  !snapshot.ready
+                    ? t("chatComposer.loadingSettings")
+                    : unavailable
+                      ? t("chat.goal.unavailableForAgent")
+                      : t("chat.goal.save")
+                }
                 onClick={save}
                 pending={snapshot.pending}
               />
@@ -643,10 +659,4 @@ function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefine
       pending={false}
     />
   );
-}
-
-function useBindingSnapshot(binding: NewChatGoalBinding) {
-  const subscribe = useCallback((listener: () => void) => binding.subscribe(listener), [binding]);
-  const getSnapshot = useCallback(() => binding.snapshot, [binding]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

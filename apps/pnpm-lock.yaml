@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@tanstack/history': 1.162.2
+
 importers:
 
   .:
@@ -1556,8 +1559,8 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@tanstack/history@1.162.0':
-    resolution: {integrity: sha512-79pf/RkhteYZTRgcR4F9kbk84P2N8rugQJswxfIqovlbRiT3yI7eBE+5QorIrZaOKktsgzRlXh1l/du/xpl4iA==}
+  '@tanstack/history@1.162.2':
+    resolution: {integrity: sha512-Lemp3DJbzNqcin/nZpWxycDaEqySDbnIshDbyHJMMCapD4ZQMe57szRpBXOfzfP6fyWAtHNrLrcBUyANJ6Vlow==}
     engines: {node: '>=20.19'}
 
   '@tanstack/query-core@5.101.4':
@@ -6630,7 +6633,7 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0)
 
-  '@tanstack/history@1.162.0': {}
+  '@tanstack/history@1.162.2': {}
 
   '@tanstack/query-core@5.101.4': {}
 
@@ -6641,7 +6644,7 @@ snapshots:
 
   '@tanstack/react-router@1.170.18(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@tanstack/history': 1.162.0
+      '@tanstack/history': 1.162.2
       '@tanstack/react-store': 0.9.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@tanstack/router-core': 1.171.15
       isbot: 5.2.1
@@ -6663,7 +6666,7 @@ snapshots:
 
   '@tanstack/router-core@1.171.15':
     dependencies:
-      '@tanstack/history': 1.162.0
+      '@tanstack/history': 1.162.2
       cookie-es: 3.1.1
       seroval: 1.6.0
       seroval-plugins: 1.6.0(seroval@1.6.0)

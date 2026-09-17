@@ -1,10 +1,11 @@
 import { chromeContentPaddingClassName } from "@/ui";
-import { sessionChatRoutePath } from "@/app-facade";
+import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
 
 const edgeToEdgeRoutePatterns = new Set([
   "/",
   "/projects/$projectId",
   sessionChatRoutePath,
+  newChatRoutePath,
   "/workflows/$workflowId/editor",
 ]);
 
@@ -29,6 +30,7 @@ function routePattern(pathname: string): string {
   if (segments.length === 4 && segments[0] === "projects" && segments[2] === "sessions") {
     return sessionChatRoutePath;
   }
+  if (segments.length === 3 && segments[0] === "projects" && segments[2] === "chat") return newChatRoutePath;
   if (segments.length === 3 && segments[0] === "workflows" && segments[2] === "editor") {
     return "/workflows/$workflowId/editor";
   }

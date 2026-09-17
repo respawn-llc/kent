@@ -1,115 +1,145 @@
-import type {
-  ChatApi,
-  ChatGoal,
-  ChatGoalAvailability,
-  ChatGoalSetResult,
-  ChatGoalSetTarget,
-  ChatSessionTarget,
+import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
+import { useAtomMount, useAtomSet } from "@effect/atom-react";
+import {
+  ContractError,
+  type ChatApi,
+  type ChatGoal,
+  type ChatGoalSetTarget,
+  type ChatSessionTarget,
+  type ChatSettingsTarget,
+  type ChatGoalSetResult,
 } from "@/api";
-import { ContractError } from "@/api";
+import { queryAtom } from "@/app-facade";
+import type { ChatSettingsViewModel } from "../ChatSettingsViewModel";
+import type { ComposerDraftViewModel } from "../ComposerDraftViewModel";
 
+export type NewChatGoalHostDelivery = Readonly<{ target: ChatSessionTarget; goal: ChatGoal | null }>;
 export type NewChatGoalBindingSnapshot =
   | Readonly<{
       kind: "unresolved";
-      availability: ChatGoalAvailability | null;
+      ready: boolean;
       pending: boolean;
+      availability: "available" | "agent_capability_missing" | null;
     }>
-  | Readonly<{
-      kind: "resolved_session";
-      target: ChatSessionTarget;
-    }>;
-
-export type NewChatGoalHostDelivery = Readonly<{
-  target: ChatSessionTarget;
-  goal: ChatGoal | null;
+  | Readonly<{ kind: "resolved_session"; target: ChatSessionTarget }>;
+type GoalRequest = Readonly<{
+  target: Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
+  objective: string;
+  delivered(delivery: NewChatGoalHostDelivery): void;
+  completed(result: ChatGoalSetResult): void;
+  rejected(error: unknown): void;
 }>;
-
-export type NewChatGoalBindingOptions = Readonly<{
-  api: Pick<ChatApi, "setGoal">;
-  captureTarget: () => Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
-  onHostDelivery: (delivery: NewChatGoalHostDelivery) => void | Promise<void>;
-}>;
-
-export class NewChatGoalBinding {
-  readonly #api: Pick<ChatApi, "setGoal">;
-  readonly #captureTarget: NewChatGoalBindingOptions["captureTarget"];
-  readonly #onHostDelivery: NewChatGoalBindingOptions["onHostDelivery"];
-  readonly #listeners = new Set<() => void>();
-  #snapshot: NewChatGoalBindingSnapshot = {
-    kind: "unresolved",
-    availability: null,
-    pending: false,
-  };
-
-  constructor(options: NewChatGoalBindingOptions) {
-    this.#api = options.api;
-    this.#captureTarget = options.captureTarget;
-    this.#onHostDelivery = options.onHostDelivery;
-  }
-
-  get snapshot(): NewChatGoalBindingSnapshot {
-    return this.#snapshot;
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  }
-
-  setAvailability(availability: ChatGoalAvailability | null): void {
-    if (this.#snapshot.kind !== "unresolved" || this.#snapshot.availability === availability) {
-      return;
-    }
-    this.#snapshot = { ...this.#snapshot, availability };
-    this.#notify();
-  }
-
-  async setGoal(objective: string): Promise<ChatGoalSetResult> {
-    if (this.#snapshot.kind !== "unresolved") {
-      throw new ContractError("New Chat Goal creation has already resolved.");
-    }
-    if (this.#snapshot.pending) {
-      throw new ContractError("New Chat Goal creation is already pending.");
-    }
-    const target = this.#captureTarget();
-    this.#snapshot = { ...this.#snapshot, pending: true };
-    this.#notify();
-    try {
-      const result = await this.#api.setGoal(target, objective);
-      if (result.sessionID.trim().length === 0) {
-        throw new ContractError("Goal Set success Session is required.");
-      }
-      const exactTarget: ChatSessionTarget = {
-        projectID: target.projectID,
-        workspace: { workspaceID: target.workspaceID },
-        sessionID: result.sessionID,
-      };
-      const goal = result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null;
-      await this.#onHostDelivery({ goal, target: exactTarget });
-      this.#snapshot = { kind: "resolved_session", target: exactTarget };
-      this.#notify();
-      return result;
-    } catch (error) {
-      if (this.#snapshot.kind === "unresolved") {
-        this.#snapshot = { ...this.#snapshot, pending: false };
-      }
-      this.#notify();
-      throw error;
-    }
-  }
-
-  #notify(): void {
-    for (const listener of this.#listeners) {
-      listener();
-    }
-  }
+export function createNewChatGoalBinding(
+  options: Readonly<{
+    api: Pick<ChatApi, "setGoal">;
+    client: QueryClient;
+    target: Atom.Atom<ChatSettingsTarget>;
+    settings: Pick<ChatSettingsViewModel, "state">;
+    draft: Pick<ComposerDraftViewModel, "text" | "begin" | "resume">;
+  }>,
+) {
+  const request = Atom.make((get) => {
+    const observer = new MutationObserver(options.client, {
+      retry: false,
+      networkMode: "always",
+      mutationFn: async (input: GoalRequest) => options.api.setGoal(input.target, input.objective),
+      onSuccess: (result, input) => {
+        if (result.sessionID.trim().length === 0)
+          throw new ContractError("Goal Set success Session is required.");
+        const goal = result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null;
+        input.delivered({ target: { projectID: input.target.projectID, sessionID: result.sessionID }, goal });
+        input.completed(result);
+      },
+      onError: (error: Error, input) => {
+        get.set(options.draft.resume, undefined);
+        input.rejected(error);
+      },
+    });
+    return { observer, read: queryAtom(observer) };
+  });
+  const requests = Atom.make((get) => get(get(request).read));
+  const pending = Atom.make((get) => get(requests).isPending);
+  const state = Atom.make((get): NewChatGoalBindingSnapshot => {
+    const target = get(options.target);
+    if (target.kind === "session") return { kind: "resolved_session", target };
+    const settings = get(options.settings.state);
+    const choice =
+      settings.kind === "ready-new-chat"
+        ? settings.catalog.choices.find((item) => item.agent.role === settings.initialSettings.agentRole)
+        : undefined;
+    return {
+      kind: "unresolved",
+      ready: settings.kind === "ready-new-chat",
+      pending: get(pending),
+      availability:
+        choice === undefined ? null : choice.questions.capable ? "available" : "agent_capability_missing",
+    };
+  });
+  const setGoal = Atom.fn<
+    Readonly<{
+      objective: string;
+      delivered(delivery: NewChatGoalHostDelivery): void;
+      completed(result: ChatGoalSetResult): void;
+      rejected(error: unknown): void;
+    }>
+  >()(
+    (input, get) =>
+      Effect.gen(function* () {
+        const { observer } = get(request);
+        const target = get(options.target);
+        const settings = get(options.settings.state);
+        if (observer.getCurrentResult().isPending) {
+          input.rejected(new ContractError("New Chat Goal creation is already pending."));
+          return;
+        }
+        if (
+          target.kind !== "new_chat" ||
+          settings.kind !== "ready-new-chat" ||
+          !("workspaceID" in target.workspace)
+        ) {
+          input.rejected(new ContractError("New Chat Settings are not ready."));
+          return;
+        }
+        const captured: GoalRequest = {
+          target: {
+            kind: "new_chat",
+            projectID: target.projectID,
+            workspaceID: target.workspace.workspaceID,
+            initialSettings: settings.initialSettings,
+            initialInputDraft: get(options.draft.text),
+          },
+          objective: input.objective,
+          delivered: input.delivered,
+          completed: input.completed,
+          rejected: input.rejected,
+        };
+        yield* get.setResult(options.draft.begin, undefined);
+        yield* Effect.tryPromise(async () => observer.mutate(captured)).pipe(Effect.ignore);
+      }),
+    { concurrent: true },
+  );
+  return { state, requests, pending, setGoal } as const;
 }
-
+export type NewChatGoalBinding = ReturnType<typeof createNewChatGoalBinding>;
+export type NewChatGoalBindingOptions = Parameters<typeof createNewChatGoalBinding>[0];
+export function useNewChatGoalActions(binding: NewChatGoalBinding) {
+  useAtomMount(binding.requests);
+  const set = useAtomSet(binding.setGoal);
+  return {
+    setGoal: async (
+      input: Readonly<{ objective: string; delivered(delivery: NewChatGoalHostDelivery): void }>,
+    ) =>
+      new Promise<ChatGoalSetResult>((resolve, reject) => {
+        set({ ...input, completed: resolve, rejected: reject });
+      }),
+  };
+}
 function committedGoal(
   mutation: Extract<ChatGoalSetResult["outcome"], { kind: "mutation" }>["mutation"],
 ): ChatGoal {
-  if (mutation.kind !== "authoritative_goal") {
+  if (mutation.kind !== "authoritative_goal")
     throw new ContractError("New Chat Goal Set returned an illegal mutation result.");
-  }
   return mutation.fact.goal;
 }
