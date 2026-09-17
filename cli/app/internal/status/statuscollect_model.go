@@ -26,6 +26,16 @@ func ConfigOverrideSources(src config.SourceReport) []string {
 	return ordered
 }
 
+func ConfigFiles(source config.SourceReport) []config.SourceFile {
+	files := make([]config.SourceFile, 0, len(source.Files))
+	for _, layer := range []config.FileLayer{config.FileGlobal, config.FileWorkspace, config.FilePrivate} {
+		if file := source.File(layer); file != nil && file.Applied {
+			files = append(files, file.SourceFile)
+		}
+	}
+	return files
+}
+
 func ModelSummary(req Request) string {
 	resolved := strings.TrimSpace(req.ModelName)
 	configured, _ := textutil.OptionalTrimmed(req.ConfiguredModelName)
