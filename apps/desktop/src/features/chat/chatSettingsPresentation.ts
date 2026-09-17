@@ -7,9 +7,20 @@ import {
   type ChatSettings,
   type ChatSettingsAutoCompaction,
   type ChatSettingsEditability,
+  type ChatSettingsMutation,
 } from "@/api";
 
 import type { ReadyChatSettings } from "./useChatSettings";
+
+export function activateChatSetting(feature: ReadyChatSettings, operation: ChatSettingsMutation): void {
+  if (feature.kind === "ready-new-chat") {
+    feature.activate(operation);
+    return;
+  }
+  void feature.activate(operation).catch(() => {
+    // Settings owns eager updates, rollback, and error feedback for both surfaces.
+  });
+}
 
 export function settingsPresentation(feature: ReadyChatSettings) {
   if (feature.kind === "ready-session") return feature.settings;

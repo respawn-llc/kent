@@ -45,6 +45,8 @@ export type ChatRuntimeHost = Readonly<{
   onPendingWorkRestored?(restoration: ChatTranscriptPayloadByKind["pending_work_restored"]): void;
   onWorktreeTransitionOutcome?(outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]): void;
   onTranscriptError?(error: Error): void;
+  onManualCompactionCompleted?(): void;
+  onManualCompactionFailed?(diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"]): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
   pendingPrompts: readonly PendingPrompt[];
@@ -92,6 +94,7 @@ export class ChatRuntimeOwner {
   #mountGeneration = 0;
   #started = false;
   #disposed = false;
+  #pendingCompactionNotice = false;
 
   constructor(
     api: ChatRuntimeApi,
@@ -159,6 +162,7 @@ export class ChatRuntimeOwner {
         });
       },
       onObservationLoss: () => {
+        this.#pendingCompactionNotice = false;
         this.transcript.observationLost();
       },
       onError: (error) => this.#host.onTranscriptError?.(error),
@@ -209,6 +213,7 @@ export class ChatRuntimeOwner {
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#pendingCompactionNotice = false;
     this.#mainViewToken++;
     this.#observation?.close();
     this.#observation = null;
@@ -294,7 +299,9 @@ export class ChatRuntimeOwner {
 
   #applyHostEffects(effects: readonly ChatProjectionHostEffect[]): void {
     for (const effect of effects) {
-      if (effect.kind === "human-input-interrupted") {
+      if (effect.kind === "compaction") {
+        this.#applyCompactionFeedback(effect.feedback);
+      } else if (effect.kind === "human-input-interrupted") {
         this.#host.onHumanInputInterrupted?.(effect.items);
       } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
@@ -305,6 +312,17 @@ export class ChatRuntimeOwner {
       } else {
         this.#host.onPendingWorkRestored?.(effect.restoration);
       }
+    }
+  }
+
+  #applyCompactionFeedback(
+    feedback: Extract<ChatProjectionHostEffect, { kind: "compaction" }>["feedback"],
+  ): void {
+    if (feedback.kind === "completed") this.#pendingCompactionNotice = true;
+    else if (feedback.kind === "failed") this.#host.onManualCompactionFailed?.(feedback.diagnostic);
+    else if (this.#pendingCompactionNotice) {
+      this.#pendingCompactionNotice = false;
+      this.#host.onManualCompactionCompleted?.();
     }
   }
 
