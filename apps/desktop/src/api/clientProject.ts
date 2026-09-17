@@ -404,7 +404,7 @@ function projectHomeSummary(project: ProjectHomeSummary) {
   };
 }
 
-function projectAvailability(availability: ProjectAvailability) {
+export function projectAvailability(availability: ProjectAvailability) {
   switch (availability) {
     case ProjectAvailability.AVAILABLE:
       return "available" as const;
@@ -416,6 +416,8 @@ function projectAvailability(availability: ProjectAvailability) {
       return "unlinked" as const;
     case ProjectAvailability.UNSPECIFIED:
       throw new ContractError("Project availability is unspecified.");
+    default:
+      throw new ContractError("Project availability is unknown.");
   }
 }
 
