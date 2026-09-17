@@ -31,8 +31,12 @@
 - Session rows do not expose execution-target availability or warnings.
 - Opening preserves the Session's recorded execution target and loads Chat through read-only Session projections. Opening never activates or retains an Active Session Runtime. Desktop adds no automatic fallback, workspace retarget, or target-repair picker.
 - Reopening a Session after navigation or relaunch opens its latest transcript position.
-- `New Session` opens client-only New Chat for the Project default workspace. `New in workspace` lets the operator choose an attached Project workspace from an infinite-scrolling list and opens the same New Chat state for that workspace.
+- The Sessions tab must provide a circular plus action that opens client-only New Chat for the Project default workspace. There must be no separate `New in workspace` entry action.
+- Before Session creation, New Chat must show a workspace chip beside Settings with the selected workspace's name. Activating the chip must open a compact popup like Settings with a virtualized, infinite-scrolling list of attached Project workspaces and no search bar. Selecting a workspace must change the open New Chat in place. The chip must disappear after Session creation.
+- Changing the selected workspace must preserve unsent text and replace transient settings edits with the selected workspace's defaults. The workspace chip and Settings must show loading while those defaults load. Actions requiring those settings must remain unavailable until loading succeeds. Failure must offer Retry without silently reverting to another workspace.
+- While any first Chat action is pending, the workspace chip must be unavailable and show loading with an explanatory tooltip. Failure without a Session must make workspace selection available again. Other independently available first actions must retain their concurrent behavior.
 - New Chat and an existing Session are states of one Chat destination. Successful Session creation updates that destination in place without route navigation, destination replacement, remounting, or visible page flicker.
+- After a New Chat history entry receives a Session result, revisiting that entry must reopen its last delivered Session.
 - New Session creation does not select a worktree. Worktree control is available after Chat opens.
 - New Chat has no setup form for name, model, provider, Agent, worktree, or prompt. It starts with an empty composer; settings remain available after Chat opens.
 - Opening, typing in, changing settings in, or abandoning New Chat creates neither a durable Session nor a session-browser row.
@@ -223,6 +227,8 @@
 - New Chat has one Desktop-local unsent text value shared by all New Chats. Different mounted presentations may diverge and overwrite it; Desktop provides no cross-window synchronization or conflict resolution.
 - Desktop saves that text after a short debounce in background work. Local read or write failure is best-effort: production logs it and continues without a user-facing error, while debug builds log it and fail immediately.
 - Successful New Chat target resolution initializes the ordinary server-owned Session draft from the exact New Chat text. A delivered Chat mutation result that identifies the resulting Session transfers authority to that Session and clears the local New Chat value. If the response is lost, Desktop retains its local value and does not discover or infer the result.
+- On Session adoption, Desktop must preserve the visible editor as the unsent text, including post-submission typing and rejected submitted text restored exactly once. Desktop must save that editor value as the adopted Session's ordinary draft without independently appending its initial draft or merging edits from another presentation. Goal Set must leave composer text unchanged.
+- When concurrent first actions deliver successive Sessions, visible unsent text must follow each delivered Session switch. Desktop must leave drafts already saved in other created Sessions untouched.
 - After ordinary Session creation returns a Session, a delivered New Chat mutation result identifies it even when later runtime preparation or mutation admission fails. The Chat destination adopts that Session and preserves its ordinary draft.
 - If ordinary Session creation returns an error, the New Chat mutation fails without a Session result. Desktop retains its local text and does not retry or infer whether Session artifacts exist.
 - The hard cutover deletes every persisted workspace Chat draft and the obsolete schema, accepting loss of those unsent messages and settings. If that migration cannot complete, the server panics instead of starting with partial legacy state or a fallback path.
@@ -236,6 +242,7 @@
 - Setting changes create no transcript rows.
 - Every setting activation, Session ID Copy, and setting failure keeps settings open. Escape, clicking away, Task navigation, or parent-Session navigation closes settings.
 - Initial Settings loading and failure use the whole-Chat loading and failure presentation rather than an independent Settings placeholder or unavailable trigger.
+- Switching workspaces inside an already-open New Chat must use the local workspace-chip and Settings loading/error presentation while preserving visible unsent text, rather than repeating whole-Chat initial loading.
 
 ## Composer And Pending Work
 
@@ -607,6 +614,7 @@
 - If an ordinary Session draft cannot load, existing-Session opening fails through the initial Error state. If an ordinary Session draft write fails while Chat is open, Desktop preserves the visible unsent text and surfaces the failure.
 - New Chat local-text persistence is best-effort and never blocks navigation or disposal in production. Debug builds fail immediately on its persistence errors.
 - An in-app navigation, pop-out transition, or other controlled disposal that requires ordinary Session draft persistence does not silently complete after that prerequisite fails. It keeps the current presentation and surfaces the authoritative diagnostic.
+- During an in-app navigation's Session draft save, Chat must show loading and make the composer read-only. A noninteractive navigation transition may obscure the loading state. Success must allow navigation; failure must retain Chat and restore editing with the ordinary draft failure feedback. Ordinary autosave and first-action requests must not impose this navigation-only editing restriction.
 - Each Desktop window independently observes its open Session. Consumers within that window share one mounted Chat observation.
 - Leaving the owning Chat surface closes its read-only observation immediately. Reopening performs the complete read-only open and observation path; ordinary completed Main View cache data may remain.
 - Every opening and reopening clears any retained historical transcript window before presenting transcript rows and requests the newest transcript page. While that page loads, the transcript region shows Loading while Chat chrome, composer, and retained Main View remain visible.

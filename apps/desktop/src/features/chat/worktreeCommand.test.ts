@@ -14,7 +14,6 @@ it.each(["/worktree", "/wt", "/wt StAtUs"])("opens the ordinary list for %s", as
         kind: "session",
         sessionID: "session",
         projectID: "project",
-        workspace: { workspaceID: "workspace" },
       },
       command.invocation,
     ),
@@ -47,7 +46,6 @@ it.each([
         kind: "session",
         sessionID: "session",
         projectID: "project",
-        workspace: { workspaceID: "workspace" },
       },
       command.invocation,
     ),
@@ -79,7 +77,6 @@ it.each([
       kind: "session",
       sessionID: "session",
       projectID: "project",
-      workspace: { workspaceID: "workspace" },
     },
     command.invocation,
   );

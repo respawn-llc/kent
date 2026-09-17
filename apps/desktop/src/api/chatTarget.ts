@@ -20,7 +20,7 @@ export function isValidChatSessionID(value: string): boolean {
 }
 
 export function requireChatSessionID(target: ChatSessionTarget): string {
-  requireChatProjectTarget(target);
+  if (!nonBlank.safeParse(target.projectID).success) throw new TypeError("Project ID is required.");
   if (!isValidChatSessionID(target.sessionID)) throw new TypeError("Session ID is required.");
   return target.sessionID;
 }

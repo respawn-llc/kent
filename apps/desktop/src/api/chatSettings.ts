@@ -42,18 +42,15 @@ export function createChatSettingsApi(
     async mutateSettings(target, operation) {
       const sessionID = requireChatSessionID(target);
       const method = ChatSettingsService.method.mutate;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const response = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () =>
-          create(method.input, {
-            session: { sessionId: sessionID },
-            operation: { operation: mutationOperation(operation) },
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const value = requireChatSuccess(method, call.result);
+        create(method.input, {
+          session: { sessionId: sessionID },
+          operation: { operation: mutationOperation(operation) },
+        }),
+      );
+      const value = requireChatSuccess(method, response);
       const result = required(value.result).outcome;
       if (result.case === undefined) throw new ContractError("Chat Settings mutation outcome is invalid.");
       return {
@@ -70,23 +67,31 @@ export function createChatSettingsApi(
       if (target.kind === "session") requireChatSessionID(target);
       else requireChatProjectTarget(target);
       const method = ChatSettingsService.method.read;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
-        method,
-        createRequest: (attachment) =>
-          create(method.input, {
-            target:
-              target.kind === "new_chat"
-                ? {
-                    case: "newChat",
-                    value: { projectId: attachment.projectID, workspaceId: attachment.workspaceID },
-                  }
-                : { case: "session", value: { sessionId: target.sessionID } },
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const response = requireChatSuccess(method, call.result);
+      const result =
+        target.kind === "session"
+          ? await transport.callDescriptorAttachedSession(
+              target,
+              method,
+              create(method.input, { target: { case: "session", value: { sessionId: target.sessionID } } }),
+            )
+          : await transport
+              .callDescriptorAttachedProject({
+                projectID: target.projectID,
+                selector: target.workspace,
+                method,
+                createRequest: (attachment) =>
+                  create(method.input, {
+                    target: {
+                      case: "newChat",
+                      value: { projectId: attachment.projectID, workspaceId: attachment.workspaceID },
+                    },
+                  }),
+              })
+              .then((call) => {
+                requireProjectAttachment(call.attachment, target);
+                return call.result;
+              });
+      const response = requireChatSuccess(method, result);
       if (target.kind === "session" && response.target.case === "session") {
         return {
           kind: "session",

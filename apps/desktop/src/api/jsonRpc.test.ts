@@ -191,7 +191,7 @@ describe("JsonRpcWebSocketTransport", () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
     const method = QuestionService.method.listPending;
     const answer = transport.callDescriptorAttachedSession(
-      "session-1",
+      { sessionID: "session-1", projectID: "project-1" },
       method,
       create(method.input, { sessionId: "session-1" }),
     );
@@ -214,7 +214,7 @@ describe("JsonRpcWebSocketTransport", () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
     const method = QuestionService.method.listPending;
     const answer = transport.callDescriptorAttachedSession(
-      "session-1",
+      { sessionID: "session-1" },
       method,
       create(method.input, { sessionId: "session-1" }),
     );
@@ -563,7 +563,6 @@ describe("JsonRpcWebSocketTransport", () => {
     const subscription = createChatApi(transport).subscribeTranscript(
       {
         projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
         sessionID,
       },
       { onEvent, onError, onOpen, onComplete: vi.fn() },
@@ -640,7 +639,6 @@ describe("JsonRpcWebSocketTransport", () => {
       api.subscribeTranscript(
         {
           projectID: "project-1",
-          workspace: { workspaceID: "workspace-1" },
           sessionID,
         },
         { onEvent: vi.fn(), onComplete, onTransportLoss, onError },

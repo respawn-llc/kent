@@ -16,7 +16,6 @@ import { ChatTranscriptObservation, type ChatTranscriptObservationHost } from ".
 
 const target: ChatSessionTarget = {
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID: "123e4567-e89b-42d3-a456-426614174000",
 };
 

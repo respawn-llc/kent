@@ -9,6 +9,7 @@ import { useAppServices } from "./useAppServices";
 type NavigationStackAction = "PUSH" | "REPLACE" | "FORWARD" | "BACK" | "GO";
 
 export const sessionChatRoutePath = "/projects/$projectId/sessions/$sessionId" as const;
+export const newChatRoutePath = "/projects/$projectId/chat" as const;
 
 export type { SessionChatCatalogOrigin, SessionChatHistoryState } from "./sessionChatHistory";
 
@@ -31,6 +32,7 @@ export type AppNavigation = Readonly<{
   replaceTask(taskID: string): Promise<void>;
   openProjectTask(projectID: string, workflowID: string, taskID: string): Promise<void>;
   openSessionChat(target: SessionChatTarget): Promise<void>;
+  openNewChat(projectID: string): Promise<void>;
   closeProjectTask(projectID: string, workflowID?: string): Promise<void>;
 }>;
 
@@ -181,6 +183,22 @@ export function useAppNavigation(): AppNavigation {
             state: (previous) => ({
               ...previous,
               ...sessionChatState,
+            }),
+          });
+        });
+      },
+      async openNewChat(projectID) {
+        await runNavigation(async () => {
+          await navigate({
+            to: newChatRoutePath,
+            params: { projectId: projectID },
+            state: (previous) => ({
+              ...previous,
+              sessionChat: {
+                projectID,
+                catalogOrigin: { category: "main" },
+                deliveredSessionID: null,
+              },
             }),
           });
         });

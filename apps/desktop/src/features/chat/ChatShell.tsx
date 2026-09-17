@@ -14,10 +14,10 @@ export type ChatShellState =
       onRetry: () => void;
     }>;
 
-export type ChatShellProps = Readonly<{
-  composer: (session: SelectedSession, layout: ChatComposerLayout) => ReactNode;
-  content: (session: SelectedSession) => ReactNode;
-  selectedSession: SelectedSession;
+export type ChatShellProps<Target = SelectedSession> = Readonly<{
+  composer: (session: Target, layout: ChatComposerLayout) => ReactNode;
+  content: (session: Target) => ReactNode;
+  selectedSession: Target;
   sessionName: string | null;
   state: ChatShellState;
   onComposerHeightChange?: (height: number) => void;
@@ -30,14 +30,14 @@ const ignoreHeight = () => {
   /* Production viewport integration supplies the height callback. */
 };
 
-export function ChatShell({
+export function ChatShell<Target>({
   composer,
   content,
   selectedSession,
   sessionName,
   state,
   onComposerHeightChange = ignoreHeight,
-}: ChatShellProps) {
+}: ChatShellProps<Target>) {
   const { t } = useTranslation();
   useWindowChromeTitle(sessionName);
   const container = useRef<HTMLDivElement>(null);

@@ -61,7 +61,7 @@ export const chatMainViewQueryOptions = (
   target: ChatSessionTarget,
   admit: (read: ChatMainViewRead) => ChatMainView,
 ) =>
-  queryOptions({
+  queryOptions<ChatMainView>({
     queryKey: queryKeys.chatMainView(target.sessionID),
     queryFn: async () => {
       const read = await api.getMainView(target);
