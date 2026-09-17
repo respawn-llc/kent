@@ -205,6 +205,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 			PersistenceRoot: persistenceRoot,
 			WorkspaceRoot:   workspace,
 			Settings:        settings,
+			Source:          loaded.Source,
 		},
 		metadata:         metadataStore,
 		runtimeAuthority: authority,
@@ -265,6 +266,8 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	}()
 	select {
 	case <-planningPersisted:
+	case result := <-planned:
+		t.Fatalf("retained current-node planning failed before persistence: %v", result.err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("retained current-node planning did not reach persistence gate")
 	}
