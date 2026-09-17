@@ -104,6 +104,7 @@ type SessionPlan struct {
 	ThinkingOverrideExplicit            bool
 	ActivationAgentSelection            *session.ChatSettingsState
 	ExplicitToolSelection               *config.ToolSelection
+	RequiredTools                       []toolspec.ID
 }
 
 // ApplyContextPolicy resolves Context policy only after the plan's final Agent
@@ -678,7 +679,7 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	}
 	next.QuestionsEnabled = chatSettings.Questions
 	next.AutoCompactionEnabled = chatSettings.AutoCompaction
-	next, err = withRequiredRunPromptTools(next, options.RequiredTools)
+	next, err = WithRequiredRunPromptTools(next, options.RequiredTools)
 	if err != nil {
 		return SessionPlan{}, nil, err
 	}
@@ -687,14 +688,18 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	return next, warnings, err
 }
 
-func withRequiredRunPromptTools(plan SessionPlan, required []toolspec.ID) (SessionPlan, error) {
+func WithRequiredRunPromptTools(plan SessionPlan, required []toolspec.ID) (SessionPlan, error) {
 	if len(required) == 0 {
 		return plan, nil
 	}
 	enabled := cloneMapOrEmpty(plan.ActiveSettings.EnabledTools)
 	for _, tool := range required {
 		enabled[tool] = true
+		if tool == toolspec.ToolAskQuestion {
+			plan.QuestionsEnabled = true
+		}
 	}
+	plan.RequiredTools = DedupeSortToolIDs(append(append([]toolspec.ID(nil), plan.RequiredTools...), required...))
 	plan.ActiveSettings.EnabledTools = enabled
 	plan.EnabledTools = DedupeSortToolIDs(append(append([]toolspec.ID(nil), plan.EnabledTools...), required...))
 	return plan, nil
@@ -1048,6 +1053,11 @@ func applySessionChatSettingsWithRunOverrides(
 
 func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPlan, meta session.Meta, persistContinuation func(session.ContinuationContext) error, overrides serverapi.RunPromptOverrides, prepared PreparedRunPromptOverrides, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
 	plan.ExplicitToolSelection = config.ExplicitToolSelection(prepared.OverrideConfig.Settings, prepared.OverrideConfig.Source.Sources)
+	var retainedErr error
+	prepared, retainedErr = retainedPreparedToolTargets(prepared, meta)
+	if retainedErr != nil {
+		return SessionPlan{}, nil, retainedErr
+	}
 	if !overrides.HasAny() && !prepared.AgentRole.Present && prepared.BaseTarget == nil {
 		return sessionPlanWithMeta(plan, meta, p.ContainerDir), nil, nil
 	}
@@ -1345,8 +1355,8 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return err
 	}
 	childContextOptions := session.ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
+		LockedContract:      session.InheritFullContract,
+		InheritContinuation: true,
 	}
 	creationSourceKind := session.SessionCreationSourcePreviousSession
 	if originKind == serverapi.SessionCreateOriginParentAgent {

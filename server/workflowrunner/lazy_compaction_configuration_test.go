@@ -333,7 +333,14 @@ func requireLazyCompactionPreservesRequestPrefix(t *testing.T, outgoing, compact
 		t.Error("compaction did not preserve the nonempty outgoing prompt cache key")
 	}
 	if !reflect.DeepEqual(compaction.Tools, outgoing.Tools) {
-		t.Error("compaction changed outgoing tool definitions")
+		names := func(tools []llm.Tool) []string {
+			out := make([]string, 0, len(tools))
+			for _, tool := range tools {
+				out = append(out, tool.Name)
+			}
+			return out
+		}
+		t.Errorf("compaction changed outgoing tool definitions: before=%v after=%v", names(outgoing.Tools), names(compaction.Tools))
 	}
 	if len(outgoing.Items) == 0 || len(compaction.Items) < len(outgoing.Items) {
 		t.Fatalf("compaction items = %d, cannot preserve outgoing prefix of %d items", len(compaction.Items), len(outgoing.Items))

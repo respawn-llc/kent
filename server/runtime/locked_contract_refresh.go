@@ -49,6 +49,10 @@ func (e *Engine) prepareMainPromptSnapshot(ctx context.Context, locked session.L
 	if err != nil {
 		return session.LockedMainPromptSnapshot{}, err
 	}
+	return e.mainPromptSnapshotFromConfig(locked, workspaceRoot, reloaded)
+}
+
+func (e *Engine) mainPromptSnapshotFromConfig(locked session.LockedContract, workspaceRoot string, reloaded PromptFacingSnapshotConfig) (session.LockedMainPromptSnapshot, error) {
 	locked.ToolPreambles = e.promptRefreshToolPreambles(reloaded.Settings.ToolPreambles)
 	prompt, err := e.buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
 		WorkspaceRoot:    workspaceRoot,

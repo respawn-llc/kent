@@ -124,20 +124,19 @@ func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, for
 		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
-		InheritGoal:           true,
+		LockedContract:      InheritContractWithoutTools,
+		InheritContinuation: true,
+		InheritGoal:         true,
 	}, userMessageSeq, thinking)
 }
 
 // CloneSession creates a child session that replays the parent's entire
-// conversation history. Workflow compact-and-continue fan-out branches use this
-// so each parallel continuation compacts its own isolated copy of the source
-// conversation instead of mutating the shared source session.
+// conversation history. Workflow fan-out copies retain the outgoing contract for
+// a permitted lazy compaction, or reuse the source's committed summary.
 func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
 	child, _, err := streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
+		LockedContract:      InheritFullContract,
+		InheritContinuation: true,
 	}, 0, thinking)
 	return child, err
 }
@@ -436,11 +435,16 @@ func cloneContinuationContext(in *ContinuationContext) *ContinuationContext {
 	return &copyContext
 }
 
+type LockedContractInheritance uint8
+
+const (
+	InheritNoContract LockedContractInheritance = iota
+	InheritFullContract
+	InheritContractWithoutTools
+)
+
 type ChildContextOptions struct {
-	// InheritLockedContract preserves the parent's model/tool/prompt lock for
-	// interactive child sessions. Headless subagent launches leave this false
-	// so their first dispatch locks against role/config-provided settings.
-	InheritLockedContract bool
+	LockedContract LockedContractInheritance
 	// InheritContinuation preserves parent continuation settings for
 	// interactive children. Headless subagent launches leave this false so
 	// parent role/base URL state cannot override the selected subagent config.
@@ -515,10 +519,19 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		child.mutationMu.Unlock()
 		return nil
 	}
-	if opts.InheritLockedContract {
+	switch opts.LockedContract {
+	case InheritFullContract, InheritContractWithoutTools:
 		child.meta.Locked = cloneLockedContract(sourceMeta.Locked)
-	} else {
+		if opts.LockedContract == InheritContractWithoutTools && child.meta.Locked != nil {
+			child.meta.Locked.EnabledTools = nil
+			child.meta.Locked.HasEnabledTools = false
+		}
+	case InheritNoContract:
 		child.meta.Locked = nil
+	default:
+		child.mu.Unlock()
+		child.mutationMu.Unlock()
+		return errors.New("invalid locked contract inheritance policy")
 	}
 	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
 	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer

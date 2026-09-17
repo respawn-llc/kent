@@ -3819,79 +3819,170 @@ func TestCurrentNodeFanoutCompactResumeReusesEstablishedBranchSessions(t *testin
 }
 
 func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing.T) {
-	client := NewCompactingScriptedClient(
-		llm.ProviderCapabilities{
-			ProviderID:               "test",
-			SupportsResponsesAPI:     true,
-			SupportsResponsesCompact: true,
-			SupportsPromptCacheKey:   true,
-		},
-		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("completed fan-out source")},
-		ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`),
-		ScriptedFinalAnswer(`{"commentary":"branch a"}`),
-		ScriptedFinalAnswer(`{"commentary":"branch b"}`),
-	)
-	f := newCurrentNodeRunnerFixtureWithClient(t, client)
-	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	threshold := 1
-	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
-	workflowID, branchNodeIDs := createCurrentNodeFanoutContinuationWorkflow(t, f.store, true)
-	task := f.createTask(t, workflowID)
-	source := f.startTask(t, task)
-
-	approval := f.waitForPendingApproval(t, task.ID)
-	f.waitForTaskQuiescence(t, source.TaskID)
-	if len(client.CompactionCalls()) != 1 {
-		t.Fatalf("fan-out source post-completion compactions = %d, want one", len(client.CompactionCalls()))
-	}
-	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
-		t.Fatalf("apply fan-out Approval: %v", err)
-	}
-	requests := f.waitForModelRequests(t, 3)
-	for index, request := range requests[1:] {
-		checkpoints := 0
-		for _, item := range request.Items {
-			if item.Type == llm.ResponseItemTypeCompaction {
-				checkpoints++
+	for _, committed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("source-boundary-committed=%t", committed), func(t *testing.T) {
+			responses := []llm.CompactionResponse{workflowPostCompletionCompactionResponse("completed fan-out source")}
+			if !committed {
+				responses = append(responses, workflowPostCompletionCompactionResponse("second lazy branch"))
 			}
-		}
-		if checkpoints != 1 {
-			t.Fatalf("branch request %d compaction checkpoints = %d, want one", index+2, checkpoints)
-		}
-	}
-	if requests[1].PromptCacheKey == "" ||
-		requests[2].PromptCacheKey == "" ||
-		requests[1].PromptCacheKey == requests[2].PromptCacheKey ||
-		requests[0].PromptCacheKey == requests[1].PromptCacheKey ||
-		requests[0].PromptCacheKey == requests[2].PromptCacheKey {
-		t.Fatalf(
-			"fan-out cache lineage keys = %q/%q/%q, want three distinct non-empty keys",
-			requests[0].PromptCacheKey,
-			requests[1].PromptCacheKey,
-			requests[2].PromptCacheKey,
-		)
-	}
-	sourceAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
-	if err != nil {
-		t.Fatalf("resolve source Session association: %v", err)
-	}
-	branchSessionIDs := make(map[runtimeids.SessionID]struct{}, len(branchNodeIDs))
-	for branchKey, nodeID := range branchNodeIDs {
-		reference, err := workflow.NewCurrentNodeReference(task.ID, nodeID, &branchKey)
-		if err != nil {
-			t.Fatalf("create branch %q Current Node reference: %v", branchKey, err)
-		}
-		association, err := f.store.LatestTaskSessionForNode(context.Background(), reference)
-		if err != nil {
-			t.Fatalf("resolve branch %q Session association: %v", branchKey, err)
-		}
-		if association.SessionID == sourceAssociation.SessionID {
-			t.Fatalf("branch %q reused source Session %q after pre-compaction", branchKey, association.SessionID)
-		}
-		branchSessionIDs[association.SessionID] = struct{}{}
-	}
-	if len(branchSessionIDs) != len(branchNodeIDs) {
-		t.Fatalf("fan-out branch Session lineages = %+v, want one distinct clone per branch", branchSessionIDs)
+			client := NewCompactingScriptedClient(
+				llm.ProviderCapabilities{
+					ProviderID:               "test",
+					SupportsResponsesAPI:     true,
+					SupportsResponsesCompact: true,
+					SupportsPromptCacheKey:   true,
+				},
+				responses,
+				ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`),
+				ScriptedFinalAnswer(`{"commentary":"branch a"}`),
+				ScriptedFinalAnswer(`{"commentary":"branch b"}`),
+			)
+			f := newCurrentNodeRunnerFixtureWithClient(t, client)
+			f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+			threshold := 1
+			f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+			incoming := f.starter.cfg
+			var file strings.Builder
+			file.WriteString("model = \"workflow-base\"\ncompaction_mode = \"native\"\n[workflow]\ncompletion_mode = \"structured_output\"\npre_compaction_tokens = 1\n[reviewer]\nfrequency = \"off\"\n")
+			for name, tool := range map[string]toolspec.ID{"coder": toolspec.ToolExecCommand, "reviewer": toolspec.ToolWriteStdin} {
+				fmt.Fprintf(&file, "[subagents.%s]\nmodel = %q\n[subagents.%s.tools]\n", name, "workflow-"+name, name)
+				for _, id := range toolspec.CatalogIDs() {
+					if _, configurable := toolspec.ParseConfigID(toolspec.ConfigName(id)); !configurable {
+						continue
+					}
+					fmt.Fprintf(&file, "%s = %t\n", toolspec.ConfigName(id), id == tool)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(incoming.PersistenceRoot, "config.toml"), []byte(file.String()), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			incoming, err = config.Load(f.workspace, f.workspace, config.LoadOptions{ConfigRoot: incoming.PersistenceRoot})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(incoming, config.LoadOptions{Tools: "patch"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !committed {
+				f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+			}
+			workflowID, branchNodeIDs := createCurrentNodeFanoutWorkflow(t, f.store, true, workflow.ContextModeCompactAndContinueSession)
+			workflowfixture.SaveStoreGraph(t, t.Context(), f.store, workflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+				for index := range request.Nodes {
+					if request.Nodes[index].ID == branchNodeIDs["branch_b"] {
+						request.Nodes[index].SubagentRole = "reviewer"
+					}
+				}
+			})
+			task := f.createTask(t, workflowID)
+			source := f.startTask(t, task)
+
+			approval := f.waitForPendingApproval(t, task.ID)
+			f.waitForTaskQuiescence(t, source.TaskID)
+			sourceCalls := 0
+			if committed {
+				sourceCalls = 1
+			}
+			if len(client.CompactionCalls()) != sourceCalls {
+				t.Fatalf("fan-out source post-completion compactions = %d, want %d", len(client.CompactionCalls()), sourceCalls)
+			}
+			f.starter.cfg = incoming
+			if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
+				t.Fatalf("apply fan-out Approval: %v", err)
+			}
+			requests := f.waitForModelRequests(t, 3)
+			f.waitForTaskQuiescence(t, task.ID)
+			wantCompactions := 1
+			if !committed {
+				wantCompactions = 2
+			}
+			if got := len(client.CompactionCalls()); got != wantCompactions {
+				t.Fatalf("compactions = %d, want %d", got, wantCompactions)
+			}
+			for _, request := range client.CompactionCalls() {
+				if request.Model != requests[0].Model || !reflect.DeepEqual(request.Tools, requests[0].Tools) {
+					t.Fatalf("compaction did not preserve outgoing configuration: model=%s tools=%v", request.Model, request.Tools)
+				}
+			}
+			for _, request := range requests[1:] {
+				want := toolspec.ToolExecCommand
+				if request.Model == "workflow-reviewer" {
+					want = toolspec.ToolWriteStdin
+				}
+				seen := false
+				for _, tool := range request.Tools {
+					if tool.Name == string(toolspec.ToolPatch) || (tool.Name == string(toolspec.ToolExecCommand) && want != toolspec.ToolExecCommand) ||
+						(tool.Name == string(toolspec.ToolWriteStdin) && want != toolspec.ToolWriteStdin) {
+						t.Fatalf("branch %s received unwanted tool %s", request.Model, tool.Name)
+					}
+					seen = seen || tool.Name == string(want)
+				}
+				if !seen {
+					t.Fatalf("branch %s did not receive its own tool %s", request.Model, want)
+				}
+			}
+			for index, request := range requests[1:] {
+				checkpoints := 0
+				for _, item := range request.Items {
+					if item.Type == llm.ResponseItemTypeCompaction {
+						checkpoints++
+					}
+				}
+				if checkpoints != 1 {
+					t.Fatalf("branch request %d compaction checkpoints = %d, want one", index+2, checkpoints)
+				}
+			}
+			if requests[1].PromptCacheKey == "" ||
+				requests[2].PromptCacheKey == "" ||
+				requests[1].PromptCacheKey == requests[2].PromptCacheKey ||
+				requests[0].PromptCacheKey == requests[1].PromptCacheKey ||
+				requests[0].PromptCacheKey == requests[2].PromptCacheKey {
+				t.Fatalf(
+					"fan-out cache lineage keys = %q/%q/%q, want three distinct non-empty keys",
+					requests[0].PromptCacheKey,
+					requests[1].PromptCacheKey,
+					requests[2].PromptCacheKey,
+				)
+			}
+			sourceAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+			if err != nil {
+				t.Fatalf("resolve source Session association: %v", err)
+			}
+			sourceRecord, err := f.metadata.ResolvePersistedSession(t.Context(), sourceAssociation.SessionID.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sourceRecord.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(sourceRecord.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolPatch}) {
+				t.Fatal("fan-out changed the source's retained list")
+			}
+			branchSessionIDs := make(map[runtimeids.SessionID]struct{}, len(branchNodeIDs))
+			for branchKey, nodeID := range branchNodeIDs {
+				reference, err := workflow.NewCurrentNodeReference(task.ID, nodeID, &branchKey)
+				if err != nil {
+					t.Fatalf("create branch %q Current Node reference: %v", branchKey, err)
+				}
+				association, err := f.store.LatestTaskSessionForNode(context.Background(), reference)
+				if err != nil {
+					t.Fatalf("resolve branch %q Session association: %v", branchKey, err)
+				}
+				if association.SessionID == sourceAssociation.SessionID {
+					t.Fatalf("branch %q reused source Session %q after pre-compaction", branchKey, association.SessionID)
+				}
+				branchSessionIDs[association.SessionID] = struct{}{}
+				record, err := f.metadata.ResolvePersistedSession(t.Context(), association.SessionID.String())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if record.Meta.RetainedToolSelection != nil {
+					t.Fatal("continuation copy inherited or re-adopted the source list")
+				}
+			}
+			if len(branchSessionIDs) != len(branchNodeIDs) {
+				t.Fatalf("fan-out branch Session lineages = %+v, want one distinct clone per branch", branchSessionIDs)
+			}
+		})
 	}
 }
 

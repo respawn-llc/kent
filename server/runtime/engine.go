@@ -88,6 +88,7 @@ type Config struct {
 	SkillPolicy                     config.SkillPolicy
 	SubagentCatalogSettings         config.Settings
 	SystemPromptFile                *config.SystemPromptFile
+	RefreshToolRegistry             func([]toolspec.ID) error
 	AutoCompactTokenLimit           int
 	WorkflowPreCompactionTokenLimit int
 	PreSubmitCompactionLeadTokens   int
@@ -1043,7 +1044,18 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if hasProviderContract {
 		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
 	}
-	mainPrompt, err := e.prepareMainPromptSnapshot(context.Background(), lock, e.systemPromptWorkspaceRootLocked())
+	reloaded, err := e.reloadPromptFacingSnapshotConfig(context.Background())
+	if err != nil {
+		return session.LockedContract{}, err
+	}
+	lock.EnabledTools = toolspec.IDStrings(reloaded.ActiveToolIDs)
+	lock.HasEnabledTools = true
+	if e.cfg.RefreshToolRegistry != nil {
+		if err := e.cfg.RefreshToolRegistry(reloaded.ActiveToolIDs); err != nil {
+			return session.LockedContract{}, err
+		}
+	}
+	mainPrompt, err := e.mainPromptSnapshotFromConfig(lock, e.systemPromptWorkspaceRootLocked(), reloaded)
 	if err != nil {
 		return session.LockedContract{}, err
 	}

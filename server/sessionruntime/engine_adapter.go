@@ -45,6 +45,7 @@ type AgentRuntimePlanOptions struct {
 	RecoveredWarningProvider            func() (string, bool, error)
 	AgentSelection                      *session.ChatSettingsState
 	ExplicitToolSelection               *config.ToolSelection
+	RequiredTools                       []toolspec.ID
 }
 
 type AgentRuntimePlan struct {
@@ -70,6 +71,7 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 	options.Settings = cloneAgentRuntimeSettings(options.Settings)
 	options.ExplicitToolSelection = config.CloneToolSelection(options.ExplicitToolSelection)
 	options.EnabledTools = append([]toolspec.ID(nil), options.EnabledTools...)
+	options.RequiredTools = append([]toolspec.ID(nil), options.RequiredTools...)
 	options.Sources = maps.Clone(options.Sources)
 	options.StartLogLines = append([]string(nil), options.StartLogLines...)
 	options.FilesystemContext = options.FilesystemContext.Clone()
@@ -195,6 +197,14 @@ func (a *Authority) buildAgentResource(
 		if err != nil {
 			return nil, err
 		}
+		required, err := launch.WithRequiredRunPromptTools(launch.SessionPlan{ActiveSettings: copiedPlan.options.Settings, EnabledTools: copiedPlan.options.EnabledTools}, copiedPlan.options.RequiredTools)
+		if err != nil {
+			return nil, err
+		}
+		copiedPlan.options.Settings, copiedPlan.options.EnabledTools = required.ActiveSettings, required.EnabledTools
+		if required.QuestionsEnabled {
+			copiedPlan.options.QuestionsEnabled = textutil.Value(true)
+		}
 		plan = &copiedPlan
 	}
 	if _, err := applyAgentSelection(store, plan.options.AgentSelection); err != nil {
@@ -276,6 +286,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	options := plan.options
 	wiringOptions := runtimewire.RuntimeWiringOptions{
 		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
+		RequiredTools:                       options.RequiredTools,
 		Context:                             resource.ctx,
 		Headless:                            options.Headless,
 		QuestionsEnabled:                    options.QuestionsEnabled,

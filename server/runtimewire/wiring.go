@@ -41,6 +41,7 @@ func (w *RuntimeWiring) Close() error {
 
 type RuntimeWiringOptions struct {
 	MainWorkspaceRoot                   string
+	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
 	Context                             context.Context
 	OnEvent                             func(evt runtime.Event)
@@ -231,6 +232,9 @@ func NewRuntimeWiringWithBackground(
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
 	}
+	if len(opts.RequiredTools) != 0 {
+		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
+	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
 		Model:                           active.Model,
 		Debug:                           active.Debug,
@@ -247,6 +251,7 @@ func NewRuntimeWiringWithBackground(
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
 		SubagentCatalogSettings:         active,
 		SystemPromptFile:                active.SystemPromptFile,
+		RefreshToolRegistry:             localTools.ReplaceEnabledTools,
 		AutoCompactTokenLimit:           active.ContextCompactionThresholdTokens,
 		PreSubmitCompactionLeadTokens:   active.PreSubmitCompactionLeadTokens,
 		ContextWindowTokens:             active.ModelContextWindow,
@@ -304,6 +309,24 @@ type launchPromptFacingSnapshotReloader struct {
 	configRoot                          string
 	mainWorkspaceRoot                   string
 	skipContinuationAgentRoleValidation bool
+}
+
+type requiredToolsSnapshotReloader struct {
+	base     runtime.PromptFacingSnapshotReloader
+	required []toolspec.ID
+}
+
+func (r requiredToolsSnapshotReloader) ReloadPromptFacingSnapshotConfig(ctx context.Context, sessionID string) (runtime.PromptFacingSnapshotConfig, error) {
+	snapshot, err := r.base.ReloadPromptFacingSnapshotConfig(ctx, sessionID)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	plan, err := launch.WithRequiredRunPromptTools(launch.SessionPlan{ActiveSettings: snapshot.Settings, EnabledTools: snapshot.ActiveToolIDs}, r.required)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	snapshot.Settings, snapshot.ActiveToolIDs = plan.ActiveSettings, plan.EnabledTools
+	return snapshot, nil
 }
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {

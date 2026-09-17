@@ -161,7 +161,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		CustomInput: textutil.Value("*** Begin Patch\n*** Delete File: target.txt\n*** End Patch\n"),
 	}
 	client := scriptedllm.NewClient(scriptedllm.Script{
-		Steps: []scriptedllm.Step{scriptedllm.ToolBatch("", call)},
+		Steps: []scriptedllm.Step{scriptedllm.FinalAnswer("ready"), scriptedllm.ToolBatch("", call)},
 	})
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 	active.Debug = true
@@ -179,6 +179,9 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
 	t.Cleanup(func() { _ = wiring.Close() })
+	if _, err := wiring.Engine.SubmitUserMessage(context.Background(), "establish contract"); err != nil {
+		t.Fatal(err)
+	}
 	if err := wiring.LocalTools.Registry().ReplaceHandlers(tools.HandlerRegistration{
 		ID:      toolspec.ToolPatch,
 		Handler: mismatchedDeletionPresentationHandler{},

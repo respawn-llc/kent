@@ -42,9 +42,15 @@ func (c LockedContract) WithReviewerPromptSnapshot(snapshot LockedReviewerPrompt
 }
 
 func (c LockedContract) WithRequestShape(fields LockedRequestShapeBackfill) LockedContract {
-	c.EnabledTools = append([]string(nil), fields.EnabledTools...)
-	c.HasEnabledTools = fields.HasEnabledTools
-	c.WebSearchMode = fields.WebSearchMode
+	if !c.HasEnabledTools {
+		if len(c.EnabledTools) == 0 {
+			c.EnabledTools = append([]string(nil), fields.EnabledTools...)
+		}
+		c.HasEnabledTools = fields.HasEnabledTools
+	}
+	if c.WebSearchMode == "" {
+		c.WebSearchMode = fields.WebSearchMode
+	}
 	return c
 }
 
