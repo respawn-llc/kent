@@ -192,7 +192,7 @@ verbose_output = false
 `)
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := app.Settings.Subagents["worker"]
-	effective := OverlaySubagentRoleSettings(app.Settings, role, true)
+	effective, _ := OverlaySubagentRoleSettings(app.Settings, app.Source.Sources, role, true)
 	if role.Description != "Worker" || role.AgentCallable || role.WorkflowSubagent || !role.AgentCallableSet() || !role.WorkflowSubagentSet() {
 		t.Fatalf("merged role metadata = %+v", role)
 	}
@@ -233,7 +233,7 @@ supports_prompt_cache_key = true
 `)
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := app.Settings.Subagents["worker"]
-	effective := OverlaySubagentRoleSettings(app.Settings, role, true)
+	effective, _ := OverlaySubagentRoleSettings(app.Settings, app.Source.Sources, role, true)
 	if effective.ModelContextWindow != 110000 || effective.ContextCompactionThresholdTokens != 90000 ||
 		effective.ProviderCapabilities.ProviderID != "openai" || effective.ProviderCapabilities.SupportsResponsesAPI || !effective.ProviderCapabilities.SupportsPromptCacheKey {
 		t.Fatalf("assembled role = %+v", effective)
@@ -760,7 +760,7 @@ patch = false
 	if cfg.Settings.Model != "base-model" || cfg.Settings.ThinkingLevel != "medium" || !cfg.Settings.EnabledTools[toolspec.ToolPatch] {
 		t.Fatalf("default role changed interactive base settings: %+v", cfg.Settings)
 	}
-	effective := OverlaySubagentRoleSettings(cfg.Settings, lookup.Role, true)
+	effective, _ := OverlaySubagentRoleSettings(cfg.Settings, cfg.Source.Sources, lookup.Role, true)
 	if effective.Model != "headless-model" || effective.ThinkingLevel != "low" || effective.EnabledTools[toolspec.ToolPatch] {
 		t.Fatalf("default role overrides not applied: %+v", effective)
 	}
@@ -1005,7 +1005,7 @@ func TestOverlaySubagentRoleSettingsDoesNotApplyProcessSettings(t *testing.T) {
 		},
 	}
 
-	got := OverlaySubagentRoleSettings(base, role, true)
+	got, _ := OverlaySubagentRoleSettings(base, nil, role, true)
 	if got.Worktrees != base.Worktrees || got.Workflow != base.Workflow || got.PreventSleep != base.PreventSleep {
 		t.Fatalf("process settings changed: got worktrees=%+v workflow=%+v prevent_sleep=%q", got.Worktrees, got.Workflow, got.PreventSleep)
 	}

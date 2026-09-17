@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,15 +92,13 @@ func resolveSettings(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfi
 	if err := configRegistry.applyCLI(opts, &state, sources); err != nil {
 		return loadedConfig{}, err
 	}
-	inheritReviewerDefaultsWithSources(&state.Settings, sources)
+	InheritReviewerSettings(&state.Settings, sources)
 	if err := configRegistry.validate(state, sources, resolvedContextConstraints(state.Settings)); err != nil {
 		return loadedConfig{}, err
 	}
 	for name, role := range state.Settings.Subagents {
-		effective := overlaySubagentRoleSettings(state.Settings, role, func(string) bool { return true }, true)
-		roleSources := maps.Clone(sources)
-		maps.Copy(roleSources, role.Sources)
-		inheritReviewerDefaultsWithSources(&effective, roleSources)
+		effective, roleSources := overlaySubagentRoleSettings(state.Settings, sources, role, func(string) bool { return true }, true)
+		InheritReviewerSettings(&effective, roleSources)
 		if err := configRegistry.validate(settingsState{Settings: effective}, roleSources, declaredContextConstraints(effective, roleSources)); err != nil {
 			return loadedConfig{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, name, err)
 		}

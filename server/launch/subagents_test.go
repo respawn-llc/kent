@@ -1,11 +1,78 @@
 package launch
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"core/shared/config"
+	"core/shared/toolspec"
 )
+
+func TestOrdinaryOverridesDominateRoleWithoutChangingExplicitSupervisor(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
+model = "base-model"
+[subagents.worker]
+model = "role-model"
+thinking_level = "high"
+[subagents.worker.model_capabilities]
+supports_vision_inputs = true
+[subagents.worker.tools]
+exec_command = true
+patch = false
+[subagents.worker.reviewer]
+model = "supervisor-model"
+thinking_level = "medium"
+[subagents.worker.reviewer.model_capabilities]
+supports_vision_inputs = true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KENT_MODEL", "environment-model")
+	t.Setenv("KENT_THINKING_LEVEL", "low")
+	t.Setenv("KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS", "false")
+	t.Setenv("KENT_TOOLS", "patch")
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, source, _, err := resolveSubagentSettingsWithProviderID(app.Settings, app.Source, "worker", "", true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Model != "environment-model" || effective.ThinkingLevel != "low" || effective.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("role must retain ordinary environment winners: model=%s thinking=%s vision=%v", effective.Model, effective.ThinkingLevel, effective.ModelCapabilities.SupportsVisionInputs)
+	}
+	if !effective.EnabledTools[toolspec.ToolPatch] || len(config.EnabledToolIDs(effective)) != 1 {
+		t.Fatalf("explicit list must replace all role tools: %v", effective.EnabledTools)
+	}
+	if effective.Reviewer.Model != "supervisor-model" || effective.Reviewer.ThinkingLevel != "medium" || !effective.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("ordinary overrides must not replace explicit Supervisor settings: %+v", effective.Reviewer)
+	}
+	if source.Sources["model"].Kind != config.SourceEnv || source.Sources["model"].Property.String() != "model" {
+		t.Fatalf("model winner origin = %+v", source.Sources["model"])
+	}
+	app, err = config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root, Model: "cli-model", ThinkingLevel: "xhigh", Tools: "exec_command"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"worker", config.BuiltInSubagentRoleFast} {
+		effective, source, _, err := resolveSubagentSettingsWithProviderID(app.Settings, app.Source, role, "openai", true, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if effective.Model != "cli-model" || effective.ThinkingLevel != "xhigh" || source.Sources["model"].Kind != config.SourceCLI ||
+			!effective.EnabledTools[toolspec.ToolExecCommand] || len(config.EnabledToolIDs(effective)) != 1 {
+			t.Fatalf("%s must retain CLI winners over role declarations and heuristics: model=%s thinking=%s tools=%v", role, effective.Model, effective.ThinkingLevel, effective.EnabledTools)
+		}
+		if role == config.BuiltInSubagentRoleFast && (effective.Reviewer.Model != "cli-model" || !reflect.DeepEqual(source.Sources["reviewer.model"], source.Sources["model"])) {
+			t.Fatalf("omitted Supervisor model must inherit the final model and origin: %+v %+v", effective.Reviewer, source.Sources)
+		}
+	}
+}
 
 func TestCloneSettingsCopiesShellPostprocessHook(t *testing.T) {
 	hook := "/tmp/role-hook"
@@ -48,7 +115,7 @@ func TestApplyReviewerInheritanceRecomputesDefaultBaseURLWhenReviewerProviderExp
 			OpenAIBaseURL:    "http://parent.local/v1",
 		},
 	}
-	applyReviewerInheritance(&settings, map[string]config.Origin{
+	config.InheritReviewerSettings(&settings, map[string]config.Origin{
 		"reviewer.provider_override": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}},
 
 		"reviewer.openai_base_url": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}},
@@ -94,7 +161,7 @@ func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing
 		},
 	}
 
-	settings := config.OverlaySubagentRoleSettings(base, role, true)
+	settings, _ := config.OverlaySubagentRoleSettings(base, nil, role, true)
 
 	if settings.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected subagent verbosity capability override to apply, got %+v", settings.ProviderCapabilities)
@@ -125,7 +192,7 @@ func TestApplyReviewerInheritanceDoesNotCopyMainProviderCapabilitiesForExplicitR
 
 	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
 
-	applyReviewerInheritance(&settings, sources)
+	config.InheritReviewerSettings(&settings, sources)
 
 	if settings.Reviewer.ProviderCapabilities != (config.ProviderCapabilitiesOverride{}) {
 		t.Fatalf("expected reviewer provider capabilities to stay unset for explicit endpoint, got %+v", settings.Reviewer.ProviderCapabilities)
@@ -150,7 +217,7 @@ func TestApplyReviewerInheritanceCopiesMainProviderCapabilitiesForNoOpReviewerPr
 
 	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
 
-	applyReviewerInheritance(&settings, sources)
+	config.InheritReviewerSettings(&settings, sources)
 
 	if settings.Reviewer.OpenAIBaseURL != "http://subagent.local/v1" {
 		t.Fatalf("expected no-op reviewer provider override to inherit subagent main base URL, got %q", settings.Reviewer.OpenAIBaseURL)
@@ -178,7 +245,7 @@ func TestApplyReviewerInheritanceMergesReviewerModelCapabilitiesPerField(t *test
 			},
 		},
 	}
-	applyReviewerInheritance(&settings, map[string]config.Origin{
+	config.InheritReviewerSettings(&settings, map[string]config.Origin{
 		"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}},
 
 		"reviewer.model_capabilities.supports_vision_inputs": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_vision_inputs"}},
@@ -221,7 +288,7 @@ func TestApplyReviewerInheritanceMergesReviewerProviderCapabilitiesPerField(t *t
 
 	sources["reviewer.provider_capabilities.supports_provider_verbosity"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_provider_verbosity"}}
 
-	applyReviewerInheritance(&settings, sources)
+	config.InheritReviewerSettings(&settings, sources)
 
 	want := settings.ProviderCapabilities
 	want.ProviderID = "reviewer-provider"

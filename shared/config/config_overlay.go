@@ -8,17 +8,24 @@ import (
 	"core/shared/toolspec"
 )
 
-func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]Origin) {
+func InheritReviewerSettings(settings *Settings, sources map[string]Origin) {
+	if sources["reviewer.provider_override"].Inherited("reviewer.provider_override") {
+		settings.Reviewer.ProviderOverride = ""
+	}
+	if sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url") {
+		settings.Reviewer.OpenAIBaseURL = ""
+	}
 	reviewerProviderSelectionExplicit := ReviewerUsesIndependentProviderSelection(*settings)
-	if strings.TrimSpace(settings.Reviewer.Model) == "" {
+	if sources["reviewer.model"].Inherited("reviewer.model") || strings.TrimSpace(settings.Reviewer.Model) == "" {
 		settings.Reviewer.Model = settings.Model
 		inheritSource(sources, "reviewer.model", "model")
 	}
-	if strings.TrimSpace(settings.Reviewer.ThinkingLevel) == "" && !hasConfiguredSource(sources, "reviewer.thinking_level") {
+	if sources["reviewer.thinking_level"].Inherited("reviewer.thinking_level") ||
+		(strings.TrimSpace(settings.Reviewer.ThinkingLevel) == "" && !hasConfiguredSource(sources, "reviewer.thinking_level")) {
 		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 		inheritSource(sources, "reviewer.thinking_level", "thinking_level")
 	}
-	if strings.TrimSpace(string(settings.Reviewer.ModelVerbosity)) == "" {
+	if sources["reviewer.model_verbosity"].Inherited("reviewer.model_verbosity") || strings.TrimSpace(string(settings.Reviewer.ModelVerbosity)) == "" {
 		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
 		inheritSource(sources, "reviewer.model_verbosity", "model_verbosity")
 	}
@@ -33,7 +40,8 @@ func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]O
 	settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
 	inheritReviewerModelCapabilities(settings, sources)
 	inheritReviewerProviderCapabilities(settings, sources, reviewerProviderSelectionExplicit)
-	if settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window") {
+	if sources["reviewer.model_context_window"].Inherited("reviewer.model_context_window") ||
+		(settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window")) {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 		inheritSource(sources, "reviewer.model_context_window", "model_context_window")
 	}
@@ -82,9 +90,6 @@ func inheritReviewerModelCapabilities(settings *Settings, sources map[string]Ori
 		}
 		return
 	}
-	if !hasAnyConfiguredSource(sources, modelCapabilityKeys...) && !hasAnyConfiguredSource(sources, reviewerModelCapabilityKeys...) {
-		return
-	}
 	if !hasConfiguredSource(sources, "reviewer.model_capabilities.supports_reasoning_effort") {
 		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
 		inheritSource(sources, "reviewer.model_capabilities.supports_reasoning_effort", "model_capabilities.supports_reasoning_effort")
@@ -114,19 +119,23 @@ func inheritReviewerProviderCapabilities(settings *Settings, sources map[string]
 		}
 		return
 	}
-	if !hasAnyConfiguredSource(sources, providerCapabilityKeys...) && !hasAnyConfiguredSource(sources, reviewerProviderCapabilityKeys...) {
+	if reviewerProviderSelectionExplicit {
+		defaults := configRegistry.defaultState()
+		target := settingsState{Settings: *settings}
+		for _, key := range reviewerProviderCapabilityKeys {
+			if sources[key].Inherited(key) {
+				configRegistry.subagentRoleValues[key].applySubagentRoleValue(&target, defaults)
+				sources[key] = defaultOrigin(key)
+			}
+		}
+		*settings = target.Settings
 		return
 	}
 	if !hasAnyConfiguredSource(sources, reviewerProviderCapabilityKeys...) {
-		if !reviewerProviderSelectionExplicit {
-			settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-			for _, key := range providerCapabilityKeys {
-				inheritSource(sources, "reviewer."+key, key)
-			}
+		settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
+		for _, key := range providerCapabilityKeys {
+			inheritSource(sources, "reviewer."+key, key)
 		}
-		return
-	}
-	if reviewerProviderSelectionExplicit {
 		return
 	}
 	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.provider_id") {
@@ -238,7 +247,7 @@ func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[s
 		normalized.SkillToggles = map[string]bool{}
 	}
 	effectiveSources := cloneSourceMapOrDefault(sources)
-	inheritReviewerDefaultsWithSources(&normalized, effectiveSources)
+	InheritReviewerSettings(&normalized, effectiveSources)
 	if err := configRegistry.validate(settingsState{Settings: normalized}, effectiveSources, resolvedContextConstraints(normalized)); err != nil {
 		return Settings{}, err
 	}

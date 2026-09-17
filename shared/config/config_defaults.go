@@ -58,7 +58,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	state := configRegistry.defaultState()
 	state.Settings = settings
 	rawLines := configRegistry.defaultLines(state)
-	inheritReviewerDefaultsWithSources(&state.Settings, nil)
+	InheritReviewerSettings(&state.Settings, nil)
 	lines := configRegistry.defaultLines(state)
 	defaultLines := configRegistry.defaultLines(configRegistry.defaultState())
 	rootLines := annotateRenderedLines(filterDefaultLines(lines, ""), filterDefaultLines(defaultLines, ""), preservedDefaults)

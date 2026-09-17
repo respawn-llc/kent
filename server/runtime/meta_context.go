@@ -452,19 +452,12 @@ func (b metaContextBuilder) subagentCaller(context config.SubagentInvocationCont
 }
 
 func fallbackSubagentDescription(base config.Settings, role config.SubagentRole) string {
-	model := base.Model
-	if _, ok := role.Sources["model"]; ok {
-		model = role.Settings.Model
-	}
-	thinking := base.ThinkingLevel
-	if _, ok := role.Sources["thinking_level"]; ok {
-		thinking = role.Settings.ThinkingLevel
-	}
-	parts := []string{strings.TrimSpace(model), "thinking " + strings.TrimSpace(thinking)}
+	effective, _ := config.OverlaySubagentRoleSettings(base, nil, role, true)
+	parts := []string{strings.TrimSpace(effective.Model), "thinking " + strings.TrimSpace(effective.ThinkingLevel)}
 	if role.Sources["priority_request_mode"].Configured() && role.Settings.PriorityRequestMode {
 		parts = append(parts, "fast mode on")
 	}
-	tools := config.EffectiveSubagentRoleTools(base.EnabledTools, role)
+	tools := effective.EnabledTools
 	if tools[toolspec.ToolPatch] || tools[toolspec.ToolEdit] {
 		parts = append(parts, "can edit")
 	}

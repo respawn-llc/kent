@@ -69,6 +69,10 @@ func (o Origin) Inherited(key string) bool {
 	return o.Kind == SourceDefault || (o.Configured() && o.Property.Key != key)
 }
 
+func (o Origin) OverridesRole(key string) bool {
+	return (o.Kind == SourceEnv || o.Kind == SourceCLI) && (o.Property.Key == key || o.Property.Key == "tools")
+}
+
 func inheritSource(sources map[string]Origin, target, source string) {
 	if sources == nil {
 		return

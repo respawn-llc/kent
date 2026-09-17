@@ -13,7 +13,7 @@ func ApplyLoadOptionsToSnapshot(app App, opts LoadOptions) (App, error) {
 	if err := configRegistry.applyCLI(opts, &state, sources); err != nil {
 		return App{}, err
 	}
-	inheritReviewerDefaultsWithSources(&state.Settings, sources)
+	InheritReviewerSettings(&state.Settings, sources)
 	if err := configRegistry.validate(state, sources, resolvedContextConstraints(state.Settings)); err != nil {
 		return App{}, err
 	}

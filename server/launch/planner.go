@@ -595,7 +595,7 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 		return base, source, nil
 	}
 	providerSettings := cloneSettings(base)
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, lookup.Role)
+	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, source.Sources, lookup.Role)
 	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, *lookup.NormalizedSelector, persistedRoleProviderID(providerSettings), allowModelOverride, validate)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
@@ -840,7 +840,7 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 	providerSettings.ProviderOverride = overrideConfig.Settings.ProviderOverride
 	providerSettings.OpenAIBaseURL = overrideConfig.Settings.OpenAIBaseURL
 	providerSettings.Subagents = nil
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, lookup.Role)
+	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, overrideConfig.Source.Sources, lookup.Role)
 	providerID := persistedRoleProviderID(providerSettings)
 	var providerCapabilities *llm.ProviderCapabilities
 	if !preparation.SkipProviderReadinessValidation {
@@ -873,7 +873,8 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 
 func prepareBaseTargetWithoutProviderReadiness(app config.App, modelLock, toolLock *session.LockedContract) (PreparedBaseTarget, error) {
 	resolved := EffectiveSettings(app.Settings, modelLock)
-	source := app.Source
+	source := cloneSourceReport(app.Source)
+	config.InheritReviewerSettings(&resolved, source.Sources)
 	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
 	if err != nil {
 		return PreparedBaseTarget{}, err
@@ -886,13 +887,11 @@ func prepareBaseTargetWithoutProviderReadiness(app config.App, modelLock, toolLo
 }
 
 func prepareBaseTarget(app, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
-	resolved := EffectiveSettings(app.Settings, modelLock)
-	source := app.Source
-	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
+	target, err := prepareBaseTargetWithoutProviderReadiness(app, modelLock, toolLock)
 	if err != nil {
 		return PreparedBaseTarget{}, err
 	}
-	return preparePreparedBaseTarget(PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: enabledTools}, overrideConfig, overrides, modelLock, toolLock, applyBudget)
+	return preparePreparedBaseTarget(target, overrideConfig, overrides, modelLock, toolLock, applyBudget)
 }
 
 func preparePreparedBaseTarget(target PreparedBaseTarget, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
@@ -956,35 +955,16 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 	if !overrides.HasConfigOverrides() {
 		return settings, source, enabledTools, nil
 	}
-	source = mergeOverrideSources(source, overrideConfig.Source)
+	originalModel := settings.Model
+	settings, source.Sources = config.OverlayCLIOverrides(settings, source.Sources, overrideConfig.Settings, overrideConfig.Source.Sources, modelLock == nil, toolLock == nil)
 	if strings.TrimSpace(overrides.Model) != "" && modelLock == nil {
-		originalModel := settings.Model
 		explicitSources := map[string]config.Origin{}
 		for key, value := range source.Sources {
 			if value.Configured() {
 				explicitSources[key] = value
 			}
 		}
-		settings.Model = overrideConfig.Settings.Model
 		applyBudget(&settings, explicitSources, originalModel, true)
-	}
-	if strings.TrimSpace(overrides.ProviderOverride) != "" {
-		settings.ProviderOverride = overrideConfig.Settings.ProviderOverride
-	}
-	if strings.TrimSpace(overrides.ThinkingLevel) != "" {
-		settings.ThinkingLevel = overrideConfig.Settings.ThinkingLevel
-	}
-	if strings.TrimSpace(overrides.Theme) != "" {
-		settings.Theme = overrideConfig.Settings.Theme
-	}
-	if overrides.ModelTimeoutSeconds > 0 {
-		settings.Timeouts.ModelRequestSeconds = overrideConfig.Settings.Timeouts.ModelRequestSeconds
-	}
-	if strings.TrimSpace(overrides.OpenAIBaseURL) != "" {
-		settings.OpenAIBaseURL = overrideConfig.Settings.OpenAIBaseURL
-	}
-	if strings.TrimSpace(overrides.Tools) != "" && toolLock == nil {
-		settings.EnabledTools = cloneMapOrEmpty(overrideConfig.Settings.EnabledTools)
 	}
 	if toolLock == nil && (strings.TrimSpace(overrides.Tools) != "" || strings.TrimSpace(overrides.Model) != "") {
 		var err error
@@ -1225,50 +1205,16 @@ func cloneContinuationRole(role *string) *string {
 func validateRunPromptOverrideSettings(settings config.Settings, source config.SourceReport) (config.Settings, error) {
 	validated := cloneSettings(settings)
 	sources := cloneMapOrEmpty(source.Sources)
-	applyReviewerInheritance(&validated, sources)
+	config.InheritReviewerSettings(&validated, sources)
 	if err := config.ValidateSettingsWithSources(validated, sources); err != nil {
 		return config.Settings{}, err
 	}
 	return validated, nil
 }
 
-func mergeOverrideSources(base config.SourceReport, override config.SourceReport) config.SourceReport {
-	merged := base
-	merged.Files = override.Files
-	merged.CreatedDefaultConfig = override.CreatedDefaultConfig
-	merged.Sources = make(map[string]config.Origin, len(base.Sources)+len(override.Sources))
-	for key, value := range base.Sources {
-		merged.Sources[key] = value
-	}
-	for key, value := range override.Sources {
-		if value.Kind == config.SourceCLI {
-			merged.Sources[key] = value
-		}
-	}
-	return merged
-}
-
 func cloneSourceReport(source config.SourceReport) config.SourceReport {
 	next := source
 	next.Sources = cloneMapOrEmpty(source.Sources)
-	return next
-}
-
-func sourceReportWithSubagentRoleSources(base config.SourceReport, role config.SubagentRole, allowModelOverride bool) config.SourceReport {
-	if len(role.Sources) == 0 {
-		return base
-	}
-	next := base
-	next.Sources = cloneMapOrEmpty(base.Sources)
-	if !allowModelOverride && next.Sources["model"].Kind == config.SourceDefault {
-		next.Sources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
-	}
-	for key, origin := range role.Sources {
-		if key == "model" && !allowModelOverride {
-			continue
-		}
-		next.Sources[key] = origin
-	}
 	return next
 }
 

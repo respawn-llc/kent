@@ -46,11 +46,21 @@ func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	resolved := cloneSettings(base)
 	_ = applyBuiltInRoleHeuristics(&resolved, selector, providerID, allowModelOverride)
 	originalModel := strings.TrimSpace(resolved.Model)
-	resolved = config.OverlaySubagentRoleSettings(resolved, role, allowModelOverride)
-	applyDerivedModelContextBudgetOverrides(&resolved, role.Sources, originalModel, allowModelOverride)
-	effectiveSource := sourceReportWithSubagentRoleSources(baseSource, role, allowModelOverride)
-	effectiveSources := cloneMapOrEmpty(effectiveSource.Sources)
-	applyReviewerInheritance(&resolved, effectiveSources)
+	resolved, effectiveSources := config.OverlaySubagentRoleSettings(resolved, baseSource.Sources, role, allowModelOverride)
+	resolved, effectiveSources = config.OverlayAgentOverrides(resolved, effectiveSources, base, baseSource.Sources, allowModelOverride)
+	explicitSources := make(map[string]config.Origin, len(role.Sources))
+	maps.Copy(explicitSources, role.Sources)
+	for key, origin := range baseSource.Sources {
+		if origin.OverridesRole(key) {
+			explicitSources[key] = origin
+		}
+	}
+	applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride)
+	effectiveSource := baseSource
+	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
+		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
+	}
+	config.InheritReviewerSettings(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
 	if validate {
 		if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
@@ -103,112 +113,6 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 	}
 	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
 		settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	}
-}
-
-func applyReviewerInheritance(settings *config.Settings, sources map[string]config.Origin) {
-	if settings == nil {
-		return
-	}
-	if sources["reviewer.model"].Inherited("reviewer.model") {
-		settings.Reviewer.Model = settings.Model
-	}
-	if sources["reviewer.thinking_level"].Inherited("reviewer.thinking_level") {
-		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
-	}
-	if sources["reviewer.model_verbosity"].Inherited("reviewer.model_verbosity") {
-		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
-	}
-	reviewerProviderSourceDefault := sources["reviewer.provider_override"].Inherited("reviewer.provider_override")
-	reviewerBaseURLSourceDefault := sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url")
-	if reviewerProviderSourceDefault || reviewerBaseURLSourceDefault {
-		originalProviderOverride := settings.Reviewer.ProviderOverride
-		originalOpenAIBaseURL := settings.Reviewer.OpenAIBaseURL
-		if reviewerProviderSourceDefault {
-			settings.Reviewer.ProviderOverride = ""
-		}
-		if reviewerBaseURLSourceDefault {
-			settings.Reviewer.OpenAIBaseURL = ""
-		}
-		reviewerProvider := config.ResolveReviewerProviderSettings(*settings)
-		if reviewerProviderSourceDefault {
-			settings.Reviewer.ProviderOverride = reviewerProvider.ProviderOverride
-		} else {
-			settings.Reviewer.ProviderOverride = originalProviderOverride
-		}
-		if reviewerBaseURLSourceDefault {
-			settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
-		} else {
-			settings.Reviewer.OpenAIBaseURL = originalOpenAIBaseURL
-		}
-	}
-	if sources["reviewer.model_context_window"].Inherited("reviewer.model_context_window") {
-		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
-	}
-	if sources["reviewer.auth"].Inherited("reviewer.auth") {
-		settings.Reviewer.Auth = "inherit"
-	}
-	applyReviewerModelCapabilityInheritance(settings, sources)
-	reviewerProviderSelectionExplicit := reviewerProviderSelectionExplicitForInheritance(settings, sources)
-	applyReviewerProviderCapabilityInheritance(settings, sources, reviewerProviderSelectionExplicit)
-}
-
-func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]config.Origin) bool {
-	if settings == nil {
-		return false
-	}
-	candidate := *settings
-	if sources["reviewer.provider_override"].Inherited("reviewer.provider_override") {
-		candidate.Reviewer.ProviderOverride = ""
-	}
-	if sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url") {
-		candidate.Reviewer.OpenAIBaseURL = ""
-	}
-	return config.ReviewerUsesIndependentProviderSelection(candidate)
-}
-
-func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]config.Origin) {
-	if settings == nil {
-		return
-	}
-	if sources["reviewer.model_capabilities.supports_reasoning_effort"].Inherited("reviewer.model_capabilities.supports_reasoning_effort") {
-		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
-	}
-	if sources["reviewer.model_capabilities.supports_vision_inputs"].Inherited("reviewer.model_capabilities.supports_vision_inputs") {
-		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = settings.ModelCapabilities.SupportsVisionInputs
-	}
-}
-
-func applyReviewerProviderCapabilityInheritance(settings *config.Settings, sources map[string]config.Origin, reviewerProviderSelectionExplicit bool) {
-	if settings == nil || reviewerProviderSelectionExplicit {
-		return
-	}
-	if sources["reviewer.provider_capabilities.provider_id"].Inherited("reviewer.provider_capabilities.provider_id") {
-		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
-	}
-	if sources["reviewer.provider_capabilities.supports_responses_api"].Inherited("reviewer.provider_capabilities.supports_responses_api") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
-	}
-	if sources["reviewer.provider_capabilities.supports_responses_compact"].Inherited("reviewer.provider_capabilities.supports_responses_compact") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
-	}
-	if sources["reviewer.provider_capabilities.supports_prompt_cache_key"].Inherited("reviewer.provider_capabilities.supports_prompt_cache_key") {
-		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
-	}
-	if sources["reviewer.provider_capabilities.supports_native_web_search"].Inherited("reviewer.provider_capabilities.supports_native_web_search") {
-		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
-	}
-	if sources["reviewer.provider_capabilities.supports_reasoning_encrypted"].Inherited("reviewer.provider_capabilities.supports_reasoning_encrypted") {
-		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
-	}
-	if sources["reviewer.provider_capabilities.supports_server_side_context_edit"].Inherited("reviewer.provider_capabilities.supports_server_side_context_edit") {
-		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
-	}
-	if sources["reviewer.provider_capabilities.supports_provider_verbosity"].Inherited("reviewer.provider_capabilities.supports_provider_verbosity") {
-		settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = settings.ProviderCapabilities.SupportsProviderVerbosity
-	}
-	if sources["reviewer.provider_capabilities.is_openai_first_party"].Inherited("reviewer.provider_capabilities.is_openai_first_party") {
-		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
 	}
 }
 
