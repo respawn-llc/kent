@@ -214,7 +214,7 @@ func loadLaunchConfigWithHome(t *testing.T, workspace string, configLines ...str
 	if len(configLines) > 0 {
 		writeHomeConfig(t, home, strings.Join(configLines, "\n"))
 	}
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

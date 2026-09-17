@@ -475,12 +475,18 @@ func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.So
 		return nil, err
 	}
 	message := &sessionlaunchpb.SourceReport{
-		SettingsPath: source.SettingsPath, SettingsFileExists: source.SettingsFileExists,
-		CreatedDefaultConfig: source.CreatedDefaultConfig, HomeSettingsPath: source.HomeSettingsPath,
-		HomeSettingsFileExists: source.HomeSettingsFileExists, WorkspaceSettingsPath: source.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   source.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: source.WorkspaceSettingsLayerEnabled,
-		Sources:                       sources,
+		CreatedDefaultConfig: source.CreatedDefaultConfig,
+		Sources:              sources,
+	}
+	for _, file := range source.Files {
+		layer, err := configFileLayerToProto(file.Layer)
+		if err != nil {
+			return nil, err
+		}
+		message.Files = append(message.Files, &sessionlaunchpb.ConfigFileReport{
+			File:   &sessionlaunchpb.ConfigFileSource{Layer: layer, Path: file.Path},
+			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
 	}
 	return message, Validate(message)
 }
@@ -493,13 +499,21 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 	if err != nil {
 		return config.SourceReport{}, err
 	}
-	return config.SourceReport{
-		SettingsPath: message.SettingsPath, SettingsFileExists: message.SettingsFileExists,
-		CreatedDefaultConfig: message.CreatedDefaultConfig, HomeSettingsPath: message.HomeSettingsPath,
-		HomeSettingsFileExists: message.HomeSettingsFileExists, WorkspaceSettingsPath: message.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   message.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: message.WorkspaceSettingsLayerEnabled, Sources: sources,
-	}, nil
+	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
+	for _, file := range message.Files {
+		layer, err := configFileLayerFromProto(file.File.Layer)
+		if err != nil {
+			return config.SourceReport{}, err
+		}
+		if report.File(layer) != nil {
+			return config.SourceReport{}, fmt.Errorf("duplicate configuration file layer %q", layer)
+		}
+		report.Files = append(report.Files, config.ConfigFileReport{
+			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
+			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
+	}
+	return report, nil
 }
 
 func sortedStringKeys[V any](values map[string]V) []string {

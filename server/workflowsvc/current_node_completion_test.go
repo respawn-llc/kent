@@ -131,7 +131,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	if err != nil {
 		t.Fatalf("NewOpenSessionDescriptor: %v", err)
 	}
-	appCfg, err := config.Load(binding.CanonicalRoot, config.LoadOptions{})
+	appCfg, err := config.Load(binding.CanonicalRoot, binding.CanonicalRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

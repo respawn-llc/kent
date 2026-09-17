@@ -158,5 +158,5 @@ func loadConfig(loadOpts config.LoadOptions, workspaceRoot, openAIBaseURL string
 	if strings.TrimSpace(workspaceRoot) == "" {
 		return config.LoadGlobal(loadOpts)
 	}
-	return config.Load(workspaceRoot, loadOpts)
+	return config.Load(workspaceRoot, workspaceRoot, loadOpts)
 }

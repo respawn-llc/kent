@@ -90,7 +90,7 @@ func (c Collector) CollectBase(req Request) Snapshot {
 		Context:              contextInfo,
 		Model:                ModelInfo{Summary: ModelSummary(req)},
 		Config: ConfigInfo{
-			SettingsPath:    filepath.ToSlash(strings.TrimSpace(req.Source.SettingsPath)),
+			SettingsPath:    req.Source.SettingsPath(),
 			OverrideSources: ConfigOverrideSources(req.Source),
 			Supervisor:      SupervisorLabel(req.ReviewerEnabled, strings.TrimSpace(req.ReviewerMode)),
 			AutoCompaction:  req.AutoCompactionEnabled,

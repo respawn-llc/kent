@@ -82,7 +82,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	); err != nil {
 		t.Fatalf("write target workspace config: %v", err)
 	}
-	sourceConfig, err := config.Load(workspaceA, config.LoadOptions{})
+	sourceConfig, err := config.Load(workspaceA, workspaceA, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load source config: %v", err)
 	}

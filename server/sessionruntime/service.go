@@ -217,8 +217,8 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 			req.ActiveSettings.Model,
 		),
 		fmt.Sprintf(
-			"config.settings path=%s created=%t",
-			req.Source.SettingsPath,
+			"config.settings files=%+v created=%t",
+			req.Source.Files,
 			req.Source.CreatedDefaultConfig,
 		),
 	}

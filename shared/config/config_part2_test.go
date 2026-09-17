@@ -359,7 +359,7 @@ func TestLoadProviderOverrideRejectsOpenAIBaseURLConflict(t *testing.T) {
 
 func TestLoadProviderOverrideFromCLIWithExplicitFileModel(t *testing.T) {
 	_, workspace, _ := loadConfigTestFileApp(t, "model = \"my-team-alias\"\n", LoadOptions{})
-	cfg, err := Load(workspace, LoadOptions{ProviderOverride: "openai"})
+	cfg, err := Load(workspace, workspace, LoadOptions{ProviderOverride: "openai"})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestLoadCapabilityOverridesRequireProviderID(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("KENT_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH", "true")
 
-	_, err := Load(workspace, LoadOptions{})
+	_, err := Load(workspace, workspace, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected validation error when provider capability override is set without provider_id")
 	}
@@ -403,7 +403,7 @@ func TestLoadFalseProviderVerbosityCapabilityRequiresProviderID(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY", "false")
 
-	_, err := Load(workspace, LoadOptions{})
+	_, err := Load(workspace, workspace, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected validation error when false verbosity capability override is set without provider_id")
 	}
@@ -435,7 +435,7 @@ supports_provider_verbosity = "yes"
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("KENT_PROVIDER_CAPABILITIES_PROVIDER_ID", "custom-provider")
 	t.Setenv("KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY", "yes")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected non-boolean environment verbosity capability to fail")
 	}
 }
@@ -480,11 +480,11 @@ func TestProjectIDForWorkspaceRootCanonicalizesSymlinkedWorkspace(t *testing.T) 
 	}
 	t.Setenv("HOME", home)
 
-	realCfg, err := Load(realWorkspace, LoadOptions{})
+	realCfg, err := Load(realWorkspace, realWorkspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load real workspace: %v", err)
 	}
-	symlinkCfg, err := Load(symlinkPath, LoadOptions{})
+	symlinkCfg, err := Load(symlinkPath, symlinkPath, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load symlink workspace: %v", err)
 	}
@@ -616,13 +616,13 @@ verbose_output = true
 	}
 
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "sometimes")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid reviewer frequency")
 	}
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "all")
 	t.Setenv("KENT_REVIEWER_PROVIDER_OVERRIDE", "bogus")
 	t.Setenv("KENT_REVIEWER_OPENAI_BASE_URL", "")
-	if _, err := Load(workspace, LoadOptions{}); !errors.Is(err, errInvalidReviewerProvider) {
+	if _, err := Load(workspace, workspace, LoadOptions{}); !errors.Is(err, errInvalidReviewerProvider) {
 		t.Fatalf("expected invalid reviewer provider error, got %v", err)
 	}
 }
@@ -652,7 +652,7 @@ func TestLoadWebSearchPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("KENT_WEB_SEARCH", "custom")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected web_search=custom validation error")
 	}
 }
@@ -847,7 +847,7 @@ model_request_seconds = 45
 	t.Setenv("KENT_THINKING_LEVEL", "medium")
 	t.Setenv("KENT_TOOLS", "shell,patch")
 
-	cfg, err := Load(workspace, LoadOptions{Model: "gpt-cli", ThinkingLevel: "xhigh"})
+	cfg, err := Load(workspace, workspace, LoadOptions{Model: "gpt-cli", ThinkingLevel: "xhigh"})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

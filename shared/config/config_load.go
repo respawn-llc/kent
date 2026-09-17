@@ -1,31 +1,29 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func Load(workspaceRoot string, opts LoadOptions) (App, error) {
-	trimmed := strings.TrimSpace(workspaceRoot)
-	if trimmed == "" {
-		return App{}, errors.New("workspace root is required")
-	}
-	return load(trimmed, true, opts)
+type workspaceConfigRoots struct {
+	Shared string
+	Main   string
+}
+
+func Load(sharedRoot, mainWorkspaceRoot string, opts LoadOptions) (App, error) {
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: mainWorkspaceRoot}, opts)
+	return loaded.App, err
 }
 
 func LoadGlobal(opts LoadOptions) (App, error) {
-	return load("", false, opts)
+	loaded, err := loadAll(nil, opts)
+	return loaded.App, err
 }
 
-func LoadInteractive(workspaceRoot string, opts LoadOptions) (App, ClientSettings, error) {
-	trimmed := strings.TrimSpace(workspaceRoot)
-	if trimmed == "" {
-		return App{}, ClientSettings{}, errors.New("workspace root is required")
-	}
-	loaded, err := loadAll(trimmed, true, opts)
+func LoadInteractive(sharedRoot, mainWorkspaceRoot string, opts LoadOptions) (App, ClientSettings, error) {
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: mainWorkspaceRoot}, opts)
 	if err != nil {
 		return App{}, ClientSettings{}, err
 	}
@@ -47,164 +45,26 @@ func ResolvePersistenceRoot(explicitRoot string) (string, error) {
 	return NormalizePersistenceRoot(root)
 }
 
-func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (App, error) {
-	loaded, err := loadAll(workspaceRoot, includeWorkspaceLayer, opts)
-	if err != nil {
-		return App{}, err
-	}
-	return loaded.App, nil
-}
-
-func loadAll(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (loadedConfig, error) {
-	absWorkspace := ""
-	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
-	if trimmedWorkspaceRoot != "" {
-		resolved, err := filepath.Abs(trimmedWorkspaceRoot)
-		if err != nil {
-			return loadedConfig{}, fmt.Errorf("resolve workspace root: %w", err)
-		}
-		absWorkspace = resolved
-	} else if includeWorkspaceLayer {
-		return loadedConfig{}, errors.New("workspace root is required")
-	}
-
-	// The config+data root is controlled by the --persistence-root flag
-	// (opts.ConfigRoot) or the KENT_PERSISTENCE_ROOT env var, in that order.
-	// It locates config.toml and roots all persistence. It is intentionally
-	// NOT a config.toml setting (a file cannot relocate its own directory).
-	configRoot, configRootSource := resolveConfigRoot(opts)
-	if configRoot != "" {
-		expanded, expandErr := expandTildePath(configRoot)
-		if expandErr != nil {
-			return loadedConfig{}, fmt.Errorf("resolve persistence root: %w", expandErr)
-		}
-		configRoot = expanded
-	}
-
-	homeSettingsPath, err := resolveSettingsFilePathInRoot(configRoot)
+func loadAll(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfig, error) {
+	loaded, err := resolveSettings(roots, opts)
 	if err != nil {
 		return loadedConfig{}, err
 	}
-	homeSettingsExists, err := settingsFileExists(homeSettingsPath)
+	absPersistenceRoot, err := preparePersistenceRoot(loaded.App.PersistenceRoot)
 	if err != nil {
 		return loadedConfig{}, err
 	}
-
-	homeFileConfig := settingsFile{}
-	if homeSettingsExists {
-		homeFileConfig, err = readSettingsFile(homeSettingsPath)
-		if err != nil {
-			return loadedConfig{}, err
-		}
-		if err := rejectRemovedPersistenceRootKey(homeFileConfig, homeSettingsPath); err != nil {
-			return loadedConfig{}, err
-		}
-	}
-	workspaceSettingsPath := ""
-	workspaceSettingsExists := false
-	workspaceSettingsLayerEnabled := includeWorkspaceLayer
-	workspaceFileConfig := settingsFile{}
-	if includeWorkspaceLayer {
-		workspaceSettingsPath, err = resolveWorkspaceSettingsFilePath(absWorkspace)
-		if err != nil {
-			return loadedConfig{}, err
-		}
-		workspaceSettingsExists, err = settingsFileExists(workspaceSettingsPath)
-		if err != nil {
-			return loadedConfig{}, err
-		}
-		if homeSettingsExists && workspaceSettingsExists {
-			homeInfo, err := os.Stat(homeSettingsPath)
-			if err != nil {
-				return loadedConfig{}, err
-			}
-			workspaceInfo, err := os.Stat(workspaceSettingsPath)
-			if err != nil {
-				return loadedConfig{}, err
-			}
-			workspaceSettingsLayerEnabled = !os.SameFile(homeInfo, workspaceInfo)
-		}
-		if workspaceSettingsLayerEnabled && workspaceSettingsExists {
-			workspaceFileConfig, err = readSettingsFile(workspaceSettingsPath)
-			if err != nil {
-				return loadedConfig{}, err
-			}
-			if err := rejectRemovedPersistenceRootKey(workspaceFileConfig, workspaceSettingsPath); err != nil {
-				return loadedConfig{}, err
-			}
-		}
-	}
-
-	state := configRegistry.defaultState()
-	state.PersistenceRoot = DefaultPersistence
-	sources := configRegistry.defaultSourceMap()
-	sources["persistence_root"] = defaultOrigin("persistence_root")
-
-	if err := configRegistry.applyFile(homeFileConfig, homeSettingsPath, FileGlobal, &state, sources); err != nil {
-		return loadedConfig{}, err
-	}
-	if err := appendSystemPromptFileFromConfig(homeFileConfig, homeSettingsPath, SystemPromptFileScopeHomeConfig, &state); err != nil {
-		return loadedConfig{}, err
-	}
-	if workspaceSettingsLayerEnabled {
-		if err := configRegistry.applyFile(workspaceFileConfig, workspaceSettingsPath, FileWorkspace, &state, sources); err != nil {
-			return loadedConfig{}, err
-		}
-		if err := appendSystemPromptFileFromConfig(workspaceFileConfig, workspaceSettingsPath, SystemPromptFileScopeWorkspaceConfig, &state); err != nil {
-			return loadedConfig{}, err
-		}
-	}
-	if err := configRegistry.applyEnv(os.LookupEnv, &state, sources); err != nil {
-		return loadedConfig{}, err
-	}
-	if err := configRegistry.applyCLI(opts, &state, sources); err != nil {
-		return loadedConfig{}, err
-	}
-	applyConfigRootPersistence(configRoot, configRootSource, &state, sources)
-	inheritReviewerDefaultsWithSources(&state.Settings, sources)
-
-	if err := configRegistry.validate(settingsState{Settings: state.Settings}, sources); err != nil {
-		return loadedConfig{}, err
-	}
-
-	absPersistenceRoot, err := preparePersistenceRoot(state.PersistenceRoot)
-	if err != nil {
-		return loadedConfig{}, err
-	}
-	if _, err := writeManagedRGConfigFileForSettingsPath(homeSettingsPath); err != nil {
+	global := loaded.App.Source.File(FileGlobal)
+	if _, err := writeManagedRGConfigFileForSettingsPath(global.Path); err != nil {
 		return loadedConfig{}, fmt.Errorf("write managed rg config: %w", err)
 	}
-	absWorktreeBaseDir, err := prepareWorktreeBaseDir(absPersistenceRoot, state.Settings.Worktrees.BaseDir)
+	absWorktreeBaseDir, err := prepareWorktreeBaseDir(absPersistenceRoot, loaded.App.Settings.Worktrees.BaseDir)
 	if err != nil {
 		return loadedConfig{}, err
 	}
-	state.Settings.Worktrees.BaseDir = absWorktreeBaseDir
-
-	settingsPath := homeSettingsPath
-	if workspaceSettingsLayerEnabled && workspaceSettingsExists {
-		settingsPath = workspaceSettingsPath
-	}
-	settingsExists := homeSettingsExists || workspaceSettingsExists
-	return loadedConfig{
-		App: App{
-			AppName:         DefaultAppName,
-			WorkspaceRoot:   absWorkspace,
-			PersistenceRoot: absPersistenceRoot,
-			Settings:        state.Settings,
-			Source: SourceReport{
-				SettingsPath:                  settingsPath,
-				SettingsFileExists:            settingsExists,
-				CreatedDefaultConfig:          false,
-				HomeSettingsPath:              homeSettingsPath,
-				HomeSettingsFileExists:        homeSettingsExists,
-				WorkspaceSettingsPath:         workspaceSettingsPath,
-				WorkspaceSettingsFileExists:   workspaceSettingsExists,
-				WorkspaceSettingsLayerEnabled: workspaceSettingsLayerEnabled,
-				Sources:                       sources,
-			},
-		},
-		Client: state.Client,
-	}, nil
+	loaded.App.PersistenceRoot = absPersistenceRoot
+	loaded.App.Settings.Worktrees.BaseDir = absWorktreeBaseDir
+	return loaded, nil
 }
 
 // resolveConfigRoot picks the explicit config+data root from the
@@ -218,16 +78,6 @@ func resolveConfigRoot(opts LoadOptions) (root string, source Origin) {
 		return trimmed, optionOrigin("persistence_root", SourceEnv, PersistenceRootEnvName)
 	}
 	return "", defaultOrigin("persistence_root")
-}
-
-func applyConfigRootPersistence(configRoot string, source Origin, state *settingsState, sources map[string]Origin) {
-	if strings.TrimSpace(configRoot) == "" {
-		return
-	}
-	// configRoot is already tilde-expanded in load(); preparePersistenceRoot
-	// resolves it to an absolute path alongside the default path.
-	state.PersistenceRoot = configRoot
-	sources["persistence_root"] = source
 }
 
 // rejectRemovedPersistenceRootKey fails loads when a config.toml still declares

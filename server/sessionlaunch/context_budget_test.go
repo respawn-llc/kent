@@ -13,7 +13,7 @@ import (
 
 func TestOpenSessionUsesCurrentAgentBudgetAcrossConfigChanges(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,5 +42,5 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 			loadOptions = r.startupLoadOptions
 		}
 	}
-	return config.Load(workspaceRoot, loadOptions)
+	return config.Load(workspaceRoot, workspaceRoot, loadOptions)
 }

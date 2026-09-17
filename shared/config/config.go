@@ -262,15 +262,16 @@ type ReviewerProviderSettings struct {
 }
 
 type SourceReport struct {
-	SettingsPath                  string
-	SettingsFileExists            bool
-	CreatedDefaultConfig          bool
-	HomeSettingsPath              string
-	HomeSettingsFileExists        bool
-	WorkspaceSettingsPath         string
-	WorkspaceSettingsFileExists   bool
-	WorkspaceSettingsLayerEnabled bool
-	Sources                       map[string]Origin
+	Files                []ConfigFileReport
+	CreatedDefaultConfig bool
+	Sources              map[string]Origin
+}
+
+type ConfigFileReport struct {
+	SourceFile
+	Exists  bool
+	Enabled bool
+	Applied bool
 }
 
 type App struct {

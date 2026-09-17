@@ -73,7 +73,7 @@ func (failingAuthStateReader) StoredState(context.Context) (auth.State, error) {
 
 func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *t
 
 func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t
 
 func TestPlanLaunchSessionSkipsEffectiveAuthForExplicitProviderCapabilities(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestPlanLaunchSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
 	t.Setenv(config.PersistenceRootEnvName, home)
 	ctx := context.Background()
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -948,7 +948,7 @@ func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

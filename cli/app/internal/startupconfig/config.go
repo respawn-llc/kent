@@ -60,7 +60,7 @@ func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
 	} else {
 		loadOptions.OpenAIBaseURL = ""
 	}
-	cfg, clientSettings, err := config.LoadInteractive(workspaceRoot, loadOptions)
+	cfg, clientSettings, err := config.LoadInteractive(workspaceRoot, workspaceRoot, loadOptions)
 	if err != nil {
 		return SessionConfigResult{}, err
 	}

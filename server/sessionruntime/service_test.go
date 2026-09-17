@@ -1090,7 +1090,7 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
-	appCfg, err := config.Load(workspace, config.LoadOptions{})
+	appCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

@@ -301,7 +301,7 @@ type launchPromptFacingSnapshotReloader struct {
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
 	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
-	app, err := config.Load(workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
+	app, err := config.Load(workingDirectory, workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}

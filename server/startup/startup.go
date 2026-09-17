@@ -81,7 +81,7 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 			return nil, err
 		}
 	}
-	if !cfg.Source.SettingsFileExists {
+	if !cfg.Source.SettingsFileExists() {
 		return nil, ErrOnboardingRequired
 	}
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)

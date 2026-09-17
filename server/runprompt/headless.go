@@ -185,7 +185,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 	}
 	startLogLines := []string{
 		fmt.Sprintf("app.run_prompt.start session_id=%s workspace=%s workdir=%s model=%s", sessionID, executionTarget.WorkspaceRoot, workdir, plan.ActiveSettings.Model),
-		fmt.Sprintf("config.settings path=%s created=%t", plan.Source.SettingsPath, plan.Source.CreatedDefaultConfig),
+		fmt.Sprintf("config.settings files=%+v created=%t", plan.Source.Files, plan.Source.CreatedDefaultConfig),
 	}
 	for _, line := range runlog.FormatConfigSourceLines(plan.Source.Sources) {
 		startLogLines = append(startLogLines, "config.source "+line)

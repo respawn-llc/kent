@@ -239,7 +239,7 @@ func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[s
 	}
 	effectiveSources := cloneSourceMapOrDefault(sources)
 	inheritReviewerDefaultsWithSources(&normalized, effectiveSources)
-	if err := configRegistry.validate(settingsState{Settings: normalized}, effectiveSources); err != nil {
+	if err := configRegistry.validate(settingsState{Settings: normalized}, effectiveSources, resolvedContextConstraints(normalized)); err != nil {
 		return Settings{}, err
 	}
 	return normalized, nil
@@ -262,7 +262,7 @@ func cloneSourceMapOrDefault(sources map[string]Origin) map[string]Origin {
 }
 
 func ValidateSettingsWithSources(settings Settings, sources map[string]Origin) error {
-	return configRegistry.validate(settingsState{Settings: settings}, sources)
+	return configRegistry.validate(settingsState{Settings: settings}, sources, resolvedContextConstraints(settings))
 }
 
 func parseEnabledToolsCSV(raw string) ([]toolspec.ID, error) {

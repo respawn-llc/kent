@@ -23,7 +23,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		}))
 		t.Cleanup(provider.Close)
 		root, workspace, containerDir := t.TempDir(), t.TempDir(), t.TempDir()
-		cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
+		cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 		if err != nil {
 			t.Fatal(err)
 		}

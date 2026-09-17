@@ -235,7 +235,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
-	app, err := config.Load(store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
+	app, err := config.Load(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
 	if err != nil {
 		return nil, err
 	}

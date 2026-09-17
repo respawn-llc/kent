@@ -362,16 +362,18 @@ message Settings {
 }
 
 message SourceReport {
-  reserved 9;
-  string settings_path = 1;
-  bool settings_file_exists = 2;
+  reserved 1, 2, 4, 5, 6, 7, 8, 9;
+  reserved "settings_path", "settings_file_exists", "home_settings_path", "home_settings_file_exists", "workspace_settings_path", "workspace_settings_file_exists", "workspace_settings_layer_enabled";
   bool created_default_config = 3;
-  string home_settings_path = 4;
-  bool home_settings_file_exists = 5;
-  string workspace_settings_path = 6;
-  bool workspace_settings_file_exists = 7;
-  bool workspace_settings_layer_enabled = 8;
   repeated SourceFact sources = 10;
+  repeated ConfigFileReport files = 11;
+}
+
+message ConfigFileReport {
+  ConfigFileSource file = 1 [(buf.validate.field).required = true];
+  bool exists = 2;
+  bool enabled = 3;
+  bool applied = 4;
 }
 
 message SessionPlanRequest {

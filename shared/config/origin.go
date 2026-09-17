@@ -79,3 +79,32 @@ func inheritSource(sources map[string]Origin, target, source string) {
 		delete(sources, target)
 	}
 }
+
+func (s SourceReport) File(layer FileLayer) *ConfigFileReport {
+	for _, file := range s.Files {
+		if file.Layer == layer {
+			return &file
+		}
+	}
+	return nil
+}
+
+func (s SourceReport) SettingsFileExists() bool {
+	for _, file := range s.Files {
+		if file.Exists {
+			return true
+		}
+	}
+	return false
+}
+
+func (s SourceReport) SettingsPath() *string {
+	var selected *string
+	for _, layer := range []FileLayer{FileGlobal, FileWorkspace, FilePrivate} {
+		file := s.File(layer)
+		if file != nil && file.Enabled && (file.Exists || layer == FileGlobal) {
+			selected = &file.Path
+		}
+	}
+	return selected
+}

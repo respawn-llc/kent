@@ -166,7 +166,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 		t.Fatalf("parse retained session id: %v", err)
 	}
 	t.Setenv("HOME", t.TempDir())
-	loaded, err := config.Load(workspace, config.LoadOptions{})
+	loaded, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load workflow planning config: %v", err)
 	}

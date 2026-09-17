@@ -262,7 +262,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "persistence"))
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

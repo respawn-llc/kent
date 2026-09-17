@@ -389,7 +389,7 @@ func loadBindingCommandConfig(path string) (config.App, error) {
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.Load(absPath, config.LoadOptions{})
+	return config.Load(absPath, absPath, config.LoadOptions{})
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered

@@ -190,7 +190,9 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	}
 
 	appendSectionTitle("Config")
-	appendWrapped(statusDisplayPath(snapshot.Config.SettingsPath, snapshot.Workdir), subtleStyle)
+	if snapshot.Config.SettingsPath != nil {
+		appendWrapped(statusDisplayPath(*snapshot.Config.SettingsPath, snapshot.Workdir), subtleStyle)
+	}
 	if len(snapshot.Config.OverrideSources) > 0 {
 		appendWrapped("overrides: "+strings.Join(snapshot.Config.OverrideSources, ", "), lipgloss.Style{})
 	}

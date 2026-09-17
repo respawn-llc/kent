@@ -982,7 +982,7 @@ func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, met
 func newProjectViewMetadataStoreForWorkspace(t testing.TB, workspace string) (*metadata.Store, config.App, metadata.Binding) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

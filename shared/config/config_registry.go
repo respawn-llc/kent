@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,6 +21,11 @@ type settingsState struct {
 }
 
 type settingsValidator func(settingsState, map[string]Origin) error
+
+type settingsValidationRule struct {
+	check settingsValidator
+	keys  []string
+}
 
 type defaultConfigLine struct {
 	Path      []string
@@ -68,7 +74,7 @@ type fileKeyTree struct {
 
 type settingsRegistry struct {
 	settings           []registrySetting
-	validators         []settingsValidator
+	validators         []settingsValidationRule
 	fileKeys           map[FileLayer]*fileKeyTree
 	subagentRoleValues map[string]subagentRoleValueSetting
 }
@@ -725,37 +731,37 @@ func newSettingsRegistry() settingsRegistry {
 
 	registry := settingsRegistry{
 		settings: settings,
-		validators: []settingsValidator{
-			validateModelNotEmpty,
-			validateProviderOverrideRequiresModel,
-			validateProviderOverrideValue,
-			validateProviderIdentifier,
-			validateOpenAIBaseURL,
-			validateProviderCapabilitiesProviderID,
-			validateModelVerbosity,
-			validateTheme,
-			validateNotificationMethod,
-			validateServerHost,
-			validateServerPort,
-			validateWebSearch,
-			validateTimeouts,
-			validateShellOutputMaxChars,
-			validateMinimumExecToBgSeconds,
-			validateBGShellsOutput,
-			validateShellPostprocessing,
-			validateCacheWarningMode,
-			validateContextWindow,
-			validateCompactionMode,
-			validateReviewer,
-			validateWorkflowSettings,
-			validateMaxSubagentDepth,
-			validateSleepPreventionMode,
+		validators: []settingsValidationRule{
+			{validateModelNotEmpty, []string{"model"}},
+			{validateProviderOverrideRequiresModel, []string{"provider_override", "model"}},
+			{validateProviderOverrideValue, []string{"provider_override"}},
+			{validateProviderIdentifier, []string{"provider_identifier"}},
+			{validateOpenAIBaseURL, []string{"provider_override", "openai_base_url"}},
+			{validateProviderCapabilitiesProviderID, providerCapabilityKeys},
+			{validateModelVerbosity, []string{"model_verbosity"}},
+			{validateTheme, []string{"theme"}},
+			{validateNotificationMethod, []string{"notification_method"}},
+			{validateServerHost, []string{"server_host"}},
+			{validateServerPort, []string{"server_port"}},
+			{validateWebSearch, []string{"web_search"}},
+			{validateTimeouts, []string{"timeouts.model_request_seconds"}},
+			{validateShellOutputMaxChars, []string{"shell_output_max_chars"}},
+			{validateMinimumExecToBgSeconds, []string{"minimum_exec_to_bg_seconds"}},
+			{validateBGShellsOutput, []string{"bg_shells_output"}},
+			{validateShellPostprocessing, []string{"shell.postprocessing_mode", "shell.postprocess_hook"}},
+			{validateCacheWarningMode, []string{"cache_warning_mode"}},
+			{validateCompactionMode, []string{"compaction_mode"}},
+			{validateReviewer, nil},
+			{validateWorkflowSettings, []string{"workflow.completion_mode", "workflow.concurrency", "workflow.max_invalid_completion_attempts", "workflow.pre_compaction_tokens", "context_compaction_threshold_tokens"}},
+			{validateMaxSubagentDepth, []string{"max_subagent_depth"}},
+			{validateSleepPreventionMode, []string{"prevent_sleep"}},
 		},
 	}
 
 	registry.fileKeys = map[FileLayer]*fileKeyTree{
 		FileGlobal:    newFileKeyTree(),
 		FileWorkspace: newFileKeyTree(),
+		FilePrivate:   newFileKeyTree(),
 	}
 	registry.subagentRoleValues = make(map[string]subagentRoleValueSetting)
 	for _, setting := range registry.settings {
@@ -865,10 +871,16 @@ func (r settingsRegistry) applyCLI(opts LoadOptions, state *settingsState, sourc
 	return nil
 }
 
-func (r settingsRegistry) validate(state settingsState, sources map[string]Origin) error {
+func (r settingsRegistry) validate(state settingsState, sources map[string]Origin, constraints contextConstraints) error {
+	if err := validateContextConstraints(constraints); err != nil {
+		return configurationValidationError(err, sources, "model_context_window", "context_compaction_threshold_tokens", "pre_submit_compaction_lead_tokens")
+	}
 	for _, validator := range r.validators {
-		if err := validator(state, sources); err != nil {
-			return err
+		if err := validator.check(state, sources); err != nil {
+			if len(validator.keys) == 0 {
+				return err
+			}
+			return configurationValidationError(err, sources, validator.keys...)
 		}
 	}
 	return nil
@@ -1425,7 +1437,11 @@ func (subagentsSetting) applyFile(raw settingsFile, file SourceFile, state *sett
 		if !ok {
 			return &SettingsKeyTypeError{Key: strings.Join([]string{"subagents", key}, "."), ExpectedType: "table"}
 		}
-		role, err := parseSubagentRole(roleTable, file, key)
+		var previous *SubagentRole
+		if role, exists := state.Settings.Subagents[normalized]; exists {
+			previous = &role
+		}
+		role, err := parseSubagentRole(roleTable, file, key, previous)
 		if err != nil {
 			return err
 		}
@@ -1445,7 +1461,7 @@ func registerSubagentFileKeys(tree *fileKeyTree, settings []registrySetting) {
 	}, template)
 }
 
-func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string) (SubagentRole, error) {
+func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string, previous *SubagentRole) (SubagentRole, error) {
 	if _, exists := raw["subagents"]; exists {
 		return SubagentRole{}, fmt.Errorf("subagents.%s cannot define nested subagents", roleKey)
 	}
@@ -1465,7 +1481,22 @@ func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string) (Subag
 		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
 	roleState := configRegistry.defaultState()
-	roleSources := configRegistry.defaultSourceMap()
+	role := SubagentRole{AgentCallable: true, WorkflowSubagent: true}
+	roleSources := map[string]Origin{}
+	if previous != nil {
+		role = *previous
+		roleState.Settings = previous.Settings
+		maps.Copy(roleSources, previous.Sources)
+	}
+	if _, present := raw["description"]; present {
+		role.Description = description
+	}
+	if _, present := raw["agent_callable"]; present {
+		role.AgentCallable = agentCallable
+	}
+	if _, present := raw["workflow_subagent"]; present {
+		role.WorkflowSubagent = workflowSubagent
+	}
 	for _, setting := range configRegistry.settings {
 		if _, ok := setting.(subagentsSetting); ok {
 			continue
@@ -1494,10 +1525,7 @@ func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string) (Subag
 	if len(explicitSources) == 0 {
 		explicitSources = nil
 	}
-	if err := validateSubagentRoleState(roleState, explicitSources); err != nil {
-		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
-	}
-	if _, ok := explicitSources["system_prompt_file"]; ok {
+	if _, ok := raw["system_prompt_file"]; ok {
 		resolved, err := resolveConfigRelativePath(roleState.Settings.SystemPromptFile, file.Path)
 		if err != nil {
 			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
@@ -1507,13 +1535,9 @@ func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string) (Subag
 		}
 	}
 	roleState.Settings.Subagents = nil
-	return SubagentRole{
-		Settings:         roleState.Settings,
-		Sources:          explicitSources,
-		Description:      description,
-		AgentCallable:    agentCallable,
-		WorkflowSubagent: workflowSubagent,
-	}, nil
+	role.Settings = roleState.Settings
+	role.Sources = explicitSources
+	return role, nil
 }
 
 func wrapSubagentRoleError(roleKey string, err error) error {

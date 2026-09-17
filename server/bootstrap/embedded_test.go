@@ -88,7 +88,7 @@ func TestResolveConfigDoesNotCreateLegacyWorkspaceContainer(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	loaded, err := config.Load(workspace, config.LoadOptions{})
+	loaded, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestResolveConfigReusesMatchingInitialSnapshotWithoutReloading(t *testing.T
 	root := t.TempDir()
 	workspace := t.TempDir()
 	loadOptions := config.LoadOptions{ConfigRoot: root}
-	initial, err := config.Load(workspace, loadOptions)
+	initial, err := config.Load(workspace, workspace, loadOptions)
 	if err != nil {
 		t.Fatalf("load initial config: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestResolveConfigReusesMatchingInitialSnapshotWithoutReloading(t *testing.T
 
 func TestResolveConfigRejectsInitialSnapshotForDifferentTarget(t *testing.T) {
 	workspace := t.TempDir()
-	initial, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	initial, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("load initial config: %v", err)
 	}

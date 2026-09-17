@@ -114,7 +114,7 @@ func TestLoadShellPostprocessingPrecedenceAndValidation(t *testing.T) {
 	assertConfigSource(t, cfg, "shell.postprocess_hook", "env")
 
 	t.Setenv("KENT_SHELL_POSTPROCESSING_MODE", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid shell.postprocessing_mode")
 	}
 }
@@ -144,7 +144,7 @@ func TestLoadOpenAIBaseURLPrecedence(t *testing.T) {
 	writeConfigTestFile(t, configPath, `openai_base_url = "http://file.local/v1"`)
 
 	t.Setenv("KENT_OPENAI_BASE_URL", "http://env.local/v1")
-	cfg, err := Load(workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
+	cfg, err := Load(workspace, workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestLoadServerHostPortPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("KENT_SERVER_PORT", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid KENT_SERVER_PORT error")
 	}
 }

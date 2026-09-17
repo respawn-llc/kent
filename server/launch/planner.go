@@ -1234,8 +1234,7 @@ func validateRunPromptOverrideSettings(settings config.Settings, source config.S
 
 func mergeOverrideSources(base config.SourceReport, override config.SourceReport) config.SourceReport {
 	merged := base
-	merged.SettingsPath = override.SettingsPath
-	merged.SettingsFileExists = override.SettingsFileExists
+	merged.Files = override.Files
 	merged.CreatedDefaultConfig = override.CreatedDefaultConfig
 	merged.Sources = make(map[string]config.Origin, len(base.Sources)+len(override.Sources))
 	for key, value := range base.Sources {

@@ -55,7 +55,7 @@ func TestLoadRejectsPresentBlankShellPostprocessHook(t *testing.T) {
 	for _, value := range []string{"", " \t "} {
 		_, workspace := newConfigTestEnv(t)
 		t.Setenv("KENT_SHELL_POSTPROCESS_HOOK", value)
-		if _, err := Load(workspace, LoadOptions{}); err == nil {
+		if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 			t.Fatalf("expected explicitly blank KENT_SHELL_POSTPROCESS_HOOK to fail: %q", value)
 		}
 	}
@@ -74,7 +74,7 @@ func TestLoadRejectsPresentBlankShellPostprocessingMode(t *testing.T) {
 	for _, value := range []string{"", " \t "} {
 		_, workspace := newConfigTestEnv(t)
 		t.Setenv("KENT_SHELL_POSTPROCESSING_MODE", value)
-		if _, err := Load(workspace, LoadOptions{}); err == nil {
+		if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 			t.Fatalf("expected explicitly blank KENT_SHELL_POSTPROCESSING_MODE to fail: %q", value)
 		}
 	}

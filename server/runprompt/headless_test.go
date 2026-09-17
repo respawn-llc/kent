@@ -610,7 +610,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +737,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		t.Fatalf("EnsureDurable ordinary caller: %v", err)
 	}
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -972,7 +972,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -1755,7 +1755,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

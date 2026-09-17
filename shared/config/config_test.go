@@ -51,6 +51,205 @@ func TestReviewerInheritedFalseRetainsDeclarationOrigin(t *testing.T) {
 	}
 }
 
+func TestPrivateConfigurationOverridesSharedFile(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "model = \"global-model\"\n")
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), "model = \"shared-model\"\n")
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, "model = \"private-model\"\n")
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	if app.Settings.Model != "private-model" {
+		t.Fatalf("selected model = %q, want private-model", app.Settings.Model)
+	}
+	origin := app.Source.Sources["model"]
+	if origin.File == nil || origin.File.Layer != FilePrivate || origin.File.Path != privatePath {
+		t.Fatalf("private declaration origin = %+v", origin)
+	}
+	t.Setenv("KENT_MODEL", "environment-model")
+	app = loadConfigTestApp(t, workspace, LoadOptions{})
+	if app.Settings.Model != "environment-model" || app.Source.Sources["model"].Kind != SourceEnv {
+		t.Fatalf("environment must override private model: %+v", app.Source.Sources["model"])
+	}
+	app = loadConfigTestApp(t, workspace, LoadOptions{Model: "cli-model"})
+	if app.Settings.Model != "cli-model" || app.Source.Sources["model"].Kind != SourceCLI {
+		t.Fatalf("CLI must override environment model: %+v", app.Source.Sources["model"])
+	}
+}
+
+func TestPrivateConfigurationAbsenceAndSourceErrors(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "model = \"global-model\"\n")
+	sharedPath := filepath.Join(workspace, ConfigDirName, "config.toml")
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	if app.Settings.Model != "global-model" || app.Source.File(FilePrivate).Exists {
+		t.Fatal("absent private configuration must preserve the global model")
+	}
+	for _, tc := range []struct {
+		name  string
+		body  string
+		check func(error) bool
+	}{
+		{"unknown key", "unknown = true\n", func(err error) bool { return unknownSettingsKeyReported(err, "unknown") }},
+		{"wrong type", "model = 42\n", func(err error) bool {
+			var typed *SettingsKeyTypeError
+			return errors.As(err, &typed) && typed.Key == "model"
+		}},
+		{"global-only setting", "[hooks.client]\nlifecycle = [\"true\"]\n", func(err error) bool {
+			var typed *SettingsFileLayerError
+			return errors.As(err, &typed) && typed.Key == "hooks.client.lifecycle"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeConfigTestFile(t, privatePath, tc.body)
+			_, err := Load(workspace, workspace, LoadOptions{})
+			var source *ConfigurationFileError
+			if !errors.As(err, &source) || source.Source.Path != privatePath || source.Source.Layer != FilePrivate || !tc.check(err) {
+				t.Fatalf("private source diagnosis = %v", err)
+			}
+		})
+	}
+	writeConfigTestFile(t, privatePath, "model = \"private-model\"\n")
+	writeConfigTestFile(t, sharedPath, "model = 42\n")
+	_, err := Load(workspace, workspace, LoadOptions{})
+	var source *ConfigurationFileError
+	if !errors.As(err, &source) || source.Source.Path != sharedPath || source.Source.Layer != FileWorkspace {
+		t.Fatalf("later private value must not conceal malformed shared input: %v", err)
+	}
+}
+
+func TestInvalidEffectiveConfigurationReportsWinningOrigins(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "model_context_window = 100000\ncontext_compaction_threshold_tokens = 90000\n")
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, "model_context_window = 80000\n")
+	_, err := Load(workspace, workspace, LoadOptions{})
+	var diagnosis *ConfigurationValidationError
+	if !errors.As(err, &diagnosis) {
+		t.Fatalf("effective validation must report its property origins: %v", err)
+	}
+	for key, path := range map[string]string{"model_context_window": privatePath, "context_compaction_threshold_tokens": globalPath} {
+		origin, ok := diagnosis.Origins[key]
+		if !ok || origin.File == nil || origin.File.Path != path {
+			t.Fatalf("%s winning origin = %+v, want %s", key, origin, path)
+		}
+	}
+}
+
+func TestPrivateFileRelativePromptAndWorkspaceRelativeSetupScript(t *testing.T) {
+	_, sharedRoot, globalPath := newConfigTestFile(t)
+	mainRoot := t.TempDir()
+	writeConfigTestFile(t, globalPath, "[reviewer]\nsystem_prompt_file = \"global.md\"\n")
+	privatePath := filepath.Join(mainRoot, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, "[reviewer]\nsystem_prompt_file = \"prompts/private.md\"\n[worktrees]\nsetup_script = \"scripts/setup.sh\"\n")
+	app, err := Load(sharedRoot, mainRoot, LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Settings.Reviewer.SystemPromptFile != filepath.Join(mainRoot, ConfigDirName, "prompts/private.md") {
+		t.Fatalf("Supervisor prompt = %q, want supplying-file-relative path", app.Settings.Reviewer.SystemPromptFile)
+	}
+	if app.Settings.Worktrees.SetupScript != "scripts/setup.sh" {
+		t.Fatalf("setup script = %q, must remain source-workspace-relative", app.Settings.Worktrees.SetupScript)
+	}
+}
+
+func TestRoleFragmentsMergeAcrossFilesByDeclaredProperty(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, `
+[subagents.worker]
+description = "Worker"
+agent_callable = true
+workflow_subagent = true
+model = "worker-model"
+thinking_level = "high"
+[subagents.worker.tools]
+patch = true
+exec_command = true
+[subagents.worker.skills]
+testing = true
+[subagents.worker.reviewer]
+model = "supervisor-model"
+verbose_output = true
+`)
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), `
+[subagents.worker]
+thinking_level = "medium"
+workflow_subagent = false
+[subagents.worker.tools]
+patch = false
+[subagents.worker.reviewer]
+thinking_level = "low"
+`)
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, `
+[subagents.worker]
+agent_callable = false
+[subagents.worker.skills]
+testing = false
+[subagents.worker.reviewer]
+verbose_output = false
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective := OverlaySubagentRoleSettings(app.Settings, role, true)
+	if role.Description != "Worker" || role.AgentCallable || role.WorkflowSubagent || !role.AgentCallableSet() || !role.WorkflowSubagentSet() {
+		t.Fatalf("merged role metadata = %+v", role)
+	}
+	if effective.Model != "worker-model" || effective.ThinkingLevel != "medium" ||
+		effective.Reviewer.Model != "supervisor-model" || effective.Reviewer.ThinkingLevel != "low" || effective.Reviewer.VerboseOutput {
+		t.Fatalf("merged role settings = %+v", effective)
+	}
+	if effective.EnabledTools[toolspec.ToolPatch] || !effective.EnabledTools[toolspec.ToolExecCommand] || effective.SkillToggles["testing"] {
+		t.Fatalf("merged toggles = %v, %v", effective.EnabledTools, effective.SkillToggles)
+	}
+	if role.Sources["model"].File.Path != globalPath || role.Sources["agent_callable"].File.Path != privatePath {
+		t.Fatalf("role declaration origins = %+v", role.Sources)
+	}
+}
+
+func TestRoleFragmentsValidateAfterMergeAndInheritance(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, `
+model_context_window = 100000
+context_compaction_threshold_tokens = 80000
+pre_submit_compaction_lead_tokens = 10000
+[provider_capabilities]
+provider_id = "openai"
+[subagents.worker]
+context_compaction_threshold_tokens = 90000
+[subagents.worker.provider_capabilities]
+supports_responses_api = true
+`)
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), `
+[subagents.worker]
+model_context_window = 110000
+`)
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, `
+[subagents.worker.provider_capabilities]
+supports_responses_api = false
+supports_prompt_cache_key = true
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective := OverlaySubagentRoleSettings(app.Settings, role, true)
+	if effective.ModelContextWindow != 110000 || effective.ContextCompactionThresholdTokens != 90000 ||
+		effective.ProviderCapabilities.ProviderID != "openai" || effective.ProviderCapabilities.SupportsResponsesAPI || !effective.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("assembled role = %+v", effective)
+	}
+	writeConfigTestFile(t, privatePath, "[subagents.worker]\nmodel_context_window = 85000\n")
+	_, err := Load(workspace, workspace, LoadOptions{})
+	var diagnosis *ConfigurationValidationError
+	if !errors.Is(err, errSubagentRole) || !errors.As(err, &diagnosis) {
+		t.Fatalf("invalid final role must fail with effective origins: %v", err)
+	}
+	origin := diagnosis.Origins["model_context_window"]
+	if origin.File == nil || origin.File.Path != privatePath || origin.Property.String() != "subagents.worker.model_context_window" {
+		t.Fatalf("invalid role origin = %+v", origin)
+	}
+}
+
 func TestMain(m *testing.M) {
 	testenv.ClearAtProcessStart(PersistenceRootEnvName)
 	os.Exit(m.Run())
@@ -117,7 +316,7 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if cfg.Source.CreatedDefaultConfig {
 		t.Fatalf("expected CreatedDefaultConfig=false")
 	}
-	if cfg.Source.SettingsFileExists {
+	if cfg.Source.SettingsFileExists() {
 		t.Fatalf("expected SettingsFileExists=false")
 	}
 	if cfg.Settings.Model != defaultModel {
@@ -225,12 +424,12 @@ func TestLoadUsesExplicitConfigRootWithoutHomeMutation(t *testing.T) {
 	configRoot := t.TempDir()
 	workspace := t.TempDir()
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: configRoot})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Source.HomeSettingsPath != filepath.Join(configRoot, "config.toml") {
-		t.Fatalf("home settings path = %q, want explicit config root", cfg.Source.HomeSettingsPath)
+	if cfg.Source.File(FileGlobal).Path != filepath.Join(configRoot, "config.toml") {
+		t.Fatalf("home settings path = %q, want explicit config root", cfg.Source.File(FileGlobal).Path)
 	}
 	if cfg.PersistenceRoot != configRoot {
 		t.Fatalf("persistence root = %q, want explicit config root", cfg.PersistenceRoot)
@@ -247,7 +446,7 @@ func TestLoadRejectsPersistenceRootInConfigFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	_, err := Load(workspace, workspace, LoadOptions{ConfigRoot: configRoot})
 	if !errors.Is(err, errPersistenceRootInConfigFile) {
 		t.Fatalf("expected persistence_root migration error, got: %v", err)
 	}
@@ -258,12 +457,12 @@ func TestLoadUsesPersistenceRootEnvForConfigAndData(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv(PersistenceRootEnvName, root)
 
-	cfg, err := Load(workspace, LoadOptions{})
+	cfg, err := Load(workspace, workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Source.HomeSettingsPath != filepath.Join(root, "config.toml") {
-		t.Fatalf("home settings path = %q, want env root config.toml", cfg.Source.HomeSettingsPath)
+	if cfg.Source.File(FileGlobal).Path != filepath.Join(root, "config.toml") {
+		t.Fatalf("home settings path = %q, want env root config.toml", cfg.Source.File(FileGlobal).Path)
 	}
 	if cfg.PersistenceRoot != root {
 		t.Fatalf("persistence root = %q, want env root %q", cfg.PersistenceRoot, root)
@@ -279,7 +478,7 @@ func TestLoadFlagOverridesPersistenceRootEnv(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv(PersistenceRootEnvName, envRoot)
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: flagRoot})
+	cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: flagRoot})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -298,15 +497,15 @@ func TestLoadHonorsHOMEEnvironmentForDefaultConfigRoot(t *testing.T) {
 	if cfg.PersistenceRoot != filepath.Join(home, ConfigDirName) {
 		t.Fatalf("persistence root = %q, want HOME-scoped root", cfg.PersistenceRoot)
 	}
-	if cfg.Source.HomeSettingsPath != filepath.Join(home, ConfigDirName, "config.toml") {
-		t.Fatalf("home settings path = %q, want HOME-scoped config", cfg.Source.HomeSettingsPath)
+	if cfg.Source.File(FileGlobal).Path != filepath.Join(home, ConfigDirName, "config.toml") {
+		t.Fatalf("home settings path = %q, want HOME-scoped config", cfg.Source.File(FileGlobal).Path)
 	}
 }
 
 func TestLoadTrimsWorkspaceRootBeforeResolving(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 
-	cfg, err := Load("  "+workspace+"  ", LoadOptions{})
+	cfg, err := Load("  "+workspace+"  ", "  "+workspace+"  ", LoadOptions{})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -403,7 +602,7 @@ func TestLoadAppliesWorkspaceConfigBeforeEnvBeforeCLI(t *testing.T) {
 		t.Fatalf("write workspace config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{ThinkingLevel: "low"})
+	cfg, err := Load(workspace, workspace, LoadOptions{ThinkingLevel: "low"})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -413,7 +612,7 @@ func TestLoadAppliesWorkspaceConfigBeforeEnvBeforeCLI(t *testing.T) {
 	if cfg.Settings.ThinkingLevel != "low" {
 		t.Fatalf("thinking level = %q, want cli override", cfg.Settings.ThinkingLevel)
 	}
-	if cfg.Source.SettingsPath != workspaceConfigPath || !cfg.Source.WorkspaceSettingsFileExists {
+	if cfg.Source.SettingsPath() == nil || *cfg.Source.SettingsPath() != workspaceConfigPath || !cfg.Source.File(FileWorkspace).Exists {
 		t.Fatalf("unexpected workspace source report: %+v", cfg.Source)
 	}
 	if cfg.Source.Sources["model"].Kind != "env" || cfg.Source.Sources["thinking_level"].Kind != "cli" {
@@ -442,7 +641,7 @@ func TestLoadGlobalSkipsWorkspaceConfigLayer(t *testing.T) {
 	if cfg.Settings.Model != "env-model" {
 		t.Fatalf("model = %q, want env-model", cfg.Settings.Model)
 	}
-	if cfg.Source.WorkspaceSettingsLayerEnabled || cfg.Source.WorkspaceSettingsPath != "" {
+	if cfg.Source.File(FileWorkspace) != nil {
 		t.Fatalf("unexpected workspace source report: %+v", cfg.Source)
 	}
 }
@@ -927,7 +1126,7 @@ func TestAppendSystemPromptFileFromConfigResolvesConfigRelativePath(t *testing.T
 func TestParseSubagentRoleSystemPromptFileResolvesConfigRelativePath(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), ConfigDirName, "config.toml")
 
-	role, err := parseSubagentRole(settingsFile{"system_prompt_file": "fast-system.md"}, SourceFile{Layer: FileGlobal, Path: configPath}, "fast")
+	role, err := parseSubagentRole(settingsFile{"system_prompt_file": "fast-system.md"}, SourceFile{Layer: FileGlobal, Path: configPath}, "fast", nil)
 	if err != nil {
 		t.Fatalf("parse subagent role: %v", err)
 	}
@@ -954,7 +1153,7 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -990,7 +1189,7 @@ func TestLoadWorktreeSetupTimeoutSeconds(t *testing.T) {
 					t.Fatalf("write config: %v", err)
 				}
 			}
-			cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+			cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: root})
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
@@ -1005,7 +1204,7 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -1028,7 +1227,7 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(configText), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	cfg, err := Load(workspace, workspace, LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
