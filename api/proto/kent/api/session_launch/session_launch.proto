@@ -267,6 +267,13 @@ message SourceFact {
 }
 
 message ToolSelection {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.tool_selection_origin"
+    message: "tool selection requires an unscoped tools declaration from a nonblank environment variable or CLI option"
+    expression: "this.origin.property.key == 'tools' && !has(this.origin.property.role) && "
+      "((has(this.origin.environment) && this.origin.environment.trim() != '') || "
+      "(has(this.origin.cli_option) && this.origin.cli_option.trim() != ''))"
+  };
   repeated ToolID tools = 1 [(buf.validate.field).repeated = {
     unique: true
     items: {enum: {defined_only: true, not_in: [0]}}

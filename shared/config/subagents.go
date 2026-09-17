@@ -149,6 +149,15 @@ func SubagentRoleHasCapabilityOverrides(role SubagentRole) bool {
 		hasAnyConfiguredSource(role.Sources, providerCapabilityKeys...)
 }
 
+// MaterializeSubagentRoleDeclaration fills the transport's required settings
+// fields while preserving every explicit role value. Filler is not declaration
+// evidence and must never be used as an effective role resolution.
+func MaterializeSubagentRoleDeclaration(base Settings, role SubagentRole) Settings {
+	settings, _ := overlayDeclaredSettings(base, nil, role.Settings, role.Sources, func(string, Origin) bool { return true }, true)
+	settings.Subagents = nil
+	return settings
+}
+
 func OverlaySubagentRoleSettings(base Settings, sources map[string]Origin, role SubagentRole, allowModelOverride bool) (Settings, map[string]Origin) {
 	return overlaySubagentRoleSettings(base, sources, role, func(key string) bool {
 		return subagentRoleSessionSetting(key) && (allowModelOverride || key != "model")

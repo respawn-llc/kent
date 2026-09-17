@@ -422,9 +422,8 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 	result := make([]*sessionlaunchpb.NamedSubagentRole, 0, len(keys))
 	for _, key := range keys {
 		value := values[key]
-		effective, _ := config.OverlaySubagentRoleSettings(base, nil, value, true)
-		effective.Subagents = nil
-		settings, err := SessionSettingsToProto(effective)
+		declaration := config.MaterializeSubagentRoleDeclaration(base, value)
+		settings, err := SessionSettingsToProto(declaration)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", key, err)
 		}
