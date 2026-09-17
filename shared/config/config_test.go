@@ -154,6 +154,28 @@ func TestPrivateFileRelativePromptAndWorkspaceRelativeSetupScript(t *testing.T) 
 	}
 }
 
+func TestWorktreeSetupUsesFullPrivateConfiguration(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "[worktrees]\nsetup_script = \"global.sh\"\nsetup_timeout_seconds = 10\n")
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), "[worktrees]\nsetup_script = \"shared.sh\"\n")
+	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, privatePath, "[worktrees]\nsetup_script = \"scripts/private.sh\"\nsetup_timeout_seconds = 30\n")
+	setup, err := LoadWorktreeSetupSettings(workspace, filepath.Dir(globalPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadConfigTestApp(t, workspace, LoadOptions{})
+	if setup.SetupScript != "scripts/private.sh" || setup.SetupTimeoutSeconds != 30 ||
+		setup.SetupScript != loaded.Settings.Worktrees.SetupScript || setup.SetupTimeoutSeconds != loaded.Settings.Worktrees.SetupTimeoutSeconds {
+		t.Fatalf("setup and launch disagree: setup=%+v launch=%+v", setup, loaded.Settings.Worktrees)
+	}
+	writeConfigTestFile(t, privatePath, "provider_identifier = \"\"\n[worktrees]\nsetup_script = \"scripts/private.sh\"\n")
+	_, err = LoadWorktreeSetupSettings(workspace, filepath.Dir(globalPath))
+	if !errors.Is(err, errInvalidProviderIdentifier) {
+		t.Fatalf("setup must reject malformed agent configuration: %v", err)
+	}
+}
+
 func TestRoleFragmentsMergeAcrossFilesByDeclaredProperty(t *testing.T) {
 	_, workspace, globalPath := newConfigTestFile(t)
 	writeConfigTestFile(t, globalPath, `
