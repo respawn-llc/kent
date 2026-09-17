@@ -3,7 +3,6 @@ package runtimeview
 import (
 	"core/server/goalview"
 	"core/server/runtime"
-	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -168,23 +167,4 @@ func ConversationFreshnessFromSession(freshness session.ConversationFreshness) r
 		return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH
 	}
 	return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
-}
-
-func ActivityFromRuntimeSnapshot(snapshot *runtime.RunSnapshot, queueAccepting bool) *runtimepb.Activity {
-	var active *runtimeactivity.ActiveStepSnapshot
-	if snapshot != nil {
-		active = runtimeactivity.ActiveStepFromRuntimeSnapshot(snapshot)
-	}
-	activity, err := runtimeactivity.ResolveRuntimeActivity(runtimeactivity.ResolverSnapshot{
-		Registry: runtimeactivity.RegistrySnapshot{Registered: true, QueueAccepting: queueAccepting},
-		Active:   active,
-	})
-	if err != nil {
-		panic(err)
-	}
-	return activity
-}
-
-func ClientActiveKindFromRuntime(kind runtime.ActiveKind) runtimepb.ActivityActiveKind {
-	return runtimeactivity.MustClientActiveKindFromRuntime(kind)
 }
