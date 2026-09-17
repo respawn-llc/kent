@@ -1,5 +1,8 @@
 export const chatWorktreeEnglish = {
   title: "Worktree",
+  sessionRequired: "Start a Session before managing worktrees.",
+  commandUsage:
+    "Usage: /worktree [status | new | create | switch <target> | leave | delete [target] | remove [target] | rm [target]]",
   refresh: "Refresh worktrees",
   create: "Create worktree",
   switch: "Switch",
@@ -22,6 +25,12 @@ export const chatWorktreeEnglish = {
   createSubmit: "Create",
   back: "Back",
   delete: "Delete worktree",
+  commandDeleteTitle: "Delete files irreversibly?",
+  commandDeleteBody:
+    "All files of the worktree will be deleted permanently with no recovery. All sessions will be forcibly moved to main workspace.",
+  no: "No",
+  yes: "Yes",
+  yesAndBranch: "Yes and branch",
   empty: "No worktrees",
   external: "External",
   missing: "Missing",
