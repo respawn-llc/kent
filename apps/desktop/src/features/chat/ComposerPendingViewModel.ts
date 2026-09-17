@@ -32,7 +32,7 @@ export function createComposerPendingViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: ChatSettingsTarget;
+  target: Atom.Atom<ChatSettingsTarget>;
   t: TFunction;
 }>) {
   const owner = crypto.randomUUID();
@@ -45,59 +45,39 @@ export function createComposerPendingViewModel({
       body: errorMessage(error),
     });
   };
-  const scopes = Atom.family((identity: string) =>
-    Atom.make((get) => {
-      const observer = new QueryObserver<PendingWork, Error>(client, {
-        ...composerReadOptions,
-        staleTime: 0,
-        queryKey: ["chat-composer-pending", owner, identity],
-        queryFn:
-          target.kind === "session"
-            ? async () => {
-                try {
-                  return await services.api.chat.listPendingWork(target);
-                } catch (error) {
-                  if (observer.hasListeners() && get.get(scope) === identity) report(error);
-                  throw error;
-                }
+  const current = Atom.make((get) => {
+    const selected = get(target);
+    const identity = get(scope);
+    const observer = new QueryObserver<PendingWork, Error>(client, {
+      ...composerReadOptions,
+      staleTime: 0,
+      queryKey: [
+        "chat-composer-pending",
+        owner,
+        identity,
+        selected.kind === "session" ? selected.sessionID : null,
+      ],
+      queryFn:
+        selected.kind === "session"
+          ? async () => {
+              try {
+                return await services.api.chat.listPendingWork(selected);
+              } catch (error) {
+                if (observer.hasListeners() && get.get(scope) === identity) report(error);
+                throw error;
               }
-            : skipToken,
-      });
-      return { observer, read: queryAtom(observer) };
-    }),
-  );
-  const current = Atom.make((get) => get(scopes(get(scope))));
+            }
+          : skipToken,
+    });
+    return { observer, read: queryAtom(observer) };
+  });
   const read = Atom.make((get) => get(get(current).read));
   const refresh = Atom.fn<undefined>()(
     (_, get) =>
       Effect.gen(function* () {
-        if (target.kind !== "session") return;
+        if (get(target).kind !== "session") return;
         yield* Effect.tryPromise(async () => client.fetchQuery(get(current).observer.options)).pipe(
           Effect.ignore,
-        );
-      }),
-    { concurrent: true },
-  );
-  const returnedSession = Atom.fn<string>()(
-    (sessionID, get) =>
-      Effect.gen(function* () {
-        if (target.kind === "session") {
-          get.set(refresh, undefined);
-          return;
-        }
-        yield* Effect.tryPromise(async () =>
-          client.fetchQuery({
-            ...composerReadOptions,
-            staleTime: 0,
-            queryKey: ["chat-composer-returned-pending", owner, sessionID],
-            queryFn: async () => services.api.chat.listPendingWork({ ...target, sessionID }),
-          }),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.sync(() => {
-              report(error.cause);
-            }),
-          ),
         );
       }),
     { concurrent: true },
@@ -105,7 +85,7 @@ export function createComposerPendingViewModel({
   const hydrate = Atom.fn<undefined>()(
     (_, get) =>
       Effect.sync(() => {
-        if (target.kind === "session") get.set(scope, crypto.randomUUID());
+        if (get(target).kind === "session") get.set(scope, crypto.randomUUID());
       }),
     { concurrent: true },
   );
@@ -119,10 +99,11 @@ export function createComposerPendingViewModel({
   const stopping = queryAtom(stopObserver);
   const stopPending = mutationPendingAtom(client, { mutationKey: stopKey });
   const stop = Atom.fn<undefined>()(
-    () =>
+    (_, get) =>
       Effect.gen(function* () {
-        if (target.kind !== "session") return;
-        yield* Effect.tryPromise(async () => stopObserver.mutate(target)).pipe(Effect.ignore);
+        const selected = get(target);
+        if (selected.kind !== "session") return;
+        yield* Effect.tryPromise(async () => stopObserver.mutate(selected)).pipe(Effect.ignore);
       }),
     { concurrent: true },
   );
@@ -147,14 +128,15 @@ export function createComposerPendingViewModel({
     mutationPendingAtom(client, { mutationKey: [...discardKey, identity] }),
   );
   const discard = Atom.fn<Omit<DiscardRequest, "target">>()(
-    (input) =>
+    (input, get) =>
       Effect.gen(function* () {
-        if (target.kind !== "session") return;
+        const selected = get(target);
+        if (selected.kind !== "session") return;
         discardObserver.setOptions({
           ...discardOptions,
           mutationKey: [...discardKey, input.item.toJSONValue()],
         });
-        yield* Effect.tryPromise(async () => discardObserver.mutate({ ...input, target })).pipe(
+        yield* Effect.tryPromise(async () => discardObserver.mutate({ ...input, target: selected })).pipe(
           Effect.ignore,
         );
       }),
@@ -163,7 +145,6 @@ export function createComposerPendingViewModel({
   return {
     read,
     refresh,
-    returnedSession,
     hydrate,
     stop,
     stopping,

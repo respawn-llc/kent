@@ -15,7 +15,7 @@ export function ChatAutoCompactionSwitch({
   const { t } = useTranslation();
   if (feature.kind === "failed-session" || feature.kind === "failed-new-chat")
     return <span>{errorMessage(feature.error)}</span>;
-  if (feature.kind === "loading-session" || feature.kind === "loading-new-chat")
+  if (feature.kind !== "ready-session" && feature.kind !== "ready-new-chat")
     return (
       <span className="flex items-center gap-[var(--space-1)]">
         <Spinner size="sm" />

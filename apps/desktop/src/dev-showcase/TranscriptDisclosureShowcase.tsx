@@ -6,7 +6,6 @@ import { useReducedMotion } from "motion/react";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { ThinkingShowcase } from "./ThinkingShowcase";
-import { WorktreeShowcase } from "@/app";
 
 import {
   TranscriptDisclosure,
@@ -70,7 +69,6 @@ export function TranscriptDisclosureShowcase() {
           }
         >
           <ThinkingShowcase />
-          <WorktreeShowcase />
           <ShowcaseStory title="Collapsed">
             <DisclosureStory
               defaultExpanded={false}

@@ -53,7 +53,6 @@ import { ChatOperationError } from "./chatErrors";
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
 
@@ -757,7 +756,6 @@ describe("Desktop Chat mutation adapter", () => {
   const sessionTarget = {
     kind: "session",
     projectID: "project-1",
-    workspace: { workspaceID: "workspace-1" },
     sessionID,
   } as const;
   const newChatTarget = {
@@ -833,7 +831,7 @@ describe("Desktop Chat mutation adapter", () => {
       outcome: { kind: "not_accepted", reason: { kind: "too_soon" } },
     });
 
-    expect(transport.attachedProjectDescriptorCalls.map(({ request }) => request)).toMatchObject([
+    expect(transport.descriptorCalls.map(({ request }) => request)).toMatchObject([
       {
         target: { target: { case: "session", value: { sessionId: sessionID } } },
         activation: { input: { case: "text", value: "continue" } },
@@ -1002,7 +1000,7 @@ describe("Desktop Chat mutation adapter", () => {
           workspaceRoot: "/workspace",
           workspaceSelection: { kind: "workspaceID", workspaceID: "workspace-1" },
         },
-        sessionTarget,
+        newChatTarget,
       ),
     ).toThrow(ContractError);
 

@@ -54,10 +54,12 @@ export type ComposerCommand = Readonly<{
   preview: string | null;
   execution:
     | Readonly<{ kind: "prompt"; catalogIdentity: string }>
+    | Readonly<{ kind: "unavailable"; notify(): void }>
     | Readonly<{ kind: "direct"; send: DirectAction; queue?: DirectAction }>;
 }>;
 export type ComposerCommandResolution =
   | Readonly<{ kind: "input"; activation: ChatActivation }>
+  | Readonly<{ kind: "unavailable"; notify(): void }>
   | Readonly<{
       kind: "direct";
       invocation: ComposerCommandInvocation;
@@ -94,6 +96,8 @@ export function resolveComposerCommand(
     };
   if (command?.execution.kind === "direct")
     return { kind: "direct", invocation, execution: command.execution };
+  if (command?.execution.kind === "unavailable")
+    return { kind: "unavailable", notify: command.execution.notify };
   if (invocation.token.startsWith("/prompt:")) return { kind: "unknown-prompt", token: invocation.token };
   return { kind: "input", activation: { kind: "text", text } };
 }
@@ -111,7 +115,7 @@ export function composerSuggestions(
 export async function dispatchComposerCommand(
   api: ChatApi,
   target: ChatMutationTarget,
-  command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" }>,
+  command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>,
   intent: "send" | "queue",
 ): Promise<ComposerCommandResult> {
   if (command.kind === "input") return api[intent === "send" ? "steer" : "queue"](target, command.activation);

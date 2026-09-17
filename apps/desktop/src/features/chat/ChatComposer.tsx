@@ -1,5 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -22,12 +22,19 @@ import "./chatComposer.css";
 
 export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
+  settingsChip?: ReactNode;
   availableHeight: number | null;
   onHeightChange(height: number): void;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
 }>;
 
-export function ChatComposer({ settings, availableHeight, onHeightChange, editorRef }: ChatComposerProps) {
+export function ChatComposer({
+  settings,
+  settingsChip,
+  availableHeight,
+  onHeightChange,
+  editorRef,
+}: ChatComposerProps) {
   const { t } = useTranslation();
   const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
@@ -87,6 +94,7 @@ export function ChatComposer({ settings, availableHeight, onHeightChange, editor
       className={cx(fieldInputClassName, "chat-composer-editor")}
       rows={1}
       value={composer.text}
+      readOnly={composer.navigationPending}
       onChange={(event) => {
         composer.edit(event.target.value);
       }}
@@ -112,7 +120,12 @@ export function ChatComposer({ settings, availableHeight, onHeightChange, editor
         ) : (
           editorRegion
         )}
-        <ComposerControls composer={composer} settings={settings} stoppable={stoppable} />
+        <ComposerControls
+          composer={composer}
+          settings={settings}
+          settingsChip={settingsChip}
+          stoppable={stoppable}
+        />
       </Island>
     </div>
   );
@@ -152,30 +165,36 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
 }
 
 function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslation>["t"]) {
-  return composer.draft.kind === "loading"
-    ? t("chatComposer.loadingDraft")
-    : composer.submission.kind === "loading"
-      ? t("chatComposer.loadingSettings")
-      : composer.submission.kind === "failed"
-        ? errorMessage(composer.submission.error)
-        : !composer.canSubmit
-          ? t("chatComposer.empty")
-          : t("chatComposer.send");
+  return composer.navigationPending
+    ? t("chat.savingDraft")
+    : composer.draft.kind === "loading"
+      ? t("chatComposer.loadingDraft")
+      : composer.submission.kind === "loading"
+        ? t("chatComposer.loadingSettings")
+        : composer.submission.kind === "failed"
+          ? errorMessage(composer.submission.error)
+          : !composer.canSubmit
+            ? t("chatComposer.empty")
+            : t("chatComposer.send");
 }
 
 function ComposerControls({
   composer,
   settings,
+  settingsChip,
   stoppable,
 }: Readonly<{
   composer: Composer;
   settings: ChatSettingsFeature;
+  settingsChip?: ReactNode;
   stoppable: boolean;
 }>) {
   const { t } = useTranslation();
   return (
     <div className="chat-composer-controls">
-      <div className="min-w-0 flex-1">{"settingsChip" in settings ? settings.settingsChip : null}</div>
+      <div className="min-w-0 flex-1">
+        {settingsChip ?? ("settingsChip" in settings ? settings.settingsChip : null)}
+      </div>
       {composer.target.kind === "session" && (
         <SessionChatContext compact={composer.compact} settings={settings} />
       )}
@@ -198,7 +217,7 @@ function ComposerControls({
           composer.submit("send");
         }}
       >
-        {composer.inputPending || composer.draft.kind === "loading" ? (
+        {composer.inputPending || composer.navigationPending || composer.draft.kind === "loading" ? (
           <Spinner size="sm" className="text-[var(--color-on-primary)]" />
         ) : (
           <ArrowUp size={18} />

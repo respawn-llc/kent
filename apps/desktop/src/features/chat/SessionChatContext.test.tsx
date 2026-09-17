@@ -15,6 +15,12 @@ import { SessionChatContext } from "./SessionChatContext";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChatComposer } from "./ChatComposer";
 import { useChatComposer } from "./useChatComposer";
+import { useState } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { useQueryClient } from "@tanstack/react-query";
+import { createChatComposerViewModel } from "./ChatComposerViewModel";
+import type { ChatSettingsTarget } from "@/api";
+import type { ComposerSubmission } from "./ComposerInputViewModel";
 
 it("presents admitted usage and policy updates from the ordinary observation", async () => {
   const services = createTestServices([]);
@@ -28,7 +34,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   render(
     <TestAppProviders services={services}>
       <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session" }} />
+        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
       </ChatRuntimeProvider>
     </TestAppProviders>,
   );
@@ -117,7 +123,7 @@ it("retains admitted usage during a later Main View load", async () => {
         >
           Reload
         </button>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session" }} />
+        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
       </>
     );
   }
@@ -144,17 +150,29 @@ it("does not mount Session Context before New Chat creation", async () => {
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
   const context = vi.spyOn(services.api.chat, "getContext");
   function Composer() {
-    const composer = useChatComposer({
-      kind: "new_chat",
-      projectID: target.projectID,
-      workspace: target.workspace,
+    const client = useQueryClient();
+    const [model] = useState(() => {
+      const opening = {
+        kind: "new_chat" as const,
+        projectID: target.projectID,
+        workspace: { workspaceID: "workspace-1" },
+      };
+      return createChatComposerViewModel({
+        services,
+        client,
+        t: appI18n.t,
+        opening,
+        target: Atom.make<ChatSettingsTarget>(opening),
+        submission: Atom.make<ComposerSubmission>({ kind: "loading" }),
+      });
     });
+    const composer = useChatComposer({ model });
     return (
       <ChatComposerSurface composer={composer}>
         <ChatComposer
           availableHeight={null}
           onHeightChange={vi.fn()}
-          settings={{ kind: "loading-new-chat" }}
+          settings={{ kind: "loading-new-chat", retry: vi.fn() }}
         />
       </ChatComposerSurface>
     );
