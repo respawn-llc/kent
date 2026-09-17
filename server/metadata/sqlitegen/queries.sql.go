@@ -5577,41 +5577,52 @@ func (q *Queries) ListSessionWorkflowTaskIDs(ctx context.Context, sessionID stri
 	return items, nil
 }
 
-const listSessionsTargetingWorktree = `-- name: ListSessionsTargetingWorktree :many
+const listSessionsTargetingWorktreePage = `-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = ?1
-ORDER BY updated_at_unix_ms DESC, rowid DESC
+  AND (
+    ?2 IS NULL
+    OR id > ?2
+  )
+ORDER BY id ASC
+LIMIT ?3
 `
 
-type ListSessionsTargetingWorktreeRow struct {
+type ListSessionsTargetingWorktreePageParams struct {
+	WorktreeID sql.NullString
+	AfterID    interface{}
+	PageSize   int64
+}
+
+type ListSessionsTargetingWorktreePageRow struct {
 	ID              string
 	Name            string
 	UpdatedAtUnixMs int64
 }
 
-func (q *Queries) ListSessionsTargetingWorktree(ctx context.Context, worktreeID sql.NullString) ([]ListSessionsTargetingWorktreeRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktree, worktreeID)
-	err = recordQueryError(ctx, err, listSessionsTargetingWorktree, 1)
+func (q *Queries) ListSessionsTargetingWorktreePage(ctx context.Context, arg ListSessionsTargetingWorktreePageParams) ([]ListSessionsTargetingWorktreePageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionsTargetingWorktreePage, arg.WorktreeID, arg.AfterID, arg.PageSize)
+	err = recordQueryError(ctx, err, listSessionsTargetingWorktreePage, 3)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListSessionsTargetingWorktreeRow
+	var items []ListSessionsTargetingWorktreePageRow
 	for rows.Next() {
-		var i ListSessionsTargetingWorktreeRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktree, 1); err != nil {
+		var i ListSessionsTargetingWorktreePageRow
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.Name, &i.UpdatedAtUnixMs), listSessionsTargetingWorktreePage, 3); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
 	}
-	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Close(), listSessionsTargetingWorktreePage, 3); err != nil {
 		return nil, err
 	}
-	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktree, 1); err != nil {
+	if err := recordQueryError(ctx, rows.Err(), listSessionsTargetingWorktreePage, 3); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -8612,60 +8623,6 @@ func (q *Queries) RenameProjectLabel(ctx context.Context, arg RenameProjectLabel
 	return i, err
 }
 
-const replaceCompletedTaskExecutionTarget = `-- name: ReplaceCompletedTaskExecutionTarget :execrows
-UPDATE tasks
-SET
-    managed_worktree_id = ?1,
-    pending_initial_managed_branch_name = NULL,
-    execution_target_mode = ?2,
-    execution_target_requested_ref = ?3,
-    execution_target_resolved_ref = ?4,
-    execution_target_commit_oid = ?5,
-    execution_target_provenance = ?6,
-    updated_at_unix_ms = ?7
-WHERE tasks.id = ?8
-  AND execution_target_mode IS NOT NULL
-  AND execution_target_mode != 'none'
-  AND managed_worktree_id IS ?9
-  AND EXISTS (
-      SELECT 1 FROM task_current_nodes current_node
-      JOIN workflow_nodes node ON node.id = current_node.node_id
-      WHERE current_node.task_id = tasks.id AND node.kind = 'terminal'
-  )
-`
-
-type ReplaceCompletedTaskExecutionTargetParams struct {
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	UpdatedAtUnixMs             int64
-	TaskID                      string
-	ExpectedManagedWorktreeID   sql.NullString
-}
-
-func (q *Queries) ReplaceCompletedTaskExecutionTarget(ctx context.Context, arg ReplaceCompletedTaskExecutionTargetParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, replaceCompletedTaskExecutionTarget,
-		arg.ManagedWorktreeID,
-		arg.ExecutionTargetMode,
-		arg.ExecutionTargetRequestedRef,
-		arg.ExecutionTargetResolvedRef,
-		arg.ExecutionTargetCommitOid,
-		arg.ExecutionTargetProvenance,
-		arg.UpdatedAtUnixMs,
-		arg.TaskID,
-		arg.ExpectedManagedWorktreeID,
-	)
-	err = recordQueryError(ctx, err, replaceCompletedTaskExecutionTarget, 9)
-
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const replacePendingInitialManagedBranchName = `-- name: ReplacePendingInitialManagedBranchName :execrows
 UPDATE tasks
 SET
@@ -8685,6 +8642,55 @@ type ReplacePendingInitialManagedBranchNameParams struct {
 func (q *Queries) ReplacePendingInitialManagedBranchName(ctx context.Context, arg ReplacePendingInitialManagedBranchNameParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, replacePendingInitialManagedBranchName, arg.PendingInitialManagedBranchName, arg.UpdatedAtUnixMs, arg.TaskID)
 	err = recordQueryError(ctx, err, replacePendingInitialManagedBranchName, 3)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const replaceTaskExecutionTarget = `-- name: ReplaceTaskExecutionTarget :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = ?1,
+    pending_initial_managed_branch_name = NULL,
+    execution_target_mode = ?2,
+    execution_target_requested_ref = ?3,
+    execution_target_resolved_ref = ?4,
+    execution_target_commit_oid = ?5,
+    execution_target_provenance = ?6,
+    updated_at_unix_ms = ?7
+WHERE tasks.id = ?8
+  AND execution_target_mode IS NOT NULL
+  AND execution_target_mode != 'none'
+  AND managed_worktree_id IS ?9
+`
+
+type ReplaceTaskExecutionTargetParams struct {
+	ManagedWorktreeID           sql.NullString
+	ExecutionTargetMode         sql.NullString
+	ExecutionTargetRequestedRef sql.NullString
+	ExecutionTargetResolvedRef  sql.NullString
+	ExecutionTargetCommitOid    sql.NullString
+	ExecutionTargetProvenance   sql.NullString
+	UpdatedAtUnixMs             int64
+	TaskID                      string
+	ExpectedManagedWorktreeID   sql.NullString
+}
+
+func (q *Queries) ReplaceTaskExecutionTarget(ctx context.Context, arg ReplaceTaskExecutionTargetParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceTaskExecutionTarget,
+		arg.ManagedWorktreeID,
+		arg.ExecutionTargetMode,
+		arg.ExecutionTargetRequestedRef,
+		arg.ExecutionTargetResolvedRef,
+		arg.ExecutionTargetCommitOid,
+		arg.ExecutionTargetProvenance,
+		arg.UpdatedAtUnixMs,
+		arg.TaskID,
+		arg.ExpectedManagedWorktreeID,
+	)
+	err = recordQueryError(ctx, err, replaceTaskExecutionTarget, 9)
+
 	if err != nil {
 		return 0, err
 	}

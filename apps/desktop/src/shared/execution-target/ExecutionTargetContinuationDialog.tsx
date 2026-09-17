@@ -13,6 +13,8 @@ import { useTextFieldSubmitShortcut } from "@/app-facade";
 import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, TextInput, Spinner } from "@/ui";
 import {
   executionTargetSelectionFromDraft,
+  executionTargetBranchName,
+  taskActionWithBranchName,
   proceedWithTaskInitiatingAction,
   type ExecutionTargetSelectionDraft,
   type TaskInitiatingAction,
@@ -121,7 +123,7 @@ export function TaskSetupRecoveryDialog({
                 disabled={selection === null || running}
                 onClick={() => {
                   if (selection !== null)
-                    onSubmit(selection, selectedReplacementBranch(selection, branchName));
+                    onSubmit(selection, executionTargetBranchName(selection, branchName));
                 }}
                 variant="primary"
               >
@@ -156,8 +158,9 @@ export function TaskInitiatingActionDialogs({
   setupRecovery?:
     | Readonly<{
         onClose(): void;
-        onSubmit(selection?: WorkflowExecutionTargetSelection): void;
+        onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
         recovery: TaskSetupRecovery;
+        retrySelection?: WorkflowExecutionTargetSelection;
       }>
     | undefined;
 }>) {
@@ -166,10 +169,9 @@ export function TaskInitiatingActionDialogs({
     return (
       <TaskSetupRecoveryDialog
         {...setupRecovery}
-        recoveryDisposition="retry_existing"
+        recoveryDisposition={setupRecovery.recovery.recoveryDisposition}
         choiceFailure={null}
         open
-        retrySelection={setupRecovery.recovery.executionTarget}
         running={continuation.running}
       />
     );
@@ -314,12 +316,15 @@ function ExecutionTargetForm({
 }>) {
   const { t } = useTranslation();
   const [branchName, setBranchName] = useState<string | null>(
-    pending.action.kind === "move" ? (pending.action.input.branchName ?? null) : null,
+    pending.action.kind === "move"
+      ? (pending.action.input.branchName ?? null)
+      : pending.action.kind === "resume"
+        ? (pending.action.branchName ?? null)
+        : null,
   );
-  const replacement =
-    pending.requirement.reason === "original_target_unavailable" && pending.action.kind === "move";
+  const replacement = pending.requirement.reason === "original_target_unavailable";
   const selectedTarget = executionTargetSelectionFromDraft(pending.selection);
-  const canSubmit = selectedTarget !== null;
+  const canSubmit = selectedTarget !== null && !continuation.running;
   const formShortcut = useTextFieldSubmitShortcut({
     available: canSubmit,
     kind: "form",
@@ -336,13 +341,7 @@ function ExecutionTargetForm({
         onResult({
           kind: "continue",
           action: replacement
-            ? {
-                ...pending.action,
-                input: {
-                  ...pending.action.input,
-                  branchName: selectedReplacementBranch(selectedTarget, branchName),
-                },
-              }
+            ? taskActionWithBranchName(pending.action, selectedTarget, branchName)
             : pending.action,
           selection: selectedTarget,
         });
@@ -437,15 +436,6 @@ function ExecutionTargetChoices({
       ) : null}
     </>
   );
-}
-
-function selectedReplacementBranch(
-  selection: WorkflowExecutionTargetSelection,
-  draft: string | null,
-): string | undefined {
-  if (selection.mode === "none") return undefined;
-  const name = draft?.trim();
-  return name === undefined || name.length === 0 ? undefined : name;
 }
 
 function ExecutionTargetChoiceFailureMessage({

@@ -17,7 +17,6 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
-	"core/server/worktree"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
@@ -298,7 +297,7 @@ func TestServiceTaskResumeReturnsAppliedBeforeFinalBranchCollisionInterruptsCurr
 	}
 }
 
-func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t *testing.T) {
+func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T) {
 	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	setWorkflowServiceExecutionTargetPolicy(t, ctx, service, workflowID, serverapi.WorkflowExecutionTargetConfiguration{
@@ -384,12 +383,9 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 		}
 	})
 	service.currentNodeExecution = controller
-	restoreRequests := make(chan ExecutionTargetRestoreRequest, 1)
+	restoreRequests := make(chan workflow.ExecutionTargetRestoreRequest, 1)
 	targets := &recordingExecutionTargetInfrastructure{
 		restoreRequests: restoreRequests,
-		restoreErr: &worktree.LockedTaskWorktreeError{
-			Cause: worktree.LockedTaskWorktreeCauseMissingBranch,
-		},
 	}
 	service.executionTargets = targets
 
@@ -439,6 +435,7 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 	}
 
 	targets.initialBranchAssertionErr = nil
+	targets.restoreErr = &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch}
 	response, err = service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
 		TaskID:           task.Task.ID,
 		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
@@ -446,27 +443,7 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 	if err != nil {
 		t.Fatalf("ResumeWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		response.Applied == nil ||
-		len(response.Applied.CurrentNodes) != 1 ||
-		response.Applied.CurrentNodes[0].NodeID != string(reference.NodeID) {
-		t.Fatalf("Resume response = %+v, want applied before restoration", response)
+	if err != nil || response.SelectionRequired == nil || response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+		t.Fatalf("Resume response = %+v, %v; want original target selection", response, err)
 	}
-	select {
-	case restored := <-restoreRequests:
-		if restored.TaskID != taskID {
-			t.Fatalf("restored Task = %q, want %q", restored.TaskID, taskID)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("locked-target restoration was not queued")
-	}
-	var currentNodes []workflow.CurrentNode
-	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 20*time.Millisecond, func() bool {
-		var listErr error
-		currentNodes, listErr = service.store.ListCurrentNodes(ctx, taskID)
-		return listErr == nil &&
-			len(currentNodes) == 1 &&
-			currentNodes[0].Scheduling != nil &&
-			currentNodes[0].Scheduling.State == workflow.CurrentNodeSchedulingInterrupted
-	}, "locked-target restoration failure did not interrupt the requeued Current Node")
 }

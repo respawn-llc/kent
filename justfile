@@ -41,10 +41,10 @@ setup *args: _node
         git config --local core.hooksPath .githooks
     '
 
-# Regenerate protobuf-derived sources and metadata queries.
+# Regenerate metadata queries and protobuf-derived Go and TypeScript sources.
 gen:
     @bash scripts/quiet-on-success.sh just _node _lint-protobuf _generate
-    @bash scripts/quiet-on-success.sh go generate ./server/metadata/sqlitegen
+    @bash scripts/quiet-on-success.sh just _gen-metadata
 
 # Run active tests, or select server, desktop, tui, or explicit frozen rust.
 test *args:
@@ -102,6 +102,10 @@ _gen-go:
 [private]
 _gen-typescript:
     GOOS= GOARCH= go tool -modfile=tools.mod buf generate --template buf.gen.ts.yaml
+
+[private]
+_gen-metadata:
+    GOOS= GOARCH= go generate ./server/metadata/sqlitegen
 
 [parallel]
 [private]

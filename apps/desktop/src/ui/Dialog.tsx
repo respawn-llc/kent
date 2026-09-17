@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { cx } from "./classes";
@@ -58,7 +59,7 @@ export function Dialog({
     return null;
   }
 
-  return (
+  return createPortal(
     <div
       className={cx(
         "app-region-no-drag fixed inset-0 z-50 grid p-[var(--space-4)]",
@@ -104,7 +105,8 @@ export function Dialog({
           {children}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

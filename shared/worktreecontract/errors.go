@@ -23,6 +23,14 @@ type SelectorError struct {
 	Details *worktreepb.SelectorErrorDetails
 }
 
+type BlockedError struct {
+	Details *worktreepb.BlockedDetails
+}
+
+func (e *BlockedError) Error() string { return ErrWorktreeBlocked.Error() }
+
+func (e *BlockedError) Is(target error) bool { return target == ErrWorktreeBlocked }
+
 func NewSelectorError(
 	kind worktreepb.SelectorErrorKind,
 	input string,

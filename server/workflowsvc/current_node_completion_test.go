@@ -632,6 +632,10 @@ func (s *currentNodeCompletionExecutionStub) Interrupt(context.Context, workflow
 	return nil
 }
 
+func (*currentNodeCompletionExecutionStub) RunManualMove(ctx context.Context, operation func(context.Context) error) error {
+	return operation(ctx)
+}
+
 func (*currentNodeCompletionExecutionStub) InterruptForManualMove(context.Context, workflow.TaskID, func() error) error {
 	return nil
 }
