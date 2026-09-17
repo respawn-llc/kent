@@ -30,13 +30,12 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 }
 
 type TranscriptSegmentPage struct {
-	Snapshot                          ChatSnapshot
-	OlderCursor                       int64
-	HasMoreAbove                      bool
-	NewerCursor                       int64
-	HasMoreBelow                      bool
-	LatestRollbackCandidate           *rollbacktarget.CandidateLocator
-	LastCommittedAssistantFinalAnswer *string
+	Snapshot                ChatSnapshot
+	OlderCursor             int64
+	HasMoreAbove            bool
+	NewerCursor             int64
+	HasMoreBelow            bool
+	LatestRollbackCandidate *rollbacktarget.CandidateLocator
 }
 
 type TranscriptEventLogReader interface {
@@ -103,12 +102,11 @@ func segmentPageFromWindow(window session.EventRecordWindow, cacheWarningMode co
 		}
 	}
 	return TranscriptSegmentPage{
-		Snapshot:                          scan.CollectedPageSnapshot(),
-		OlderCursor:                       window.StartOffset,
-		HasMoreAbove:                      !window.ReachedStart,
-		NewerCursor:                       window.EndOffset,
-		HasMoreBelow:                      !window.ReachedEnd,
-		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
+		Snapshot:     scan.CollectedPageSnapshot(),
+		OlderCursor:  window.StartOffset,
+		HasMoreAbove: !window.ReachedStart,
+		NewerCursor:  window.EndOffset,
+		HasMoreBelow: !window.ReachedEnd,
 	}, nil
 }
 

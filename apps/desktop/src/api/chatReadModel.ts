@@ -123,7 +123,6 @@ function runtimeStatus(value: R.Status): ChatRuntimeStatus {
     previousSessionID: value.previousSessionId ?? null,
     parentAgentSessionID: value.parentAgentSessionId ?? null,
     navigationTargetSessionID: value.navigationTargetSessionId ?? null,
-    lastCommittedAssistantFinalAnswer: value.lastCommittedAssistantFinalAnswer ?? null,
     thinkingLevel: value.thinkingLevel,
     compactionMode: value.compactionMode,
     contextUsage: {

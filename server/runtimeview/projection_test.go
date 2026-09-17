@@ -218,9 +218,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 		t.Fatalf("session agent role = %v, want %q", view.Session.AgentRole, role)
 	}
 	if view.Status.ParentAgentSessionId == nil || *view.Status.ParentAgentSessionId != parentSessionID ||
-		view.Status.NavigationTargetSessionId == nil || *view.Status.NavigationTargetSessionId != parentSessionID ||
-		view.Status.LastCommittedAssistantFinalAnswer == nil ||
-		*view.Status.LastCommittedAssistantFinalAnswer != "final answer" {
+		view.Status.NavigationTargetSessionId == nil || *view.Status.NavigationTargetSessionId != parentSessionID {
 		t.Fatalf("unexpected status hydration: %+v", view.Status)
 	}
 	if view.Status.ThinkingLevel != "high" || !view.Status.FastModeEnabled || view.Status.AutoCompactionEnabled {
