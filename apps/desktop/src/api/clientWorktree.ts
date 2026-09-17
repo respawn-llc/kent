@@ -52,7 +52,7 @@ export async function getWorktreeStatus(
   return requireUnarySuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      { sessionID },
       method,
       create(method.input, { sessionId: sessionID }),
     ),
@@ -67,7 +67,7 @@ export async function listWorktrees(
   const success = requireUnarySuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      { sessionID },
       method,
       create(method.input, { sessionId: sessionID }),
     ),
@@ -85,7 +85,7 @@ export async function resolveWorktreeSelector(
   const success = requireWorktreeSuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      { sessionID },
       method,
       create(method.input, { sessionId: sessionID, selector }),
     ),
@@ -104,7 +104,7 @@ export async function resolveWorktreeCreateTarget(
   const success = requireWorktreeSuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      { sessionID },
       method,
       create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, target }),
     ),
@@ -123,7 +123,7 @@ export async function previewWorktreeDelete(
     requireWorktreeSuccess(
       method,
       await transport.callDescriptorAttachedSession(
-        sessionID,
+        { sessionID },
         method,
         create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, selector }),
       ),
@@ -145,7 +145,7 @@ export async function createWorktree(
   const success = requireWorktreeSuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      input.sessionID,
+      { sessionID: input.sessionID },
       method,
       create(method.input, {
         setupOperationId: input.setupOperationID.toJSONValue(),
@@ -178,7 +178,7 @@ export async function switchWorktree(
   const method = enter ? TransitionService.method.enter : TransitionService.method.leave;
   const result = enter
     ? await transport.callDescriptorAttachedSession(
-        sessionID,
+        { sessionID },
         TransitionService.method.enter,
         create(TransitionService.method.enter.input, {
           operationId: operationID,
@@ -191,7 +191,7 @@ export async function switchWorktree(
         }),
       )
     : await transport.callDescriptorAttachedSession(
-        sessionID,
+        { sessionID },
         TransitionService.method.leave,
         create(TransitionService.method.leave.input, { operationId: operationID, sessionId: sessionID }),
       );
@@ -230,7 +230,7 @@ export async function deleteWorktree(
   return requireWorktreeSuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      { sessionID },
       method,
       create(method.input, {
         scope: { scope: { case: "sessionId", value: sessionID } },
