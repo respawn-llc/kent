@@ -1,6 +1,8 @@
 package chatcontext
 
 import (
+	"context"
+	"core/server/metadata"
 	"errors"
 	"strings"
 
@@ -42,5 +44,26 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 			loadOptions = r.startupLoadOptions
 		}
 	}
-	return config.Load(workspaceRoot, workspaceRoot, loadOptions)
+	mainRoot, err := ResolveMainWorkspaceRoot(configRoot, workspaceRoot)
+	if err != nil {
+		return config.App{}, err
+	}
+	return config.Load(workspaceRoot, mainRoot, loadOptions)
+}
+
+// ResolveMainWorkspaceRoot uses workspace/worktree bindings, without registering
+// an ordinary unbound workspace or inferring ownership from its parent folders.
+func ResolveMainWorkspaceRoot(persistenceRoot, workspaceRoot string) (string, error) {
+	store, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		return "", err
+	}
+	canonicalRoot, binding, resolveErr := store.ResolveWorkspacePath(context.Background(), workspaceRoot)
+	if err := errors.Join(resolveErr, store.Close()); err != nil {
+		return "", err
+	}
+	if binding != nil {
+		return binding.CanonicalRoot, nil
+	}
+	return canonicalRoot, nil
 }

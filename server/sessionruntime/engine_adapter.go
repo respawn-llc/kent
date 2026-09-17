@@ -23,6 +23,7 @@ import (
 )
 
 type AgentRuntimePlanOptions struct {
+	MainWorkspaceRoot                   string
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
@@ -49,6 +50,9 @@ type AgentRuntimePlan struct {
 }
 
 func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, error) {
+	if strings.TrimSpace(options.MainWorkspaceRoot) == "" {
+		return AgentRuntimePlan{}, errors.New("Main Workspace root is required")
+	}
 	if options.QuestionsEnabled == nil {
 		return AgentRuntimePlan{}, errors.New("effective Session Questions setting is required")
 	}
@@ -252,6 +256,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	}
 	options := plan.options
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
 		Context:                             resource.ctx,
 		Headless:                            options.Headless,
 		QuestionsEnabled:                    options.QuestionsEnabled,

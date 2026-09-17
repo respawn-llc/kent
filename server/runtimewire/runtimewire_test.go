@@ -49,6 +49,7 @@ func TestMain(m *testing.M) {
 func requiredRuntimeWireTestOptions(options RuntimeWiringOptions) RuntimeWiringOptions {
 	options.QuestionsEnabled = textutil.Value(true)
 	options.AutoCompactionEnabled = textutil.Value(true)
+	options.MainWorkspaceRoot = options.FilesystemContext.Access.ExecutionTargetRoot.LexicalPath
 	return options
 }
 
@@ -498,15 +499,22 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 			t.Fatalf("write system prompt: %v", err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(originalWorkspace, config.ConfigDirName, "config.local.toml"), []byte("model = \"main-private\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeWorkspace, config.ConfigDirName, "config.local.toml"), []byte("invalid = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := session.Create(t.TempDir(), "ws", originalWorkspace, sessioncontract.SessionCategoryMain, runtimeWireTestSessionPersistence.Options()...)
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
 	binding := newRuntimeWireBinding(t, originalWorkspace, toolspec.ToolPatch)
 	reloader := launchPromptFacingSnapshotReloader{
-		store:      store,
-		localTools: binding,
-		configRoot: configRoot,
+		store:             store,
+		localTools:        binding,
+		configRoot:        configRoot,
+		mainWorkspaceRoot: originalWorkspace,
 	}
 	if err := store.EnsureDurable(); err != nil {
 		t.Fatalf("materialize store: %v", err)
@@ -538,6 +546,9 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 	want := filepath.Join(activeWorkspace, config.ConfigDirName, "system.md")
 	if got != want {
 		t.Fatalf("system prompt path = %q, want active workspace path %q", got, want)
+	}
+	if reloaded.Settings.Model != "main-private" {
+		t.Fatalf("private configuration followed Working Directory: %s", reloaded.Settings.Model)
 	}
 }
 

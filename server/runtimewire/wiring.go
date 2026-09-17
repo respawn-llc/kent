@@ -2,6 +2,7 @@ package runtimewire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	MainWorkspaceRoot                   string
 	FilesystemContext                   tools.FilesystemContext
 	Context                             context.Context
 	OnEvent                             func(evt runtime.Event)
@@ -79,6 +81,9 @@ func NewRuntimeWiringWithBackground(
 	background *shelltool.Manager,
 	opts RuntimeWiringOptions,
 ) (*RuntimeWiring, error) {
+	if opts.PromptFacingSnapshotReloader == nil && strings.TrimSpace(opts.MainWorkspaceRoot) == "" {
+		return nil, errors.New("Main Workspace root is required for configuration reload")
+	}
 	if opts.Client != nil && opts.ClientFactory != nil {
 		return nil, ErrRuntimeClientFactoryConflict
 	}
@@ -222,6 +227,7 @@ func NewRuntimeWiringWithBackground(
 			store:                               store,
 			localTools:                          localTools,
 			configRoot:                          opts.GlobalConfigDir,
+			mainWorkspaceRoot:                   opts.MainWorkspaceRoot,
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
 	}
@@ -296,12 +302,13 @@ type launchPromptFacingSnapshotReloader struct {
 	store                               *session.Store
 	localTools                          *LocalToolRegistryBinding
 	configRoot                          string
+	mainWorkspaceRoot                   string
 	skipContinuationAgentRoleValidation bool
 }
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
 	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
-	app, err := config.Load(workingDirectory, workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
+	app, err := config.Load(workingDirectory, r.mainWorkspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"core/server/bootstrap"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -813,12 +814,13 @@ func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionC
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(configRoot, configRoot, config.LoadOptions{})
+	plan, err := bootstrap.ResolveConfig(bootstrap.Request{WorkspaceRoot: configRoot})
 	if err != nil {
 		return nil, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
+	cfg := plan.Config
 	remote, err := client.DialConfiguredRemoteForSession(dialCtx, cfg, sessionID)
 	if err != nil {
 		return nil, err

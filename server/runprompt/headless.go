@@ -191,6 +191,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		startLogLines = append(startLogLines, "config.source "+line)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     executionTarget.WorkspaceRoot,
 		Settings:              plan.ActiveSettings,
 		EnabledTools:          plan.EnabledTools,
 		FilesystemContext:     askquestion.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},

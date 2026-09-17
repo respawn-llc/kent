@@ -233,6 +233,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		}
 	}
 	return NewAgentRuntimePlan(AgentRuntimePlanOptions{
+		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
 		EnabledTools:             enabledTools,
 		FilesystemContext:        tools.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"core/server/bootstrap"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -389,7 +390,8 @@ func loadBindingCommandConfig(path string) (config.App, error) {
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.Load(absPath, absPath, config.LoadOptions{})
+	plan, err := bootstrap.ResolveConfig(bootstrap.Request{WorkspaceRoot: absPath})
+	return plan.Config, err
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered

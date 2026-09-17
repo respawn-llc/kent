@@ -148,7 +148,8 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-		Settings: settings, FilesystemContext: filesystemContext,
+		MainWorkspaceRoot: filesystemContext.Access.ExecutionTargetRoot.LexicalPath,
+		Settings:          settings, FilesystemContext: filesystemContext,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
 		Client: scriptedllm.NewClient(scriptedllm.Script{}),
 	})

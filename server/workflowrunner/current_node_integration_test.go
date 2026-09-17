@@ -700,6 +700,7 @@ func (f *currentNodeRunnerFixture) openRetainedRuntime(
 		t.Fatalf("create retained runtime filesystem context: %v", err)
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.workspace,
 		Settings:              requests[0].ActiveSettings,
 		EnabledTools:          requests[0].EnabledTools,
 		FilesystemContext:     askquestion.FilesystemContext{Access: filesystemContext.Access},
@@ -2616,7 +2617,8 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 			}
 			first := f.runtimeRequests()[0]
 			plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-				Settings: first.ActiveSettings, EnabledTools: first.EnabledTools, FilesystemContext: filesystem,
+				MainWorkspaceRoot: f.workspace,
+				Settings:          first.ActiveSettings, EnabledTools: first.EnabledTools, FilesystemContext: filesystem,
 				Sources: first.Sources, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true), Client: f.client,
 			})
 			if err != nil {
@@ -2773,6 +2775,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 		t.Fatalf("workflow runtime roots = %+v, want sibling %q", interactiveFilesystemContext.Access.ProjectWorkspace.Roots, canonicalSiblingWorkspace)
 	}
 	interactivePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.workspace,
 		Settings:              initialRuntime.ActiveSettings,
 		EnabledTools:          initialRuntime.EnabledTools,
 		FilesystemContext:     interactiveFilesystemContext,

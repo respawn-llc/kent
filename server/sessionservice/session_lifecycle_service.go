@@ -235,7 +235,15 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
-	app, err := config.Load(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
+	metadataStore, err := metadata.Open(s.persistenceRoot)
+	if err != nil {
+		return nil, err
+	}
+	target, targetErr := metadataStore.ResolveSessionExecutionTarget(ctx, store.Meta().SessionID)
+	if err := errors.Join(targetErr, metadataStore.Close()); err != nil {
+		return nil, err
+	}
+	app, err := config.Load(store.Meta().WorkspaceRoot, target.WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
 	if err != nil {
 		return nil, err
 	}

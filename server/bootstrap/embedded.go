@@ -10,6 +10,7 @@ import (
 
 	"core/prompts"
 	"core/server/auth"
+	"core/server/chatcontext"
 	"core/server/launch"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
@@ -24,20 +25,13 @@ type Request struct {
 	OpenAIBaseURL         string
 	OpenAIBaseURLExplicit bool
 	LoadOptions           config.LoadOptions
-	InitialConfig         *InitialConfigSnapshot
 	LookupEnv             func(string) string
 	Now                   func() time.Time
 }
 
-type InitialConfigSnapshot struct {
-	Config           config.App
-	WorkspaceRoot    string
-	OpenAIBaseURL    string
-	UseOpenAIBaseURL bool
-}
-
 type ConfigPlan struct {
 	Config config.App
+	Client config.ClientSettings
 }
 
 func ValidateSessionExists(persistenceRoot string, sessionID string) error {
@@ -55,27 +49,11 @@ type RuntimeSupport struct {
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
-	bootstrapPlan := launch.BootstrapPlan{
-		WorkspaceRoot:    strings.TrimSpace(req.WorkspaceRoot),
-		OpenAIBaseURL:    strings.TrimSpace(req.OpenAIBaseURL),
-		UseOpenAIBaseURL: req.OpenAIBaseURLExplicit,
+	persistenceRoot, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
+	if err != nil {
+		return ConfigPlan{}, err
 	}
-	var cfg config.App
-	var err error
-	if req.InitialConfig == nil {
-		cfg, err = loadConfig(req.LoadOptions, bootstrapPlan.WorkspaceRoot, bootstrapPlan.OpenAIBaseURL, bootstrapPlan.UseOpenAIBaseURL)
-		if err != nil {
-			return ConfigPlan{}, err
-		}
-	} else {
-		if req.InitialConfig.WorkspaceRoot != bootstrapPlan.WorkspaceRoot ||
-			req.InitialConfig.OpenAIBaseURL != bootstrapPlan.OpenAIBaseURL ||
-			req.InitialConfig.UseOpenAIBaseURL != bootstrapPlan.UseOpenAIBaseURL {
-			return ConfigPlan{}, errors.New("initial config snapshot does not match bootstrap target")
-		}
-		cfg = req.InitialConfig.Config
-	}
-	bootstrapPlan, err = launch.ResolveBootstrapPlan(cfg.PersistenceRoot, launch.BootstrapRequest{
+	bootstrapPlan, err := launch.ResolveBootstrapPlan(persistenceRoot, launch.BootstrapRequest{
 		WorkspaceRoot:         strings.TrimSpace(req.WorkspaceRoot),
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
@@ -85,17 +63,7 @@ func ResolveConfig(req Request) (ConfigPlan, error) {
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	if req.InitialConfig != nil &&
-		bootstrapPlan.WorkspaceRoot == strings.TrimSpace(req.WorkspaceRoot) &&
-		bootstrapPlan.OpenAIBaseURL == strings.TrimSpace(req.OpenAIBaseURL) &&
-		bootstrapPlan.UseOpenAIBaseURL == req.OpenAIBaseURLExplicit {
-		return ConfigPlan{Config: cfg}, nil
-	}
-	cfg, err = loadConfig(req.LoadOptions, bootstrapPlan.WorkspaceRoot, bootstrapPlan.OpenAIBaseURL, bootstrapPlan.UseOpenAIBaseURL)
-	if err != nil {
-		return ConfigPlan{}, err
-	}
-	return ConfigPlan{Config: cfg}, nil
+	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
 }
 
 func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func() time.Time) (AuthSupport, error) {
@@ -149,14 +117,24 @@ func BuildGeneratedSupport(ctx context.Context, persistenceRoot string) (prompts
 	return prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(persistenceRoot)})
 }
 
-func loadConfig(loadOpts config.LoadOptions, workspaceRoot, openAIBaseURL string, useOpenAIBaseURL bool) (config.App, error) {
-	if useOpenAIBaseURL {
-		loadOpts.OpenAIBaseURL = openAIBaseURL
+func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {
+	if plan.UseOpenAIBaseURL {
+		loadOpts.OpenAIBaseURL = plan.OpenAIBaseURL
 	} else {
 		loadOpts.OpenAIBaseURL = ""
 	}
-	if strings.TrimSpace(workspaceRoot) == "" {
-		return config.LoadGlobal(loadOpts)
+	if strings.TrimSpace(plan.WorkspaceRoot) == "" {
+		app, err := config.LoadGlobal(loadOpts)
+		return ConfigPlan{Config: app}, err
 	}
-	return config.Load(workspaceRoot, workspaceRoot, loadOpts)
+	mainRoot := plan.MainWorkspaceRoot
+	if mainRoot == nil {
+		root, err := chatcontext.ResolveMainWorkspaceRoot(persistenceRoot, plan.WorkspaceRoot)
+		if err != nil {
+			return ConfigPlan{}, err
+		}
+		mainRoot = &root
+	}
+	app, client, err := config.LoadInteractive(plan.WorkspaceRoot, *mainRoot, loadOpts)
+	return ConfigPlan{Config: app, Client: client}, err
 }
