@@ -22,17 +22,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TranscriptHydrationFromSnapshot(
-	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
-	tailSegment *transcriptpb.TailSegment,
-) *transcriptpb.Hydration {
-	hydration, err := TranscriptHydrationFromSnapshotChecked(runtimeSnapshot, tailSegment)
-	if err != nil {
-		panic(err)
-	}
-	return hydration
-}
-
 func TranscriptHydrationFromSnapshotChecked(
 	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
 	tailSegment *transcriptpb.TailSegment,
