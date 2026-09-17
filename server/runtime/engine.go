@@ -87,7 +87,7 @@ type Config struct {
 	EnabledTools                    []toolspec.ID
 	SkillPolicy                     config.SkillPolicy
 	SubagentCatalogSettings         config.Settings
-	SystemPromptFiles               []config.SystemPromptFile
+	SystemPromptFile                *config.SystemPromptFile
 	AutoCompactTokenLimit           int
 	WorkflowPreCompactionTokenLimit int
 	PreSubmitCompactionLeadTokens   int
@@ -123,7 +123,7 @@ type ReviewerConfig struct {
 	Model             string
 	ThinkingLevel     string
 	ModelCapabilities session.LockedModelCapabilities
-	SystemPromptFile  string
+	SystemPromptFile  *string
 	VerboseOutput     bool
 	Client            llm.Client
 	ClientFactory     func() (llm.Client, error)

@@ -62,7 +62,6 @@ function runtimePlanResult(planSessionID: string) {
     model: "gpt-5",
     thinkingLevel: "medium",
     modelVerbosity: ModelVerbosity.MEDIUM,
-    systemPromptFiles: [],
     modelCapabilities: { supportsReasoningEffort: true, supportsVisionInputs: false },
     theme: "auto",
     notificationMethod: "off",

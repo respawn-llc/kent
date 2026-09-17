@@ -51,9 +51,9 @@ func (e *Engine) prepareMainPromptSnapshot(ctx context.Context, locked session.L
 	}
 	locked.ToolPreambles = e.promptRefreshToolPreambles(reloaded.Settings.ToolPreambles)
 	prompt, err := e.buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
-		WorkspaceRoot:     workspaceRoot,
-		GlobalConfigDir:   e.cfg.GlobalConfigDir,
-		SystemPromptFiles: reloaded.Settings.SystemPromptFiles,
+		WorkspaceRoot:    workspaceRoot,
+		GlobalConfigDir:  e.cfg.GlobalConfigDir,
+		SystemPromptFile: reloaded.Settings.SystemPromptFile,
 	}, reloaded.ActiveToolIDs)
 	if err != nil {
 		return session.LockedMainPromptSnapshot{}, err
@@ -71,11 +71,11 @@ func (e *Engine) ensureReviewerPromptFresh(ctx context.Context) (string, bool, e
 	if err != nil {
 		return "", false, err
 	}
-	path := strings.TrimSpace(reloaded.Settings.Reviewer.SystemPromptFile)
-	if path == "" {
+	path := reloaded.Settings.Reviewer.SystemPromptFile
+	if path == nil {
 		return prompts.ReviewerSystemPrompt, true, nil
 	}
-	prompt, err := buildReviewerPromptSnapshotFromFile(path)
+	prompt, err := buildReviewerPromptSnapshotFromFile(*path)
 	if err != nil {
 		return "", false, err
 	}
@@ -99,8 +99,8 @@ func (e *Engine) reloadPromptFacingSnapshotConfig(ctx context.Context) (PromptFa
 	return PromptFacingSnapshotConfig{
 		ConfiguredThinking: config.DefaultOnboardingSettings().ThinkingLevel,
 		Settings: config.Settings{
-			SystemPromptFiles: e.cfg.SystemPromptFiles,
-			ToolPreambles:     e.cfg.ToolPreambles,
+			SystemPromptFile: e.cfg.SystemPromptFile,
+			ToolPreambles:    e.cfg.ToolPreambles,
 			Reviewer: config.ReviewerSettings{
 				SystemPromptFile: e.cfg.Reviewer.SystemPromptFile,
 			},

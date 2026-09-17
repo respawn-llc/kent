@@ -41,12 +41,11 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		},
 		"worker": {
 			Settings: config.Settings{
-				Model:            "worker-model",
-				ThinkingLevel:    "high",
-				SystemPromptFile: "/worker.md",
-				SystemPromptFiles: []config.SystemPromptFile{{
+				Model:         "worker-model",
+				ThinkingLevel: "high",
+				SystemPromptFile: &config.SystemPromptFile{
 					Path: "/worker.md", Scope: config.SystemPromptFileScopeSubagent,
-				}},
+				},
 				EnabledTools: map[toolspec.ID]bool{
 					toolspec.ToolExecCommand: true,
 					toolspec.ToolViewImage:   true,

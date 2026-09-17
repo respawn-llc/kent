@@ -74,13 +74,6 @@ func resolveSettings(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfi
 		if err != nil {
 			return loadedConfig{}, &ConfigurationFileError{Source: file.SourceFile, Err: err}
 		}
-		scope := SystemPromptFileScopeWorkspaceConfig
-		if file.Layer == FileGlobal {
-			scope = SystemPromptFileScopeHomeConfig
-		}
-		if err := appendSystemPromptFileFromConfig(raw, file.Path, scope, &state); err != nil {
-			return loadedConfig{}, &ConfigurationFileError{Source: file.SourceFile, Err: err}
-		}
 		file.Applied = fileHasDeclarations(file.SourceFile, sources)
 		for _, role := range state.Settings.Subagents {
 			file.Applied = file.Applied || fileHasDeclarations(file.SourceFile, role.Sources)

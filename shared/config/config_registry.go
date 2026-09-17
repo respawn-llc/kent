@@ -96,7 +96,7 @@ type scalarSetting[T any] struct {
 	get                func(settingsState) T
 	equal              func(T, T) bool
 	decodeFile         func(settingsFile, []string) (T, bool, error)
-	transformFileValue func(T, string) (T, error)
+	transformFileValue func(T, SourceFile) (T, error)
 	envName            string
 	decodeEnv          func(string, string) (T, error)
 	decodeCLI          func(LoadOptions) (T, bool, error)
@@ -108,6 +108,11 @@ type optionalStringSetting struct {
 	apply   func(*settingsState, *string)
 	get     func(settingsState) *string
 	envName string
+	doc     settingDocOptions
+}
+
+type promptFileSetting struct {
+	scalarSetting[*SystemPromptFile]
 }
 
 type toolsSetting struct{}
@@ -202,13 +207,7 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			normalizeModelVerbosity,
 			settingDocOptions{}),
-		newStringSetting("system_prompt_file", "",
-			func(state *settingsState, value string) { state.Settings.SystemPromptFile = value },
-			func(state settingsState) string { return state.Settings.SystemPromptFile },
-			"",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
+		newPromptFileSetting(),
 		newBoolSetting("model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.ModelCapabilities.SupportsReasoningEffort = value
@@ -440,7 +439,7 @@ func newSettingsRegistry() settingsRegistry {
 		newOptionalStringSetting("shell.postprocess_hook",
 			func(state *settingsState, value *string) { state.Settings.Shell.PostprocessHook = value },
 			func(state settingsState) *string { return state.Settings.Shell.PostprocessHook },
-			"KENT_SHELL_POSTPROCESS_HOOK"),
+			"KENT_SHELL_POSTPROCESS_HOOK", settingDocOptions{}),
 		clientLifecycleSetting{},
 		newStringSetting("cache_warning_mode", CacheWarningMode(defaultCacheWarningMode),
 			func(state *settingsState, value CacheWarningMode) { state.Settings.CacheWarningMode = value },
@@ -701,12 +700,10 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			normalizeReviewerAuth,
 			settingDocOptions{}),
-		newStringSetting("reviewer.system_prompt_file", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.SystemPromptFile = value },
-			func(state settingsState) string { return state.Settings.Reviewer.SystemPromptFile },
+		newOptionalStringSetting("reviewer.system_prompt_file",
+			func(state *settingsState, value *string) { state.Settings.Reviewer.SystemPromptFile = value },
+			func(state settingsState) *string { return state.Settings.Reviewer.SystemPromptFile },
 			"",
-			nil,
-			nil,
 			settingDocOptions{resolveRelativeToSettingsDir: true}),
 		newIntSetting("reviewer.timeout_seconds", defaultReviewerTimeoutSec,
 			func(state *settingsState, value int) { state.Settings.Reviewer.TimeoutSeconds = value },
@@ -906,10 +903,10 @@ func newStringSetting[T ~string](
 	normalize func(string) T,
 	doc settingDocOptions,
 ) scalarSetting[T] {
-	var transformFileValue func(T, string) (T, error)
+	var transformFileValue func(T, SourceFile) (T, error)
 	if doc.resolveRelativeToSettingsDir {
-		transformFileValue = func(value T, settingsPath string) (T, error) {
-			resolved, err := resolveFileSettingRelativeToSettingsPath(string(value), settingsPath)
+		transformFileValue = func(value T, file SourceFile) (T, error) {
+			resolved, err := resolveFileSettingRelativeToSettingsPath(string(value), file.Path)
 			return T(resolved), err
 		}
 	}
@@ -968,12 +965,14 @@ func newOptionalStringSetting(
 	apply func(*settingsState, *string),
 	get func(settingsState) *string,
 	envName string,
+	doc settingDocOptions,
 ) optionalStringSetting {
 	return optionalStringSetting{
 		key:     key,
 		apply:   apply,
 		get:     get,
 		envName: envName,
+		doc:     doc,
 	}
 }
 
@@ -994,9 +993,56 @@ func (s optionalStringSetting) applyFile(raw settingsFile, file SourceFile, stat
 	if trimmed == "" {
 		return fmt.Errorf("%s cannot be empty; remove the setting to leave it unset", s.key)
 	}
+	if s.doc.resolveRelativeToSettingsDir {
+		trimmed, err = resolveFileSettingRelativeToSettingsPath(trimmed, file.Path)
+		if err != nil {
+			return err
+		}
+	}
 	s.apply(state, textutil.Pointer(&trimmed))
 	sources[s.key] = fileOrigin(s.key, file)
 	return nil
+}
+
+func newPromptFileSetting() promptFileSetting {
+	return promptFileSetting{scalarSetting[*SystemPromptFile]{
+		key:   "system_prompt_file",
+		apply: func(state *settingsState, value *SystemPromptFile) { state.Settings.SystemPromptFile = value },
+		get:   func(state settingsState) *SystemPromptFile { return state.Settings.SystemPromptFile },
+		equal: func(left, right *SystemPromptFile) bool {
+			if left == nil || right == nil {
+				return left == right
+			}
+			return *left == *right
+		},
+		decodeFile: func(raw settingsFile, key []string) (*SystemPromptFile, bool, error) {
+			path, present, err := lookupFileStringAllowEmpty(raw, key)
+			if err != nil || !present {
+				return nil, present, err
+			}
+			if strings.TrimSpace(path) == "" {
+				return nil, false, errors.New("system_prompt_file cannot be empty; remove the setting to inherit")
+			}
+			return &SystemPromptFile{Path: path}, true, nil
+		},
+		transformFileValue: func(value *SystemPromptFile, file SourceFile) (*SystemPromptFile, error) {
+			path, err := resolveFileSettingRelativeToSettingsPath(value.Path, file.Path)
+			if err != nil {
+				return nil, err
+			}
+			scope := SystemPromptFileScopeWorkspaceConfig
+			if file.Layer == FileGlobal {
+				scope = SystemPromptFileScopeHomeConfig
+			}
+			return &SystemPromptFile{Path: path, Scope: scope}, nil
+		},
+	}}
+}
+
+func (s promptFileSetting) appendDefaultLines(lines *[]defaultConfigLine, state settingsState) {
+	if value := s.get(state); value != nil {
+		*lines = append(*lines, defaultConfigLine{Path: []string{s.key}, Value: value.Path})
+	}
 }
 
 func (s optionalStringSetting) applyEnv(lookup envLookup, state *settingsState, sources map[string]Origin) error {
@@ -1190,7 +1236,7 @@ func (s scalarSetting[T]) applyFile(raw settingsFile, file SourceFile, state *se
 		return nil
 	}
 	if s.transformFileValue != nil {
-		value, err = s.transformFileValue(value, file.Path)
+		value, err = s.transformFileValue(value, file)
 		if err != nil {
 			return err
 		}
@@ -1526,13 +1572,7 @@ func parseSubagentRole(raw settingsFile, file SourceFile, roleKey string, previo
 		explicitSources = nil
 	}
 	if _, ok := raw["system_prompt_file"]; ok {
-		resolved, err := resolveConfigRelativePath(roleState.Settings.SystemPromptFile, file.Path)
-		if err != nil {
-			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
-		}
-		if strings.TrimSpace(resolved) != "" {
-			roleState.Settings.SystemPromptFiles = []SystemPromptFile{{Path: resolved, Scope: SystemPromptFileScopeSubagent}}
-		}
+		roleState.Settings.SystemPromptFile.Scope = SystemPromptFileScopeSubagent
 	}
 	roleState.Settings.Subagents = nil
 	role.Settings = roleState.Settings

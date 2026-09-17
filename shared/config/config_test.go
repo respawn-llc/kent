@@ -146,8 +146,8 @@ func TestPrivateFileRelativePromptAndWorkspaceRelativeSetupScript(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app.Settings.Reviewer.SystemPromptFile != filepath.Join(mainRoot, ConfigDirName, "prompts/private.md") {
-		t.Fatalf("Supervisor prompt = %q, want supplying-file-relative path", app.Settings.Reviewer.SystemPromptFile)
+	if app.Settings.Reviewer.SystemPromptFile == nil || *app.Settings.Reviewer.SystemPromptFile != filepath.Join(mainRoot, ConfigDirName, "prompts/private.md") {
+		t.Fatalf("Supervisor prompt = %+v, want supplying-file-relative path", app.Settings.Reviewer.SystemPromptFile)
 	}
 	if app.Settings.Worktrees.SetupScript != "scripts/setup.sh" {
 		t.Fatalf("setup script = %q, must remain source-workspace-relative", app.Settings.Worktrees.SetupScript)
@@ -247,6 +247,38 @@ supports_prompt_cache_key = true
 	origin := diagnosis.Origins["model_context_window"]
 	if origin.File == nil || origin.File.Path != privatePath || origin.Property.String() != "subagents.worker.model_context_window" {
 		t.Fatalf("invalid role origin = %+v", origin)
+	}
+}
+
+func TestConfiguredPromptSelectionReplacesLowerFilesAndRole(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	writeConfigTestFile(t, globalPath, "system_prompt_file = \"global.md\"\n")
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), "system_prompt_file = \"shared.md\"\n")
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.local.toml"), `
+system_prompt_file = "private.md"
+[subagents.worker]
+system_prompt_file = "role.md"
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	if app.Settings.SystemPromptFile == nil || app.Settings.SystemPromptFile.Path != filepath.Join(workspace, ConfigDirName, "private.md") {
+		t.Fatalf("only the winning configured file may survive: %+v", app.Settings.SystemPromptFile)
+	}
+	effective, _ := OverlaySubagentRoleSettings(app.Settings, app.Source.Sources, app.Settings.Subagents["worker"], true)
+	if effective.SystemPromptFile == nil || effective.SystemPromptFile.Path != filepath.Join(workspace, ConfigDirName, "role.md") {
+		t.Fatalf("role must replace the configured default selection: %+v", effective.SystemPromptFile)
+	}
+	for _, contents := range []string{
+		"system_prompt_file = \"\"\n",
+		"[reviewer]\nsystem_prompt_file = \"\"\n",
+		"[subagents.worker]\nsystem_prompt_file = \"\"\n",
+	} {
+		path := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+		writeConfigTestFile(t, path, contents)
+		_, err := Load(workspace, workspace, LoadOptions{})
+		var source *ConfigurationFileError
+		if !errors.As(err, &source) || source.Source.Path != path || source.Source.Layer != FilePrivate {
+			t.Fatalf("empty prompt must reject its private source: %v", err)
+		}
 	}
 }
 
@@ -729,8 +761,8 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 	if role.Settings.EnabledTools[toolspec.ToolPatch] {
 		t.Fatalf("expected fast role patch tool disabled, got %+v", role.Settings.EnabledTools)
 	}
-	if want := filepath.Join(home, ConfigDirName, "fast-reviewer.md"); role.Settings.Reviewer.SystemPromptFile != want {
-		t.Fatalf("role reviewer system prompt file = %q, want %q", role.Settings.Reviewer.SystemPromptFile, want)
+	if want := filepath.Join(home, ConfigDirName, "fast-reviewer.md"); role.Settings.Reviewer.SystemPromptFile == nil || *role.Settings.Reviewer.SystemPromptFile != want {
+		t.Fatalf("role reviewer system prompt file = %+v, want %q", role.Settings.Reviewer.SystemPromptFile, want)
 	}
 	if role.Sources["model"].Kind != "file" || role.Sources["thinking_level"].Kind != "file" || role.Sources["tools.patch"].Kind != "file" || role.Sources["reviewer.system_prompt_file"].Kind != "file" {
 		t.Fatalf("unexpected role sources: %+v", role.Sources)
@@ -1104,21 +1136,13 @@ func TestSkillOnlyRoleAffectsCatalogWithoutChangingCallability(t *testing.T) {
 	}
 }
 
-func TestAppendSystemPromptFileFromConfigResolvesConfigRelativePath(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), ConfigDirName, "config.toml")
-	state := configRegistry.defaultState()
-
-	if err := appendSystemPromptFileFromConfig(
-		settingsFile{"system_prompt_file": "prompts/SYSTEM.md"},
-		configPath,
-		SystemPromptFileScopeWorkspaceConfig,
-		&state,
-	); err != nil {
-		t.Fatalf("append system prompt file: %v", err)
-	}
-
+func TestLoadSystemPromptFileResolvesConfigRelativePath(t *testing.T) {
+	_, workspace := newConfigTestEnv(t)
+	configPath := filepath.Join(workspace, ConfigDirName, "config.toml")
+	writeConfigTestFile(t, configPath, "system_prompt_file = \"prompts/SYSTEM.md\"\n")
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	want := filepath.Join(filepath.Dir(configPath), "prompts", "SYSTEM.md")
-	if got := state.Settings.SystemPromptFiles; len(got) != 1 || got[0].Path != want || got[0].Scope != SystemPromptFileScopeWorkspaceConfig {
+	if got := app.Settings.SystemPromptFile; got == nil || got.Path != want || got.Scope != SystemPromptFileScopeWorkspaceConfig {
 		t.Fatalf("system prompt files = %+v, want %q %s", got, want, SystemPromptFileScopeWorkspaceConfig)
 	}
 }
@@ -1132,7 +1156,7 @@ func TestParseSubagentRoleSystemPromptFileResolvesConfigRelativePath(t *testing.
 	}
 
 	want := filepath.Join(filepath.Dir(configPath), "fast-system.md")
-	if got := role.Settings.SystemPromptFiles; len(got) != 1 || got[0].Path != want || got[0].Scope != SystemPromptFileScopeSubagent {
+	if got := role.Settings.SystemPromptFile; got == nil || got.Path != want || got.Scope != SystemPromptFileScopeSubagent {
 		t.Fatalf("subagent system prompt files = %+v, want %q %s", got, want, SystemPromptFileScopeSubagent)
 	}
 	if role.Sources["system_prompt_file"].Kind != "file" {

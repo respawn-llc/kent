@@ -334,12 +334,10 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewExecTestEngine(t, child, client, Config{
-		Model:         "role-model",
-		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
-		ToolPreambles: false,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
-		},
+		Model:            "role-model",
+		EnabledTools:     []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles:    false,
+		SystemPromptFile: &config.SystemPromptFile{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 	})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
@@ -456,7 +454,7 @@ func TestUnsnapshottedSystemPromptUsesCurrentContextBudget(t *testing.T) {
 			eng := mustNewExecTestEngine(t, store, client, Config{
 				ContextWindowTokens:           test.window,
 				EffectiveContextWindowPercent: test.percent,
-				SystemPromptFiles:             []config.SystemPromptFile{{Path: promptPath, Scope: config.SystemPromptFileScopeWorkspaceConfig}},
+				SystemPromptFile:              &config.SystemPromptFile{Path: promptPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
 			})
 			if _, err := eng.SubmitUserMessage(t.Context(), "hello"); err != nil {
 				t.Fatalf("submit: %v", err)
@@ -873,11 +871,8 @@ func TestReadSystemPromptTemplateUsesConfiguredPriorityAndSkipsEmptyFiles(t *tes
 	writeTestFile(t, workspaceConfigPrompt, "workspace config")
 
 	opts := systemPromptSnapshotOptions{
-		WorkspaceRoot: workspace,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: homeConfigPrompt, Scope: config.SystemPromptFileScopeHomeConfig},
-			{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-		},
+		WorkspaceRoot:    workspace,
+		SystemPromptFile: &config.SystemPromptFile{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
 	}
 	template, sourcePath, ok, err := readSystemPromptTemplate(opts)
 	if err != nil {
@@ -900,6 +895,14 @@ func TestReadSystemPromptTemplateUsesConfiguredPriorityAndSkipsEmptyFiles(t *tes
 	template, sourcePath, ok, err = readSystemPromptTemplate(opts)
 	if err != nil {
 		t.Fatalf("read system prompt template after empty workspace SYSTEM: %v", err)
+	}
+	if !ok || sourcePath != filepath.Join(home, agentsGlobalDirName, systemPromptFileName) {
+		t.Fatalf("an overridden configured home file must not be read: sourcePath=%q ok=%t", sourcePath, ok)
+	}
+	opts.SystemPromptFile = &config.SystemPromptFile{Path: homeConfigPrompt, Scope: config.SystemPromptFileScopeHomeConfig}
+	template, sourcePath, ok, err = readSystemPromptTemplate(opts)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if !ok || template != "home config" || sourcePath != homeConfigPrompt {
 		t.Fatalf("template=%q sourcePath=%q ok=%t, want home config from %q", template, sourcePath, ok, homeConfigPrompt)
@@ -934,11 +937,8 @@ func TestReadSystemPromptTemplateSubagentConfigOverridesWorkspaceConfig(t *testi
 	writeTestFile(t, workspaceConfigPrompt, "workspace config")
 
 	template, sourcePath, ok, err := readSystemPromptTemplate(systemPromptSnapshotOptions{
-		WorkspaceRoot: workspace,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: workspaceConfigPrompt, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-			{Path: subagentPrompt, Scope: config.SystemPromptFileScopeSubagent},
-		},
+		WorkspaceRoot:    workspace,
+		SystemPromptFile: &config.SystemPromptFile{Path: subagentPrompt, Scope: config.SystemPromptFileScopeSubagent},
 	})
 	if err != nil {
 		t.Fatalf("read system prompt template: %v", err)

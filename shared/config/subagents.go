@@ -208,12 +208,6 @@ func overlayDeclaredSettings(base Settings, sources map[string]Origin, overlay S
 		}
 		setting.applySubagentRoleValue(&target, overlayState)
 		resultSources[key] = origin
-		if key == "system_prompt_file" {
-			target.Settings.SystemPromptFiles = append(
-				append([]SystemPromptFile(nil), base.SystemPromptFiles...),
-				overlay.SystemPromptFiles...,
-			)
-		}
 	}
 	if !includeDynamicSettings {
 		return target.Settings, resultSources

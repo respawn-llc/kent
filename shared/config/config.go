@@ -185,8 +185,7 @@ type Settings struct {
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
-	SystemPromptFile                 string
-	SystemPromptFiles                []SystemPromptFile
+	SystemPromptFile                 *SystemPromptFile
 	ModelCapabilities                ModelCapabilitiesOverride
 	Theme                            string
 	NotificationMethod               string
@@ -251,7 +250,7 @@ type ReviewerSettings struct {
 	ProviderCapabilities ProviderCapabilitiesOverride
 	ModelContextWindow   int
 	Auth                 string
-	SystemPromptFile     string
+	SystemPromptFile     *string
 	TimeoutSeconds       int
 	VerboseOutput        bool
 }

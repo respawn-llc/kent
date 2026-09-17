@@ -704,9 +704,8 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"code_review": {
 			Settings: config.Settings{
-				Model:             "gpt-5.4-mini",
-				SystemPromptFile:  rolePrompt,
-				SystemPromptFiles: []config.SystemPromptFile{{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent}},
+				Model:            "gpt-5.4-mini",
+				SystemPromptFile: &config.SystemPromptFile{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 				EnabledTools: map[toolspec.ID]bool{
 					toolspec.ToolExecCommand: true,
 					toolspec.ToolPatch:       false,
@@ -776,8 +775,8 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
 		t.Fatalf("enabled tools = %+v, want role tools", updated.EnabledTools)
 	}
-	if len(updated.ActiveSettings.SystemPromptFiles) != 1 || updated.ActiveSettings.SystemPromptFiles[0].Path != rolePrompt {
-		t.Fatalf("active system prompt files = %+v, want role prompt %q", updated.ActiveSettings.SystemPromptFiles, rolePrompt)
+	if updated.ActiveSettings.SystemPromptFile == nil || updated.ActiveSettings.SystemPromptFile.Path != rolePrompt {
+		t.Fatalf("active system prompt file = %+v, want role prompt %q", updated.ActiveSettings.SystemPromptFile, rolePrompt)
 	}
 	if got := updated.Continuation; got == nil || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("code_review")) {
 		t.Fatalf("child continuation = %+v, want only selected role persisted", got)

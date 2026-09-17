@@ -119,7 +119,8 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 func cloneSettings(in config.Settings) config.Settings {
 	out := in
 	out.Shell.PostprocessHook = textutil.Pointer(in.Shell.PostprocessHook)
-	out.SystemPromptFiles = append([]config.SystemPromptFile(nil), in.SystemPromptFiles...)
+	out.SystemPromptFile = textutil.Pointer(in.SystemPromptFile)
+	out.Reviewer.SystemPromptFile = textutil.Pointer(in.Reviewer.SystemPromptFile)
 	out.EnabledTools = cloneMapOrEmpty(in.EnabledTools)
 	out.SkillToggles = cloneMapOrEmpty(in.SkillToggles)
 	out.Subagents = cloneSubagentRoles(in.Subagents)

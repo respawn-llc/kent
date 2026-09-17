@@ -38,7 +38,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	systemPromptFiles, err := systemPromptFilesToProto(settings.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileToProto(settings.SystemPromptFile)
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +102,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 settings.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesToProto(settings.ModelCapabilities),
 		Theme:                            settings.Theme,
 		NotificationMethod:               settings.NotificationMethod,
@@ -191,7 +190,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	systemPromptFiles, err := systemPromptFilesFromProto(message.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileFromProto(message.SystemPromptFile)
 	if err != nil {
 		return config.Settings{}, err
 	}
@@ -215,8 +214,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 		Model:                            message.Model,
 		ThinkingLevel:                    message.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 message.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesFromProto(message.ModelCapabilities),
 		Theme:                            message.Theme,
 		NotificationMethod:               message.NotificationMethod,
@@ -344,28 +342,26 @@ func providerCapabilitiesFromProto(value *sessionlaunchpb.ProviderCapabilitiesOv
 	}
 }
 
-func systemPromptFilesToProto(values []config.SystemPromptFile) ([]*sessionlaunchpb.SystemPromptFile, error) {
-	result := make([]*sessionlaunchpb.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeToProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileToProto(value *config.SystemPromptFile) (*sessionlaunchpb.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeToProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
-func systemPromptFilesFromProto(values []*sessionlaunchpb.SystemPromptFile) ([]config.SystemPromptFile, error) {
-	result := make([]config.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeFromProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, config.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeFromProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
 func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.ToolEnabledFact, error) {

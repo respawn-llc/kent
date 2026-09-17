@@ -531,10 +531,10 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload prompt-facing config: %v", err)
 	}
-	if len(reloaded.Settings.SystemPromptFiles) == 0 {
-		t.Fatal("expected system prompt files from active workspace config")
+	if reloaded.Settings.SystemPromptFile == nil {
+		t.Fatal("expected system prompt file from active workspace config")
 	}
-	got := reloaded.Settings.SystemPromptFiles[len(reloaded.Settings.SystemPromptFiles)-1].Path
+	got := reloaded.Settings.SystemPromptFile.Path
 	want := filepath.Join(activeWorkspace, config.ConfigDirName, "system.md")
 	if got != want {
 		t.Fatalf("system prompt path = %q, want active workspace path %q", got, want)

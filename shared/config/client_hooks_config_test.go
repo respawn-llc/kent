@@ -124,7 +124,7 @@ func TestLoadInteractiveSharedSettingsFileIsGlobalOnly(t *testing.T) {
 			if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "file" {
 				t.Fatalf("lifecycle source = %q, want global file", got)
 			}
-			if got := app.Settings.SystemPromptFiles; !reflect.DeepEqual(got, []SystemPromptFile{{Path: filepath.Join(home, ConfigDirName, "system.md"), Scope: SystemPromptFileScopeHomeConfig}}) {
+			if got := app.Settings.SystemPromptFile; !reflect.DeepEqual(got, &SystemPromptFile{Path: filepath.Join(home, ConfigDirName, "system.md"), Scope: SystemPromptFileScopeHomeConfig}) {
 				t.Fatalf("system prompt files = %#v, want one global prompt", got)
 			}
 			global, shared := app.Source.File(FileGlobal), app.Source.File(FileWorkspace)

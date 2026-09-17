@@ -201,6 +201,7 @@ message WorkflowSettings {
 }
 
 message ReviewerSettings {
+  reserved 11;
   string frequency = 1;
   string model = 2;
   string thinking_level = 3;
@@ -211,7 +212,7 @@ message ReviewerSettings {
   ProviderCapabilitiesOverride provider_capabilities = 8 [(buf.validate.field).required = true];
   int32 model_context_window = 9 [(buf.validate.field).int32.gte = 40000];
   string auth = 10;
-  string system_prompt_file = 11;
+  optional string system_prompt_file = 14 [(buf.validate.field).string.min_len = 1];
   int32 timeout_seconds = 12 [(buf.validate.field).int32.gt = 0];
   bool verbose_output = 13;
 }
@@ -296,6 +297,8 @@ message ToolEnabledFact {
 }
 
 message Settings {
+  reserved 4, 5;
+  reserved "system_prompt_files";
   option (buf.validate.message).cel = {
     id: "kent.session_launch.compaction_threshold_below_model_window"
     message: "context_compaction_threshold_tokens must be less than model_context_window"
@@ -305,8 +308,7 @@ message Settings {
   string model = 1;
   string thinking_level = 2;
   ModelVerbosity model_verbosity = 3 [(buf.validate.field).enum.defined_only = true];
-  string system_prompt_file = 4;
-  repeated SystemPromptFile system_prompt_files = 5;
+  SystemPromptFile system_prompt_file = 39;
   ModelCapabilitiesOverride model_capabilities = 6 [(buf.validate.field).required = true];
   string theme = 7 [(buf.validate.field).string = {
     in: ["auto", "light", "dark"]

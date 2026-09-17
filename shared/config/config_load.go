@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -89,39 +88,4 @@ func rejectRemovedPersistenceRootKey(raw settingsFile, settingsPath string) erro
 		return fmt.Errorf("%w (in %s)", errPersistenceRootInConfigFile, settingsPath)
 	}
 	return nil
-}
-
-func appendSystemPromptFileFromConfig(raw settingsFile, settingsPath string, scope SystemPromptFileScope, state *settingsState) error {
-	path, ok, err := lookupFileString(raw, []string{"system_prompt_file"})
-	if err != nil || !ok {
-		return err
-	}
-	resolved, err := resolveConfigRelativePath(path, settingsPath)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(resolved) == "" {
-		return nil
-	}
-	state.Settings.SystemPromptFiles = append(state.Settings.SystemPromptFiles, SystemPromptFile{Path: resolved, Scope: scope})
-	return nil
-}
-
-func resolveConfigRelativePath(path string, settingsPath string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", nil
-	}
-	expanded, err := expandTildePath(trimmed)
-	if err != nil {
-		return "", err
-	}
-	if filepath.IsAbs(expanded) {
-		return filepath.Abs(expanded)
-	}
-	baseDir := strings.TrimSpace(filepath.Dir(settingsPath))
-	if baseDir == "" || baseDir == "." {
-		return filepath.Abs(expanded)
-	}
-	return filepath.Abs(filepath.Join(baseDir, expanded))
 }

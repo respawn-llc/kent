@@ -240,7 +240,7 @@ func NewRuntimeWiringWithBackground(
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
 		SubagentCatalogSettings:         active,
-		SystemPromptFiles:               active.SystemPromptFiles,
+		SystemPromptFile:                active.SystemPromptFile,
 		AutoCompactTokenLimit:           active.ContextCompactionThresholdTokens,
 		PreSubmitCompactionLeadTokens:   active.PreSubmitCompactionLeadTokens,
 		ContextWindowTokens:             active.ModelContextWindow,

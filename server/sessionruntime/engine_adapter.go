@@ -82,7 +82,8 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 
 func cloneAgentRuntimeSettings(settings config.Settings) config.Settings {
 	cloned := settings
-	cloned.SystemPromptFiles = append([]config.SystemPromptFile(nil), settings.SystemPromptFiles...)
+	cloned.SystemPromptFile = textutil.Pointer(settings.SystemPromptFile)
+	cloned.Reviewer.SystemPromptFile = textutil.Pointer(settings.Reviewer.SystemPromptFile)
 	cloned.EnabledTools = maps.Clone(settings.EnabledTools)
 	cloned.SkillToggles = maps.Clone(settings.SkillToggles)
 	cloned.Shell.PostprocessHook = cloneStringPointer(settings.Shell.PostprocessHook)

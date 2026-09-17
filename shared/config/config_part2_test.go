@@ -528,8 +528,8 @@ verbose_output = true
 	if !cfg.Settings.Reviewer.VerboseOutput {
 		t.Fatalf("expected file reviewer.verbose_output=true")
 	}
-	if want := filepath.Join(home, ConfigDirName, "reviewer-global.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
-		t.Fatalf("expected file reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
+	if want := filepath.Join(home, ConfigDirName, "reviewer-global.md"); cfg.Settings.Reviewer.SystemPromptFile == nil || *cfg.Settings.Reviewer.SystemPromptFile != want {
+		t.Fatalf("expected file reviewer.system_prompt_file=%q, got %+v", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
 	if got := cfg.Source.Sources["reviewer.verbose_output"].Kind; got != "file" {
 		t.Fatalf("expected reviewer.verbose_output source file, got %q", got)
@@ -564,8 +564,8 @@ verbose_output = true
 		t.Fatalf("write workspace config: %v", err)
 	}
 	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
-	if want := filepath.Join(workspace, ConfigDirName, "workspace-reviewer.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
-		t.Fatalf("expected workspace reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
+	if want := filepath.Join(workspace, ConfigDirName, "workspace-reviewer.md"); cfg.Settings.Reviewer.SystemPromptFile == nil || *cfg.Settings.Reviewer.SystemPromptFile != want {
+		t.Fatalf("expected workspace reviewer.system_prompt_file=%q, got %+v", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
 
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "off")
