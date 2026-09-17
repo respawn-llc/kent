@@ -16,6 +16,8 @@ import type { ChatSettingsFeature } from "./index";
 import { useChatSettings, type ChatSettingsOptions } from "./chatSettingsTestOwner";
 import * as ui from "@/ui";
 import { appI18n } from "@/i18n";
+import { ChatContextControl } from "./ChatContextControl";
+import { ChatAutoCompactionSwitch } from "./ChatAutoCompactionSwitch";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -119,6 +121,54 @@ function SessionSettingsChipHost() {
   });
   return feature.kind === "ready-session" ? feature.settingsChip : null;
 }
+
+it("shares eager Auto-compaction changes and rollback between Context and Settings", async () => {
+  const services = createTestServices([]);
+  const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
+  const contextRead = vi.spyOn(services.api.chat, "getContext");
+  const mutation = deferred<ChatSettingsMutationResponse>();
+  const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(mutation.promise);
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  function Host() {
+    const feature = useChatSettings({ ...connected, target, onContextChange: () => undefined });
+    return (
+      <>
+        {feature.kind === "ready-session" ? feature.settingsChip : null}
+        <ChatContextControl
+          used={20}
+          window={100}
+          completedCount={0}
+          compacting={false}
+          policyDisabled={false}
+          compact={vi.fn()}
+          autoCompactionControl={<ChatAutoCompactionSwitch feature={feature} />}
+        />
+      </>
+    );
+  }
+  const user = userEvent.setup();
+  render(
+    <TestAppProviders services={services}>
+      <Host />
+    </TestAppProviders>,
+  );
+  await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
+  await user.click(screen.getByRole("button", { name: "20%" }));
+  const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
+  expect(toggle).toBeChecked();
+  await user.click(toggle);
+  expect(toggle).not.toBeChecked();
+  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "auto_compaction", enabled: false });
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") })).not.toBeChecked();
+  await act(async () => {
+    mutation.reject(typedSettingsFailure());
+  });
+  expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") })).toBeChecked();
+  expect(notice).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledOnce();
+  expect(contextRead).not.toHaveBeenCalled();
+});
 
 it("activates nested Settings controls once", async () => {
   const services = createTestServices([]);

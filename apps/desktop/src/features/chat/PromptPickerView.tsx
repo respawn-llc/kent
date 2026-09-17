@@ -49,7 +49,10 @@ export function PromptPickerView({
     promptPickerKeyboard(event, { answerArea, field, options, selected, disabled, act });
   };
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--space-2)]" onKeyDownCapture={keyDown}>
+    <div
+      className="chat-prompt-picker flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--space-2)]"
+      onKeyDownCapture={keyDown}
+    >
       <ScrollRegion className="flex-1">
         <div className="grid min-w-0 gap-[var(--space-3)]">
           <div className="prompt-picker-content" key={prompt.toolCallID}>

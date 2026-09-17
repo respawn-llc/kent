@@ -10,11 +10,11 @@ import type {
   InitialChatSettings,
   ChatSettingsTarget,
 } from "@/api";
-import { ChatRuntimeProvider, useAppServices } from "@/app-facade";
+import { ChatRuntimeProvider, useAppServices, queryKeys } from "@/app-facade";
 import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
-import { parsePendingWorkItemID } from "@/api";
+import { parseCompactionRequestID, parsePendingWorkItemID } from "@/api";
 
 import {
   createTestServices,
@@ -99,6 +99,183 @@ const accepted: ChatInputMutationResult = {
     diagnostic: null,
   },
 };
+
+it("dispatches the built-in compact command with its exact guidance", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact \n preserve decisions");
+  const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue({
+    sessionID: target.sessionID,
+    outcome: { kind: "not_accepted", reason: { kind: "too_soon" } },
+  });
+  const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current.canSubmit).toBe(true);
+  });
+  await act(async () => {
+    result.current.submit("send");
+  });
+  expect(compact).toHaveBeenCalledWith(target, {
+    token: "/compact",
+    separatorWhitespace: " \n ",
+    rawGuidance: "preserve decisions",
+  });
+  expect(result.current.text).toBe("/compact \n preserve decisions");
+});
+
+it("dispatches independent button compactions without changing the editor draft", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("ordinary draft");
+  const compact = vi
+    .spyOn(services.api.chat, "compact")
+    .mockImplementation(async () => new Promise(() => undefined));
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  act(() => {
+    result.current.compact();
+    result.current.compact();
+  });
+  await waitFor(() => {
+    expect(compact).toHaveBeenCalledTimes(2);
+  });
+  expect(compact).toHaveBeenCalledWith(target, {
+    token: "/compact",
+    separatorWhitespace: "",
+    rawGuidance: "",
+  });
+  expect(result.current.text).toBe("ordinary draft");
+});
+
+it("guards both compact activations against admitted active compaction", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact guidance");
+  const compact = vi.spyOn(services.api.chat, "compact");
+  const { result } = renderHook(
+    () => ({
+      composer: useChatComposer({ ...target, submission: { kind: "ready" } }),
+      client: useQueryClient(),
+    }),
+    {
+      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    },
+  );
+  await waitFor(() => {
+    expect(result.current.composer.canSubmit).toBe(true);
+  });
+  const view = mainViewRead().mainView;
+  result.current.client.setQueryData(queryKeys.chatMainView(target.sessionID), {
+    ...view,
+    activity: {
+      ...view.activity,
+      state: "running",
+      activeStep: { runID: "run-1", stepID: "step-1", activeKind: "compaction" },
+    },
+  });
+  await act(async () => {
+    result.current.composer.submit("send");
+    result.current.composer.compact();
+  });
+  expect(compact).not.toHaveBeenCalled();
+  expect(result.current.composer.text).toBe("/compact guidance");
+});
+
+it.each(["active", "disabled", "too_soon"] as const)(
+  "preserves each source's draft after a typed %s compaction rejection",
+  async (kind) => {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact keep decisions");
+    const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue({
+      sessionID: target.sessionID,
+      outcome: { kind: "not_accepted", reason: { kind } },
+    });
+    const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
+      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    });
+    await waitFor(() => {
+      expect(result.current.canSubmit).toBe(true);
+    });
+    await act(async () => {
+      result.current.submit("send");
+    });
+    expect(result.current.text).toBe("/compact keep decisions");
+    act(() => {
+      result.current.edit("unrelated draft");
+    });
+    await act(async () => {
+      result.current.compact();
+    });
+    expect(result.current.text).toBe("unrelated draft");
+    expect(compact).toHaveBeenCalledTimes(2);
+  },
+);
+
+it("delivers a rejected New Chat compaction's Session while preserving its exact draft", async () => {
+  const services = createTestServices([]);
+  const onDeliveredSession = vi.fn();
+  const initialSettings: InitialChatSettings = {
+    agentRole: "writer",
+    supervisor: "off",
+    thinking: null,
+    fast: null,
+    questionsEnabled: true,
+    autoCompactionEnabled: true,
+  };
+  const rejected = {
+    sessionID: target.sessionID,
+    outcome: { kind: "not_accepted", reason: { kind: "too_soon" } },
+  } as const;
+  const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue(rejected);
+  const steer = vi.spyOn(services.api.chat, "steer");
+  const { result } = renderHook(
+    () =>
+      useChatComposer({
+        kind: "new_chat",
+        projectID: target.projectID,
+        workspace: { workspaceID: "workspace-1" },
+        submission: { kind: "ready", initialSettings },
+        onDeliveredSession,
+      }),
+    {
+      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    },
+  );
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  act(() => {
+    result.current.edit("/compact \n keep decisions");
+  });
+  await act(async () => {
+    result.current.submit("send");
+  });
+  expect(onDeliveredSession).toHaveBeenCalledWith(rejected);
+  expect(result.current.text).toBe("/compact \n keep decisions");
+  expect(compact).toHaveBeenCalledExactlyOnceWith(
+    {
+      kind: "new_chat",
+      projectID: target.projectID,
+      workspace: { workspaceID: "workspace-1" },
+      initialSettings,
+    },
+    { token: "/compact", separatorWhitespace: " \n ", rawGuidance: "keep decisions" },
+  );
+  expect(steer).not.toHaveBeenCalled();
+});
 
 it.each([
   { newChat: false, ctrlKey: false, text: "/worktree" },
@@ -665,4 +842,46 @@ it("prepends live interrupted messages in event order and restores Discard only 
     }),
   );
   expect(result.current.text).toBe("/compact restored\none\n \ntwo\ndraft\n/compact guidance");
+});
+
+it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("draft");
+  const first = parseCompactionRequestID("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const second = parseCompactionRequestID("99f762c8-0998-402a-bc80-6b42f3e241ed");
+  const items = [first, second].map((id) => ({
+    id,
+    kind: "manual_compaction" as const,
+    state: "pending" as const,
+    lane: "steer" as const,
+    canonicalInput: "/compact",
+    manualCompaction: { guidance: null },
+  }));
+  const read = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items });
+  vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
+  const remove = vi.spyOn(services.api.chat, "removePendingWork").mockImplementation(async () => {
+    read.mockResolvedValue({ items: items.slice(1) });
+    return { kind: "manual_compaction", canonicalInput: "/compact" };
+  });
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current.pending.items).toHaveLength(2);
+  });
+  await act(async () => {
+    result.current.pending.stop();
+  });
+  expect(result.current.pending.items).toEqual(items);
+  expect(result.current.text).toBe("draft");
+  await act(async () => {
+    result.current.pending.discard(first);
+  });
+  await waitFor(() => {
+    expect(result.current.pending.items).toEqual(items.slice(1));
+  });
+  expect(remove).toHaveBeenCalledWith(target, first);
+  expect(result.current.text).toBe("draft\n/compact");
 });

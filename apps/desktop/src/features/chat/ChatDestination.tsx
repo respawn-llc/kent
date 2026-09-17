@@ -36,10 +36,7 @@ export function ChatDestination(
   const { t } = useTranslation();
   const [opened, setOpened] = useState(false);
   if (!opened && "settingsChip" in settings) setOpened(true);
-  const host = useMemo(
-    () => ({ logger, ...composer.pending.observation }),
-    [logger, composer.pending.observation],
-  );
+  const host = useMemo(() => ({ logger, ...composer.observation }), [logger, composer.observation]);
   if (!opened) {
     return "error" in settings ? (
       <ErrorState
@@ -117,6 +114,7 @@ function ChatDestinationShell({
         composer={(_, layout) => (
           <ChatComposer
             {...layout}
+            settings={destination.settings}
             settingsChip={
               <div className="flex min-w-0 items-center gap-[var(--space-1)]">
                 {chips}

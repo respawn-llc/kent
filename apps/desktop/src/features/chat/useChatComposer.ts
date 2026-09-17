@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { useDebouncedText } from "@/app-facade";
-import { composerSuggestions, type ComposerCommand, type ComposerCommandResult } from "./composerCommands";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+
+import { useAppServices, useDebouncedText } from "@/app-facade";
+import {
+  compactCommand,
+  composerSuggestions,
+  type ComposerCommand,
+  type ComposerCommandResult,
+} from "./composerCommands";
 import { useComposerPendingWork } from "./useComposerPendingWork";
+import { chatCompactionFeedback } from "./chatCompactionFeedback";
 import { useComposerDraftActions } from "./ComposerDraftViewModel";
 import { useComposerInputActions } from "./ComposerInputViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
@@ -17,7 +26,14 @@ export type ChatComposerOptions = Readonly<{
 const noCommands: readonly ComposerCommand[] = [];
 
 export function useChatComposer(options: ChatComposerOptions) {
-  const { model, onDeliveredSession, commands = noCommands } = options;
+  const { model, onDeliveredSession, commands: additionalCommands = noCommands } = options;
+  const services = useAppServices();
+  const client = useQueryClient();
+  const { t } = useTranslation();
+  const commands = [
+    compactCommand(services.api.chat, client, t("chatComposer.context.compact")),
+    ...additionalCommands,
+  ];
   const submission = useAtomValue(model.submission);
   const mounted = useRef(true);
   useEffect(() => {
@@ -47,6 +63,13 @@ export function useChatComposer(options: ChatComposerOptions) {
     [restoreAction],
   );
   const pending = useComposerPendingWork(model.pending, restoreAction);
+  const observation = useMemo(
+    () => ({
+      ...pending.observation,
+      ...(target.kind === "session" ? chatCompactionFeedback(services, target) : {}),
+    }),
+    [pending.observation, services, target],
+  );
   const [picker, setPicker] = useState<
     Readonly<{ kind: "dismissed" }> | Readonly<{ kind: "selecting"; token: string | null }>
   >({ kind: "selecting", token: null });
@@ -64,10 +87,11 @@ export function useChatComposer(options: ChatComposerOptions) {
   }, [saveDraft, draft.kind, debounced, text]);
   const canSubmit =
     !navigationPending && draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
-  function submit(intent: "send" | "queue") {
+  function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
     if (navigationPending) return;
     inputActions.submit({
       intent,
+      source,
       commands,
       selectedToken: selectedCommand?.token ?? null,
       restore: (input) => {
@@ -87,7 +111,7 @@ export function useChatComposer(options: ChatComposerOptions) {
             },
           }),
     });
-    setPicker({ kind: "selecting", token: null });
+    if (source === "editor") setPicker({ kind: "selecting", token: null });
   }
   return {
     target,
@@ -98,9 +122,13 @@ export function useChatComposer(options: ChatComposerOptions) {
     inputPending,
     navigationPending,
     submit,
+    compact: () => {
+      submit("send", "compact-button");
+    },
     suggestions,
     selectedCommand,
     pending,
+    observation,
     edit: (value: string) => {
       if (navigationPending) return;
       edit(value);

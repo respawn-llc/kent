@@ -1,4 +1,5 @@
 import { ContractError } from "@/api";
+import { isCompactionKind } from "../chatCompaction";
 
 import type { CommittedRow, CompactionStatus, Hydration, RuntimeActivity } from "./types";
 
@@ -26,7 +27,7 @@ export type CompactionLifecycle =
 export function compactionStep(activity: RuntimeActivity): ActiveStep | null {
   if (activity.State !== "running" && activity.State !== "awaiting_prompt") return null;
   const step = activity.ActiveStep;
-  return step?.ActiveKind === "compaction" || step?.ActiveKind === "pre_submit_compaction" ? step : null;
+  return step !== null && isCompactionKind(step.ActiveKind) ? step : null;
 }
 
 function sameStep(left: ActiveStep, right: ActiveStep): boolean {
