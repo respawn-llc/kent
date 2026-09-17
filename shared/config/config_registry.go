@@ -1369,10 +1369,7 @@ func (toolsSetting) applyEnv(lookup envLookup, state *settingsState, sources map
 	if err != nil {
 		return fmt.Errorf("invalid KENT_TOOLS: %w", err)
 	}
-	state.Settings.EnabledTools = resetEnabledToolMap(enabled)
-	for _, id := range toolspec.CatalogIDs() {
-		sources[toolSourceKey(id)] = optionOrigin("tools", SourceEnv, "KENT_TOOLS")
-	}
+	applyToolSelection(&state.Settings, sources, ToolSelection{Tools: enabled, Origin: optionOrigin("tools", SourceEnv, "KENT_TOOLS")})
 	return nil
 }
 
@@ -1385,10 +1382,7 @@ func (toolsSetting) applyCLI(opts LoadOptions, state *settingsState, sources map
 	if err != nil {
 		return fmt.Errorf("invalid tools flag: %w", err)
 	}
-	state.Settings.EnabledTools = resetEnabledToolMap(enabled)
-	for _, id := range toolspec.CatalogIDs() {
-		sources[toolSourceKey(id)] = optionOrigin("tools", SourceCLI, "--tools")
-	}
+	applyToolSelection(&state.Settings, sources, ToolSelection{Tools: enabled, Origin: optionOrigin("tools", SourceCLI, "--tools")})
 	return nil
 }
 

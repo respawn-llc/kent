@@ -1,5 +1,7 @@
 package session
 
+import "core/shared/config"
+
 func cloneMeta(in Meta) Meta {
 	out := in
 	if in.PreviousSessionID != nil {
@@ -12,6 +14,7 @@ func cloneMeta(in Meta) Meta {
 	}
 	out.Continuation = cloneContinuationContext(in.Continuation)
 	out.ChatSettings = cloneChatSettingsOverrides(in.ChatSettings)
+	out.RetainedToolSelection = config.CloneToolSelection(in.RetainedToolSelection)
 	if in.OriginalThinkingEffort != nil {
 		effort := *in.OriginalThinkingEffort
 		out.OriginalThinkingEffort = &effort

@@ -103,6 +103,7 @@ type SessionPlan struct {
 	AutoCompactionEnabled               bool
 	ThinkingOverrideExplicit            bool
 	ActivationAgentSelection            *session.ChatSettingsState
+	ExplicitToolSelection               *config.ToolSelection
 }
 
 // ApplyContextPolicy resolves Context policy only after the plan's final Agent
@@ -254,6 +255,11 @@ func resolveReadOnlySessionContextSettings(
 	meta session.Meta,
 	skipContinuationAgentRoleValidation bool,
 ) (config.Settings, config.SourceReport, session.ChatSettings, error) {
+	var selectionErr error
+	app, selectionErr = ApplyRetainedToolSelection(app, meta)
+	if selectionErr != nil {
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, selectionErr
+	}
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	active, source := baseActive, app.Source
 	if meta.Continuation != nil {
@@ -440,6 +446,12 @@ func ValidateInitialChatCreationTarget(mode Mode, intent serverapi.SessionLaunch
 }
 
 func (p Planner) planSession(ctx context.Context, req SessionRequest, meta session.Meta, store *session.Store) (SessionPlan, error) {
+	explicitTools := config.ExplicitToolSelection(p.Config.Settings, p.Config.Source.Sources)
+	var selectionErr error
+	p.Config, selectionErr = ApplyRetainedToolSelection(p.Config, meta)
+	if selectionErr != nil {
+		return SessionPlan{}, selectionErr
+	}
 	if store == nil {
 		if req.Intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
 			return SessionPlan{}, errors.New("persisted session planning requires an existing-session intent")
@@ -554,6 +566,7 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: req.SkipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
+		ExplicitToolSelection:               explicitTools,
 		ExecutionTarget:                     executionTarget,
 		ProjectWorkspaceBoundary:            projectWorkspaceBoundary.Clone(),
 		ManagedWorktreeRoots:                append([]string(nil), managedWorktreeRoots...),
@@ -1034,6 +1047,7 @@ func applySessionChatSettingsWithRunOverrides(
 }
 
 func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPlan, meta session.Meta, persistContinuation func(session.ContinuationContext) error, overrides serverapi.RunPromptOverrides, prepared PreparedRunPromptOverrides, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
+	plan.ExplicitToolSelection = config.ExplicitToolSelection(prepared.OverrideConfig.Settings, prepared.OverrideConfig.Source.Sources)
 	if !overrides.HasAny() && !prepared.AgentRole.Present && prepared.BaseTarget == nil {
 		return sessionPlanWithMeta(plan, meta, p.ContainerDir), nil, nil
 	}

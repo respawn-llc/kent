@@ -652,6 +652,10 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		return nil, err
 	}
 	plan.ActivationAgentSelection = protoapi.SessionRuntimeAgentSelectionToProto(selection)
+	plan.ExplicitToolSelection, err = protoapi.ToolSelectionToProto(result.Plan.ExplicitToolSelection)
+	if err != nil {
+		return nil, err
+	}
 	if result.Plan.ConfiguredModelName != "" {
 		plan.ConfiguredModelName = &result.Plan.ConfiguredModelName
 	}

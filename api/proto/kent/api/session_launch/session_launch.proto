@@ -249,6 +249,7 @@ message ConfigPropertyAddress {
 
 message ConfigOrigin {
   ConfigPropertyAddress property = 1 [(buf.validate.field).required = true];
+  optional string retained_session_id = 8 [(buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   oneof source {
     option (buf.validate.oneof).required = true;
     google.protobuf.Empty default_value = 2;
@@ -262,6 +263,14 @@ message ConfigOrigin {
 
 message SourceFact {
   string key = 1 [(buf.validate.field).string.min_len = 1];
+  ConfigOrigin origin = 2 [(buf.validate.field).required = true];
+}
+
+message ToolSelection {
+  repeated ToolID tools = 1 [(buf.validate.field).repeated = {
+    unique: true
+    items: {enum: {defined_only: true, not_in: [0]}}
+  }];
   ConfigOrigin origin = 2 [(buf.validate.field).required = true];
 }
 
@@ -444,6 +453,7 @@ message SessionPlan {
   bool thinking_override_explicit = 10;
   SourceReport source = 11 [(buf.validate.field).required = true];
   SessionRuntimeAgentSelection activation_agent_selection = 12;
+  ToolSelection explicit_tool_selection = 13;
 }
 
 message SessionPlanSuccess {

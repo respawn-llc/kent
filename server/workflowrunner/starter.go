@@ -966,8 +966,9 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-		MainWorkspaceRoot: prepared.plan.ExecutionTarget.WorkspaceRoot,
-		Settings:          prepared.plan.ActiveSettings, EnabledTools: workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
+		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
+		Settings:              prepared.plan.ActiveSettings, EnabledTools: workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 		FilesystemContext: askquestion.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: pathContext}, Sources: prepared.plan.Source.Sources, Headless: true, Client: prepared.client,
 		QuestionsEnabled:      textutil.Value(prepared.plan.QuestionsEnabled),
 		AutoCompactionEnabled: textutil.Value(prepared.plan.AutoCompactionEnabled),

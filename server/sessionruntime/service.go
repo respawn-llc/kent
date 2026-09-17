@@ -238,6 +238,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		EnabledTools:             enabledTools,
 		FilesystemContext:        tools.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},
 		Sources:                  req.Source.Sources,
+		ExplicitToolSelection:    req.ExplicitToolSelection,
 		QuestionsEnabled:         req.QuestionsEnabled,
 		AutoCompactionEnabled:    req.AutoCompactionEnabled,
 		ClientFactory:            s.runtimeClientFactory,

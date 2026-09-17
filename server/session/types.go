@@ -3,6 +3,7 @@ package session
 import (
 	"time"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -202,6 +203,7 @@ type Meta struct {
 	Continuation                    *ContinuationContext             `json:"continuation,omitempty"`
 	ChatSettings                    *ChatSettingsOverrides           `json:"chat_settings,omitempty"`
 	OriginalThinkingEffort          *string                          `json:"original_thinking_effort,omitempty"`
+	RetainedToolSelection           *config.ToolSelection            `json:"retained_tool_selection,omitempty"`
 	CreatedAt                       time.Time                        `json:"created_at"`
 	UpdatedAt                       time.Time                        `json:"updated_at"`
 	LastSequence                    int64                            `json:"last_sequence"`

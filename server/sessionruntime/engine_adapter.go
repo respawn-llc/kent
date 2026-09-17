@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/runlog"
 	"core/server/runtime"
@@ -43,6 +44,7 @@ type AgentRuntimePlanOptions struct {
 	StartLogLines                       []string
 	RecoveredWarningProvider            func() (string, bool, error)
 	AgentSelection                      *session.ChatSettingsState
+	ExplicitToolSelection               *config.ToolSelection
 }
 
 type AgentRuntimePlan struct {
@@ -66,6 +68,7 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 		return AgentRuntimePlan{}, errors.New("agent runtime filesystem context is required")
 	}
 	options.Settings = cloneAgentRuntimeSettings(options.Settings)
+	options.ExplicitToolSelection = config.CloneToolSelection(options.ExplicitToolSelection)
 	options.EnabledTools = append([]toolspec.ID(nil), options.EnabledTools...)
 	options.Sources = maps.Clone(options.Sources)
 	options.StartLogLines = append([]string(nil), options.StartLogLines...)
@@ -177,6 +180,22 @@ func (a *Authority) buildAgentResource(
 	}
 	if plan == nil {
 		return nil, ErrAgentRuntimePlanRequired
+	}
+	if err := store.AdoptToolSelection(plan.options.ExplicitToolSelection); err != nil {
+		return nil, err
+	}
+	if meta := store.Meta(); meta.RetainedToolSelection != nil {
+		effective, err := launch.ApplyRetainedToolSelection(config.App{Settings: plan.options.Settings, Source: config.SourceReport{Sources: plan.options.Sources}}, meta)
+		if err != nil {
+			return nil, err
+		}
+		copiedPlan := *plan
+		copiedPlan.options.Settings, copiedPlan.options.Sources = effective.Settings, effective.Source.Sources
+		copiedPlan.options.EnabledTools, err = launch.ActiveToolIDsForPlan(effective.Settings, effective.Source, meta.Locked)
+		if err != nil {
+			return nil, err
+		}
+		plan = &copiedPlan
 	}
 	if _, err := applyAgentSelection(store, plan.options.AgentSelection); err != nil {
 		return nil, err

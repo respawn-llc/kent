@@ -200,6 +200,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		QuestionsEnabled:      textutil.Value(plan.QuestionsEnabled),
 		AutoCompactionEnabled: textutil.Value(plan.AutoCompactionEnabled),
 		AgentSelection:        plan.ActivationAgentSelection,
+		ExplicitToolSelection: plan.ExplicitToolSelection,
 		StartLogLines:         startLogLines,
 		OnLoggingFailure: func(message string) {
 			if progress != nil {

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	runtimepkg "core/server/runtime"
@@ -30,6 +32,84 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+			return &sessionRuntimeTestLLMClient{}, nil
+		}),
+	})
+	t.Setenv("KENT_TOOLS", "exec_command")
+	cfg, err := config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{
+		ConfigRoot: fixture.config.PersistenceRoot, Tools: "patch",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner := launch.Planner{
+		Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()),
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, ProjectWorkspaceBoundary: fixture.metadata,
+	}
+	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := launch.SessionRequest{Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id)}
+	plan, err := planner.PlanSession(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation, err := ActivationRequestFromSessionPlan(plan, "tool-retention-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.api.ActivateSessionRuntime(t.Context(), activation); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KENT_TOOLS", "")
+	for _, tools := range []string{"", "exec_command"} {
+		planner.Config, err = config.Load(fixture.config.WorkspaceRoot, fixture.config.WorkspaceRoot, config.LoadOptions{ConfigRoot: fixture.config.PersistenceRoot, Tools: tools})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := planner.PlanSession(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(reopened.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
+			t.Fatalf("reopen with tools %q changed the first list: %v", tools, reopened.EnabledTools)
+		}
+		activation, err := ActivationRequestFromSessionPlan(reopened, "tool-retention-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := protoapi.SessionRuntimeActivateToProto(activation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := protoapi.SessionRuntimeActivateFromProto(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded.OwnerID = activation.OwnerID
+		if _, err := fixture.api.ActivateSessionRuntime(t.Context(), decoded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := planner.PlanSession(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reopened.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
+		t.Fatalf("later activation replaced the retained selection: %v", reopened.EnabledTools)
+	}
+	origin := reopened.Source.Sources["tools.patch"]
+	if origin.Kind != config.SourceCLI || origin.Option == nil || *origin.Option != "--tools" || origin.RetainedSessionID == nil || *origin.RetainedSessionID != id {
+		t.Fatalf("retained selection lost its original source or Session ownership: %+v", origin)
+	}
+}
 
 type sessionRuntimeTestLLMClient struct {
 	responses []llm.Response

@@ -1,17 +1,20 @@
 package config
 
+import "core/shared/runtimeids"
+
 // Origin identifies the declaration, even when its value is inherited under a
 // different effective property key.
 type Origin struct {
-	Kind     SourceKind
-	Property PropertyAddress
-	File     *SourceFile
-	Option   *string
+	Kind              SourceKind            `json:"kind"`
+	Property          PropertyAddress       `json:"property"`
+	File              *SourceFile           `json:"file,omitempty"`
+	Option            *string               `json:"option,omitempty"`
+	RetainedSessionID *runtimeids.SessionID `json:"retained_session_id,omitempty"`
 }
 
 type PropertyAddress struct {
-	Key  string
-	Role *string
+	Key  string  `json:"key"`
+	Role *string `json:"role,omitempty"`
 }
 
 func (p PropertyAddress) String() string {
@@ -41,8 +44,8 @@ const (
 )
 
 type SourceFile struct {
-	Layer FileLayer
-	Path  string
+	Layer FileLayer `json:"layer"`
+	Path  string    `json:"path"`
 }
 
 func defaultOrigin(key string) Origin {

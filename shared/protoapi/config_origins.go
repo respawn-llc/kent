@@ -5,6 +5,8 @@ import (
 
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
+	"core/shared/toolspec"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -12,6 +14,10 @@ func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, e
 	message := &sessionlaunchpb.ConfigOrigin{Property: &sessionlaunchpb.ConfigPropertyAddress{
 		Key: origin.Property.Key, Role: origin.Property.Role,
 	}}
+	if origin.RetainedSessionID != nil {
+		id := origin.RetainedSessionID.String()
+		message.RetainedSessionId = &id
+	}
 	switch origin.Kind {
 	case config.SourceDefault:
 		message.Source = &sessionlaunchpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}}
@@ -49,6 +55,13 @@ func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin
 		return config.Origin{}, err
 	}
 	origin := config.Origin{Property: config.PropertyAddress{Key: message.Property.Key, Role: message.Property.Role}}
+	if message.RetainedSessionId != nil {
+		id, err := runtimeids.ParseSessionID(*message.RetainedSessionId)
+		if err != nil {
+			return config.Origin{}, err
+		}
+		origin.RetainedSessionID = &id
+	}
 	switch source := message.Source.(type) {
 	case *sessionlaunchpb.ConfigOrigin_DefaultValue:
 		origin.Kind = config.SourceDefault
@@ -71,6 +84,50 @@ func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin
 		return config.Origin{}, fmt.Errorf("unknown configuration origin %T", message.Source)
 	}
 	return origin, nil
+}
+
+func ToolSelectionToProto(selection *config.ToolSelection) (*sessionlaunchpb.ToolSelection, error) {
+	if selection == nil {
+		return nil, nil
+	}
+	if err := selection.Validate(); err != nil {
+		return nil, err
+	}
+	origin, err := configOriginToProto(selection.Origin)
+	if err != nil {
+		return nil, err
+	}
+	message := &sessionlaunchpb.ToolSelection{Origin: origin}
+	for _, id := range selection.Tools {
+		tool, err := SessionToolIDToProto(id)
+		if err != nil {
+			return nil, err
+		}
+		message.Tools = append(message.Tools, tool)
+	}
+	return message, Validate(message)
+}
+
+func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.ToolSelection, error) {
+	if message == nil {
+		return nil, nil
+	}
+	if err := Validate(message); err != nil {
+		return nil, err
+	}
+	origin, err := configOriginFromProto(message.Origin)
+	if err != nil {
+		return nil, err
+	}
+	selection := &config.ToolSelection{Origin: origin, Tools: make([]toolspec.ID, 0, len(message.Tools))}
+	for _, id := range message.Tools {
+		tool, err := SessionToolIDFromProto(id)
+		if err != nil {
+			return nil, err
+		}
+		selection.Tools = append(selection.Tools, tool)
+	}
+	return selection, selection.Validate()
 }
 
 func configFileLayerToProto(layer config.FileLayer) (sessionlaunchpb.ConfigFileLayer, error) {
