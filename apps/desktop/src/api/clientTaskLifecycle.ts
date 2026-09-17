@@ -46,7 +46,7 @@ export async function moveTask(transport: RpcTransport, input: TaskMoveInput): P
       compactJsonObject({
         task_id: input.taskID,
         target_node_id: input.targetNodeID,
-        branch_name: input.branchName,
+        branch_name: input.executionTarget?.mode === "none" ? undefined : input.branchName,
         transition_key: input.transitionKey,
         values: input.values,
         commentary: input.commentary,
@@ -99,6 +99,7 @@ export async function resumeTask(
       compactJsonObject({
         task_id: input.taskID,
         setup_operation_id: setupOperationID.toJSONValue(),
+        branch_name: input.executionTarget?.mode === "none" ? undefined : input.branchName,
         execution_target: executionTargetPayload(input.executionTarget),
       }),
       { timeoutMs: null },

@@ -436,7 +436,7 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
 			return
 		}
-		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). The Task remains Done; choose a replacement.\n", cause)
+		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). Choose a replacement to continue.\n", cause)
 	default:
 		fmt.Fprintln(stderr, "Execution target selection response is invalid.")
 	}
@@ -1069,6 +1069,7 @@ const (
 	taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure taskSetupOutcomeKind        = "resume_interrupted_setup_failure", "resume_interrupted_target_preparation_failure"
 	taskSetupOutcomeAlreadyStartedConflict, taskSetupOutcomeMoveSetupFailure                                 taskSetupOutcomeKind        = "already_started_conflict", "move_setup_failure"
 	taskSetupOutcomeMoveReplacementSetupFailure                                                              taskSetupOutcomeKind        = "move_replacement_setup_failure"
+	taskSetupOutcomeResumeReplacementSetupFailure                                                            taskSetupOutcomeKind        = "resume_replacement_setup_failure"
 	taskSetupObservedActionStart, taskSetupObservedActionResume                                              taskSetupObservedActionKind = "start", "resume"
 )
 
@@ -1126,6 +1127,11 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 		if failed.ExecutionTarget == nil {
 			return taskSetupGuidance{}, errors.New("retry-ready Task setup failure requires execution target")
 		}
+		if failed.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
+			result.Outcome = taskSetupOutcomeResumeReplacementSetupFailure
+			result.Actions = taskFreshTargetChoiceActions(base)
+			return result, nil
+		}
 		result.Outcome = taskSetupOutcomeStartInterruptedSetupFailure
 		if action == taskSetupObservedActionResume {
 			result.Outcome = taskSetupOutcomeResumeInterruptedSetupFailure
@@ -1172,6 +1178,16 @@ func taskTargetChoiceActions(base []string) []taskSetupAction {
 		args := append([]string(nil), base...)
 		args = append(args, "--execution-target", choice.selector)
 		actions = append(actions, taskSetupAction{Kind: choice.kind, Args: args})
+	}
+	return actions
+}
+
+func taskFreshTargetChoiceActions(base []string) []taskSetupAction {
+	actions := taskTargetChoiceActions(base)
+	for index := range actions {
+		if actions[index].Kind != taskSetupActionChooseNone {
+			actions[index].Args = append(actions[index].Args, "--branch-name", "<new-branch-name>")
+		}
 	}
 	return actions
 }
@@ -1236,12 +1252,7 @@ func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecution
 	actions := taskTargetActions(base, selector)
 	if setupErr.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
 		outcome = taskSetupOutcomeMoveReplacementSetupFailure
-		actions = taskTargetChoiceActions(base)
-		for index := range actions {
-			if actions[index].Kind != taskSetupActionChooseNone {
-				actions[index].Args = append(actions[index].Args, "--branch-name", "<new-branch-name>")
-			}
-		}
+		actions = taskFreshTargetChoiceActions(base)
 	}
 	return taskSetupGuidance{Outcome: outcome, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: actions}, nil
 }
@@ -1398,7 +1409,7 @@ func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 	case taskSetupOutcomeCompleted, taskSetupOutcomeObservationFailure:
 	case taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure:
 		fmt.Fprintln(stderr, "The Task was started and is now interrupted.")
-	case taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure:
+	case taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure, taskSetupOutcomeResumeReplacementSetupFailure:
 		fmt.Fprintln(stderr, "The Task was resumed and is now interrupted.")
 	case taskSetupOutcomeObservedSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
@@ -1407,11 +1418,11 @@ func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 	case taskSetupOutcomeMoveSetupFailure, taskSetupOutcomeMoveReplacementSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 		fmt.Fprintln(stderr, "The move was not applied.")
-		if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure {
-			fmt.Fprintln(stderr, "The replacement Worktree was retained unbound. Choose a fresh target with another branch name, or leave the Task Done; setup will not be retried in this root.")
-		}
 	default:
 		panic(fmt.Sprintf("render Task setup guidance with invalid outcome %q", guidance.Outcome))
+	}
+	if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure || guidance.Outcome == taskSetupOutcomeResumeReplacementSetupFailure {
+		fmt.Fprintln(stderr, "The failed replacement Worktree was retained but is not the Task target. Choose another target with a free branch name; setup will not be retried in this root.")
 	}
 	if guidance.ScriptPath != nil {
 		fmt.Fprintln(stderr, *guidance.ScriptPath)

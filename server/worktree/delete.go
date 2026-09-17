@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"core/server/metadata"
@@ -183,21 +182,28 @@ func (s *Service) acquireDeleteTargetActivity(
 		return deleteTargetActivityLease{}, errors.New("delete target root must not be blank when present")
 	}
 	if record != nil {
-		sessions, err := s.metadata.ListSessionsTargetingWorktree(ctx, record.ID)
-		if err != nil {
-			return deleteTargetActivityLease{}, err
-		}
 		type targetSession struct {
 			id      runtimeids.SessionID
 			blocker metadata.WorktreeSessionBlocker
 		}
-		targets := make([]targetSession, 0, len(sessions))
-		for _, target := range sessions {
-			sessionID, err := runtimeids.ParseSessionID(target.SessionID)
+		var targets []targetSession
+		var cursor *metadata.WorktreeSessionCursor
+		for {
+			page, err := s.metadata.ListSessionsTargetingWorktreePage(ctx, record.ID, cursor)
 			if err != nil {
-				return deleteTargetActivityLease{}, fmt.Errorf("parse worktree-targeting session id %q: %w", target.SessionID, err)
+				return deleteTargetActivityLease{}, err
 			}
-			targets = append(targets, targetSession{id: sessionID, blocker: target})
+			for _, target := range page.Sessions {
+				sessionID, err := runtimeids.ParseSessionID(target.SessionID)
+				if err != nil {
+					return deleteTargetActivityLease{}, fmt.Errorf("parse worktree-targeting session id %q: %w", target.SessionID, err)
+				}
+				targets = append(targets, targetSession{id: sessionID, blocker: target})
+			}
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
 		}
 		if len(targets) > 0 {
 			sessionIDs := make([]runtimeids.SessionID, 0, len(targets))
@@ -214,29 +220,38 @@ func (s *Service) acquireDeleteTargetActivity(
 			lease.close = func() { releaseSessionStarts(startBlock) }
 			lease.ctx = authorizeSessionMaintenance(ctx, startBlock)
 		}
-		activeBlockers := make([]metadata.WorktreeSessionBlocker, 0, len(targets))
+		const blockerLimit = 50
+		activeBlockers := &worktreepb.ActiveSessionBlockers{}
 		for _, target := range targets {
 			active, err := s.authority.HasBlockingRuntimeActivity(ctx, target.id.String())
 			if err != nil {
 				lease.Close()
 				return deleteTargetActivityLease{}, err
 			}
+			if !active {
+				retired, err := s.authority.RetireIdleRuntime(lease.ctx, target.id.String())
+				if err != nil {
+					lease.Close()
+					return deleteTargetActivityLease{}, err
+				}
+				active = !retired
+			}
 			if active {
-				activeBlockers = append(activeBlockers, target.blocker)
-				continue
-			}
-			retired, err := s.authority.RetireIdleRuntime(lease.ctx, target.id.String())
-			if err != nil {
-				lease.Close()
-				return deleteTargetActivityLease{}, err
-			}
-			if !retired {
-				activeBlockers = append(activeBlockers, target.blocker)
+				if len(activeBlockers.Sessions) == blockerLimit {
+					activeBlockers.HasMore = true
+				} else {
+					activeBlockers.Sessions = append(activeBlockers.Sessions, &worktreepb.BlockingSession{
+						SessionId: target.id.String(),
+						Name:      nonblankPointer(target.blocker.SessionName),
+					})
+				}
 			}
 		}
-		if len(activeBlockers) > 0 {
+		if len(activeBlockers.Sessions) > 0 {
 			lease.Close()
-			return deleteTargetActivityLease{}, activeDeleteBlockerError(activeBlockers)
+			return deleteTargetActivityLease{}, &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{
+				ActiveSessions: activeBlockers,
+			}}
 		}
 	}
 	if worktreeRoot != nil {
@@ -246,21 +261,6 @@ func (s *Service) acquireDeleteTargetActivity(
 		}
 	}
 	return lease, nil
-}
-
-func activeDeleteBlockerError(blockers []metadata.WorktreeSessionBlocker) error {
-	sort.Slice(blockers, func(i int, j int) bool {
-		return blockers[i].UpdatedAt.After(blockers[j].UpdatedAt)
-	})
-	names := make([]string, 0, len(blockers))
-	for _, blocker := range blockers {
-		name := strings.TrimSpace(blocker.SessionName)
-		if name == "" {
-			name = strings.TrimSpace(blocker.SessionID)
-		}
-		names = append(names, name)
-	}
-	return errors.Join(worktreecontract.ErrWorktreeBlocked, fmt.Errorf("worktree is still targeted by active runs: %s", strings.Join(names, ", ")))
 }
 
 func (s *Service) retargetDeleteSessions(

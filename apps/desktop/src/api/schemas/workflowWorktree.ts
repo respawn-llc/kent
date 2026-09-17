@@ -6,6 +6,7 @@ import {
   RegisteredFactsSchema,
   type RegisteredFacts,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
+import { LockedExecutionTargetDetailsSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 
 import { ContractError, RpcError } from "../errors";
 import { rpcErrorCodes } from "../rpcErrorCodes";
@@ -86,9 +87,13 @@ const taskSetupRecoverySchema = z
     retainedWorktree: value.retained_worktree,
     retainedPreviousWorktree: value.retained_previous_worktree,
   }));
-export type TaskSetupRecovery = z.output<typeof taskSetupRecoverySchema>;
+export type TaskSetupRecovery = z.output<typeof taskSetupRecoverySchema> &
+  Readonly<{ recoveryDisposition: SetupRecoveryDisposition }>;
 const taskSetupRecoveryEnvelopeSchema = z
-  .object({ setup_recovery: taskSetupRecoverySchema.optional() })
+  .object({
+    setup_recovery: taskSetupRecoverySchema.optional(),
+    original_execution_target_unavailable: z.json().optional(),
+  })
   .loose();
 
 export function parseTaskSetupRecoveryDetail(detailJSON: string | null): TaskSetupRecovery | null {
@@ -106,7 +111,16 @@ export function parseTaskSetupRecoveryDetail(detailJSON: string | null): TaskSet
       parsed.error.issues.map((issue) => ({ code: issue.code, path: issue.path.map(String) })),
     );
   }
-  return parsed.data.setup_recovery ?? null;
+  const recovery = parsed.data.setup_recovery;
+  if (recovery === undefined) return null;
+  const originalUnavailable = parsed.data.original_execution_target_unavailable;
+  if (originalUnavailable !== undefined) {
+    decodeJson(LockedExecutionTargetDetailsSchema, originalUnavailable);
+  }
+  return {
+    ...recovery,
+    recoveryDisposition: originalUnavailable === undefined ? "retry_existing" : "fresh_replacement",
+  };
 }
 
 type SetupRecoveryDisposition = "retry_existing" | "fresh_replacement";

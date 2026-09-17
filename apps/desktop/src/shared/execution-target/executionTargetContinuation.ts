@@ -26,6 +26,7 @@ export type TaskInitiatingAction =
       kind: "resume";
       taskID: string;
       setupOperationID: SetupOperationID;
+      branchName?: string | undefined;
     }>;
 
 export type TaskInitiatingActionResult =
@@ -101,6 +102,30 @@ export function initialExecutionTargetSelectionDraft(
   return { mode: "default_branch", customRef: null };
 }
 
+export function executionTargetBranchName(
+  selection: WorkflowExecutionTargetSelection | undefined,
+  branchName: string | null | undefined,
+): string | undefined {
+  const value = branchName?.trim();
+  return selection?.mode === "none" || value === "" ? undefined : (value ?? undefined);
+}
+
+export function taskActionWithBranchName(
+  action: TaskInitiatingAction,
+  selection: WorkflowExecutionTargetSelection,
+  branchName: string | null,
+): TaskInitiatingAction {
+  const value = executionTargetBranchName(selection, branchName);
+  switch (action.kind) {
+    case "resume":
+      return { ...action, branchName: value };
+    case "move":
+      return { ...action, input: { ...action.input, branchName: value } };
+    case "start":
+      return action;
+  }
+}
+
 export function executionTargetSelectionFromDraft(
   draft: ExecutionTargetSelectionDraft,
 ): WorkflowExecutionTargetSelection | null {
@@ -145,6 +170,7 @@ export async function executeTaskInitiatingAction(
           taskID: action.taskID,
           setupOperationID: action.setupOperationID,
           executionTarget: selection,
+          branchName: action.branchName,
         }),
       };
   }

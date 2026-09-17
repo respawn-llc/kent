@@ -54,6 +54,10 @@ type WorkflowAttentionRegistry interface {
 	workflowattention.ApprovalQuestionAttentionRegistry
 }
 
+type executionTargetValidator interface {
+	RestoreExecutionTarget(context.Context, workflow.ExecutionTargetRestoreRequest) error
+}
+
 type Starter struct {
 	cfg                  config.App
 	metadata             *metadata.Store
@@ -64,6 +68,7 @@ type Starter struct {
 	storeOptions         []session.StoreOption
 	runtimeClientFactory runtimewire.RuntimeClientFactory
 	taskAwarenessSource  workflowruntime.TaskAwarenessSource
+	executionTargets     executionTargetValidator
 	closed               atomic.Bool
 }
 
@@ -71,13 +76,14 @@ type StarterOptions struct {
 	RuntimeClientFactory runtimewire.RuntimeClientFactory
 	RuntimeAuthority     *sessionruntime.Authority
 	TaskDependencies     TaskDependencyCounter
+	ExecutionTargets     executionTargetValidator
 }
 
 func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStore, authManager *auth.Manager, attention WorkflowAttentionRegistry, opts StarterOptions) (*Starter, error) {
 	if strings.TrimSpace(cfg.PersistenceRoot) == "" {
 		return nil, errors.New("workflow runtime persistence root is required")
 	}
-	if metadataStore == nil || store == nil || opts.RuntimeAuthority == nil || opts.TaskDependencies == nil {
+	if metadataStore == nil || store == nil || opts.RuntimeAuthority == nil || opts.TaskDependencies == nil || opts.ExecutionTargets == nil {
 		return nil, errors.New("workflow runtime dependencies are required")
 	}
 	taskAwarenessSource, err := NewTaskAwarenessSource(store, opts.TaskDependencies)
@@ -94,6 +100,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		storeOptions:         metadataStore.AuthoritativeSessionStoreOptions(),
 		runtimeClientFactory: opts.RuntimeClientFactory,
 		taskAwarenessSource:  taskAwarenessSource,
+		executionTargets:     opts.ExecutionTargets,
 	}, nil
 }
 
@@ -113,6 +120,9 @@ func (s *Starter) SteerCurrentNodeAssignment(
 	}
 	if input.Node.Kind != workflow.NodeKindAgent {
 		return nil, fmt.Errorf("current node %v is not executable", reference)
+	}
+	if err := s.prepareExecutableTarget(ctx, input); err != nil {
+		return nil, err
 	}
 	steer, err := s.prepareCurrentNodeAgentAssignment(ctx, input, true)
 	if err != nil {
@@ -152,6 +162,21 @@ func (s *Starter) prepareCurrentNodeAgentAssignment(
 		assignment: assignment,
 		ready:      make(chan struct{}),
 	}, nil
+}
+
+func (s *Starter) prepareExecutableTarget(ctx context.Context, input workflowstore.CurrentNodeStartContext) error {
+	if input.Task.ExecutionTarget == nil || input.Task.ExecutionTarget.Mode == workflow.ExecutionTargetModeNone {
+		return nil
+	}
+	err := s.executionTargets.RestoreExecutionTarget(ctx, workflow.ExecutionTargetRestoreRequest{TaskID: input.Task.ID})
+	var unavailable *serverapi.WorkflowLockedExecutionTargetError
+	if errors.As(err, &unavailable) {
+		return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
+			Code:                               "workflow_original_target_unavailable",
+			OriginalExecutionTargetUnavailable: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause).Details.GetOriginalTargetUnavailable(),
+		})
+	}
+	return err
 }
 
 type currentNodeAgentAssignmentSteer struct {
@@ -509,6 +534,9 @@ func (s *Starter) StartAgentCurrentNode(
 	if assignmentSteer == nil && taskPromptDelivery == workflowruntime.TaskPromptDeliveryResume {
 		input, err := s.store.ResolveCurrentNodeStartContext(ctx, reference)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.prepareExecutableTarget(ctx, input); err != nil {
 			return nil, err
 		}
 		sessionPrepared, err := s.currentNodeResumeUsesPreparedSession(ctx, input)

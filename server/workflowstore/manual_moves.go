@@ -445,30 +445,7 @@ func (s *Store) prepareManualMoveExecutionTarget(
 	if err != nil {
 		return preparedManualMoveExecutionTarget{}, err
 	}
-	var targetMutation preparedExecutionTargetMutation
-	if executionTarget != nil && task.ExecutionTargetMode.Valid {
-		currentNodes, readErr := s.listTaskCurrentNodes(ctx, s.queries, prepared.TaskID())
-		if readErr != nil {
-			return preparedManualMoveExecutionTarget{}, readErr
-		}
-		completed, readErr := taskCurrentNodesAreCompleted(ctx, s.queries, prepared.TaskID(), currentNodes)
-		if readErr != nil {
-			return preparedManualMoveExecutionTarget{}, readErr
-		}
-		if !completed || task.ExecutionTargetMode.String == string(workflow.ExecutionTargetModeNone) {
-			return preparedManualMoveExecutionTarget{}, ErrExecutionTargetAlreadyLocked
-		}
-		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *executionTarget, executionTargetCompletedReplacement); err != nil {
-			return preparedManualMoveExecutionTarget{}, err
-		}
-		targetMutation = preparedExecutionTargetMutation{
-			mode:          executionTargetCompletedReplacement,
-			executionRoot: executionTarget.Root,
-			candidate:     executionTarget,
-		}
-	} else {
-		targetMutation, err = s.prepareExecutionTargetMutation(ctx, task, executionTarget)
-	}
+	targetMutation, err := s.prepareExecutionTargetMutation(ctx, task, executionTarget)
 	if err != nil {
 		return preparedManualMoveExecutionTarget{}, err
 	}

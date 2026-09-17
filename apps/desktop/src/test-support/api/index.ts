@@ -26,6 +26,7 @@ import {
   type ListEntry,
   SelectorResolveResultSchema,
   SelectorService,
+  StatusService,
   SwitchOperationKind,
   TransitionService,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
@@ -44,6 +45,8 @@ import {
   type RuntimeOwnerContext,
   type RuntimeOwnerOptions,
 } from "@/api/composition";
+
+export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
 
 type FakeJsonRoute = Readonly<{
   method: string;
@@ -163,6 +166,25 @@ export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
     },
   });
   return [
+    {
+      descriptor: StatusService.method.get,
+      result: create(StatusService.method.get.output, {
+        outcome: {
+          case: "success",
+          value: {
+            target: {
+              workspaceId: "workspace-1",
+              workspaceName: "Workspace",
+              workspaceRoot: "/repo",
+              workspaceAvailability: ProjectAvailability.AVAILABLE,
+              cwdRelpath: ".",
+              effectiveWorkdir: "/repo",
+            },
+            worktree: { recordedRoot: "/repo" },
+          },
+        },
+      }),
+    },
     {
       descriptor: CreateTargetService.method.resolve,
       resultFactory: (_request, callIndex) =>
