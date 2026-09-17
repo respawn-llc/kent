@@ -1,6 +1,31 @@
 package config
 
-import "core/shared/runtimeids"
+import (
+	"fmt"
+
+	"core/shared/runtimeids"
+)
+
+func (app App) ValidateDeclarationEvidence() error {
+	for key := range configRegistry.defaultSourceMap() {
+		origin, present := app.Source.Sources[key]
+		if !present || origin.Property.Key == "" {
+			return fmt.Errorf("configuration declaration evidence is required for %s", key)
+		}
+		switch origin.Kind {
+		case SourceDefault, SourceFileKind, SourceEnv, SourceCLI, SourceInput, SourceSession:
+		default:
+			return fmt.Errorf("configuration declaration origin for %s is invalid", key)
+		}
+	}
+	for name := range app.Settings.SkillToggles {
+		key := skillSourceKey(name)
+		if _, present := app.Source.Sources[key]; !present {
+			return fmt.Errorf("configuration declaration evidence is required for %s", key)
+		}
+	}
+	return nil
+}
 
 // Origin identifies the declaration, even when its value is inherited under a
 // different effective property key.

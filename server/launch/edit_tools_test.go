@@ -93,7 +93,8 @@ func TestActiveToolIDsLegacyMissingLockUsesEffectiveConfig(t *testing.T) {
 
 func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 	store := createTestSession(t, t.TempDir())
-	settings := validLaunchSettings("gpt-5.6-sol")
+	app := loadLaunchConfig(t, t.TempDir(), "model = \"gpt-5.6-sol\"")
+	settings := app.Settings
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: config.Settings{
@@ -113,7 +114,7 @@ func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 	plan := sessionPlanWithSnapshot(SessionPlan{
 		ActiveSettings: settings,
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch},
-		Source:         defaultToolSources(),
+		Source:         app.Source,
 	}, store, filepath.Dir(store.Dir()))
 
 	updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
@@ -129,7 +130,8 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
 	store := createTestSession(t, t.TempDir())
-	settings := validLaunchSettings("gpt-5.6-sol")
+	app := loadLaunchConfig(t, t.TempDir(), "model = \"gpt-5.6-sol\"")
+	settings := app.Settings
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: config.Settings{
@@ -150,7 +152,7 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 		ActiveSettings: settings,
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch},
 		WorkspaceRoot:  t.TempDir(),
-		Source:         defaultToolSources(),
+		Source:         app.Source,
 	}, store, filepath.Dir(store.Dir()))
 
 	updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker"), Model: "gpt-5.6-sol"}, auth.EmptyState())

@@ -275,13 +275,13 @@ func (s *Starter) workflowAssignmentPersistenceContext(
 	prepared preparedCurrentNodeAgentSession,
 ) runtime.PersistedWorkflowAssignmentContext {
 	return runtime.PersistedWorkflowAssignmentContext{
-		Workdir:                 prepared.root.EffectiveRoot(),
-		GlobalConfigDir:         s.cfg.PersistenceRoot,
-		Model:                   prepared.plan.ActiveSettings.Model,
-		ThinkingLevel:           prepared.plan.ActiveSettings.ThinkingLevel,
-		SkillPolicy:             config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
-		SubagentCatalogSettings: prepared.plan.ActiveSettings,
-		EnabledTools:            workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		Workdir:         prepared.root.EffectiveRoot(),
+		GlobalConfigDir: s.cfg.PersistenceRoot,
+		Model:           prepared.plan.ActiveSettings.Model,
+		ThinkingLevel:   prepared.plan.ActiveSettings.ThinkingLevel,
+		SkillPolicy:     config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
+		SubagentCatalog: config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
+		EnabledTools:    workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 	}
 }
 

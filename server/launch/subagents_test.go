@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
@@ -71,6 +72,17 @@ supports_vision_inputs = true
 		if role == config.BuiltInSubagentRoleFast && (effective.Reviewer.Model != "cli-model" || !reflect.DeepEqual(source.Sources["reviewer.model"], source.Sources["model"])) {
 			t.Fatalf("omitted Supervisor model must inherit the final model and origin: %+v %+v", effective.Reviewer, source.Sources)
 		}
+	}
+}
+
+func TestEffectiveRoleResolutionRejectsMissingDeclarationEvidence(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(), "[subagents.worker]", "model = \"file-model\"")
+	app.Source = config.SourceReport{}
+	if _, err := ResolveConfiguredSubagentSettings(app, "worker"); err == nil {
+		t.Fatal("effective role accepted missing declaration evidence")
+	}
+	if _, err := config.OverlaySubagentRoleProviderSettings(app, app.Settings.Subagents["worker"]); err == nil {
+		t.Fatal("provider projection accepted missing declaration evidence")
 	}
 }
 
@@ -161,7 +173,10 @@ func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing
 		},
 	}
 
-	settings, _ := config.OverlaySubagentRoleSettings(base, nil, role, true)
+	settings, _, err := config.OverlaySubagentRoleSettings(testsetup.ProgrammaticConfig(t, base), role, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if settings.ProviderCapabilities.SupportsProviderVerbosity {
 		t.Fatalf("expected subagent verbosity capability override to apply, got %+v", settings.ProviderCapabilities)

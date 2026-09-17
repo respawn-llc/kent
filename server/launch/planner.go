@@ -609,7 +609,10 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 		return base, source, nil
 	}
 	providerSettings := cloneSettings(base)
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, source.Sources, lookup.Role)
+	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: source}, lookup.Role)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, err
+	}
 	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, *lookup.NormalizedSelector, persistedRoleProviderID(providerSettings), allowModelOverride, validate)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
@@ -858,7 +861,10 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 	providerSettings.ProviderOverride = overrideConfig.Settings.ProviderOverride
 	providerSettings.OpenAIBaseURL = overrideConfig.Settings.OpenAIBaseURL
 	providerSettings.Subagents = nil
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, overrideConfig.Source.Sources, lookup.Role)
+	providerSettings, err = config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: overrideConfig.Source}, lookup.Role)
+	if err != nil {
+		return PreparedRunPromptOverrides{}, err
+	}
 	providerID := persistedRoleProviderID(providerSettings)
 	var providerCapabilities *llm.ProviderCapabilities
 	if !preparation.SkipProviderReadinessValidation {

@@ -158,10 +158,14 @@ func MaterializeSubagentRoleDeclaration(base Settings, role SubagentRole) Settin
 	return settings
 }
 
-func OverlaySubagentRoleSettings(base Settings, sources map[string]Origin, role SubagentRole, allowModelOverride bool) (Settings, map[string]Origin) {
-	return overlaySubagentRoleSettings(base, sources, role, func(key string) bool {
+func OverlaySubagentRoleSettings(base App, role SubagentRole, allowModelOverride bool) (Settings, map[string]Origin, error) {
+	if err := base.ValidateDeclarationEvidence(); err != nil {
+		return Settings{}, nil, err
+	}
+	settings, sources := overlaySubagentRoleSettings(base.Settings, base.Source.Sources, role, func(key string) bool {
 		return subagentRoleSessionSetting(key) && (allowModelOverride || key != "model")
 	}, true)
+	return settings, sources, nil
 }
 
 func subagentRoleSessionSetting(key string) bool {
@@ -170,13 +174,16 @@ func subagentRoleSessionSetting(key string) bool {
 		!strings.HasPrefix(key, "workflow.")
 }
 
-func OverlaySubagentRoleProviderSettings(base Settings, sources map[string]Origin, role SubagentRole) Settings {
-	settings, _ := overlaySubagentRoleSettings(base, sources, role, func(key string) bool {
+func OverlaySubagentRoleProviderSettings(base App, role SubagentRole) (Settings, error) {
+	if err := base.ValidateDeclarationEvidence(); err != nil {
+		return Settings{}, err
+	}
+	settings, _ := overlaySubagentRoleSettings(base.Settings, base.Source.Sources, role, func(key string) bool {
 		return key == "provider_override" ||
 			key == "openai_base_url" ||
 			strings.HasPrefix(key, "provider_capabilities.")
 	}, false)
-	return settings
+	return settings, nil
 }
 
 func overlaySubagentRoleSettings(base Settings, sources map[string]Origin, role SubagentRole, include func(string) bool, includeDynamicSettings bool) (Settings, map[string]Origin) {

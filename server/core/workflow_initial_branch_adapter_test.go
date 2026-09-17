@@ -45,7 +45,7 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	}
 	store, err := workflowstore.New(
 		appCore.bundles.Persistence.metadataStore,
-		workflowstore.WithRoleResolver(configRoleResolver{settings: resolved.Config.Settings}),
+		workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}),
 	)
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)

@@ -12,7 +12,7 @@ import (
 )
 
 type configTargetAgentCatalog struct {
-	settings config.Settings
+	app config.App
 }
 
 type configRoleResolver = configTargetAgentCatalog
@@ -22,11 +22,11 @@ func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.T
 	if trimmed == "" {
 		return workflow.TargetAgentRole{}, false
 	}
-	lookup := config.LookupSubagentRole(r.settings, trimmed)
+	lookup := config.LookupSubagentRole(r.app.Settings, trimmed)
 	if lookup.Status != config.SubagentRoleLookupPresent || lookup.NormalizedSelector == nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	effective, err := launch.ResolveConfiguredSubagentSettings(r.settings, *lookup.NormalizedSelector)
+	effective, err := launch.ResolveConfiguredSubagentSettings(r.app, *lookup.NormalizedSelector)
 	if err != nil {
 		return workflow.TargetAgentRole{}, false
 	}
@@ -35,8 +35,8 @@ func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.T
 }
 
 func (r configTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
-	roles := make([]workflow.TargetAgentRole, 0, len(r.settings.Subagents))
-	for name, role := range r.settings.Subagents {
+	roles := make([]workflow.TargetAgentRole, 0, len(r.app.Settings.Subagents))
+	for name, role := range r.app.Settings.Subagents {
 		if !role.AgentCallableSet() || !role.AgentCallable {
 			continue
 		}

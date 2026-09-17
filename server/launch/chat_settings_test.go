@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -65,7 +66,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 			AgentCallable: false,
 		},
 	}
-	catalog, err := PrepareChatAgentCatalog(config.App{Settings: settings}, auth.EmptyState(), true)
+	catalog, err := PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), auth.EmptyState(), true)
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		Settings: config.Settings{ThinkingLevel: " "},
 		Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 	}
-	_, err = PrepareChatAgentCatalog(config.App{Settings: settings}, auth.EmptyState(), true)
+	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), auth.EmptyState(), true)
 	var typed *serverapi.ChatSettingsAgentPreparationError
 	if !errors.As(err, &typed) ||
 		typed.Agent != "broken" ||

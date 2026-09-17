@@ -249,7 +249,7 @@ func NewRuntimeWiringWithBackground(
 		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
-		SubagentCatalogSettings:         active,
+		SubagentCatalog:                 config.App{Settings: active, Source: config.SourceReport{Sources: opts.Sources}},
 		SystemPromptFile:                active.SystemPromptFile,
 		RefreshToolRegistry:             localTools.ReplaceEnabledTools,
 		AutoCompactTokenLimit:           active.ContextCompactionThresholdTokens,

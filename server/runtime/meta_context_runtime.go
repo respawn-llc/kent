@@ -107,7 +107,7 @@ func (e *Engine) ensureMetaContextForCompaction(ctx context.Context, stepID stri
 
 func (e *Engine) activeMetaContextBuilder(model string, skillPolicy config.SkillPolicy) metaContextBuilder {
 	return newActiveMetaContextBuilder(e.store.Meta(), e.transcriptWorkingDir(), model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, skillPolicy, time.Now()).
-		withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
+		withSubagents(e.cfg.SubagentCatalog, e.cfg.EnabledTools)
 }
 
 func (e *Engine) steerMetaContextIfChanged(stepID string, messages []llm.Message) error {

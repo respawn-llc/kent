@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	"core/shared/config"
 	"core/shared/runtimeids"
@@ -50,7 +51,7 @@ func TestConfigRoleResolverUsesConfiguredRoleIdentity(t *testing.T) {
 			},
 		},
 	}
-	resolver := configRoleResolver{settings: settings}
+	resolver := configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)}
 
 	tests := []struct {
 		name string
@@ -97,7 +98,7 @@ func TestWorkflowDefaultAssigneeUsesHeadlessSettings(t *testing.T) {
 			},
 		},
 	}
-	role, ok := (configRoleResolver{settings: settings}).ResolveConfiguredRole(workflow.DefaultAgentRole)
+	role, ok := (configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)}).ResolveConfiguredRole(workflow.DefaultAgentRole)
 	if !ok || role.Model != "gpt-5-mini" {
 		t.Fatalf("direct default assignment = %+v, exists=%t", role, ok)
 	}
@@ -132,7 +133,7 @@ func TestWorkflowValidationUsesConfigRoleResolverIdentity(t *testing.T) {
 	t.Run("configured no-op role", func(t *testing.T) {
 		result := workflow.ValidateDefinition(coreWorkflowValidationDefinition("planner"), workflow.ValidationOptions{
 			Context:      workflow.ValidationContextTaskCreation,
-			RoleResolver: configRoleResolver{settings: settings},
+			RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 		})
 
 		assertCoreWorkflowHasNoCode(t, result, workflow.CodeAgentRoleMissing)
@@ -144,7 +145,7 @@ func TestWorkflowValidationUsesConfigRoleResolverIdentity(t *testing.T) {
 	t.Run("workflow-hidden configured role", func(t *testing.T) {
 		result := workflow.ValidateDefinition(coreWorkflowValidationDefinition("role_hidden"), workflow.ValidationOptions{
 			Context:      workflow.ValidationContextTaskCreation,
-			RoleResolver: configRoleResolver{settings: settings},
+			RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 		})
 		assertCoreWorkflowHasNoCode(t, result, workflow.CodeAgentRoleMissing)
 		if result.HasErrors() {
@@ -156,7 +157,7 @@ func TestWorkflowValidationUsesConfigRoleResolverIdentity(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			result := workflow.ValidateDefinition(coreWorkflowValidationDefinition(role), workflow.ValidationOptions{
 				Context:      workflow.ValidationContextTaskCreation,
-				RoleResolver: configRoleResolver{settings: settings},
+				RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 			})
 
 			assertCoreWorkflowHasCode(t, result, workflow.CodeAgentRoleMissing)
@@ -168,9 +169,9 @@ func TestWorkflowValidationRejectsDefaultRoleWithoutAskQuestion(t *testing.T) {
 	def := coreWorkflowValidationDefinition(workflow.DefaultAgentRole)
 	result := workflow.ValidateDefinition(def, workflow.ValidationOptions{
 		Context: workflow.ValidationContextExecution,
-		RoleResolver: configRoleResolver{settings: config.Settings{
+		RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, config.Settings{
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false},
-		}},
+		})},
 	})
 
 	var diagnostics []workflow.ValidationError
@@ -212,7 +213,7 @@ func TestWorkflowValidationRejectsConfiguredRoleDisablingAskQuestion(t *testing.
 	}
 	result := workflow.ValidateDefinition(coreWorkflowValidationDefinition("planner"), workflow.ValidationOptions{
 		Context:      workflow.ValidationContextExecution,
-		RoleResolver: configRoleResolver{settings: settings},
+		RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 	})
 
 	assertCoreWorkflowHasCode(t, result, workflow.CodeAgentRoleRequiredToolDisabled)
@@ -233,7 +234,7 @@ func TestWorkflowValidationAcceptsConfiguredRoleReenablingAskQuestion(t *testing
 	}
 	result := workflow.ValidateDefinition(coreWorkflowValidationDefinition("planner"), workflow.ValidationOptions{
 		Context:      workflow.ValidationContextExecution,
-		RoleResolver: configRoleResolver{settings: settings},
+		RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 	})
 
 	assertCoreWorkflowHasNoCode(t, result, workflow.CodeAgentRoleRequiredToolDisabled)
@@ -254,7 +255,7 @@ func TestWorkflowValidationRejectsBuiltInRoleDisablingAskQuestion(t *testing.T) 
 	}
 	result := workflow.ValidateDefinition(coreWorkflowValidationDefinition(config.BuiltInSubagentRoleFast), workflow.ValidationOptions{
 		Context:      workflow.ValidationContextExecution,
-		RoleResolver: configRoleResolver{settings: settings},
+		RoleResolver: configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)},
 	})
 
 	assertCoreWorkflowHasCode(t, result, workflow.CodeAgentRoleRequiredToolDisabled)

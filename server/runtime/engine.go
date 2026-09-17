@@ -86,7 +86,7 @@ type Config struct {
 	ProviderCapabilitiesOverride    *llm.ProviderCapabilities
 	EnabledTools                    []toolspec.ID
 	SkillPolicy                     config.SkillPolicy
-	SubagentCatalogSettings         config.Settings
+	SubagentCatalog                 config.App
 	SystemPromptFile                *config.SystemPromptFile
 	RefreshToolRegistry             func([]toolspec.ID) error
 	AutoCompactTokenLimit           int

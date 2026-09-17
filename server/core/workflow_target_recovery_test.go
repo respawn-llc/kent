@@ -85,7 +85,7 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 	if err := app.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "REC"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(configRoleResolver{settings: resolved.Config.Settings}))
+	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}))
 	if err != nil {
 		t.Fatal(err)
 	}

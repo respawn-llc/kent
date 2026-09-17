@@ -34,8 +34,8 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 
 // ResolveConfiguredSubagentSettings resolves one configured role against the
 // current base settings without creating a session or mutating configuration.
-func ResolveConfiguredSubagentSettings(base config.Settings, roleName string) (config.Settings, error) {
-	resolved, _, _, err := resolveSubagentSettingsWithProviderID(base, config.SourceReport{}, roleName, "", true, false)
+func ResolveConfiguredSubagentSettings(base config.App, roleName string) (config.Settings, error) {
+	resolved, _, _, err := resolveSubagentSettingsWithProviderID(base.Settings, base.Source, roleName, "", true, false)
 	if err != nil {
 		return config.Settings{}, err
 	}
@@ -46,7 +46,10 @@ func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	resolved := cloneSettings(base)
 	_ = applyBuiltInRoleHeuristics(&resolved, selector, providerID, allowModelOverride)
 	originalModel := strings.TrimSpace(resolved.Model)
-	resolved, effectiveSources := config.OverlaySubagentRoleSettings(resolved, baseSource.Sources, role, allowModelOverride)
+	resolved, effectiveSources, err := config.OverlaySubagentRoleSettings(config.App{Settings: resolved, Source: baseSource}, role, allowModelOverride)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, nil, err
+	}
 	resolved, effectiveSources = config.OverlayAgentOverrides(resolved, effectiveSources, base, baseSource.Sources, allowModelOverride)
 	explicitSources := make(map[string]config.Origin, len(role.Sources))
 	maps.Copy(explicitSources, role.Sources)
