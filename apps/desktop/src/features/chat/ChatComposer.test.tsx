@@ -30,6 +30,11 @@ import {
   type ComposerSubmission,
 } from "./useChatComposer";
 
+import { createChatStorageFixture } from "./chatStorageFixture";
+
+beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
+afterEach(() => vi.unstubAllGlobals());
+
 function useChatComposer(
   options: ChatSettingsTarget & Omit<ChatComposerOptions, "model"> & { submission?: ComposerSubmission },
 ) {

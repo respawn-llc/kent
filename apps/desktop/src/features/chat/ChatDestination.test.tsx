@@ -1,3 +1,4 @@
+import { createChatStorageFixture } from "./chatStorageFixture";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { RegistryProvider } from "@effect/atom-react";
 import type { ReactNode } from "react";
@@ -64,26 +65,7 @@ const catalog: ChatSettingsRead = {
   },
 };
 const navigation = { openTask: vi.fn(), openParentSession: vi.fn() };
-beforeEach(() => {
-  const values = new Map<string, string>();
-  const storage: Storage = {
-    get length() {
-      return values.size;
-    },
-    clear: () => {
-      values.clear();
-    },
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => {
-      values.set(key, value);
-    },
-    removeItem: (key) => {
-      values.delete(key);
-    },
-    key: (index) => Array.from(values.keys())[index] ?? null,
-  };
-  vi.stubGlobal("localStorage", storage);
-});
+beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 function setup(commands: readonly ComposerCommand[] = []) {
   writeBrowserStorage("local", "desktop.newChatDraft", "");
