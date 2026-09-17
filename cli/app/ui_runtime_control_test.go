@@ -186,7 +186,7 @@ func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSet
 		},
 	}, f.err
 }
-func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.pauseGoalCalls++
 	if f.goalCallEvents != nil {
 		*f.goalCallEvents = append(*f.goalCallEvents, "pause-started")
@@ -195,33 +195,33 @@ func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, err
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ResumeGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) ResumeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.resumeGoalCalls++
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) CompleteGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) CompleteGoal() (*runtimepb.GoalMutationSuccess, error) {
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ClearGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) ClearGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.clearGoalCalls++
 	f.goal = nil
-	return clientui.GoalMutationResult{Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR}, f.err
+	return &runtimepb.GoalMutationSuccess{Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR}, f.err
 }
 
 func runtimeControlTestGoal(objective string, status runtimepb.GoalStatus) *runtimepb.GoalView {
@@ -326,7 +326,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		sessionID:      m.sessionID,
 		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
-		mutation: clientui.GoalMutationResult{
+		mutation: &runtimepb.GoalMutationSuccess{
 			Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 			Goal: paused.Goal}})
 	stale := &runtimepb.GoalView{

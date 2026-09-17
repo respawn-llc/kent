@@ -97,10 +97,10 @@ type RuntimeClient interface {
 	SetSessionName(name string) error
 	ShowGoal() (*runtimepb.GoalView, error)
 	SetGoal(objective string) (*runtimepb.GoalSetSuccess, error)
-	PauseGoal() (GoalMutationResult, error)
-	ResumeGoal() (GoalMutationResult, error)
-	CompleteGoal() (GoalMutationResult, error)
-	ClearGoal() (GoalMutationResult, error)
+	PauseGoal() (*runtimepb.GoalMutationSuccess, error)
+	ResumeGoal() (*runtimepb.GoalMutationSuccess, error)
+	CompleteGoal() (*runtimepb.GoalMutationSuccess, error)
+	ClearGoal() (*runtimepb.GoalMutationSuccess, error)
 	AppendCommittedEntry(role, text string) error
 	AppendCommittedEntryWithNoticeID(role, text, noticeID string) error
 	SubmitRuntimeInput(ctx context.Context, req RuntimeSubmitRequest) (UserTurnSubmission, error)

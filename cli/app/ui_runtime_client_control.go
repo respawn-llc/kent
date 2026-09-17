@@ -123,43 +123,36 @@ func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSucc
 	return resp, nil
 }
 
-func (c *sessionRuntimeClient) PauseGoal() (clientui.GoalMutationResult, error) {
+func (c *sessionRuntimeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, error) {
 	return c.setGoalStatus(func(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 		return c.controls.PauseGoal(ctx, req)
 	})
 }
 
-func (c *sessionRuntimeClient) ResumeGoal() (clientui.GoalMutationResult, error) {
+func (c *sessionRuntimeClient) ResumeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	return c.setGoalStatus(func(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 		return c.controls.ResumeGoal(ctx, req)
 	})
 }
 
-func (c *sessionRuntimeClient) CompleteGoal() (clientui.GoalMutationResult, error) {
+func (c *sessionRuntimeClient) CompleteGoal() (*runtimepb.GoalMutationSuccess, error) {
 	return c.setGoalStatus(func(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 		return c.controls.CompleteGoal(ctx, req)
 	})
 }
 
-func (c *sessionRuntimeClient) ClearGoal() (clientui.GoalMutationResult, error) {
+func (c *sessionRuntimeClient) ClearGoal() (*runtimepb.GoalMutationSuccess, error) {
 	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalMutationSuccess, error) {
 		return c.controls.ClearGoal(ctx, &runtimepb.GoalClearRequest{SessionId: c.sessionID, Actor: "user"})
 	})
-	return runtimeGoalMutationResult(resp, err)
+	return resp, err
 }
 
-func (c *sessionRuntimeClient) setGoalStatus(call func(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)) (clientui.GoalMutationResult, error) {
+func (c *sessionRuntimeClient) setGoalStatus(call func(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)) (*runtimepb.GoalMutationSuccess, error) {
 	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (*runtimepb.GoalMutationSuccess, error) {
 		return call(ctx, &runtimepb.GoalMutationRequest{SessionId: c.sessionID, Actor: "user"})
 	})
-	return runtimeGoalMutationResult(resp, err)
-}
-
-func runtimeGoalMutationResult(resp *runtimepb.GoalMutationSuccess, err error) (clientui.GoalMutationResult, error) {
-	if err != nil {
-		return clientui.GoalMutationResult{}, err
-	}
-	return clientui.GoalMutationResult{Kind: resp.Kind, Goal: resp.Goal, Availability: resp.Availability}, nil
+	return resp, err
 }
 
 func runtimeGoalFromResponse(resp *runtimepb.GoalShowSuccess) *runtimepb.GoalView {
