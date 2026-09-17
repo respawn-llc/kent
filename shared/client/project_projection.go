@@ -1,14 +1,11 @@
 package client
 
 import (
-	"fmt"
-
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
 
@@ -84,34 +81,12 @@ func ProjectBindingFromProto(binding *projectpb.ProjectBinding) (serverapi.Proje
 	}, nil
 }
 
-func SessionCategoryToProto(category sessioncontract.SessionCategory) (projectpb.SessionCategory, error) {
-	switch category {
-	case sessioncontract.SessionCategoryMain:
-		return projectpb.SessionCategory_SESSION_CATEGORY_MAIN, nil
-	case sessioncontract.SessionCategorySubagent:
-		return projectpb.SessionCategory_SESSION_CATEGORY_SUBAGENT, nil
-	default:
-		return projectpb.SessionCategory_SESSION_CATEGORY_UNSPECIFIED, fmt.Errorf("unsupported Session category %q", category)
-	}
-}
-
-func SessionCategoryFromProto(category projectpb.SessionCategory) (sessioncontract.SessionCategory, error) {
-	switch category {
-	case projectpb.SessionCategory_SESSION_CATEGORY_MAIN:
-		return sessioncontract.SessionCategoryMain, nil
-	case projectpb.SessionCategory_SESSION_CATEGORY_SUBAGENT:
-		return sessioncontract.SessionCategorySubagent, nil
-	default:
-		return "", fmt.Errorf("unsupported generated Session category %s", category)
-	}
-}
-
 func SessionSummaryFromProto(session *projectpb.SessionSummary) (clientui.SessionSummary, error) {
 	sessionID, err := runtimeids.ParseSessionID(session.SessionId)
 	if err != nil {
 		return clientui.SessionSummary{}, err
 	}
-	category, err := SessionCategoryFromProto(session.Category)
+	category, err := protoapi.SessionCategoryFromProto(session.Category)
 	if err != nil {
 		return clientui.SessionSummary{}, err
 	}

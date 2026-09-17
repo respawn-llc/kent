@@ -714,7 +714,7 @@ func (s *Service) ListSessionPage(ctx context.Context, req *projectpb.SessionPag
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	category, err := sessionCategoryFromGenerated(req.Category)
+	category, err := protoapi.SessionCategoryFromProto(req.Category)
 	if err != nil {
 		return nil, err
 	}

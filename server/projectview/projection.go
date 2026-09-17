@@ -11,7 +11,6 @@ import (
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
-	"core/shared/sessioncontract"
 	"core/shared/textutil"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -166,30 +165,8 @@ func projectWorkspaceGetSelectorFromGenerated(request *projectpb.GetProjectWorks
 	}
 }
 
-func sessionCategoryFromGenerated(category projectpb.SessionCategory) (sessioncontract.SessionCategory, error) {
-	switch category {
-	case projectpb.SessionCategory_SESSION_CATEGORY_MAIN:
-		return sessioncontract.SessionCategoryMain, nil
-	case projectpb.SessionCategory_SESSION_CATEGORY_SUBAGENT:
-		return sessioncontract.SessionCategorySubagent, nil
-	default:
-		return "", fmt.Errorf("session category %v is unsupported", category)
-	}
-}
-
-func sessionCategoryToGenerated(category sessioncontract.SessionCategory) (projectpb.SessionCategory, error) {
-	switch category {
-	case sessioncontract.SessionCategoryMain:
-		return projectpb.SessionCategory_SESSION_CATEGORY_MAIN, nil
-	case sessioncontract.SessionCategorySubagent:
-		return projectpb.SessionCategory_SESSION_CATEGORY_SUBAGENT, nil
-	default:
-		return projectpb.SessionCategory_SESSION_CATEGORY_UNSPECIFIED, fmt.Errorf("session category %q is unsupported", category)
-	}
-}
-
 func sessionPageToGenerated(page metadata.SessionPage) (*projectpb.SessionPageSuccess, error) {
-	category, err := sessionCategoryToGenerated(page.Category)
+	category, err := protoapi.SessionCategoryToProto(page.Category)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +176,7 @@ func sessionPageToGenerated(page metadata.SessionPage) (*projectpb.SessionPageSu
 		Sessions:  make([]*projectpb.SessionSummary, 0, len(page.Sessions)),
 	}
 	for _, summary := range page.Sessions {
-		summaryCategory, err := sessionCategoryToGenerated(summary.Category)
+		summaryCategory, err := protoapi.SessionCategoryToProto(summary.Category)
 		if err != nil {
 			return nil, err
 		}
