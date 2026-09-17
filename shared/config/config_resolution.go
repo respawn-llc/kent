@@ -26,21 +26,23 @@ func resolveSettings(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfi
 	files := []ConfigFileReport{{SourceFile: SourceFile{Layer: FileGlobal, Path: globalPath}, Enabled: true}}
 	workspaceRoot := ""
 	if roots != nil {
-		if strings.TrimSpace(roots.Shared) == "" || strings.TrimSpace(roots.Main) == "" {
-			return loadedConfig{}, errors.New("shared configuration root and Main Workspace root are required")
+		if strings.TrimSpace(roots.Shared) == "" {
+			return loadedConfig{}, errors.New("shared configuration root is required")
 		}
 		workspaceRoot, err = filepath.Abs(strings.TrimSpace(roots.Shared))
 		if err != nil {
 			return loadedConfig{}, fmt.Errorf("resolve shared configuration root: %w", err)
 		}
-		mainRoot, err := filepath.Abs(strings.TrimSpace(roots.Main))
-		if err != nil {
-			return loadedConfig{}, fmt.Errorf("resolve Main Workspace root: %w", err)
-		}
 		files = append(files,
 			ConfigFileReport{SourceFile: SourceFile{Layer: FileWorkspace, Path: filepath.Join(workspaceRoot, ConfigDirName, "config.toml")}, Enabled: true},
-			ConfigFileReport{SourceFile: SourceFile{Layer: FilePrivate, Path: filepath.Join(mainRoot, ConfigDirName, "config.local.toml")}, Enabled: true},
 		)
+		if roots.Main != nil {
+			mainRoot, err := filepath.Abs(strings.TrimSpace(*roots.Main))
+			if err != nil {
+				return loadedConfig{}, fmt.Errorf("resolve Main Workspace root: %w", err)
+			}
+			files = append(files, ConfigFileReport{SourceFile: SourceFile{Layer: FilePrivate, Path: filepath.Join(mainRoot, ConfigDirName, "config.local.toml")}, Enabled: true})
+		}
 	}
 	state := configRegistry.defaultState()
 	state.PersistenceRoot = persistenceRoot

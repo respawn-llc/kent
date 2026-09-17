@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -8,11 +9,21 @@ import (
 
 type workspaceConfigRoots struct {
 	Shared string
-	Main   string
+	Main   *string
 }
 
 func Load(sharedRoot, mainWorkspaceRoot string, opts LoadOptions) (App, error) {
-	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: mainWorkspaceRoot}, opts)
+	if strings.TrimSpace(mainWorkspaceRoot) == "" {
+		return App{}, errors.New("Main Workspace root is required")
+	}
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: &mainWorkspaceRoot}, opts)
+	return loaded.App, err
+}
+
+// LoadConnectionDiscovery reads the existing global/shared/environment inputs
+// used before RPC. Main Workspace private ownership is resolved by the server.
+func LoadConnectionDiscovery(sharedRoot string) (App, error) {
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot}, LoadOptions{})
 	return loaded.App, err
 }
 
@@ -22,7 +33,10 @@ func LoadGlobal(opts LoadOptions) (App, error) {
 }
 
 func LoadInteractive(sharedRoot, mainWorkspaceRoot string, opts LoadOptions) (App, ClientSettings, error) {
-	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: mainWorkspaceRoot}, opts)
+	if strings.TrimSpace(mainWorkspaceRoot) == "" {
+		return App{}, ClientSettings{}, errors.New("Main Workspace root is required")
+	}
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot, Main: &mainWorkspaceRoot}, opts)
 	if err != nil {
 		return App{}, ClientSettings{}, err
 	}

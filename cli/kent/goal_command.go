@@ -11,7 +11,6 @@ import (
 
 	"core/cli/tui"
 	"core/prompts"
-	"core/server/bootstrap"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -315,11 +314,10 @@ func resolveGoalCommandSession(sessionFlag string) (sessionID string, agent bool
 }
 
 func openGoalCommandRemote(ctx context.Context) (goalCommandRemote, error) {
-	plan, err := bootstrap.ResolveConfig(bootstrap.Request{WorkspaceRoot: "."})
+	cfg, err := config.LoadConnectionDiscovery(".")
 	if err != nil {
 		return nil, err
 	}
-	cfg := plan.Config
 	remote, err := client.DialConfiguredRemote(ctx, cfg)
 	if err != nil {
 		return nil, err
