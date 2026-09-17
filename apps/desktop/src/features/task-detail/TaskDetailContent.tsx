@@ -192,6 +192,7 @@ export function TaskDetailContent({
         });
       }}
       taskID={detail.id}
+      executionTarget={detail.executionTarget}
     >
       <TaskDeleteProvider onDismiss={onDeleteDismiss} taskID={detail.id}>
         <TaskDetailList

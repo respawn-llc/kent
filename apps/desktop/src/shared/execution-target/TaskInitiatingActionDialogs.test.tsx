@@ -34,6 +34,7 @@ type ExecuteStub = (
 
 const appServices = createTestServices([], undefined, { platform: "macos" });
 const setupRecovery = {
+  recoveryDisposition: "retry_existing",
   setupOperationID: parseSetupOperationID("55555555-5555-4555-8555-555555555555"),
   cause: "target_preparation",
   diagnostic: "failed",
@@ -342,7 +343,7 @@ describe("TaskInitiatingActionDialogs", () => {
     expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
   });
 
-  it("recovers the canonical Task-detail interruption with its recorded target", async () => {
+  it("resumes canonical Task-detail recovery on its locked original target", async () => {
     const attention = {
       ...interruptedTaskAttentionResponse,
       items: [
@@ -401,9 +402,9 @@ describe("TaskInitiatingActionDialogs", () => {
     await waitFor(() => {
       expect(getCallCount(services.transport.calls, "workflow.task.resume")).toBe(1);
     });
-    expect(callParams(services.transport.calls, "workflow.task.resume")).toMatchObject({
-      execution_target: { mode: "head" },
-    });
+    expect(callParams(services.transport.calls, "workflow.task.resume")).not.toHaveProperty(
+      "execution_target",
+    );
   });
 
   it("surfaces malformed Task-detail recovery contracts", async () => {

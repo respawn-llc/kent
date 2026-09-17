@@ -108,7 +108,6 @@ export function useTaskInitiatingActionController({
       try {
         await handleResult(await execute(action, selection));
       } catch (error) {
-        if (action.kind !== "move") throw error;
         const choiceFailure = decodeExecutionTargetChoiceFailure(error);
         const current = pendingRef.current;
         if (
@@ -118,6 +117,7 @@ export function useTaskInitiatingActionController({
           updatePending({ ...current, choiceFailure });
           return;
         }
+        if (action.kind !== "move") throw error;
         const failure = decodeWorktreeSetupRetainedError(error);
         if (failure === null) throw error;
         updatePending({

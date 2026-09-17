@@ -120,7 +120,7 @@ type executionTargetMutationMode uint8
 const (
 	executionTargetReuse executionTargetMutationMode = iota
 	executionTargetInitialLock
-	executionTargetCompletedReplacement
+	executionTargetReplacement
 )
 
 type preparedExecutionTargetMutation struct {
@@ -148,7 +148,13 @@ func (s *Store) prepareExecutionTargetMutation(ctx context.Context, task sqliteg
 		}, nil
 	}
 	if candidate != nil {
-		return preparedExecutionTargetMutation{}, ErrExecutionTargetAlreadyLocked
+		if snapshot.Mode == workflow.ExecutionTargetModeNone {
+			return preparedExecutionTargetMutation{}, ErrExecutionTargetAlreadyLocked
+		}
+		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *candidate, executionTargetReplacement); err != nil {
+			return preparedExecutionTargetMutation{}, err
+		}
+		return preparedExecutionTargetMutation{mode: executionTargetReplacement, executionRoot: candidate.Root, candidate: candidate}, nil
 	}
 	root, err := executionRootForTask(ctx, s.queries, task)
 	if err != nil {
@@ -164,11 +170,11 @@ func applyPreparedExecutionTargetMutation(ctx context.Context, q *sqlitegen.Quer
 		switch prepared.mode {
 		case executionTargetInitialLock:
 			locked, err = q.LockTaskExecutionTarget(ctx, executionTargetLockParams(task, *prepared.candidate, now))
-		case executionTargetCompletedReplacement:
+		case executionTargetReplacement:
 			if err := validateExecutionTargetCandidateForTask(ctx, q, task, *prepared.candidate, prepared.mode); err != nil {
 				return err
 			}
-			locked, err = q.ReplaceCompletedTaskExecutionTarget(ctx, sqlitegen.ReplaceCompletedTaskExecutionTargetParams(executionTargetLockParams(task, *prepared.candidate, now)))
+			locked, err = q.ReplaceTaskExecutionTarget(ctx, sqlitegen.ReplaceTaskExecutionTargetParams(executionTargetLockParams(task, *prepared.candidate, now)))
 		default:
 			return errors.New("execution target mutation candidate has invalid mode")
 		}
@@ -407,7 +413,7 @@ func validateExecutionTargetCandidateForTask(ctx context.Context, q *sqlitegen.Q
 	if candidate.Snapshot.Mode == workflow.ExecutionTargetModeNone {
 		return nil
 	}
-	if mode == executionTargetCompletedReplacement {
+	if mode == executionTargetReplacement {
 		root, err := executionRootForManagedWorktree(ctx, q, sourceWorkspace, candidate.Root.Managed.WorktreeID)
 		if err != nil {
 			return err

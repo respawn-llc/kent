@@ -36,7 +36,7 @@ func registerWorktreeGatewayBinaryBindings(bindings map[string]gatewayBinaryBind
 		registerWorktreeUnary(bindings, selector, "Resolve", func() *worktreepb.SelectorResolveRequest { return &worktreepb.SelectorResolveRequest{} },
 			worktreeSessionScope[*worktreepb.SelectorResolveRequest], apicontract.WorktreeService.ResolveWorktreeSelector, worktreeSelectorFailure[*worktreepb.SelectorResolveRequest]),
 		registerWorktreeUnary(bindings, deletePreview, "Get", func() *worktreepb.DeletePreviewRequest { return &worktreepb.DeletePreviewRequest{} },
-			worktreeManagementScope[*worktreepb.DeletePreviewRequest], apicontract.WorktreeService.PreviewWorktreeDelete, worktreeDeletePreviewFailure),
+			worktreeManagementScope[*worktreepb.DeletePreviewRequest], apicontract.WorktreeService.PreviewWorktreeDelete, worktreeDeletionFailure),
 		registerWorktreeUnary(bindings, createTarget, "Resolve", func() *worktreepb.CreateTargetResolveRequest { return &worktreepb.CreateTargetResolveRequest{} },
 			worktreeManagementScope[*worktreepb.CreateTargetResolveRequest], apicontract.WorktreeService.ResolveWorktreeCreateTarget, worktreePlatformFailure[*worktreepb.CreateTargetResolveRequest]),
 		registerWorktreeUnary(bindings, create, "Create",
@@ -226,7 +226,11 @@ func worktreeTransitionFailure[Request proto.Message](request Request, err error
 	return worktreeSelectorFailure(request, err)
 }
 
-func worktreeDeletePreviewFailure(request *worktreepb.DeletePreviewRequest, err error) proto.Message {
+func worktreeDeletionFailure[Request proto.Message](request Request, err error) proto.Message {
+	var blocked *worktreecontract.BlockedError
+	if errors.As(err, &blocked) {
+		return blocked.Details
+	}
 	if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 		return &worktreepb.BlockedDetails{}
 	}
@@ -257,10 +261,7 @@ func worktreeDeleteFailure(request *worktreepb.DeleteRequest, err error) proto.M
 	if errors.As(err, &precondition) && precondition != nil && precondition.Details != nil {
 		return precondition.Details
 	}
-	if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
-		return &worktreepb.BlockedDetails{}
-	}
-	return worktreeSelectorFailure(request, err)
+	return worktreeDeletionFailure(request, err)
 }
 
 func worktreeSetupCompletion(err error) *worktreepb.SetupCompletion {

@@ -376,15 +376,23 @@
 - `/worktree status` and `/wt status` open the Worktree sidebar list.
 - `/worktree new`, `/worktree create`, `/wt new`, and `/wt create` open the Worktree sidebar directly in its creation state.
 - `new` and `create` accept no arguments. Desktop does not support a raw branch or path bypass.
-- `/worktree switch <target>` and `/wt switch <target>` apply the ordinary Switch action directly without opening the sidebar. They require exactly one target selector.
+- Worktree subcommands must ignore case. Argument splitting must follow TUI whitespace behavior without interpreting shell quotes or escapes.
+- `/worktree switch <target>` and `/wt switch <target>` must apply the ordinary Switch action directly without opening the sidebar. Switch must require target text and join all trailing whitespace-separated words with one space into a single selector.
 - `/worktree leave` and `/wt leave` apply the ordinary Leave action directly without opening the sidebar and accept no target selector.
-- `/worktree delete [target]`, `/worktree remove [target]`, `/worktree rm [target]`, and their `/wt` forms open the ordinary delete flow.
-- A delete command without a target selects the Session's current Worktree. A delete command with a target resolves that selector authoritatively before it opens the preview popup.
-- Delete commands accept at most one target selector.
+- `/worktree delete [target]`, `/worktree remove [target]`, `/worktree rm [target]`, and their `/wt` forms must use a simple confirmation dialog without opening the sidebar. The dialog must use ordinary Worktree deletion safety and branch-cleanup choices.
+- A delete command without a target must select the Session's current Worktree. A delete command with a target must resolve that selector authoritatively.
+- Delete commands must accept at most one whitespace-separated target selector.
+- Before opening the command dialog, Desktop must obtain the authoritative deletion preview and show request-pending feedback. A blocker reported by that preview or a preview failure must show one error Sonner without opening the dialog. Activity blockers checked at deletion admission must use the confirmation-failure behavior.
+- The command dialog title must be `Delete files irreversibly?`. Its body must be `All files of the worktree will be deleted permanently with no recovery. All sessions will be forcibly moved to main workspace.`
+- The command dialog must show the existing Dirty or Unknown preview warning when applicable. It must offer `No` and `Yes`, plus `Yes and branch` only for a branch-backed target. It must have no X close button.
+- `Yes` must use ordinary Confirm behavior. `Yes and branch` must use ordinary Confirm + Branch behavior. Neither choice must bypass deletion blockers.
+- `No` or Escape must dismiss the command dialog and restore composer focus.
+- A deletion rejection after command-dialog confirmation must close the dialog and show one error Sonner. Desktop must not bypass a raced blocker or retry automatically. The list-launched popup retains its inline failure behavior.
 - Malformed or unsupported Worktree command arguments change no state and show one error Sonner with localized Worktree usage.
 - Submitting a rejected Worktree command clears that command from the composer. Desktop does not create a transcript row or send it to the model.
 - In New Chat, every recognized Worktree command clears from the composer and shows one error Sonner explaining that a Session is required.
 - A Worktree slash command never creates a Session.
+- For an existing Session, Desktop must admit each valid Worktree slash command as an independent operation even while another Worktree request is pending. Desktop must not add command ordering or automatic retry guarantees.
 - New Chat omits the Worktree affordance because no Session exists yet. The affordance appears after Session creation.
 - Worktree management never creates a Session and is not a first-agentic trigger.
 - A Session owned by a Workflow Task uses the same Worktree affordance, sidebar, and mutations as an ordinary Session.
@@ -400,7 +408,7 @@
 - Opening the Worktree list moves keyboard focus to its first enabled list action. If no row has an enabled action, focus moves to the header `+` action.
 - The Worktree list must use Tab and Shift+Tab to navigate enabled actions and Enter or Space to activate the focused action. Row text must not be a separate interactive focus stop.
 - Opening Worktree creation moves focus to `Branch or ref`.
-- Escape closes the delete popup back to the list, returns creation to the list, and closes the list-level sidebar.
+- Escape closes the list-launched delete popup back to the list, returns creation to the list, and closes the list-level sidebar.
 - Closing Worktree restores focus to the under-composer Worktree control when that control opened it, or to the composer when a slash command opened it.
 - The Worktree sidebar opens directly to one management list. It has no overview landing page, cards, tabs, or nested Manage screen.
 - The sidebar header has a primary icon-only `+` action for creating a worktree.

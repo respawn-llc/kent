@@ -265,7 +265,7 @@
 - Kent never offers deletion for the Main Workspace row or the Git main worktree.
 - Delete preview and deletion of the Git main worktree report `worktree blocked`, change no state, and include no blocker-detail payload.
 - A Kent background shell process in the worktree blocks deletion immediately. Kent does not wait or retry automatically.
-- A busy deletion reports `worktree blocked`. It is not a successful deletion and includes no blocker-detail payload.
+- A busy deletion must report `worktree blocked`, not successful deletion. An active-Session blocker result must include structured names and IDs for at most 50 blocking Sessions and indicate whether more exist. Blocker discovery must use bounded reads. Sessions beyond the displayed limit must still block deletion. Background-process blockers include no blocker-detail payload.
 - Branch cleanup is conservative/best-effort. Normal TUI deletion only auto-attempts branch deletion when provenance proves Kent created the branch. Explicit TUI Delete + Branch is available for every branch-backed worktree and uses safe branch deletion.
 - New worktrees default under the Worktree Base Dir, which is rooted under Kent persistence state by default.
 - After a target change, shell execution and relative file paths use the new Working Directory.

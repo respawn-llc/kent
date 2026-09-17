@@ -7,10 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 type TransitionBranchKey string
@@ -135,6 +138,7 @@ type CurrentNodeInterruptionDetail struct {
 	Code                                 string
 	Fields                               map[string]string
 	ConfiguredExecutionTargetUnavailable *ConfiguredExecutionTargetUnavailable `json:"configured_execution_target_unavailable,omitempty"`
+	OriginalExecutionTargetUnavailable   *taskpb.LockedExecutionTargetDetails  `json:"original_execution_target_unavailable,omitempty"`
 	SetupRecovery                        *CurrentNodeSetupRecoveryDetail       `json:"setup_recovery,omitempty"`
 }
 
@@ -164,6 +168,14 @@ func (d CurrentNodeInterruptionDetail) Validate() error {
 	}
 	if d.ConfiguredExecutionTargetUnavailable != nil {
 		if err := d.ConfiguredExecutionTargetUnavailable.Validate(); err != nil {
+			return err
+		}
+	}
+	if d.OriginalExecutionTargetUnavailable != nil {
+		if d.ConfiguredExecutionTargetUnavailable != nil {
+			return errors.New("original target failure cannot be a configured-target failure")
+		}
+		if err := protovalidate.Validate(d.OriginalExecutionTargetUnavailable); err != nil {
 			return err
 		}
 	}
@@ -464,12 +476,7 @@ func validateCurrentNodeScheduling(scheduling *CurrentNodeScheduling) error {
 		if scheduling.Interruption.OccurredAt.IsZero() {
 			return fmt.Errorf("current node interruption occurrence time is required")
 		}
-		if unavailable := scheduling.Interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
-			if err := unavailable.Validate(); err != nil {
-				return fmt.Errorf("current node configured execution target interruption: %w", err)
-			}
-		}
-		return nil
+		return scheduling.Interruption.Detail.Validate()
 	}
 	if scheduling.Interruption != nil {
 		return fmt.Errorf("only interrupted current nodes may carry interruption details")
@@ -493,6 +500,9 @@ func cloneCurrentNodeScheduling(scheduling *CurrentNodeScheduling) *CurrentNodeS
 	if scheduling.Interruption != nil {
 		interruption := *scheduling.Interruption
 		interruption.Detail.Fields = cloneStringMap(interruption.Detail.Fields)
+		if unavailable := interruption.Detail.OriginalExecutionTargetUnavailable; unavailable != nil {
+			interruption.Detail.OriginalExecutionTargetUnavailable = proto.Clone(unavailable).(*taskpb.LockedExecutionTargetDetails)
+		}
 		if unavailable := interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
 			clonedUnavailable := *unavailable
 			if unavailable.RequestedRef != nil {

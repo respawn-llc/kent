@@ -155,6 +155,7 @@ export type TaskResumeInput = Readonly<{
   taskID: string;
   setupOperationID?: SetupOperationID | undefined;
   executionTarget?: WorkflowExecutionTargetSelection | undefined;
+  branchName?: string | undefined;
 }>;
 
 export type OrdinaryQuestionAnswerInput = Readonly<{

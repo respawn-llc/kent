@@ -10,6 +10,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"core/shared/clientui"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
@@ -2971,7 +2972,8 @@ type workflowAttentionInterruptionDetailSchema struct {
 		RequestedRef *string                                 `json:"requested_ref,omitempty"`
 		Cause        WorkflowExecutionTargetUnavailableCause `json:"cause"`
 	} `json:"configured_execution_target_unavailable,omitempty"`
-	SetupRecovery *workflowSetupRecoveryDetailSchema `json:"setup_recovery,omitempty"`
+	SetupRecovery                      *workflowSetupRecoveryDetailSchema   `json:"setup_recovery,omitempty"`
+	OriginalExecutionTargetUnavailable *taskpb.LockedExecutionTargetDetails `json:"original_execution_target_unavailable,omitempty"`
 }
 
 type workflowSetupRecoveryDetailSchema struct {
@@ -3041,6 +3043,11 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 	if recovery := detail.SetupRecovery; recovery != nil {
 		if err := recovery.domain().Validate(); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" setup recovery facts are invalid")
+		}
+	}
+	if unavailable := detail.OriginalExecutionTargetUnavailable; unavailable != nil {
+		if detail.ConfiguredExecutionTargetUnavailable != nil || protovalidate.Validate(unavailable) != nil {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" missing Worktree metadata is invalid")
 		}
 	}
 	return nil
