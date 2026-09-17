@@ -49,6 +49,17 @@ type staticExecutionTargetResolver struct {
 	target *worktreepb.SessionExecutionTarget
 }
 
+func availableSessionExecutionTarget(workdir string) *worktreepb.SessionExecutionTarget {
+	return &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.Value("workspace-id"),
+		WorkspaceName:         "workspace",
+		WorkspaceRoot:         workdir,
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		CwdRelpath:            ".",
+		EffectiveWorkdir:      workdir,
+	}
+}
+
 func newDormantMainViewTestService(
 	t *testing.T,
 	store *session.Store,

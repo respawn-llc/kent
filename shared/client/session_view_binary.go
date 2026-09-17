@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -33,20 +32,4 @@ func (c *Remote) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req
 		func(failure *transcriptpb.LatestFinalAnswerError) error {
 			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
 		})
-}
-
-func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, request *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	response, err := callGeneratedBinary(c, ctx,
-		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetExecutionEnvironment"),
-		request, &sessionpb.ExecutionEnvironmentResult{},
-		func(failure *sessionpb.ExecutionEnvironmentError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
-		})
-	if err != nil {
-		return nil, err
-	}
-	if response.Environment.SessionId != request.SessionId {
-		return nil, fmt.Errorf("session execution environment identity mismatch: requested %q, resolved %q", request.SessionId, response.Environment.SessionId)
-	}
-	return response, nil
 }

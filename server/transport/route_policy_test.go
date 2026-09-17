@@ -335,19 +335,6 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	); err == nil {
 		t.Fatal("unrelated foreign-project draft mutation unexpectedly allowed")
 	}
-	executionEnvironmentOperation, err := protoapi.OperationFromDescriptor(sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetExecutionEnvironment"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := executor.authorizeScopeFacts(
-		ctx,
-		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(executionEnvironmentOperation.Options.ScopePolicy),
-		executionEnvironmentOperation.Name,
-		routeScopeParams{sessionID: fixture.ownSessionID},
-	); err != nil {
-		t.Fatalf("active project own execution environment: %v", err)
-	}
 	followUpOperation, err := protoapi.OperationFromDescriptor(promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"))
 	if err != nil {
 		t.Fatal(err)

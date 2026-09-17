@@ -46,10 +46,6 @@ func (s stubSessionViewClient) GetLatestCommittedAssistantFinalAnswer(ctx contex
 	return s.getLatestFinalAnswer(ctx, req)
 }
 
-func (s stubSessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
-}
-
 func updateUIModel(t *testing.T, m *uiModel, msg tea.Msg) *uiModel {
 	t.Helper()
 	next, command := m.Update(msg)
