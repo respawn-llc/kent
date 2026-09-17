@@ -172,14 +172,6 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 	return out, nil
 }
 
-func TranscriptMessagesFromRuntimeEvent(evt runtime.Event) []*transcriptpb.Event {
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(evt)
-	if err != nil {
-		panic(err)
-	}
-	return messages
-}
-
 func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
 		if err := fact.Locator.Validate(); err != nil {
