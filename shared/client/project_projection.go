@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -11,23 +12,8 @@ import (
 	"core/shared/textutil"
 )
 
-func ProjectAvailabilityFromProto(value projectpb.ProjectAvailability) (clientui.ProjectAvailability, error) {
-	switch value {
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE:
-		return clientui.ProjectAvailabilityAvailable, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING:
-		return clientui.ProjectAvailabilityMissing, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE:
-		return clientui.ProjectAvailabilityInaccessible, nil
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED:
-		return clientui.ProjectAvailabilityUnlinked, nil
-	default:
-		return "", fmt.Errorf("unsupported Project availability %s", value)
-	}
-}
-
 func ProjectSummaryFromProto(project *projectpb.ProjectSummary) (clientui.ProjectSummary, error) {
-	availability, err := ProjectAvailabilityFromProto(project.Availability)
+	availability, err := protoapi.ProjectAvailabilityFromProto(project.Availability)
 	if err != nil {
 		return clientui.ProjectSummary{}, err
 	}
@@ -55,7 +41,7 @@ func ProjectSummariesFromProto(projects []*projectpb.ProjectSummary) ([]clientui
 }
 
 func ProjectWorkspaceSummaryFromProto(workspace *projectpb.ProjectWorkspaceSummary) (clientui.ProjectWorkspaceSummary, error) {
-	availability, err := ProjectAvailabilityFromProto(workspace.Availability)
+	availability, err := protoapi.ProjectAvailabilityFromProto(workspace.Availability)
 	if err != nil {
 		return clientui.ProjectWorkspaceSummary{}, err
 	}
@@ -83,7 +69,7 @@ func ProjectWorkspaceSummariesFromProto(workspaces []*projectpb.ProjectWorkspace
 }
 
 func ProjectBindingFromProto(binding *projectpb.ProjectBinding) (serverapi.ProjectBinding, error) {
-	availability, err := ProjectAvailabilityFromProto(binding.WorkspaceStatus)
+	availability, err := protoapi.ProjectAvailabilityFromProto(binding.WorkspaceStatus)
 	if err != nil {
 		return serverapi.ProjectBinding{}, err
 	}

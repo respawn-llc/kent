@@ -17,6 +17,7 @@ import (
 	"core/server/workflowstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 
@@ -147,7 +148,7 @@ func (s *Service) ResolveProjectPath(ctx context.Context, req *projectpb.Resolve
 	if err != nil {
 		return nil, err
 	}
-	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(availabilityForProjectPath(canonicalRoot)))
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForProjectPath(canonicalRoot)))
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +169,7 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanW
 	resolved, err := s.ResolveProjectPath(ctx, &projectpb.ResolvePathRequest{Path: req.Path})
 	if err != nil {
 		if ambiguous, ok := serverapi.AsWorkspaceBindingAmbiguous(err); ok {
-			availability, availabilityErr := projectAvailabilityToGenerated(clientui.ProjectAvailability(availabilityForProjectPath(ambiguous.CanonicalRoot)))
+			availability, availabilityErr := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForProjectPath(ambiguous.CanonicalRoot)))
 			if availabilityErr != nil {
 				return nil, availabilityErr
 			}

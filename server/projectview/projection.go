@@ -8,6 +8,7 @@ import (
 
 	"core/server/metadata"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -17,7 +18,7 @@ import (
 )
 
 func projectSummaryToGenerated(summary clientui.ProjectSummary) (*projectpb.ProjectSummary, error) {
-	availability, err := projectAvailabilityToGenerated(summary.Availability)
+	availability, err := protoapi.ProjectAvailabilityToProto(summary.Availability)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +38,7 @@ func projectSummaryToGenerated(summary clientui.ProjectSummary) (*projectpb.Proj
 }
 
 func projectWorkspaceSummaryToGenerated(summary clientui.ProjectWorkspaceSummary) (*projectpb.ProjectWorkspaceSummary, error) {
-	availability, err := projectAvailabilityToGenerated(summary.Availability)
+	availability, err := protoapi.ProjectAvailabilityToProto(summary.Availability)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func projectWorkspaceSummaryToGenerated(summary clientui.ProjectWorkspaceSummary
 }
 
 func projectHomeSummaryToGenerated(summary serverapi.ProjectHomeSummary) (*projectpb.ProjectHomeSummary, error) {
-	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(summary.PrimaryWorkspace.Availability))
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(summary.PrimaryWorkspace.Availability))
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func projectHomeSummaryToGenerated(summary serverapi.ProjectHomeSummary) (*proje
 }
 
 func BindingToProto(binding metadata.Binding) (*projectpb.ProjectBinding, error) {
-	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(binding.WorkspaceStatus))
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(binding.WorkspaceStatus))
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +118,7 @@ func BindingToProto(binding metadata.Binding) (*projectpb.ProjectBinding, error)
 }
 
 func projectMutationBindingToGenerated(binding metadata.Binding) (*projectpb.ProjectMutationBinding, error) {
-	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(binding.WorkspaceStatus))
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(binding.WorkspaceStatus))
 	if err != nil {
 		return nil, err
 	}
@@ -162,21 +163,6 @@ func projectWorkspaceGetSelectorFromGenerated(request *projectpb.GetProjectWorks
 		return serverapi.NewProjectWorkspaceSelectorForRoot(value.WorkspaceRoot)
 	default:
 		return serverapi.ProjectWorkspaceSelector{}, errors.New("project workspace selector is required")
-	}
-}
-
-func projectAvailabilityToGenerated(availability clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
-	switch availability {
-	case clientui.ProjectAvailabilityAvailable:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE, nil
-	case clientui.ProjectAvailabilityMissing:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING, nil
-	case clientui.ProjectAvailabilityInaccessible:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE, nil
-	case clientui.ProjectAvailabilityUnlinked:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED, nil
-	default:
-		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNSPECIFIED, fmt.Errorf("project availability %q is unsupported", availability)
 	}
 }
 

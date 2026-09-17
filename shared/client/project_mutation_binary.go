@@ -238,7 +238,7 @@ func projectUnavailableError(details *projectpb.ProjectUnavailableDetails) error
 	if err := protoapi.Validate(details); err != nil {
 		return err
 	}
-	availability, err := ProjectAvailabilityFromProto(details.Availability)
+	availability, err := protoapi.ProjectAvailabilityFromProto(details.Availability)
 	if err != nil {
 		return err
 	}
