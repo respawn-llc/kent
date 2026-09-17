@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMatch } from "@tanstack/react-router";
+import { useLocation, useMatch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { NativeNotificationActivation, NativeNotificationTarget } from "@app/native-bridge";
 
@@ -32,6 +32,7 @@ import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { useWindowFocus } from "@/app-facade";
 import { useAppNavigation, useChatPromptPresence, useSidebarShell, sessionChatRoutePath } from "@/app-facade";
+import { newChatRoutePath, sessionChatHistoryStateSchema } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 
 export function AttentionController() {
@@ -101,6 +102,25 @@ function OwnedAttentionController() {
   return null;
 }
 
+function useFocusedChatPicker() {
+  const presence = useChatPromptPresence();
+  const { activeDestination } = useSidebarShell();
+  const chatMatch = useMatch({ from: sessionChatRoutePath, shouldThrow: false });
+  const newChatMatch = useMatch({ from: newChatRoutePath, shouldThrow: false });
+  const historyState = useLocation({ select: (location) => location.state });
+  const bookmark = sessionChatHistoryStateSchema.parse(historyState).sessionChat;
+  const projectID = (chatMatch ?? newChatMatch)?.params.projectId;
+  const routeSessionID = chatMatch?.params.sessionId;
+  const sessionID =
+    bookmark?.projectID === projectID ? (bookmark?.deliveredSessionID ?? routeSessionID) : routeSessionID;
+  return activeDestination === null &&
+    presence.target !== null &&
+    projectID === presence.target.projectID &&
+    sessionID === presence.target.sessionID
+    ? presence.target
+    : null;
+}
+
 function useAttentionSurfacePresenter() {
   const { t } = useTranslation();
   const { logger, nativeBridge: bridge } = useAppServices();
@@ -108,16 +128,7 @@ function useAttentionSurfacePresenter() {
   const status = useStatusController();
   const windowFocused = useWindowFocus();
   const { openSessionChat } = useAppNavigation();
-  const presence = useChatPromptPresence();
-  const { activeDestination } = useSidebarShell();
-  const chatMatch = useMatch({ from: sessionChatRoutePath, shouldThrow: false });
-  const pickerTarget =
-    activeDestination === null &&
-    presence.target !== null &&
-    chatMatch?.params.projectId === presence.target.projectID &&
-    chatMatch.params.sessionId === presence.target.sessionID
-      ? presence.target
-      : null;
+  const pickerTarget = useFocusedChatPicker();
   const pickerRef = useRef(pickerTarget);
   const focusedRef = useRef<boolean | null>(windowFocused);
   const surfacedRef = useRef(new Map<string, SurfaceRecord>());
