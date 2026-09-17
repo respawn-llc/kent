@@ -1,4 +1,6 @@
 import type { AttentionNotificationEventHandler } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import type { ProjectObservation } from "./projectEvents";
 import type {
   BoardNodeCardsInput,
   PromptAnswerBatchInput,
@@ -187,7 +189,7 @@ export interface ApiService {
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
   listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]>;
   listPendingPrompts(sessionID: string): Promise<readonly PendingPrompt[]>;
-  subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
+  subscribeProject(projectID: string): Stream.Stream<ProjectObservation>;
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
   subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription;
   getWorktreeStatus(sessionID: string): Promise<StatusSuccess>;

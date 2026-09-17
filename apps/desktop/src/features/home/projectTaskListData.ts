@@ -6,7 +6,7 @@ import {
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer } from "react";
-import { useStableCallback } from "@/ui";
+import * as Effect from "effect/Effect";
 
 import {
   errorMessage,
@@ -17,7 +17,7 @@ import {
   type TaskListPage,
   type WorkflowProjectEvent,
 } from "@/api";
-import { queryKeys, useAppServices, useLocalSubscription } from "@/app-facade";
+import { queryKeys, useAppServices, useProjectObservation } from "@/app-facade";
 import { defaultProjectTaskSort, projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
 
 export const projectTaskGroups = ["active", "backlog", "done"] as const satisfies readonly ProjectTaskGroup[];
@@ -294,7 +294,7 @@ export function useProjectTaskListEvents({
   enabled: boolean;
   projectID: string;
 }>) {
-  const { api, logger } = useAppServices();
+  const { logger } = useAppServices();
   const queryClient = useQueryClient();
   const reportBackgroundError = useCallback(
     (error: unknown): void => {
@@ -332,59 +332,41 @@ export function useProjectTaskListEvents({
     await Promise.all([refreshWorkflows(), refreshTaskLists()]);
   }, [refreshTaskLists, refreshWorkflows]);
 
-  const handle = useStableCallback(() => {
-    const run = (operation: Promise<void>): void => {
-      void operation.catch(reportBackgroundError);
-    };
-    return {
-      onOpen() {
-        run(refreshBoundary());
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        if (event.projectID !== null && event.projectID !== projectID) {
-          return;
+  return useProjectObservation(enabled && projectID.length > 0 ? projectID : null, projectID, (observation) =>
+    Effect.promise(async () => {
+      const run = async (operation: Promise<void>): Promise<void> => {
+        await operation.catch(reportBackgroundError);
+      };
+      switch (observation.kind) {
+        case "open":
+          await run(refreshBoundary());
+          break;
+        case "event": {
+          const { event } = observation;
+          if (event.projectID !== null && event.projectID !== projectID) {
+            return;
+          }
+          if (event.resource === "workflow" || event.resource === "workflow_link") {
+            await run(Promise.all([refreshWorkflows(), refreshTaskLists()]).then(() => undefined));
+            return;
+          }
+          if (event.resource === "label") {
+            await run(refreshTaskLists());
+            return;
+          }
+          if (projectTaskListEventCanChangeRows(event)) {
+            await run(refreshTaskLists());
+          }
+          break;
         }
-        if (event.resource === "workflow" || event.resource === "workflow_link") {
-          run(Promise.all([refreshWorkflows(), refreshTaskLists()]).then(() => undefined));
-          return;
-        }
-        if (event.resource === "label") {
-          run(refreshTaskLists());
-          return;
-        }
-        if (projectTaskListEventCanChangeRows(event)) {
-          run(refreshTaskLists());
-        }
-      },
-      onComplete(code: number) {
-        if (code !== 0) return;
-        run(refreshBoundary());
-      },
-      onError(error: Error) {
-        reportBackgroundError(error);
-      },
-    };
-  });
-  return useLocalSubscription(
-    enabled && projectID.length > 0 ? projectID : null,
-    (reportFailure, isActive) => {
-      return api.subscribeProject(projectID, {
-        onOpen: () => {
-          if (isActive()) handle().onOpen();
-        },
-        onEvent: (event) => {
-          if (isActive()) handle().onEvent(event);
-        },
-        onComplete: (code) => {
-          if (isActive()) handle().onComplete(code);
-        },
-        onError: (error) => {
-          if (!isActive()) return;
-          reportFailure(error);
-          handle().onError(error);
-        },
-      });
-    },
+        case "complete":
+          if (observation.code === 0) await run(refreshBoundary());
+          break;
+        case "error":
+          reportBackgroundError(observation.error);
+          break;
+      }
+    }),
   );
 }
 

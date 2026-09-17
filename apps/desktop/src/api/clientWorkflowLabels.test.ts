@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ContractError } from "./errors";
@@ -22,6 +23,7 @@ describe("ApiClient workflow labels", () => {
     const getCounts = async (response: unknown) =>
       new ApiClient(
         new FakeRpcTransport([{ method: "workflow.task.groupCounts", result: response }]),
+        unexpectedProjectOverflow,
       ).getProjectTaskGroupCounts({ projectID: "project-1" });
 
     await expect(getCounts(result)).resolves.toMatchObject({
@@ -48,7 +50,7 @@ describe("ApiClient workflow labels", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.reorderProjectLabels("project-1", [urgentID, priorityID])).resolves.toEqual({
       projectID: "project-1",
@@ -82,7 +84,7 @@ describe("ApiClient workflow labels", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.createTask({
@@ -152,7 +154,7 @@ describe("ApiClient workflow labels", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.listProjectLabels("project-1")).resolves.toEqual({
       projectID: "project-1",
@@ -173,7 +175,7 @@ describe("ApiClient workflow labels", () => {
         result: { label: { id: priorityID, name: "Priority" } },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.createProjectLabel("project-1", "Priority")).resolves.toEqual({
       id: priorityID,
@@ -194,7 +196,7 @@ describe("ApiClient workflow labels", () => {
         result: { label: { id: priorityID, name: "Urgent" } },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.renameProjectLabel("project-1", priorityID, "Urgent")).resolves.toEqual({
       id: priorityID,
@@ -215,7 +217,7 @@ describe("ApiClient workflow labels", () => {
         result: { label_id: priorityID },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.deleteProjectLabel("project-1", priorityID)).resolves.toBe(priorityID);
     expect(transport.calls).toEqual([
@@ -237,7 +239,7 @@ describe("ApiClient workflow labels", () => {
         result: { assignment: { task_id: "task-1", label_ids: [urgentID] } },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.getTaskLabels("task-1")).resolves.toEqual({
       taskID: "task-1",
@@ -277,7 +279,7 @@ describe("ApiClient workflow labels", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.createTask({
@@ -313,7 +315,7 @@ describe("ApiClient workflow labels", () => {
 
   it("rejects malformed and prefixed Workflow IDs before task RPCs", async () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.createTask({
@@ -370,7 +372,7 @@ describe("ApiClient workflow labels", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.listTasks({
@@ -436,6 +438,7 @@ describe("ApiClient workflow labels", () => {
           },
         },
       ]),
+      unexpectedProjectOverflow,
     );
 
     await expect(

@@ -54,7 +54,6 @@ export type KanbanColumnProps = Readonly<{
   isFirstActive: boolean;
   isCollapsed?: boolean;
   dropState: BoardColumnDropState;
-  actionsDisabled: boolean;
   dragDisabled: boolean;
   columnRef?: (element: HTMLElement | null) => void;
   scrollportRef?: (element: HTMLElement | null) => void;
@@ -68,6 +67,7 @@ export type KanbanColumnProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   pinnedItemKeys?: ReadonlySet<string> | undefined;
 }>;
 
@@ -116,7 +116,6 @@ export function KanbanColumn({
   isFirstActive,
   isCollapsed = false,
   dropState,
-  actionsDisabled,
   dragDisabled,
   columnRef,
   scrollportRef,
@@ -130,6 +129,7 @@ export function KanbanColumn({
   onResumeTask,
   pendingInterruptTaskIDs = emptyPendingTaskIDs,
   pendingResumeTaskIDs = emptyPendingTaskIDs,
+  pendingStartMoveTaskIDs,
   pinnedItemKeys,
 }: KanbanColumnProps) {
   const { t } = useTranslation();
@@ -231,12 +231,12 @@ export function KanbanColumn({
             previousBoundary={visiblePreviousBoundary}
             renderItem={(card, cardIndex) => {
               const instance = { columnID: column.id, taskID: card.id };
+              const pendingStartMove = pendingStartMoveTaskIDs?.has(card.id) ?? false;
               return (
                 <TaskCard
-                  actionsDisabled={actionsDisabled}
                   card={card}
                   cardIndex={cardIndex}
-                  dragDisabled={dragDisabled}
+                  dragDisabled={dragDisabled || pendingStartMove}
                   instance={instance}
                   onCardClick={onCardClick}
                   onCardDragStart={onCardDragStart}
@@ -245,6 +245,7 @@ export function KanbanColumn({
                   onResumeTask={onResumeTask}
                   pendingInterrupt={pendingInterruptTaskIDs.has(card.id)}
                   pendingResume={pendingResumeTaskIDs.has(card.id)}
+                  pendingStartMove={pendingStartMove}
                 />
               );
             }}
@@ -313,7 +314,6 @@ function readyBoundary(
 }
 
 const TaskCard = memo(function TaskCard({
-  actionsDisabled,
   card,
   cardIndex,
   dragDisabled,
@@ -325,11 +325,11 @@ const TaskCard = memo(function TaskCard({
   onResumeTask,
   pendingInterrupt,
   pendingResume,
+  pendingStartMove,
 }: Readonly<{
   card: KanbanCardVM;
   cardIndex: number;
   instance: BoardCardInstance;
-  actionsDisabled: boolean;
   dragDisabled: boolean;
   onCardClick: (taskID: string) => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
@@ -338,6 +338,7 @@ const TaskCard = memo(function TaskCard({
   onResumeTask: (taskID: string) => void;
   pendingInterrupt: boolean;
   pendingResume: boolean;
+  pendingStartMove: boolean;
 }>) {
   const { t } = useTranslation();
   const { cardClassName, cardStyle, registerCard: registerMotionCard } = useBoardCardMotion();
@@ -368,10 +369,6 @@ const TaskCard = memo(function TaskCard({
     [instanceColumnID, instanceTaskID, registerMotionCard, setNodeRef],
   );
   const waitingForAnswer = isWaitingForAnswer(card.statusKind);
-  const availableActions = {
-    canInterrupt: card.actions.canInterrupt,
-    canResume: card.actions.canResume,
-  };
   const labelItems = useMemo(
     () =>
       card.labels.map((label) => ({
@@ -380,13 +377,7 @@ const TaskCard = memo(function TaskCard({
       })),
     [card.labels],
   );
-  const hasFooter =
-    card.statusKind === "running" ||
-    card.workspaceChipLabel !== null ||
-    card.dependencyProgress !== null ||
-    card.labels.length > 0 ||
-    availableActions.canInterrupt ||
-    availableActions.canResume;
+  const footer = taskCardFooter(card, pendingStartMove);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -433,7 +424,7 @@ const TaskCard = memo(function TaskCard({
           >
             <TaskCardPreview instance={instance} preview={card.preview} />
           </AdaptiveLineClamp>
-          {hasFooter ? (
+          {footer.visible ? (
             <div
               className="task-card-footer flex min-w-0 items-center justify-between gap-[var(--space-3)]"
               data-testid="task-card-footer"
@@ -442,7 +433,7 @@ const TaskCard = memo(function TaskCard({
                 className="flex min-w-0 flex-1 items-center gap-[var(--space-2)] overflow-hidden text-xs text-[var(--color-muted)]"
                 data-testid="task-card-chips"
               >
-                {card.statusKind === "running" ? (
+                {footer.loading ? (
                   <Spinner
                     className="h-[20px] w-[20px] shrink-0"
                     strokeWidth={1.8}
@@ -465,7 +456,6 @@ const TaskCard = memo(function TaskCard({
                 )}
               </div>
               <BoardTaskCardActions
-                actionsDisabled={actionsDisabled}
                 card={card}
                 onInterrupt={onInterruptTask}
                 onResume={onResumeTask}
@@ -479,7 +469,7 @@ const TaskCard = memo(function TaskCard({
       <ContextMenuContent>
         <ContextMenuItem
           className="text-[var(--color-error)]"
-          disabled={actionsDisabled || !card.actions.canDelete}
+          disabled={!card.actions.canDelete}
           onSelect={() => {
             onDeleteTask(card.id);
           }}
@@ -490,6 +480,20 @@ const TaskCard = memo(function TaskCard({
     </ContextMenu>
   );
 });
+
+function taskCardFooter(card: KanbanCardVM, pendingStartMove: boolean) {
+  const loading = pendingStartMove || card.statusKind === "running";
+  return {
+    loading,
+    visible:
+      loading ||
+      card.workspaceChipLabel !== null ||
+      card.dependencyProgress !== null ||
+      card.labels.length > 0 ||
+      card.actions.canInterrupt ||
+      card.actions.canResume,
+  };
+}
 
 function TaskCardDependencyProgress({ card }: Readonly<{ card: KanbanCardVM }>): ReactNode {
   const { open } = useOwnedSidebarRoots();

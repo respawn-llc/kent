@@ -1,23 +1,20 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useStableCallback } from "@/ui";
+import * as Effect from "effect/Effect";
 
-import type { OffsetPage, TaskDetail, WorkflowProjectEvent } from "@/api";
+import type { OffsetPage, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
 import {
-  invalidateProjectBoardQueries,
   invalidateProjectTaskSearches,
   queryKeys,
   reportNonCancelledError,
-  useLocalSubscription,
+  useProjectObservation,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useProjectLabelEffects } from "@/shared/labels";
 import {
   dependencyRelatedTaskIDs,
-  optimisticTaskDependencyRemoval,
   workflowProjectEventAffectsDependencyDetail,
-  type TaskDependencyPair,
 } from "@/shared/task-dependencies";
 
 // useTaskDetailLiveRefresh keeps an open task detail in sync with the server by
@@ -29,78 +26,65 @@ import {
 // existing cache data during the background refetch, so the refresh is
 // flicker-free and never collapses the surface back to a loading state.
 export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
-  const { api, logger } = useAppServices();
+  const { logger } = useAppServices();
   const labelEffects = useProjectLabelEffects();
   const queryClient = useQueryClient();
   const taskID = detail.id;
   const projectID = detail.projectID;
   const relatedTaskIDs = useMemo(() => dependencyRelatedTaskIDs(detail.dependencies), [detail.dependencies]);
   const identity = useMemo(() => ({ taskID, projectID }), [taskID, projectID]);
-  const handlers = useStableCallback(() => {
-    const refresh = async (): Promise<void> => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.task(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.taskAttention(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.activity(taskID),
-          refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.comments(taskID),
-          refetchType: "active",
-        }),
-      ]);
-    };
-    const refreshOrReport = (operation: Promise<unknown>): void => {
-      void operation.catch((error: unknown) => {
-        reportNonCancelledError(error, (failure) => {
-          void logger.append("warn", "Task detail live refresh failed.", {
-            error: errorMessage(failure),
-          });
-        });
-      });
-    };
-    return {
-      onOpen() {
-        refreshOrReport(Promise.all([refresh(), labelEffects.refreshAfterSubscriptionBoundary()]));
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        refreshOrReport(labelEffects.consumeProjectEvent(event));
-        if (!workflowProjectEventAffectsDependencyDetail(event, taskID, relatedTaskIDs)) {
-          return;
-        }
-        refreshOrReport(refresh());
-      },
-      onComplete() {
-        return;
-      },
-      onError(error: Error) {
-        void logger.append("warn", "Task detail subscription failed.", { error: errorMessage(error) });
-      },
-    };
-  });
-  return useLocalSubscription(
+  return useProjectObservation(
     enabled && taskID.length > 0 && projectID.length > 0 ? identity : null,
-    (reportFailure, isActive) =>
-      api.subscribeProject(projectID, {
-        onOpen: () => {
-          if (isActive()) handlers().onOpen();
-        },
-        onEvent: (event) => {
-          if (isActive()) handlers().onEvent(event);
-        },
-        onComplete: () => undefined,
-        onError: (error) => {
-          if (!isActive()) return;
-          reportFailure(error);
-          handlers().onError(error);
-        },
+    projectID,
+    (observation) =>
+      Effect.promise(async () => {
+        const refresh = async (): Promise<void> => {
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.task(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.taskAttention(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.activity(taskID),
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.comments(taskID),
+              refetchType: "active",
+            }),
+          ]);
+        };
+        const refreshOrReport = async (operation: Promise<unknown>): Promise<void> => {
+          await operation.catch((error: unknown) => {
+            reportNonCancelledError(error, (failure) => {
+              void logger.append("warn", "Task detail live refresh failed.", {
+                error: errorMessage(failure),
+              });
+            });
+          });
+        };
+        switch (observation.kind) {
+          case "open":
+            await refreshOrReport(Promise.all([refresh(), labelEffects.refreshAfterSubscriptionBoundary()]));
+            break;
+          case "event":
+            await refreshOrReport(labelEffects.consumeProjectEvent(observation.event));
+            if (workflowProjectEventAffectsDependencyDetail(observation.event, taskID, relatedTaskIDs)) {
+              await refreshOrReport(refresh());
+            }
+            break;
+          case "complete":
+            break;
+          case "error":
+            await logger.append("warn", "Task detail subscription failed.", {
+              error: errorMessage(observation.error),
+            });
+            break;
+        }
       }),
   );
 }
@@ -170,11 +154,9 @@ export function useTaskComments(taskID: string, enabled: boolean) {
   );
 }
 
-type TaskLifecycleAction = "dependency_add" | "dependency_remove" | "interrupt";
-
 type TaskMutationCallbacks = Readonly<{
   onChanged?: (() => void) | undefined;
-  onActionError?: ((action: TaskLifecycleAction, error: unknown) => void) | undefined;
+  onActionError?: ((error: unknown) => void) | undefined;
 }>;
 
 export function useTaskMutations(
@@ -198,17 +180,6 @@ export function useTaskMutations(
     await invalidateProjectTaskSearches(queryClient, projectID);
     onChanged?.();
   }
-  async function refreshDependencyPair(pair: TaskDependencyPair): Promise<void> {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(pair.blockerTaskID) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(pair.blockedTaskID) }),
-      invalidateProjectBoardQueries(queryClient, projectID),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projectTaskListsRoot(projectID),
-      }),
-    ]);
-    onChanged?.();
-  }
   return {
     refresh,
     addComment: useMutation({
@@ -224,38 +195,10 @@ export function useTaskMutations(
       mutationFn: async (commentID: string) => api.deleteComment(commentID),
       onSuccess: refresh,
     }),
-    addDependency: useMutation({
-      mutationFn: async (pair: TaskDependencyPair) =>
-        api.addTaskDependency(pair.blockerTaskID, pair.blockedTaskID),
-      onError: (error) => {
-        onActionError?.("dependency_add", error);
-      },
-      onSuccess: async (_response, pair) => refreshDependencyPair(pair),
-    }),
-    removeDependency: useMutation({
-      mutationFn: async (pair: TaskDependencyPair) =>
-        api.removeTaskDependency(pair.blockerTaskID, pair.blockedTaskID),
-      onMutate: async (pair) => {
-        await queryClient.cancelQueries({ queryKey: queryKeys.task(taskID) });
-        const previous = queryClient.getQueryData<TaskDetail>(queryKeys.task(taskID)) ?? null;
-        queryClient.setQueryData<TaskDetail>(queryKeys.task(taskID), (current) =>
-          current === undefined ? current : optimisticTaskDependencyRemoval(current, pair),
-        );
-        return { previous };
-      },
-      onError: async (error, _pair, context) => {
-        if (context?.previous != null) {
-          queryClient.setQueryData(queryKeys.task(taskID), context.previous);
-        }
-        onActionError?.("dependency_remove", error);
-        await queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID) });
-      },
-      onSuccess: async (_response, pair) => refreshDependencyPair(pair),
-    }),
     interrupt: useMutation({
       mutationFn: async (sessionID?: string) => api.interruptTask(taskID, sessionID),
       onError: (error) => {
-        onActionError?.("interrupt", error);
+        onActionError?.(error);
       },
       onSuccess: refresh,
     }),

@@ -48,6 +48,7 @@ import {
   FieldShell,
   InfiniteListBoundary,
   SelectField,
+  Spinner,
   TextArea,
   TextInput,
   type SelectFieldPaging,
@@ -230,13 +231,10 @@ function NewTaskFormContent({
       })),
     [effectiveSelectedLabelIDs, form, navigator, preparedDependencies],
   );
-  const canSubmit = [
-    !createTask.isPending,
-    !labelCreatePending,
-    catalog.data !== undefined,
-    selectedWorkspace !== undefined,
-  ].every(Boolean);
-  async function submit(values: NewTaskFormValues): Promise<void> {
+  const canSubmit = [!labelCreatePending, catalog.data !== undefined, selectedWorkspace !== undefined].every(
+    Boolean,
+  );
+  function submit(values: NewTaskFormValues): void {
     if (!canSubmit) {
       return;
     }
@@ -245,8 +243,8 @@ function NewTaskFormContent({
       throw new Error("New Task submission requires a source Workspace.");
     }
     dismiss("new-task-create-error");
-    try {
-      const createdTask = await createTask.mutateAsync({
+    createTask.submit({
+      input: {
         projectID,
         ...(workflowID === undefined ? {} : { workflowID }),
         title: values.title,
@@ -257,34 +255,37 @@ function NewTaskFormContent({
           relatedTaskID: dependency.taskID,
           newTaskRole: dependency.direction === "blocked-by" ? "blocked" : "blocker",
         })),
-      });
-      const navigation = navigator.back(
-        parentReturnDirection === undefined
-          ? undefined
-          : {
-              kind: "newTaskCreated",
-              direction: parentReturnDirection,
-              task: {
-                ...createdTask,
-                status: {
-                  kind: "backlog",
-                  nativeState: "active",
-                  nodeIDs: [],
-                  attentionTypes: [],
+      },
+      onSuccess(createdTask) {
+        const navigation = navigator.back(
+          parentReturnDirection === undefined
+            ? undefined
+            : {
+                kind: "newTaskCreated",
+                direction: parentReturnDirection,
+                task: {
+                  ...createdTask,
+                  status: {
+                    kind: "backlog",
+                    nativeState: "active",
+                    nodeIDs: [],
+                    attentionTypes: [],
+                  },
                 },
               },
-            },
-      );
-      if (navigation === "accepted") void onCreated?.(createdTask.id);
-    } catch (error) {
-      push({
-        body: newTaskCreateErrorBody(error, t, logger),
-        durationMs: Infinity,
-        id: "new-task-create-error",
-        title: t("task.createFailed"),
-        tone: "danger",
-      });
-    }
+        );
+        if (navigation === "accepted") void onCreated?.(createdTask.id);
+      },
+      onError(error) {
+        push({
+          body: newTaskCreateErrorBody(error, t, logger),
+          durationMs: Infinity,
+          id: "new-task-create-error",
+          title: t("task.createFailed"),
+          tone: "danger",
+        });
+      },
+    });
   }
 
   const workspaceOptions = useMemo(
@@ -348,20 +349,25 @@ function NewTaskFormContent({
               : { ...destination, boardQueryWorkflowID, workflowID },
           );
         }}
-        onRemove={(direction, item) => {
-          setPreparedDependencies((current) => removePreparedTaskDependency(current, direction, item.taskID));
-        }}
-        onSelectCandidate={async (direction, result) => {
-          setPreparedDependencies((current) =>
-            insertPreparedTaskDependency(current, {
-              direction,
-              taskID: result.group.taskID,
-              shortID: result.group.shortID,
-              title: result.group.title,
-              workflowID: result.group.workflowID,
-              status: result.group.status,
-            }),
-          );
+        interaction={{
+          kind: "prepared",
+          onRemove(direction, item) {
+            setPreparedDependencies((current) =>
+              removePreparedTaskDependency(current, direction, item.taskID),
+            );
+          },
+          onSelect(direction, result) {
+            setPreparedDependencies((current) =>
+              insertPreparedTaskDependency(current, {
+                direction,
+                taskID: result.group.taskID,
+                shortID: result.group.shortID,
+                title: result.group.title,
+                workflowID: result.group.workflowID,
+                status: result.group.status,
+              }),
+            );
+          },
         }}
         onSelectTask={(taskID) => {
           navigator.push({ kind: "taskDetail", taskID });
@@ -419,8 +425,14 @@ function NewTaskFormContent({
       {workspaceItems.length > 0 && workspacePaging.initialBoundary !== undefined ? (
         <InfiniteListBoundary direction="initial" state={workspacePaging.initialBoundary} />
       ) : null}
-      <Button className="mx-auto w-full max-w-[400px]" disabled={!canSubmit} type="submit" variant="primary">
-        {t("task.create")}
+      <Button
+        className="mx-auto w-full max-w-[400px]"
+        disabled={!canSubmit}
+        aria-busy={createTask.isPending}
+        type="submit"
+        variant="primary"
+      >
+        {createTask.isPending ? <Spinner /> : t("task.create")}
       </Button>
     </form>
   );

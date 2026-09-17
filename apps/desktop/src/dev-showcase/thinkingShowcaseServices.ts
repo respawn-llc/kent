@@ -29,7 +29,7 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
     subscribeDescriptor: unavailable,
   };
   return {
-    api: new ApiClient(transport),
+    api: new ApiClient(transport, unavailable),
     debugThemeOverrideEnabled: false,
     endpoint: "fixture-only",
     homePath: "/fixture-only",

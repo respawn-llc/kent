@@ -1,18 +1,11 @@
 import type { TFunction } from "i18next";
-import { useCallback } from "react";
-import type { Dispatch, KeyboardEvent, SetStateAction } from "react";
+import type { KeyboardEvent } from "react";
 
 import { decodeWorkflowLabelError, errorMessage, type ProjectLabel } from "@/api";
 import { isTextFieldSubmitShortcut, type TextFieldSubmitShortcutPolicy } from "@/app-facade";
 import type { LabelChooserInvocation } from "./LabelChooser";
-import type {
-  DeleteState,
-  LabelFilterCondition,
-  LabelResultRowSelection,
-  RenameState,
-} from "./LabelChooserRows";
+import type { LabelFilterCondition, LabelResultRowSelection } from "./LabelChooserRows";
 import type { LabelFilterState } from "./labelFilterState";
-import type { useProjectLabelCatalogMutations } from "./projectLabelHooks";
 
 export function labelMutationErrorMessage(error: unknown, t: TFunction): string {
   const labelError = decodeWorkflowLabelError(error);
@@ -54,7 +47,7 @@ export function handleLabelChooserSearchKeyDown({
   catalogMutationPending: boolean;
   catalogAtLimit: boolean;
   choices: readonly (Readonly<{ kind: "unlabeled" }> | Readonly<{ kind: "label"; label: ProjectLabel }>)[];
-  createLabel(): Promise<void>;
+  createLabel(): void;
   event: KeyboardEvent<HTMLInputElement>;
   highlightedIndex: number | null;
   invocation: LabelChooserInvocation;
@@ -74,7 +67,7 @@ export function handleLabelChooserSearchKeyDown({
   }
   if (canCreate && !catalogAtLimit && !catalogMutationPending) {
     event.preventDefault();
-    void createLabel();
+    createLabel();
     return;
   }
   if (isTextFieldSubmitShortcut(event, policy)) {
@@ -171,117 +164,4 @@ function handleLabelChoiceNavigation(
     return true;
   }
   return false;
-}
-
-type LabelChooserMutations = ReturnType<typeof useProjectLabelCatalogMutations>;
-
-export function useLabelChooserMutationActions({
-  deletion,
-  invocation,
-  mutations,
-  preparedSearch,
-  rename,
-  setDeletion,
-  setKeyboardHighlightedIndex,
-  setRename,
-  setSearch,
-  t,
-}: Readonly<{
-  deletion: DeleteState | null;
-  invocation: LabelChooserInvocation;
-  mutations: LabelChooserMutations;
-  preparedSearch: string;
-  rename: RenameState | null;
-  setDeletion: Dispatch<SetStateAction<DeleteState | null>>;
-  setKeyboardHighlightedIndex: Dispatch<SetStateAction<number | null>>;
-  setRename: Dispatch<SetStateAction<RenameState | null>>;
-  setSearch: Dispatch<SetStateAction<string>>;
-  t: TFunction;
-}>): Readonly<{
-  catalogMutationPending: boolean;
-  commitRename(): Promise<void>;
-  confirmDelete(): Promise<void>;
-  createError: string | null;
-  createLabel(): Promise<void>;
-}> {
-  const catalogMutationPending =
-    mutations.create.isPending ||
-    mutations.delete.isPending ||
-    mutations.rename.isPending ||
-    mutations.reorder.isPending ||
-    rename?.pending === true ||
-    deletion?.pending === true;
-  const createLabel = useCallback(async () => {
-    if (catalogMutationPending) {
-      return;
-    }
-    const notifyCreatePending =
-      invocation.kind === "assignment" ? invocation.onCreatePendingChange : undefined;
-    notifyCreatePending?.(true);
-    try {
-      const label = await mutations.create.mutateAsync(preparedSearch);
-      if (invocation.kind === "assignment") {
-        selectLabel(invocation, label.id, true);
-      }
-      setSearch("");
-      setKeyboardHighlightedIndex(null);
-      mutations.create.reset();
-    } catch {
-      // The mutation owns the visible error state.
-    } finally {
-      notifyCreatePending?.(false);
-    }
-  }, [
-    catalogMutationPending,
-    invocation,
-    mutations.create,
-    preparedSearch,
-    setKeyboardHighlightedIndex,
-    setSearch,
-  ]);
-  const commitRename = useCallback(async () => {
-    if (rename === null || rename.pending || catalogMutationPending) {
-      return;
-    }
-    const current = rename;
-    setRename({ ...current, error: null, pending: true });
-    try {
-      await mutations.rename.mutateAsync({
-        labelID: current.labelID,
-        name: current.draft,
-      });
-      setRename((latest) => (latest?.labelID === current.labelID ? null : latest));
-    } catch (error) {
-      setRename((latest) =>
-        latest?.labelID === current.labelID
-          ? { ...latest, error: labelMutationErrorMessage(error, t), pending: false }
-          : latest,
-      );
-    }
-  }, [catalogMutationPending, mutations.rename, rename, setRename, t]);
-  const confirmDelete = useCallback(async () => {
-    if (deletion === null || deletion.pending || catalogMutationPending) {
-      return;
-    }
-    const current = deletion;
-    setDeletion({ ...current, error: null, pending: true });
-    try {
-      await mutations.delete.mutateAsync(current.labelID);
-      removeDeletedSelection(invocation, current.labelID);
-      setDeletion((latest) => (latest?.labelID === current.labelID ? null : latest));
-    } catch (error) {
-      setDeletion((latest) =>
-        latest?.labelID === current.labelID
-          ? { ...latest, error: labelMutationErrorMessage(error, t), pending: false }
-          : latest,
-      );
-    }
-  }, [catalogMutationPending, deletion, invocation, mutations.delete, setDeletion, t]);
-  return {
-    catalogMutationPending,
-    commitRename,
-    confirmDelete,
-    createError: mutations.create.isError ? labelMutationErrorMessage(mutations.create.error, t) : null,
-    createLabel,
-  };
 }

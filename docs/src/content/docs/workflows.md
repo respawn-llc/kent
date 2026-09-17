@@ -296,6 +296,8 @@ Choose the source workspace before starting automation. Agents run in the enviro
 
 A workflow Session may start, interrupt, resume, approve, or manually move another Task. It cannot target its own Task; Kent derives that ownership from the invoking Session.
 
+If independent Desktop task actions need confirmation at the same time, the newest confirmation replaces the previous one. The task whose confirmation was replaced stays unchanged; start that action again when needed.
+
 ### Current Work, Sessions, And Activity
 
 Task detail shows the task's Current Nodes, each Agent Current Node's effective Assignee and thinking when present, and retained Session count. `kent task show` reports the same effective fields; non-Agent Current Nodes omit them. A retained Session can outlive the Current Node that used it, so it remains available through the Session picker after the workflow moves on.
@@ -317,6 +319,8 @@ Task Activity is an infinite-scroll stream of durable comments and retained Sess
 A project owns a shared catalog of up to 100 reusable labels across its linked workflows. You can create and rename labels from the label chooser; deleting a label removes it from every task in the project.
 
 Assign labels atomically when creating a task or update them immediately from task detail. Board cards show assigned labels as neutral chips and summarize labels that do not fit.
+
+Rapid Desktop label selections update immediately and save in order. Failed selections roll back and remain available to Retry. Closing the task destination discards edits still waiting when its cleanup finishes; requests already submitted still finish.
 
 On the board, a named Label row cycles neutral → included → excluded. An included condition requires the Label; an excluded condition requires its absence. `--label-match any` matches when any included or excluded condition is true, while `all` requires every condition. `No labels` remains a binary filter for tasks without assignments and is mutually exclusive with named conditions. The selected filter persists locally for each project and desktop installation across workflows, navigation, and relaunches.
 

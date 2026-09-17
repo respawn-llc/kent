@@ -111,23 +111,12 @@ export function TaskDetailContent({
     selectedTab,
   });
   const reportActionError = useCallback(
-    (action: "dependency_add" | "dependency_remove" | "interrupt", error: unknown) => {
-      const notice =
-        action === "interrupt"
-          ? { id: "task-interrupt-error", title: t("board.interruptFailed") }
-          : action === "dependency_add"
-            ? {
-                id: "task-dependency-add-error",
-                title: t("task.dependenciesAddFailed"),
-              }
-            : {
-                id: "task-dependency-remove-error",
-                title: t("task.dependenciesRemoveFailed"),
-              };
+    (error: unknown) => {
       push({
-        ...notice,
+        id: "task-interrupt-error",
+        title: t("board.interruptFailed"),
         body: errorMessage(error),
-        durationMs: action === "dependency_remove" ? 5000 : Infinity,
+        durationMs: Infinity,
         tone: "danger",
       });
     },
@@ -154,13 +143,18 @@ export function TaskDetailContent({
     localDependencyFocusRequest,
   });
 
-  async function saveDraft(nextDraft: TaskDraft = draft): Promise<void> {
-    await update.mutateAsync({
-      taskID: detail.id,
-      title: nextDraft.title,
-      body: nextDraft.body,
+  function saveDraft(nextDraft: TaskDraft = draft, onSaved?: () => void): void {
+    update.submit({
+      input: {
+        taskID: detail.id,
+        title: nextDraft.title,
+        body: nextDraft.body,
+      },
+      onSuccess() {
+        onMutated?.();
+        onSaved?.();
+      },
     });
-    onMutated?.();
   }
 
   const pageFailure = [{ error: attention.error, retry: () => void attention.refetch() }, observation].find(
@@ -216,9 +210,7 @@ export function TaskDetailContent({
           onAddDependency={(direction) => {
             openRelatedTaskCreation({ detail, direction, navigator, openSidebar });
           }}
-          onRemoveDependency={(pair) => {
-            mutations.removeDependency.mutate(pair);
-          }}
+          onDependenciesChanged={onMutated}
           onSelectDependencyTask={(taskID) => {
             if (navigator !== undefined) {
               navigator.push(

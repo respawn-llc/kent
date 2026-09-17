@@ -1,7 +1,10 @@
 import { useMemo, type ReactNode } from "react";
+import { useAtomMount } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAppServices } from "@/app-facade";
 
 import { TaskLabelAssignmentContext } from "./taskLabelAssignmentContext";
-import { useManagedTaskLabelAssignment } from "./taskLabelAssignmentData";
+import { createTaskLabelAssignmentModel } from "./taskLabelAssignmentData";
 import { useProjectLabelData } from "./projectLabelContext";
 
 export function TaskLabelAssignmentProvider({
@@ -12,18 +15,21 @@ export function TaskLabelAssignmentProvider({
   taskID: string;
 }>) {
   const { catalog, effects, projectID } = useProjectLabelData();
-  const availableLabelIDs = useMemo(
-    () => catalog.data?.labels.map((label) => label.id) ?? [],
-    [catalog.data],
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const model = useMemo(
+    () =>
+      createTaskLabelAssignmentModel({
+        api,
+        catalog,
+        client,
+        projectID,
+        taskID,
+        scheduleCatalogRefresh: effects.scheduleCatalogRefresh,
+        scheduleTaskAssignmentRefresh: effects.scheduleTaskAssignmentRefresh,
+      }),
+    [api, catalog, client, projectID, taskID, effects],
   );
-  const assignment = useManagedTaskLabelAssignment({
-    availableLabelIDs,
-    projectID,
-    scheduleCatalogRefresh: effects.scheduleCatalogRefresh,
-    scheduleTaskAssignmentRefresh: effects.scheduleTaskAssignmentRefresh,
-    taskID,
-  });
-  return (
-    <TaskLabelAssignmentContext.Provider value={assignment}>{children}</TaskLabelAssignmentContext.Provider>
-  );
+  useAtomMount(model.observation);
+  return <TaskLabelAssignmentContext.Provider value={model}>{children}</TaskLabelAssignmentContext.Provider>;
 }

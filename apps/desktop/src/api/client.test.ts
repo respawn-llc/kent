@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
 import { ReadinessSeverity, ServerService } from "@app/server-api-contract/gen/kent/api/server/server_pb";
@@ -50,7 +51,7 @@ describe("ApiClient", () => {
       },
       { method: "workflow.task.start", result: appliedStartResponse },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     const readiness = await client.getReadiness();
     expect(readiness).toMatchObject({
@@ -82,7 +83,7 @@ describe("ApiClient", () => {
       { method: "workflow.board.get", result: emptyBoardResponse },
       { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.getBoard(
@@ -158,7 +159,7 @@ describe("ApiClient", () => {
 
   it("rejects malformed Workflow IDs before direct client RPCs or subscriptions", async () => {
     const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const prefixedID = "workflow-11111111-1111-4111-8111-111111111111";
 
     await expect(client.getWorkflow(prefixedID)).rejects.toThrow();
@@ -178,6 +179,7 @@ describe("ApiClient", () => {
   it("hides workflow join nodes from board columns and groups", async () => {
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.board.get", result: boardWithJoinResponse }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(
@@ -195,6 +197,7 @@ describe("ApiClient", () => {
   it("parses required empty current task execution arrays", async () => {
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.get", result: emptyTaskDetailResponse }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.getTask("task-1")).resolves.toMatchObject({
@@ -219,7 +222,7 @@ describe("ApiClient", () => {
         result: { items: [], generated_at_unix_ms: 2 },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: "" });
     await expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
@@ -249,6 +252,7 @@ describe("ApiClient", () => {
           },
         },
       ]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.getTask("task-1")).resolves.toMatchObject({
@@ -262,7 +266,7 @@ describe("ApiClient", () => {
       { method: "workflow.validate", result: workflowValidationResponse },
       { method: "workflow.listProjectLinks", result: workflowLinksResponse },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     const definition = await client.getWorkflow("11111111-1111-4111-8111-111111111111");
     expect(definition).toMatchObject({
@@ -367,7 +371,7 @@ describe("ApiClient", () => {
       },
     };
     const transport = new FakeRpcTransport([{ method: "workflow.get", result: response }]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.getWorkflow("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
       edges: [
@@ -440,7 +444,7 @@ describe("ApiClient", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.listWorkflows({ offset: 0, limit: 10, projectID: "project-1", query: "ship" }),
@@ -509,7 +513,7 @@ describe("ApiClient", () => {
       { method: "workflow.deletePreview", result: workflowDeletePreviewResponse },
       { method: "workflow.delete", result: workflowDeleteResponse },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.previewWorkflowDelete("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject(
       {
@@ -627,7 +631,7 @@ describe("ApiClient", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.validateWorkflowGraphDraft({

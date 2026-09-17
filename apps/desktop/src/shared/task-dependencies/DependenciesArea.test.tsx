@@ -1,17 +1,38 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import type { ComponentProps, ReactElement } from "react";
 
 import type { TaskDependencies } from "@/api";
 import type { TaskSearchResult } from "@/app-facade";
-import { TaskDependenciesArea } from "./TaskDependenciesAreaAdapter";
+import { DependenciesArea } from "./DependenciesArea";
+import { dependencyRelatedTaskIDs } from "./dependencyCache";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+
+let services = createTestServices([]);
+function TaskDependenciesArea(
+  props: Omit<ComponentProps<typeof DependenciesArea>, "interaction" | "excludedTaskIDs">,
+) {
+  return (
+    <DependenciesArea
+      {...props}
+      interaction={{ kind: "persisted", taskID: "task-1" }}
+      excludedTaskIDs={() => new Set(["task-1", ...dependencyRelatedTaskIDs(props.dependencies)])}
+    />
+  );
+}
+function renderArea(element: ReactElement) {
+  return render(<TestAppProviders services={services}>{element}</TestAppProviders>);
+}
 
 const searchFixture = vi.hoisted<{ results: readonly TaskSearchResult[] }>(() => ({ results: [] }));
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal()),
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
-  taskSearchDebounceMs: 0,
-  useDebouncedText: (value: string) => value,
   useTaskSearch: () => ({
     displayedQuery: null,
     normalizedTooShort: false,
@@ -85,10 +106,27 @@ const dependencies: TaskDependencies = {
 describe("TaskDependenciesArea", () => {
   beforeEach(() => {
     searchFixture.results = [];
+    services = createTestServices([]);
+    vi.spyOn(services.api, "addTaskDependency").mockImplementation(async (blockerTaskID, blockedTaskID) => ({
+      outcome: "added",
+      blockerTaskID,
+      blockedTaskID,
+      blockerShortID: "KNT-2",
+      blockedShortID: "KNT-1",
+    }));
+    vi.spyOn(services.api, "removeTaskDependency").mockImplementation(
+      async (blockerTaskID, blockedTaskID) => ({
+        outcome: "removed",
+        blockerTaskID,
+        blockedTaskID,
+        blockerShortID: "KNT-2",
+        blockedShortID: "KNT-1",
+      }),
+    );
   });
 
   it("keeps both empty directions actionable without progress", () => {
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={{
           blockerCount: 0,
@@ -103,11 +141,9 @@ describe("TaskDependenciesArea", () => {
         }}
         navigationDisabled={false}
         onAdd={vi.fn()}
-        onAddExisting={vi.fn().mockResolvedValue(undefined)}
-        onRemove={vi.fn()}
+
         onSelectTask={vi.fn()}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 
@@ -117,7 +153,7 @@ describe("TaskDependenciesArea", () => {
   });
 
   it("uses server-owned limit availability to disable Add", () => {
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={{
           ...dependencies,
@@ -132,11 +168,9 @@ describe("TaskDependenciesArea", () => {
         }}
         navigationDisabled={false}
         onAdd={vi.fn()}
-        onAddExisting={vi.fn().mockResolvedValue(undefined)}
-        onRemove={vi.fn()}
+
         onSelectTask={vi.fn()}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 
@@ -146,16 +180,14 @@ describe("TaskDependenciesArea", () => {
   });
 
   it("blocks navigation while retaining independent relationship removal", () => {
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={dependencies}
         navigationDisabled
         onAdd={vi.fn()}
-        onAddExisting={vi.fn().mockResolvedValue(undefined)}
-        onRemove={vi.fn()}
+
         onSelectTask={vi.fn()}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 
@@ -165,20 +197,18 @@ describe("TaskDependenciesArea", () => {
 
   it("renders both typed directions and delegates relationship actions", async () => {
     const onAdd = vi.fn();
-    const onRemove = vi.fn();
+    const onRemove = vi.spyOn(services.api, "removeTaskDependency");
     const onSelectTask = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={dependencies}
         navigationDisabled={false}
         onAdd={onAdd}
-        onAddExisting={vi.fn().mockResolvedValue(undefined)}
-        onRemove={onRemove}
+
         onSelectTask={onSelectTask}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 
@@ -205,14 +235,11 @@ describe("TaskDependenciesArea", () => {
 
     expect(onSelectTask).toHaveBeenCalledWith("task-2");
     expect(onAdd).toHaveBeenCalledWith("blocked-by");
-    expect(onRemove).toHaveBeenCalledWith({
-      blockerTaskID: "task-2",
-      blockedTaskID: "task-1",
-    });
+    expect(onRemove).toHaveBeenCalledWith("task-2", "task-1");
   });
 
   it("adds an existing searched Task and resets accepted IDs after close", async () => {
-    const onAddExisting = vi.fn().mockResolvedValue(undefined);
+    const onAddExisting = vi.spyOn(services.api, "addTaskDependency");
     const user = userEvent.setup();
     searchFixture.results = [
       {
@@ -248,7 +275,7 @@ describe("TaskDependenciesArea", () => {
       },
     ];
 
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={{
           blockerCount: 0,
@@ -263,21 +290,16 @@ describe("TaskDependenciesArea", () => {
         }}
         navigationDisabled={false}
         onAdd={vi.fn()}
-        onAddExisting={onAddExisting}
-        onRemove={vi.fn()}
+
         onSelectTask={vi.fn()}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 
     await user.click(screen.getByTestId("dependency-add-blocked-by"));
     await user.click(screen.getByTestId("dependency-candidate-task-9"));
 
-    expect(onAddExisting).toHaveBeenCalledWith({
-      blockerTaskID: "task-9",
-      blockedTaskID: "task-1",
-    });
+    expect(onAddExisting).toHaveBeenCalledWith("task-9", "task-1");
     expect(screen.queryByTestId("dependency-candidate-task-9")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("dependency-add-blocked-by"));
     await user.click(screen.getByTestId("dependency-add-blocked-by"));
@@ -286,20 +308,18 @@ describe("TaskDependenciesArea", () => {
 
   it("blocks relationship navigation while keeping Remove independently available", async () => {
     const onAdd = vi.fn();
-    const onRemove = vi.fn();
+    const onRemove = vi.spyOn(services.api, "removeTaskDependency");
     const onSelectTask = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    renderArea(
       <TaskDependenciesArea
         dependencies={dependencies}
         navigationDisabled
         onAdd={onAdd}
-        onAddExisting={vi.fn().mockResolvedValue(undefined)}
-        onRemove={onRemove}
+
         onSelectTask={onSelectTask}
         projectID="project-1"
-        taskID="task-1"
       />,
     );
 

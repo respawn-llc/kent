@@ -18,7 +18,6 @@ import { useColumnVisibility } from "./useColumnVisibility";
 
 export type BoardColumnMotionBoundaryProps = Readonly<{
   activeDrag: ActiveBoardCardDrag | null;
-  actionsDisabled: boolean;
   board: SelectedWorkflowBoard;
   displayedCards: readonly KanbanCardVM[] | undefined;
   column: BoardColumn;
@@ -38,6 +37,7 @@ export type BoardColumnMotionBoundaryProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
 
@@ -65,7 +65,6 @@ const inactivePresentation: BoardColumnPresentation = {
 
 export function BoardColumnMotionBoundary({
   activeDrag,
-  actionsDisabled,
   board,
   displayedCards,
   column,
@@ -85,6 +84,7 @@ export function BoardColumnMotionBoundary({
   onResumeTask,
   pendingInterruptTaskIDs,
   pendingResumeTaskIDs,
+  pendingStartMoveTaskIDs,
   scrollportRef,
 }: BoardColumnMotionBoundaryProps) {
   const { t } = useTranslation();
@@ -167,7 +167,6 @@ export function BoardColumnMotionBoundary({
         />
       ) : null}
       <KanbanColumn
-        actionsDisabled={actionsDisabled}
         cards={renderedCards}
         column={columnVM}
         columnRef={setRegisteredColumnElement}
@@ -194,6 +193,7 @@ export function BoardColumnMotionBoundary({
         onResumeTask={stableOnResumeTask}
         pendingInterruptTaskIDs={pendingInterruptTaskIDs}
         pendingResumeTaskIDs={pendingResumeTaskIDs}
+        pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
         pinnedItemKeys={pinnedItemKeys}
         previousBoundary={presentation.previousBoundary}
         replacementBoundary={presentation.replacementBoundary}

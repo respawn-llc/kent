@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -22,7 +22,8 @@ import { Button, Spinner } from "@/ui";
 type TaskInitiatingActionController = Readonly<{
   resume(recovery?: TaskSetupRecovery): void;
   start(): void;
-  running: boolean;
+  starting: boolean;
+  resuming: boolean;
 }>;
 
 const TaskInitiatingActionContext = createContext<TaskInitiatingActionController | null>(null);
@@ -43,7 +44,6 @@ export function TaskInitiatingActionProvider({
   const { api } = useAppServices();
   const { push } = useStatusController();
   const { t } = useTranslation();
-  const appliedActionKind = useRef<"resume" | "start">("resume");
   const [recovery, setRecovery] = useState<TaskSetupRecovery | null>(null);
   const reportError = useCallback(
     (kind: "resume" | "start", error: unknown) => {
@@ -59,25 +59,22 @@ export function TaskInitiatingActionProvider({
   );
   const continuation = useTaskInitiatingActionController({
     execute: async (action, selection) => executeTaskInitiatingAction(api, action, selection),
-    onApplied: async (result) => {
+    onApplied: async () => {
       setRecovery(null);
-      if (result.kind === "resume" || result.kind === "start") {
-        appliedActionKind.current = result.kind;
-      }
       await onApplied();
     },
-    onAppliedError: (error) => {
-      reportError(appliedActionKind.current, error);
+    onAppliedError: (error, result) => {
+      reportError(result.kind === "start" ? "start" : "resume", error);
+    },
+    onError: (action, error) => {
+      reportError(action.kind === "start" ? "start" : "resume", error);
     },
   });
   function run(
     action: Extract<TaskInitiatingAction, { kind: "resume" | "start" }>,
     selection?: WorkflowExecutionTargetSelection,
   ): void {
-    appliedActionKind.current = action.kind;
-    void continuation.run(action, selection).catch((error: unknown) => {
-      reportError(action.kind, error);
-    });
+    continuation.run(action, selection);
   }
   function resume(setupRecovery?: TaskSetupRecovery): void {
     if (setupRecovery !== undefined) {
@@ -90,7 +87,14 @@ export function TaskInitiatingActionProvider({
     run(startTaskInitiatingAction(taskID));
   }
   return (
-    <TaskInitiatingActionContext.Provider value={{ resume, running: continuation.running, start }}>
+    <TaskInitiatingActionContext.Provider
+      value={{
+        resume,
+        start,
+        starting: continuation.pendingStartMoveTaskIDs.has(taskID),
+        resuming: continuation.pendingResumeTaskIDs.has(taskID),
+      }}
+    >
       {children}
       <TaskInitiatingActionDialogs
         continuation={continuation}
@@ -113,6 +117,7 @@ export function TaskInitiatingActionProvider({
                   run({ ...action, branchName: executionTargetBranchName(selection, branchName) }, selection);
                 },
                 recovery,
+                running: continuation.pendingResumeTaskIDs.has(taskID),
                 ...(executionTarget === null ? { retrySelection: recovery.executionTarget } : {}),
               }
         }
@@ -130,14 +135,13 @@ export function TaskResumeButton({ recovery }: Readonly<{ recovery?: TaskSetupRe
   return (
     <Button
       data-testid="task-detail-resume"
-      disabled={controller.running}
+      aria-busy={controller.resuming}
       onClick={() => {
         controller.resume(recovery);
       }}
       variant="primary"
     >
-      {controller.running ? <Spinner size="sm" /> : null}
-      {t("board.resume")}
+      {controller.resuming ? <Spinner /> : t("board.resume")}
     </Button>
   );
 }
@@ -151,11 +155,11 @@ export function TaskStartButton() {
   return (
     <Button
       data-testid="task-detail-start"
-      disabled={controller.running}
+      aria-busy={controller.starting}
       onClick={controller.start}
       variant="primary"
     >
-      {t("task.start")}
+      {controller.starting ? <Spinner /> : t("task.start")}
     </Button>
   );
 }

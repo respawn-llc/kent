@@ -1,10 +1,17 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { I18nextProvider } from "react-i18next";
 import userEvent from "@testing-library/user-event";
 
 import { type ProjectTaskGroupCounts, type ProjectTaskGroupDefinition, type TaskListItem } from "@/api";
-import { queryKeys, type SidebarDestination, type SidebarRootController } from "@/app-facade";
+import {
+  AppServicesProvider,
+  queryKeys,
+  type SidebarDestination,
+  type SidebarRootController,
+} from "@/app-facade";
+import { createTestServices } from "@/test-support/app-services";
 import type * as ProjectTaskListData from "./projectTaskListData";
 
 import { appI18n, initializeI18n } from "@/i18n";
@@ -134,14 +141,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
       resumeTask: async () => {
         fixture.resumeRequests += 1;
         return { outcome: "applied" as const, applied: { currentNodes: [] } };
-      },
-      subscribeProject: () => {
-        fixture.projectSubscriptions += 1;
-        return {
-          close() {
-            fixture.projectSubscriptions -= 1;
-          },
-        };
       },
     },
     logger: { append: vi.fn() },
@@ -716,7 +715,9 @@ describe("ProjectTasksSurface", () => {
     expect(labelsRow).toHaveAttribute("aria-selected", "false");
     expect(fixture.labelCatalogRequests).toBe(1);
     expect(fixture.assignmentRequests).toBe(1);
-    expect(fixture.projectSubscriptions).toBe(0);
+    await waitFor(() => {
+      expect(fixture.projectSubscriptions).toBe(0);
+    });
   });
 });
 
@@ -761,6 +762,18 @@ function surface(memory = createProjectTasksViewMemory(), sidebarMode: "overlay"
 }
 
 function withQueryClient(children: React.ReactNode) {
+  const services = createTestServices([]);
+  const subscribe = services.transport.subscribe.bind(services.transport);
+  vi.spyOn(services.transport, "subscribe").mockImplementation((method, params, handler) => {
+    fixture.projectSubscriptions += 1;
+    const subscription = subscribe(method, params, handler);
+    return {
+      close() {
+        fixture.projectSubscriptions -= 1;
+        subscription.close();
+      },
+    };
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -781,7 +794,13 @@ function withQueryClient(children: React.ReactNode) {
       },
     ],
   });
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RegistryProvider>
+        <AppServicesProvider services={services}>{children}</AppServicesProvider>
+      </RegistryProvider>
+    </QueryClientProvider>
+  );
 }
 
 function openedDestination(): SidebarDestination {

@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 
 import {
   RpcError,
+  type ApiService,
   rpcErrorCodes,
   type TaskDependencyDirection,
   type WorkspaceCatalogPage,
@@ -11,6 +12,7 @@ import {
 } from "@/api";
 import type { TaskSearchResult } from "@/app-facade";
 import type { PreparedTaskDependency } from "@/shared/task-dependencies";
+import type { CreateTaskSubmission } from "@/shared/task-mutations";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import type { SelectFieldPaging } from "@/ui";
 import type * as UiModule from "@/ui";
@@ -45,7 +47,7 @@ interface TestState {
     refetch: ReturnType<typeof vi.fn>;
   };
   select: TestSelectProps | undefined;
-  create: ReturnType<typeof vi.fn>;
+  create: ReturnType<typeof vi.fn<ApiService["createTask"]>>;
   loggerAppend: ReturnType<typeof vi.fn>;
   labels: { labels: readonly { id: string; name: string }[] } | undefined;
   resetQueries: ReturnType<typeof vi.fn>;
@@ -102,8 +104,6 @@ vi.mock("@/app-facade", () => ({
   queryKeys: {
     projectWorkspaceCatalog: (projectID: string) => ["project-catalog", projectID, "workspaces"],
   },
-  taskSearchDebounceMs: 0,
-  useDebouncedText: (value: string) => value,
   useAppServices: () => ({ api: {}, logger: { append: state.loggerAppend } }),
   useStatusController: () => ({ dismiss: state.statusDismiss, push: state.statusPush }),
   useTaskSearch: () => ({
@@ -137,7 +137,13 @@ vi.mock("@/shared/native-dialog", () => ({
   NativeDialogWindow: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
 }));
 vi.mock("@/shared/task-mutations", () => ({
-  useCreateTask: () => ({ error: null, isPending: false, mutateAsync: state.create }),
+  useCreateTask: () => ({
+    error: null,
+    isPending: false,
+    submit: (submission: CreateTaskSubmission) => {
+      void state.create(submission.input).then(submission.onSuccess).catch(submission.onError);
+    },
+  }),
 }));
 vi.mock("@/ui", async (importOriginal) => ({
   ...(await importOriginal<typeof UiModule>()),

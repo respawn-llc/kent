@@ -1,13 +1,14 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAtomMount } from "@effect/atom-react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import * as Effect from "effect/Effect";
 
-import { errorMessage, type WorkflowProjectEvent } from "@/api";
-import { queryKeys, reportNonCancelledError, useAppServices, useLocalSubscription } from "@/app-facade";
+import { errorMessage } from "@/api";
+import { reportNonCancelledError, useAppServices, useProjectObservation } from "@/app-facade";
 import { ErrorState, useStableCallback } from "@/ui";
-import { createProjectLabelEffects } from "./labelEventEffects";
 import { ProjectLabelDataContext } from "./projectLabelContext";
-import { useManagedProjectLabelFilter } from "./projectLabelFilter";
+import { createProjectLabelsModel } from "./ProjectLabelsModel";
 
 export function ProjectLabelsProvider({
   children,
@@ -22,20 +23,10 @@ export function ProjectLabelsProvider({
   subscribeToProject?: boolean | undefined;
   projectID: string;
 }>) {
-  const { api, logger } = useAppServices();
+  const services = useAppServices();
+  const { logger } = services;
   const queryClient = useQueryClient();
   const { t } = useTranslation();
-  const catalog = useQuery({
-    queryKey: queryKeys.projectLabels(projectID),
-    queryFn: async () => api.listProjectLabels(projectID),
-    enabled: queryEnabled,
-    retry: false,
-  });
-  const catalogLabelIDs = useMemo(
-    () => catalog.data?.labels.map((label) => label.id) ?? null,
-    [catalog.data],
-  );
-  const filter = useManagedProjectLabelFilter(projectID, catalogLabelIDs);
   const reportBackgroundError = useStableCallback((error: unknown) => {
     reportNonCancelledError(error, (failure) => {
       onBackgroundError?.(failure);
@@ -45,79 +36,44 @@ export function ProjectLabelsProvider({
       });
     });
   });
-  const reportedPersistenceError = useRef<unknown>(null);
-  useEffect(() => {
-    if (filter.persistence.status !== "error") {
-      reportedPersistenceError.current = null;
-      return;
-    }
-    if (reportedPersistenceError.current === filter.persistence.error) {
-      return;
-    }
-    reportedPersistenceError.current = filter.persistence.error;
-    reportBackgroundError(filter.persistence.error);
-  }, [filter.persistence, reportBackgroundError]);
-  const effects = useMemo(
+  const model = useMemo(
     () =>
-      createProjectLabelEffects({
-        onFilterAction: filter.dispatch,
-        onBackgroundError: reportBackgroundError,
+      createProjectLabelsModel({
+        services,
+        client: queryClient,
         projectID,
-        queryClient,
+        enabled: queryEnabled,
+        report: reportBackgroundError,
       }),
-    [filter.dispatch, projectID, queryClient, reportBackgroundError],
+    [services, queryClient, projectID, queryEnabled, reportBackgroundError],
   );
-  const handlers = useStableCallback(() => {
-    const run = (operation: Promise<void>): void => {
-      void operation.catch(reportBackgroundError);
-    };
-    return {
-      onOpen() {
-        run(effects.refreshAfterSubscriptionBoundary());
-      },
-      onEvent(event: WorkflowProjectEvent) {
-        run(effects.consumeProjectEvent(event));
-      },
-      onComplete(code: number) {
-        if (code !== 0) return;
-        run(effects.refreshAfterSubscriptionBoundary());
-      },
-      onError(error: Error) {
-        reportBackgroundError(error);
-      },
-    };
-  });
-  const { error, retry } = useLocalSubscription(
+  useAtomMount(model.catalog);
+  useAtomMount(model.filter.state);
+  const { effects } = model;
+  const { error, retry } = useProjectObservation(
     subscribeToProject && projectID.length > 0 ? projectID : null,
-    (reportFailure, isActive) =>
-      api.subscribeProject(projectID, {
-        onOpen: () => {
-          if (isActive()) handlers().onOpen();
-        },
-        onEvent: (event) => {
-          if (isActive()) handlers().onEvent(event);
-        },
-        onComplete: (code) => {
-          if (isActive()) handlers().onComplete(code);
-        },
-        onError: (error) => {
-          if (!isActive()) return;
-          reportFailure(error);
-          handlers().onError(error);
-        },
+    projectID,
+    (observation) =>
+      Effect.promise(async () => {
+        switch (observation.kind) {
+          case "open":
+            await effects.refreshAfterSubscriptionBoundary().catch(reportBackgroundError);
+            break;
+          case "event":
+            await effects.consumeProjectEvent(observation.event).catch(reportBackgroundError);
+            break;
+          case "complete":
+            if (observation.code === 0)
+              await effects.refreshAfterSubscriptionBoundary().catch(reportBackgroundError);
+            break;
+          case "error":
+            reportBackgroundError(observation.error);
+            break;
+        }
       }),
-  );
-  const value = useMemo(
-    () => ({
-      catalog,
-      effects,
-      filter,
-      projectID,
-    }),
-    [catalog, effects, filter, projectID],
   );
   return (
-    <ProjectLabelDataContext.Provider value={value}>
+    <ProjectLabelDataContext.Provider value={model}>
       {error === null ? null : (
         <ErrorState
           fullPage={false}

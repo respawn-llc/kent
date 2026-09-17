@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
 import {
@@ -205,6 +206,7 @@ export const emptyTaskAttentionResponse = {
 export async function createTaskDetailFixture(): Promise<TaskDetail> {
   const client = new ApiClient(
     new FakeRpcTransport([{ method: "workflow.task.get", result: taskDetailResponse }]),
+    unexpectedProjectOverflow,
   );
   return client.getTask("task-1");
 }

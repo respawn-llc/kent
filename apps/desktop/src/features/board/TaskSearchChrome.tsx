@@ -13,9 +13,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   SidebarRootOwner,
-  taskSearchDebounceMs,
   type TaskSearchResult as SearchResult,
-  useDebouncedText,
   useOwnedSidebarRoots,
   useTaskSearch,
   useTaskSearchMemory,
@@ -163,8 +161,7 @@ function OwnedTaskSearchHost() {
   );
   const projectID = invocation?.projectId ?? null;
   const query = memory.query;
-  const debouncedQuery = useDebouncedText(query, taskSearchDebounceMs);
-  const search = useTaskSearch(projectID, open, debouncedQuery);
+  const search = useTaskSearch(projectID, open, query);
   const selection = useTaskSearchSelection(projectID, search.displayedQuery, search.results);
   const revealActiveSelection = selection.revealActive;
   const previousOpenRef = useRef(false);

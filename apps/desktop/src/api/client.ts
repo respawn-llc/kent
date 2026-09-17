@@ -121,6 +121,7 @@ import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import { workflowProjectEventRpcHandler } from "./workflowProjectEvents";
+import { projectEvents, type ProjectOverflowReporter } from "./projectEvents";
 import * as workflowBoard from "./clientWorkflowBoard";
 import * as workflowLabels from "./clientWorkflowLabels";
 
@@ -129,7 +130,10 @@ export const guiTaskCommentAuthor = "user";
 export class ApiClient implements ApiService {
   readonly #transport: DescriptorRpcTransport;
 
-  constructor(transport: DescriptorRpcTransport) {
+  constructor(
+    transport: DescriptorRpcTransport,
+    private readonly reportProjectOverflow: ProjectOverflowReporter,
+  ) {
     this.#transport = transport;
     this.chat = createChatApi(transport);
   }
@@ -568,12 +572,8 @@ export class ApiClient implements ApiService {
     return listPendingPrompts(this.#transport, { sessionID });
   }
 
-  subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "workflow.subscribeProject",
-      { project_id: projectID },
-      workflowProjectEventRpcHandler("workflow.project", handler),
-    );
+  subscribeProject(projectID: string) {
+    return projectEvents(this.#transport, projectID, this.reportProjectOverflow);
   }
 
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
