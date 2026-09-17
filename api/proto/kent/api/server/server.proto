@@ -39,10 +39,12 @@ message ReadinessCause {
 }
 
 message Readiness {
+  reserved 4;
+  reserved "server_build";
+
   bool ready = 1;
   string server_id = 2 [(buf.validate.field).string.min_len = 1];
   string server_version = 3 [(buf.validate.field).string.min_len = 1];
-  string server_build = 4 [(buf.validate.field).string.min_len = 1];
   string protocol_version = 5 [(buf.validate.field).string.min_len = 1];
   bool auth_ready = 6;
   bool auth_required = 7;

@@ -815,7 +815,6 @@ function readinessResult() {
           ready: true,
           serverId: "server-1",
           serverVersion: "test",
-          serverBuild: "test",
           protocolVersion: "126",
           endpoint: "ws://127.0.0.1:53082/rpc",
         },

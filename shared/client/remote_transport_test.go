@@ -320,7 +320,6 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 							Ready:           true,
 							ServerId:        "server-1",
 							ServerVersion:   "test",
-							ServerBuild:     "test",
 							ProtocolVersion: protocol.Version,
 						},
 					}},
