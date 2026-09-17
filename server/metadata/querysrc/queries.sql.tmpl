@@ -2632,14 +2632,19 @@ UPDATE projects
 SET updated_at_unix_ms = updated_at_unix_ms
 WHERE id = '';
 
--- name: ListSessionsTargetingWorktree :many
+-- name: ListSessionsTargetingWorktreePage :many
 SELECT
     id,
     name,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
-ORDER BY updated_at_unix_ms DESC, rowid DESC;
+  AND (
+    sqlc.narg(after_id) IS NULL
+    OR id > sqlc.narg(after_id)
+  )
+ORDER BY id ASC
+LIMIT sqlc.arg(page_size);
 
 -- name: InsertSessionPromptHistoryEntry :one
 INSERT INTO session_prompt_history_entries (
@@ -2848,7 +2853,7 @@ WHERE id = sqlc.arg(task_id)
   AND execution_target_provenance IS NULL
   AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
 
--- name: ReplaceCompletedTaskExecutionTarget :execrows
+-- name: ReplaceTaskExecutionTarget :execrows
 UPDATE tasks
 SET
     managed_worktree_id = sqlc.narg(managed_worktree_id),
@@ -2862,12 +2867,7 @@ SET
 WHERE tasks.id = sqlc.arg(task_id)
   AND execution_target_mode IS NOT NULL
   AND execution_target_mode != 'none'
-  AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id)
-  AND EXISTS (
-      SELECT 1 FROM task_current_nodes current_node
-      JOIN workflow_nodes node ON node.id = current_node.node_id
-      WHERE current_node.task_id = tasks.id AND node.kind = 'terminal'
-  );
+  AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
 
 -- name: CountTaskManagedWorktreeReferences :one
 SELECT COUNT(*) FROM tasks WHERE managed_worktree_id = sqlc.arg(managed_worktree_id);

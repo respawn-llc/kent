@@ -395,55 +395,80 @@ func TestWorktreeCommandCrossProjectDelete(t *testing.T) {
 	}
 	for _, agent := range []bool{true, false} {
 		for _, binding := range []metadata.Binding{f.b, f.other} {
-			t.Run(fmt.Sprintf("%t/%s", agent, binding.WorkspaceID), func(t *testing.T) {
-				if agent {
-					t.Setenv("KENT_SESSION_ID", f.sessionID)
-				}
-				t.Chdir(f.a.CanonicalRoot)
-				selectors := []string{"--project", binding.ProjectID}
-				if binding.WorkspaceID == f.other.WorkspaceID {
-					selectors = append(selectors, "--workspace", binding.WorkspaceID)
-				}
-				branch := fmt.Sprintf("delete-%t", agent)
-				var out, stderr bytes.Buffer
-				args := append([]string{"create", "--json"}, selectors...)
-				args = append(args, branch)
-				if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
-					t.Fatalf("create exit %d: %s", code, &stderr)
-				}
-				var created worktreepb.CreateSuccess
-				if err := protojson.Unmarshal(out.Bytes(), &created); err != nil {
-					t.Fatal(err)
-				}
-				facts := created.Worktree.Topology.GetRegistered()
-				out.Reset()
-				stderr.Reset()
-				command := "delete"
-				if !agent {
-					command = "remove"
-				}
-				args = append([]string{command, "--json"}, selectors...)
-				if !agent {
-					args = append(args, "--delete-branch")
-				}
-				args = append(args, facts.Kent.WorktreeId)
-				if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
-					t.Fatalf("delete exit %d: %s", code, &stderr)
-				}
-				if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("worktree directory remains: %v", err)
-				}
-				if _, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), facts.Kent.WorktreeId); !errors.Is(err, sql.ErrNoRows) {
-					t.Fatalf("worktree record remains: %v", err)
-				}
-				branchRef := testsetup.RunGit(t, binding.CanonicalRoot, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
-				if agent && strings.TrimSpace(branchRef) != "refs/heads/"+branch {
-					t.Fatalf("agent deleted branch: %q", branchRef)
-				}
-				if !agent && strings.TrimSpace(branchRef) != "" {
-					t.Fatalf("human branch cleanup skipped: %q", branchRef)
-				}
-			})
+			for _, policy := range []struct {
+				name     string
+				flags    []string
+				unmerged bool
+				outcome  worktreepb.BranchCleanupOutcomeKind
+			}{
+				{name: "retain", outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED},
+				{name: "safe", flags: []string{"--delete-branch"}, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED},
+				{name: "safe-unmerged", flags: []string{"--delete-branch"}, unmerged: true, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED},
+				{name: "force", flags: []string{"--delete-branch", "--force-delete-branch"}, unmerged: true, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED},
+			} {
+				t.Run(fmt.Sprintf("%t/%s/%s", agent, binding.WorkspaceID, policy.name), func(t *testing.T) {
+					if agent {
+						t.Setenv("KENT_SESSION_ID", f.sessionID)
+					}
+					t.Chdir(f.a.CanonicalRoot)
+					selectors := []string{"--project", binding.ProjectID}
+					if binding.WorkspaceID == f.other.WorkspaceID {
+						selectors = append(selectors, "--workspace", binding.WorkspaceID)
+					}
+					branch := fmt.Sprintf("delete-%t-%s", agent, policy.name)
+					var out, stderr bytes.Buffer
+					args := append([]string{"create", "--json"}, selectors...)
+					args = append(args, branch)
+					if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
+						t.Fatalf("create exit %d: %s", code, &stderr)
+					}
+					var created worktreepb.CreateSuccess
+					if err := protojson.Unmarshal(out.Bytes(), &created); err != nil {
+						t.Fatal(err)
+					}
+					facts := created.Worktree.Topology.GetRegistered()
+					if policy.unmerged {
+						testsetup.RunGit(t, facts.Git.CanonicalRoot, "commit", "--allow-empty", "-m", "unmerged work")
+					}
+					out.Reset()
+					stderr.Reset()
+					command := "delete"
+					if !agent {
+						command = "remove"
+					}
+					args = append([]string{command, "--json"}, selectors...)
+					args = append(args, policy.flags...)
+					args = append(args, facts.Kent.WorktreeId)
+					if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
+						t.Fatalf("delete exit %d: %s", code, &stderr)
+					}
+					var result worktreepb.DeleteSuccess
+					if err := protojson.Unmarshal(out.Bytes(), &result); err != nil {
+						t.Fatal(err)
+					}
+					if result.GetCleanup().GetKind() != policy.outcome {
+						t.Fatalf("cleanup = %v, want %v", result.GetCleanup(), policy.outcome)
+					}
+					if policy.outcome == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED &&
+						(result.GetCleanup().GetBranchName() != branch || result.GetCleanup().GetDiagnostic() == "") {
+						t.Fatalf("retained cleanup omitted branch or diagnostic: %v", result.GetCleanup())
+					}
+					if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("worktree directory remains: %v", err)
+					}
+					if _, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), facts.Kent.WorktreeId); !errors.Is(err, sql.ErrNoRows) {
+						t.Fatalf("worktree record remains: %v", err)
+					}
+					branchRef := testsetup.RunGit(t, binding.CanonicalRoot, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
+					deleted := policy.outcome == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED
+					if !deleted && strings.TrimSpace(branchRef) != "refs/heads/"+branch {
+						t.Fatalf("retained branch missing: %q", branchRef)
+					}
+					if deleted && strings.TrimSpace(branchRef) != "" {
+						t.Fatalf("branch cleanup skipped: %q", branchRef)
+					}
+				})
+			}
 		}
 	}
 	after, err := f.core.MetadataStore().ResolveSessionExecutionTarget(context.Background(), f.sessionID)
@@ -501,7 +526,6 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	branchesBefore := testsetup.RunGit(t, f.b.CanonicalRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
 	for _, args := range [][]string{
 		{"delete", "--project", f.b.ProjectID, facts.Kent.WorktreeId},
-		{"delete", "--project", f.b.ProjectID, "--delete-branch", "--force", facts.Kent.WorktreeId},
 		{"delete", "--project", f.b.ProjectID, "--force-delete-branch", "--force", facts.Kent.WorktreeId},
 		{"delete", "--project", "missing", "--force", facts.Kent.WorktreeId},
 		{"delete", "--project", f.b.ProjectID, "--workspace", f.a.WorkspaceID, "--force", facts.Kent.WorktreeId},

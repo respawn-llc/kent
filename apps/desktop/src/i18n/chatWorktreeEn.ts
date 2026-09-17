@@ -1,5 +1,8 @@
 export const chatWorktreeEnglish = {
   title: "Worktree",
+  sessionRequired: "Start a Session before managing worktrees.",
+  commandUsage:
+    "Usage: /worktree [status | new | create | switch <target> | leave | delete [target] | remove [target] | rm [target]]",
   refresh: "Refresh worktrees",
   create: "Create worktree",
   switch: "Switch",
@@ -22,6 +25,12 @@ export const chatWorktreeEnglish = {
   createSubmit: "Create",
   back: "Back",
   delete: "Delete worktree",
+  commandDeleteTitle: "Delete files irreversibly?",
+  commandDeleteBody:
+    "All files of the worktree will be deleted permanently with no recovery. All sessions will be forcibly moved to main workspace.",
+  no: "No",
+  yes: "Yes",
+  yesAndBranch: "Yes and branch",
   empty: "No worktrees",
   external: "External",
   missing: "Missing",
@@ -31,6 +40,9 @@ export const chatWorktreeEnglish = {
   selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",
   selectorUnavailable: "Worktree “{{target}}” is unavailable. Refresh the list before trying again.",
   operationBlocked: "This worktree operation is blocked.",
+  activeSessionsBlocked:
+    "Can't delete a worktree that is used by other agents! First, ask the Sessions to leave that worktree or finish their work, then retry.",
+  moreBlockingSessions: "More Sessions are using this worktree; only the first 50 are shown.",
   pendingCapacity: "Pending Work capacity has been reached. Try again when capacity is available.",
   deleteChanged: "The worktree changed after confirmation. Open Delete again to review its current state.",
 };

@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { DirtyStateKind, hasDeletableWorktreeBranch, WorktreeError, type WorktreeDeletePreview } from "@/api";
+import { hasDeletableWorktreeBranch, WorktreeError } from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   Button,
@@ -20,6 +20,7 @@ import {
 } from "@/ui";
 import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
+import { WorktreeCleanliness } from "./WorktreeCleanliness";
 
 type Props = Readonly<{
   sessionID: string;
@@ -73,13 +74,13 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
     <>
       {preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
       {preview.isError ? (
-        <p className="break-words text-sm text-[var(--color-error)]">
+        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">
           {worktreeErrorMessage(preview.error, t)}
         </p>
       ) : null}
-      {cleanliness === undefined ? null : <CleanlinessFacts value={cleanliness} />}
+      {cleanliness === undefined ? null : <WorktreeCleanliness value={cleanliness} />}
       {inlineError !== undefined ? (
-        <p className="break-words text-sm text-[var(--color-error)]">{inlineError}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">{inlineError}</p>
       ) : null}
       {preview.isSuccess ? (
         <TooltipProvider>
@@ -121,19 +122,4 @@ function immediateDeleteError(error: Error | null, t: TFunction) {
   if (error === null) return undefined;
   if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") return undefined;
   return worktreeErrorMessage(error, t);
-}
-
-function CleanlinessFacts({ value }: Readonly<{ value: NonNullable<WorktreeDeletePreview["cleanliness"]> }>) {
-  const { t } = useTranslation();
-  const clean = value.kind === DirtyStateKind.DIRTY_STATE_CLEAN;
-  const label = clean
-    ? t("chat.worktree.clean")
-    : value.kind === DirtyStateKind.DIRTY_STATE_DIRTY
-      ? t("chat.worktree.dirty", { count: value.dirtyFileCount })
-      : t("chat.worktree.unknown", { diagnostic: value.unknownCause });
-  return (
-    <p className={clean ? "break-words text-sm" : "break-words text-sm text-[var(--color-warning)]"}>
-      {label}
-    </p>
-  );
 }

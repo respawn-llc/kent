@@ -9,6 +9,7 @@ import {
   WorktreeError,
   type ApiService,
   type WorktreeDeleteConfirmationChoice,
+  type WorktreeDeletePreview,
 } from "@/api";
 import {
   createWorktreeSelectorRequest,
@@ -16,6 +17,7 @@ import {
   freshFetchWorktreeDeletePreview,
   worktreeDeletePreviewQueryOptions,
   queryAtom,
+  mutationPendingAtom,
   type StatusController,
 } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
@@ -55,16 +57,56 @@ export function createWorktreeDelete({
       );
     }),
   );
-  const observer = new MutationObserver(client, {
-    mutationFn: async (choice: WorktreeDeleteConfirmationChoice) => {
-      const result = previewObserver.getCurrentResult();
-      if (!result.isSuccess) throw new Error("Delete requires a completed preview");
-      return api.deleteWorktree(sessionID, result.data, choice);
+  const mutation = createWorktreeDeletion({
+    client,
+    api,
+    sessionID,
+    refreshOpenWorktreeList,
+    push,
+    t,
+    feedback: {
+      kind: "inline",
+      close,
+      reload: async () => {
+        await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);
+      },
     },
+  });
+  const confirm = Atom.fn<WorktreeDeleteConfirmationChoice>()(
+    (choice, get) =>
+      Effect.gen(function* () {
+        const result = previewObserver.getCurrentResult();
+        if (!result.isSuccess || get(mutation.deletion).isPending) return;
+        yield* Effect.promise(async () => mutation.submit({ preview: result.data, choice }));
+      }),
+    { concurrent: true },
+  );
+  return { preview, deletion: mutation.deletion, load, confirm };
+}
+
+type DeleteRequest = Readonly<{ preview: WorktreeDeletePreview; choice: WorktreeDeleteConfirmationChoice }>;
+
+export function createWorktreeDeletion({
+  client,
+  api,
+  sessionID,
+  refreshOpenWorktreeList,
+  push,
+  t,
+  feedback,
+}: Omit<Parameters<typeof createWorktreeDelete>[0], "selector" | "close"> &
+  Readonly<{
+    feedback:
+      Readonly<{ kind: "command" }> | Readonly<{ kind: "inline"; close(): void; reload(): Promise<void> }>;
+  }>) {
+  const mutationKey = ["worktree-delete", sessionID, crypto.randomUUID()];
+  const observer = new MutationObserver(client, {
+    mutationKey,
+    mutationFn: async ({ preview, choice }: DeleteRequest) => api.deleteWorktree(sessionID, preview, choice),
     retry: false,
     networkMode: "always",
     onSuccess: (result) => {
-      if (observer.hasListeners()) close();
+      if (feedback.kind === "inline" && observer.hasListeners()) feedback.close();
       refreshOpenWorktreeList(sessionID);
       const warnings: string[] = [];
       if (result.cleanup?.kind === BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED) {
@@ -86,7 +128,7 @@ export function createWorktreeDelete({
         });
     },
     onError: async (error) => {
-      if (!observer.hasListeners()) {
+      if (feedback.kind === "command" || !observer.hasListeners()) {
         push({
           id: crypto.randomUUID(),
           tone: "danger",
@@ -94,20 +136,19 @@ export function createWorktreeDelete({
           body: worktreeErrorMessage(error, t),
         });
       } else if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") {
-        await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);
+        await feedback.reload();
       }
     },
   });
   const deletion = queryAtom(observer);
-  const confirm = Atom.fn<WorktreeDeleteConfirmationChoice>()(
-    (choice) =>
-      Effect.gen(function* () {
-        if (observer.getCurrentResult().isPending || !previewObserver.getCurrentResult().isSuccess) return;
-        yield* Effect.tryPromise(async () => observer.mutate(choice)).pipe(Effect.ignore);
-      }),
-    { concurrent: true },
-  );
-  return { preview, deletion, load, confirm };
+  const requestPending = mutationPendingAtom(client, { mutationKey });
+  const submit = async (request: DeleteRequest) => {
+    await observer.mutate(request).catch(() => undefined);
+  };
+  const confirm = Atom.fn<DeleteRequest>()((request) => Effect.promise(async () => submit(request)), {
+    concurrent: true,
+  });
+  return { deletion, requestPending, confirm, submit };
 }
 
 export function useWorktreeDelete(model: ReturnType<typeof createWorktreeDelete>) {

@@ -109,12 +109,12 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 		*mismatch.ExistingBranchName != branchA {
 		t.Fatalf("AssertInitialTaskBranch error = %T %+v, want %q versus %q mismatch", err, err, branchB, branchA)
 	}
-	if err := infrastructure.RestoreExecutionTarget(ctx, workflowsvc.ExecutionTargetRestoreRequest{
+	if err := infrastructure.RestoreExecutionTarget(ctx, workflow.ExecutionTargetRestoreRequest{
 		TaskID: taskID, InitialBranchAssertion: &branchA,
 	}); err != nil {
 		t.Fatalf("RestoreExecutionTarget exact assertion reuse: %v", err)
 	}
-	err = infrastructure.RestoreExecutionTarget(ctx, workflowsvc.ExecutionTargetRestoreRequest{
+	err = infrastructure.RestoreExecutionTarget(ctx, workflow.ExecutionTargetRestoreRequest{
 		TaskID: taskID, InitialBranchAssertion: &branchB,
 	})
 	mismatch = nil

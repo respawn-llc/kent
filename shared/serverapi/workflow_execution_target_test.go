@@ -350,11 +350,11 @@ func TestWorkflowExecutionTargetDetailAndExplicitRefErrorEncoding(t *testing.T) 
 		t.Fatalf("resolution error code = %d, want %d", resolutionErr.RPCErrorCode(), protocol.ErrCodeWorkflowExecutionTargetResolution)
 	}
 
-	lockedErr := &WorkflowLockedExecutionTargetError{Cause: WorkflowLockedExecutionTargetCauseMissingBranch}
+	lockedErr := &WorkflowLockedExecutionTargetError{Cause: WorkflowLockedExecutionTargetCauseInvalidRoot}
 	lockedData := lockedErr.RPCErrorData()
 	decodedLocked := DecodeWorkflowLockedExecutionTargetError(lockedData, "fallback")
 	var typedLocked *WorkflowLockedExecutionTargetError
-	if !errors.As(decodedLocked, &typedLocked) || typedLocked.Cause != WorkflowLockedExecutionTargetCauseMissingBranch {
+	if !errors.As(decodedLocked, &typedLocked) || typedLocked.Cause != WorkflowLockedExecutionTargetCauseInvalidRoot {
 		t.Fatalf("decoded locked-target error = %#v, want typed missing branch", decodedLocked)
 	}
 	if lockedErr.RPCErrorCode() != protocol.ErrCodeWorkflowLockedExecutionTarget {

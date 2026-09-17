@@ -14,6 +14,9 @@ import {
   type TestAppServices,
 } from "@/test-support/app-services";
 import { useChatComposer, type ComposerSubmission } from "./useChatComposer";
+import { createWorktreeCommand } from "./worktreeCommand";
+import { useComposerKeyboard } from "./useComposerKeyboard";
+import { appI18n } from "@/i18n";
 
 function TestAppProviders({
   children,
@@ -216,6 +219,91 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
     { token: "/compact", separatorWhitespace: " \n ", rawGuidance: "keep decisions" },
   );
   expect(steer).not.toHaveBeenCalled();
+});
+
+it.each([
+  { newChat: false, ctrlKey: false, text: "/worktree" },
+  { newChat: false, ctrlKey: true, text: "/wt status" },
+  { newChat: false, ctrlKey: true, text: "/wt ls" },
+  { newChat: true, ctrlKey: false, text: "/worktree" },
+  { newChat: true, ctrlKey: true, text: "/wt switch topic" },
+  { newChat: true, ctrlKey: true, text: "/worktree delete a b" },
+])("consumes Worktree commands locally: %j", async ({ newChat, ctrlKey, text }) => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const steer = vi.spyOn(services.api.chat, "steer");
+  const queue = vi.spyOn(services.api.chat, "queue");
+  const delivered = vi.fn();
+  let finish!: () => void;
+  const execute = vi.fn(
+    async () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const push = vi.fn();
+  const commands = [createWorktreeCommand({ execute, push, t: appI18n.t })];
+  function Probe() {
+    const composer = useChatComposer({
+      ...(newChat
+        ? {
+            kind: "new_chat" as const,
+            projectID: target.projectID,
+            workspace: target.workspace,
+            submission: {
+              kind: "ready" as const,
+              initialSettings: {
+                agentRole: "writer",
+                supervisor: "off" as const,
+                thinking: null,
+                fast: null,
+                questionsEnabled: true,
+                autoCompactionEnabled: false,
+              },
+            },
+          }
+        : { ...target, submission: { kind: "ready" as const } }),
+      commands,
+      onDeliveredSession: delivered,
+    });
+    const keyboard = useComposerKeyboard(composer, false, null);
+    return (
+      <textarea
+        data-testid="command"
+        disabled={composer.draft.kind !== "ready"}
+        value={composer.text}
+        onChange={(event) => {
+          composer.edit(event.target.value);
+        }}
+        onKeyDown={keyboard.onEditorKeyDown}
+      />
+    );
+  }
+  render(
+    <TestAppProviders services={services}>
+      <Probe />
+    </TestAppProviders>,
+  );
+  const editor = screen.getByTestId("command");
+  await waitFor(() => expect(editor).not.toBeDisabled());
+  fireEvent.change(editor, { target: { value: text } });
+  fireEvent.keyDown(editor, { key: "Enter", ctrlKey });
+  await waitFor(() => expect(editor).toHaveValue(""));
+  if (!newChat && text !== "/wt ls") {
+    expect(execute).toHaveBeenCalledOnce();
+    await act(async () => {
+      finish();
+    });
+    expect(push).not.toHaveBeenCalled();
+  } else {
+    expect(execute).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledOnce();
+  }
+  expect(steer).not.toHaveBeenCalled();
+  expect(queue).not.toHaveBeenCalled();
+  expect(delivered).not.toHaveBeenCalled();
+  expect(editor).toHaveValue("");
 });
 
 it("clears an armed Stop on transcript loss while allowing a subsequent independent Stop", async () => {

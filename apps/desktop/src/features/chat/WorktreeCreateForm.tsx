@@ -41,7 +41,7 @@ export function WorktreeCreateForm(props: Props) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const query = useQuery({ ...worktreeListQueryOptions(api, props.sessionID), enabled: false });
+  const query = useQuery(worktreeListQueryOptions(api, props.sessionID));
   const header = useMemo(
     () => (
       <IconTooltipButton
@@ -109,7 +109,7 @@ function CreateFields({
   );
   const { editTarget, editBase, submit } = useWorktreeCreate(model);
   const state = useAtomValue(model.state);
-  const switching = useAtomValue(actions.switching).isPending;
+  const switching = useAtomValue(actions.requestPending);
   const pending = state.pending || switching;
   const submitShortcut = useTextFieldSubmitShortcut({ kind: "form", available: !pending });
   const isNew =

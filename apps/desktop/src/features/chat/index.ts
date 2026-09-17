@@ -18,6 +18,7 @@ export type {
 } from "./messageRows/ChatMessageEditViewModel";
 export { ChatPromptPicker } from "./ChatPromptPicker";
 export { WorktreeControl } from "./WorktreeControl";
+export { WorktreeCommands } from "./WorktreeCommands";
 export type { ChatShellProps, ChatShellState, SelectedSession } from "./ChatShell";
 export { useChatSettings } from "./useChatSettings";
 export { TranscriptReasoningSlot, TranscriptThinkingStatus } from "./transcriptRows";

@@ -462,9 +462,9 @@ The workflow's execution-target policy chooses where executable agent and script
 
 New workflows ask when execution starts. Kent Desktop offers all four concrete targets when selection is required, preselects the repository default branch, and uses the same dialog when a configured Git target cannot be resolved.
 
-Target selection occurs on the first executable start, manual move, or approval. The task locks the selected mode and managed requested/resolved commit facts only when that initiating action succeeds. Later workflow nodes reuse the locked target, with the completed-Task reopening exception below.
+Target selection occurs on the first executable start, manual move, or approval. The Task locks the selected mode and managed revision facts after successful preparation. Later workflow nodes reuse that target unless its original Worktree cannot be safely restored.
 
-Configure a workflow policy or select a concrete target when starting, approving, or manually moving a task:
+Configure a workflow policy or select a concrete target when starting, approving, moving, or recovering a Task:
 
 ```bash
 kent workflow update <uuid> --execution-target ask-on-first-execution
@@ -473,12 +473,25 @@ kent workflow update <uuid> --execution-target none|head|default-branch|ref:<rev
 kent task start <task> --execution-target none|head|default-branch|ref:<revision>
 kent task approve <transition-id> --execution-target none|head|default-branch|ref:<revision>
 kent task move <task> <target-node-id> --execution-target none|head|default-branch|ref:<revision>
+kent task resume <task> --execution-target none|head|default-branch|ref:<revision>
 ```
 
-These task actions never prompt. Their override applies to an unlocked Task or to the replacement required when reopening a completed Task, and does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current session and script target. Task detail does not perform live Git branch discovery; inspect the worktree when branch identity is needed.
+These CLI actions never prompt. An override selects an unlocked Task's target or a replacement required by recovery; it does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current Session and Script target. Task detail does not perform live Git branch discovery; inspect the Worktree when branch identity is needed.
 
-When reopening a completed Task into executable work, Kent reuses its valid Worktree, including detached HEAD, or conservatively restores a surviving named branch. If the original target cannot be safely reused, Kent explains the cause and requires a replacement selection. The Task remains Done while you choose and prepare the target. Cancel, target-resolution failure, or setup failure leaves the Move unapplied and preserves Task content and the original location.
+### Recover An Unavailable Task Target
 
-Managed replacements default to the Task Short ID as their branch name. Use the optional Branch name in Desktop or `--branch-name <new-name>` with `kent task move` to choose another name when it collides. Kent leaves the original branch untouched. A failed replacement setup retains its Worktree and branch without binding them to the Task; choose a fresh target with another branch name or cancel, rather than retrying setup in the retained root. A healthy original target cannot be replaced by supplying another target or branch name. Resume and unfinished Tasks retain their locked-target rules.
+Completion directly to Done succeeds without a Worktree. Before further Agent or Script work, Kent reuses a valid original Worktree, including detached HEAD, or safely restores its surviving named branch. This applies to Resume, automatic successors, and reopening a completed Task. Kent does not recreate a deleted branch from an old commit or overwrite a leftover directory.
+
+If the original target cannot be safely reused, Kent explains the cause and requires a replacement selection. An automatic successor pauses before execution, preserving the source's completion. Use the same four target choices in Desktop or with CLI Resume/Move. Canceling selection or submitting an invalid ref preserves Task content and leaves recovery available.
+
+Managed replacements use a fresh Worktree and default their branch name to the Task Short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`. The original branch and files remain untouched. A healthy original target cannot be replaced through recovery.
+
+```bash
+kent task resume APP-42 --execution-target ref:main --branch-name APP-42-followup
+```
+
+Kent stops existing Task work before replacing its target. Replacement setup must succeed before Kent saves the target or applies a Move. Failure retains the candidate Worktree and branch without making it the Task target; the Move remains unapplied or the Task remains interrupted. Choose another target with a free branch name, or cancel. Failed candidate files remain available for inspection, but recovery does not retry setup in that candidate. Closing a client does not cancel an accepted Move.
+
+Each Task Start, Resume, or Move action runs setup at most once. Original restoration is distinct from fresh replacement: if setup fails after recreating the original, still-bound checkout, the action reports failure, but a later explicit Resume or Session message may use that checkout without rerunning setup. Stopping Kent during replacement setup does not bind the unfinished candidate; later Resume follows the saved Task target.
 
 More about worktrees on the [Worktree](../worktrees/) page.

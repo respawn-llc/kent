@@ -1,5 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -24,13 +24,15 @@ export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
   availableHeight: number | null;
   onHeightChange(height: number): void;
+  editorRef?: RefObject<HTMLTextAreaElement | null>;
 }>;
 
-export function ChatComposer({ settings, availableHeight, onHeightChange }: ChatComposerProps) {
+export function ChatComposer({ settings, availableHeight, onHeightChange, editorRef }: ChatComposerProps) {
   const { t } = useTranslation();
   const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
-  const editor = useRef<HTMLTextAreaElement>(null);
+  const localEditor = useRef<HTMLTextAreaElement>(null);
+  const editor = editorRef ?? localEditor;
   const pickerOpen = composer.suggestions.length > 0;
   const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
     availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
@@ -49,7 +51,7 @@ export function ChatComposer({ settings, availableHeight, onHeightChange }: Chat
     return () => {
       observer.disconnect();
     };
-  }, [composer.text, composer.draft.kind, availableHeight]);
+  }, [composer.text, composer.draft.kind, availableHeight, editor]);
   useLayoutEffect(() => {
     const element = root.current;
     if (element === null) return;
