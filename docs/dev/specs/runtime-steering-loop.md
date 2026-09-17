@@ -126,6 +126,7 @@
 - Kent surfaces the later Worktree publication diagnostic without restoring the command or reporting the applied transition as failed.
 - If Worktree rollback fails, Kent reports neither Completed nor Failed and restores no command because the target and Runtime relationship is indeterminate.
 - An indeterminate rollback retires only the affected Active Session Runtime before it can accept or execute more work.
+- Mandatory Active Session Runtime retirement gives pending Goal notices and Goal failure feedback no special handling or delivery guarantee. Retirement does not wait for a final attempt or add Goal-specific validation, error handling, logging, atomicity, persistence outside the affected Runtime, retry, replay, or fallback for that work.
 - An indeterminate dormant-Session transition returns its diagnostic without retiring a Runtime.
 
 ## Protected Agent Steps

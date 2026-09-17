@@ -71,7 +71,9 @@ describe("task lifecycle client", () => {
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-1" }] },
     });
-    await expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toMatchObject({
+    await expect(
+      client.moveTask({ taskID: "task-1", targetNodeID: "node-2", branchName: "task-reopened" }),
+    ).resolves.toMatchObject({
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-2" }] },
     });
@@ -103,6 +105,9 @@ describe("task lifecycle client", () => {
     expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).not.toHaveProperty(
       "allow_missing_edge",
     );
+    expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).toMatchObject({
+      branch_name: "task-reopened",
+    });
     expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).not.toHaveProperty(
       "auto_approve",
     );
@@ -114,6 +119,45 @@ describe("task lifecycle client", () => {
   });
 
   it("maps typed execution-target selection requirements", () => {
+    expect(
+      taskMoveResponseSchema.safeParse({
+        outcome: "selection_required",
+        selection_required: {
+          reason: "configured_target_unavailable",
+          configured_target: { mode: "none" },
+          unavailable_cause: "git_failure",
+        },
+      }).success,
+    ).toBe(false);
+    for (const mode of ["head", "default_branch"]) {
+      expect(
+        taskMoveResponseSchema.parse({
+          outcome: "selection_required",
+          selection_required: {
+            reason: "configured_target_unavailable",
+            configured_target: { mode },
+            unavailable_cause: "git_failure",
+          },
+        }),
+      ).toMatchObject({
+        selectionRequired: { configuredTarget: { mode, requestedRef: null } },
+      });
+    }
+    expect(
+      taskMoveResponseSchema.parse({
+        outcome: "selection_required",
+        selection_required: {
+          reason: "original_target_unavailable",
+          original_target_cause: "missing_branch",
+        },
+      }),
+    ).toEqual({
+      outcome: "selection_required",
+      selectionRequired: {
+        reason: "original_target_unavailable",
+        originalTargetCause: "missing_branch",
+      },
+    });
     expect(
       taskStartResponseSchema.parse({
         outcome: "selection_required",

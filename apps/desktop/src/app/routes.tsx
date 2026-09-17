@@ -2,12 +2,13 @@ import { createRoute, createRouter, createRootRoute } from "@tanstack/react-rout
 import { z } from "zod";
 
 import { workflowIDSchema } from "@/api";
-import { sessionChatRoutePath } from "@/app-facade";
+import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 import { createNativeDialogRoutes, workspaceUnlinkNativeDialogPath } from "./nativeDialogRoutes";
 import {
   HomeShellRoute,
   ChatRoute,
+  NewChatRoute,
   ProjectRoute,
   ProjectTasksRoute,
   RootRoute,
@@ -81,6 +82,9 @@ const chatRoute = desktopChatEnabled
       component: ChatRoute,
     })
   : undefined;
+const newChatRoute = desktopChatEnabled
+  ? createRoute({ getParentRoute: () => rootRoute, path: newChatRoutePath, component: NewChatRoute })
+  : undefined;
 
 const nativeDialogRoutes = createNativeDialogRoutes(rootRoute);
 
@@ -92,6 +96,7 @@ const routeTree = rootRoute.addChildren([
   workflowEditorRoute,
   taskRoute,
   ...(chatRoute === undefined ? [] : [chatRoute]),
+  ...(newChatRoute === undefined ? [] : [newChatRoute]),
   ...nativeDialogRoutes,
 ]);
 

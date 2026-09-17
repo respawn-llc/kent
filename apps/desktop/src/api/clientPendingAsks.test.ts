@@ -53,7 +53,6 @@ it("combines generated freeform Questions and Approvals in creation order", asyn
   const prompts = await new ApiClient(transport, unexpectedProjectOverflow).chat.listPendingPrompts({
     sessionID,
     projectID: "project-1",
-    workspace: { workspaceID: "workspace-1" },
   });
   expect(prompts.map((prompt) => prompt.toolCallID)).toEqual(["approval", "freeform"]);
   expect(prompts[1]).toMatchObject({ kind: "ordinary", suggestions: [], recommendedOptionIndex: null });

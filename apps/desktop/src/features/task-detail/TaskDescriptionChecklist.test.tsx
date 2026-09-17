@@ -229,22 +229,23 @@ describe("Task description checklist", () => {
     expect(screen.getByTestId("task-detail-save")).toBeInTheDocument();
   });
 
-  it("retains description editing after an observation fails", async () => {
+  it("restores description editing after retrying a failed observation", async () => {
     const services = mountTaskDetailSurface({
       task: {
         ...taskDetailResponse.task,
         body: "- [ ] Keep the Markdown source",
       },
     });
-    const description = await screen.findByRole("textbox", { name: appI18n.t("task.description") });
-    const checkbox = await screen.findByRole("checkbox");
+    await screen.findByRole("textbox", { name: appI18n.t("task.description") });
     act(() => {
       services.transport.fail("workflow.subscribeProject", new Error("offline"));
     });
 
-    await waitFor(() => {
-      expect(checkbox).toBeEnabled();
-    });
+    await screen.findByTestId("error-state");
+    expect(screen.queryByRole("textbox", { name: appI18n.t("task.description") })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+    const description = await screen.findByRole("textbox", { name: appI18n.t("task.description") });
+    const checkbox = await screen.findByRole("checkbox");
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
     fireEvent.focus(description);

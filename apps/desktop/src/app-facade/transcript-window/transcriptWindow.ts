@@ -392,7 +392,7 @@ export class TranscriptWindow {
         stagingPresentation: "preserve-live",
       },
     );
-    return { kind: "accepted", effects: [] };
+    return { kind: "accepted", effects: [{ kind: "hydration-replaced" }] };
   }
 
   private activity(activity: RuntimeActivity): TranscriptWindowResult {

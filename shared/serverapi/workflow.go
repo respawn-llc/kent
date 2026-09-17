@@ -8,7 +8,10 @@ import (
 	"slices"
 	"strings"
 
+	"buf.build/go/protovalidate"
 	"core/shared/clientui"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -1029,16 +1032,20 @@ type WorkflowRetainedPreviousWorktree struct {
 }
 
 type WorkflowRegisteredWorktreeTopology struct {
+	Registered *worktreepb.RegisteredFacts
+}
+
+type workflowRegisteredWorktreeEnvelope struct {
 	Variant    string                           `json:"variant"`
-	Registered *WorkflowRegisteredWorktreeFacts `json:"registered,omitempty"`
+	Registered *workflowRegisteredWorktreeFacts `json:"registered,omitempty"`
 }
 
-type WorkflowRegisteredWorktreeFacts struct {
-	Git  WorkflowWorktreeGitFacts  `json:"git"`
-	Kent WorkflowWorktreeKentFacts `json:"kent"`
+type workflowRegisteredWorktreeFacts struct {
+	Git  workflowWorktreeGitFacts  `json:"git"`
+	Kent workflowWorktreeKentFacts `json:"kent"`
 }
 
-type WorkflowWorktreeGitFacts struct {
+type workflowWorktreeGitFacts struct {
 	CanonicalRoot  string  `json:"canonical_root"`
 	HeadObject     string  `json:"head_object"`
 	BranchRef      *string `json:"branch_ref"`
@@ -1051,7 +1058,7 @@ type WorkflowWorktreeGitFacts struct {
 	PathAvailable  bool    `json:"path_available"`
 }
 
-type WorkflowWorktreeKentFacts struct {
+type workflowWorktreeKentFacts struct {
 	WorktreeID      string  `json:"worktree_id"`
 	CanonicalRoot   string  `json:"canonical_root"`
 	DisplayName     string  `json:"display_name"`
@@ -1061,40 +1068,21 @@ type WorkflowWorktreeKentFacts struct {
 }
 
 func (t WorkflowRegisteredWorktreeTopology) Validate() error {
-	if t.Variant != "registered" || t.Registered == nil {
+	if t.Registered == nil {
 		return errors.New("workflow retained worktree must be registered")
 	}
-	facts := t.Registered
-	if strings.TrimSpace(facts.Git.CanonicalRoot) == "" ||
-		strings.TrimSpace(facts.Git.HeadObject) == "" ||
-		strings.TrimSpace(facts.Kent.WorktreeID) == "" ||
-		strings.TrimSpace(facts.Kent.CanonicalRoot) == "" ||
-		strings.TrimSpace(facts.Kent.DisplayName) == "" {
-		return errors.New("workflow retained worktree required facts must be non-blank")
-	}
-	for _, optional := range []*string{facts.Git.BranchRef, facts.Git.BranchName, facts.Git.LockedReason, facts.Git.PrunableReason, facts.Kent.OriginSessionID} {
-		if optional != nil && strings.TrimSpace(*optional) == "" {
-			return errors.New("workflow retained worktree optional facts must be non-blank")
-		}
-	}
-	if facts.Git.CanonicalRoot != facts.Kent.CanonicalRoot {
-		return errors.New("workflow retained worktree Git and Kent canonical roots must match")
-	}
-	return nil
+	return protovalidate.Validate(t.Registered)
 }
 
 type WorkflowSetupRetainedError struct {
-	Worktree                 WorkflowRegisteredWorktreeTopology `json:"worktree"`
-	ScriptPath               string                             `json:"script_path"`
-	Diagnostic               string                             `json:"diagnostic"`
-	RetainedPreviousWorktree *WorkflowRetainedPreviousWorktree  `json:"retained_previous_worktree"`
+	Details *worktreepb.SetupRetainedDetails
 }
 
 func (e *WorkflowSetupRetainedError) Error() string {
-	if e == nil || strings.TrimSpace(e.Diagnostic) == "" {
+	if e == nil || strings.TrimSpace(e.Details.GetDiagnostic()) == "" {
 		return worktreecontract.ErrWorktreeSetupRetained.Error()
 	}
-	return fmt.Sprintf("%s: %s", worktreecontract.ErrWorktreeSetupRetained, strings.TrimSpace(e.Diagnostic))
+	return fmt.Sprintf("%s: %s", worktreecontract.ErrWorktreeSetupRetained, strings.TrimSpace(e.Details.Diagnostic))
 }
 
 func (e *WorkflowSetupRetainedError) Is(target error) bool {
@@ -1109,46 +1097,19 @@ func (e *WorkflowSetupRetainedError) RPCErrorData() json.RawMessage {
 	if e == nil {
 		return nil
 	}
-	return marshalRPCErrorData(struct {
-		Type string `json:"type"`
-		*WorkflowSetupRetainedError
-	}{Type: "worktree_setup_retained", WorkflowSetupRetainedError: e})
+	return marshalRPCErrorData(e)
 }
 
 func (e *WorkflowSetupRetainedError) Validate() error {
-	if e == nil {
+	if e == nil || e.Details == nil {
 		return errors.New("retained setup error is required")
 	}
-	if err := e.Worktree.Validate(); err != nil {
-		return err
-	}
-	if e.RetainedPreviousWorktree != nil {
-		if err := e.RetainedPreviousWorktree.Worktree.Validate(); err != nil {
-			return err
-		}
-	}
-	if strings.TrimSpace(e.ScriptPath) == "" || strings.TrimSpace(e.Diagnostic) == "" {
-		return errors.New("retained setup error script_path and diagnostic are required")
-	}
-	return nil
+	return protovalidate.Validate(e.Details)
 }
 
 func DecodeWorkflowSetupRetainedError(data json.RawMessage, message string) error {
-	var payload struct {
-		Type string `json:"type"`
-		WorkflowSetupRetainedError
-	}
-	if err := protocol.DecodeStrictJSON(data, &payload); err != nil || payload.Type != "worktree_setup_retained" {
-		return errors.New(strings.TrimSpace(message))
-	}
-	presence := struct {
-		RetainedPreviousWorktree json.RawMessage `json:"retained_previous_worktree"`
-	}{}
-	if err := json.Unmarshal(data, &presence); err != nil || len(presence.RetainedPreviousWorktree) == 0 {
-		return errors.New(strings.TrimSpace(message))
-	}
-	result := &payload.WorkflowSetupRetainedError
-	if err := result.Validate(); err != nil {
+	result := &WorkflowSetupRetainedError{}
+	if err := json.Unmarshal(data, result); err != nil {
 		return errors.New(strings.TrimSpace(message))
 	}
 	return result
@@ -2843,7 +2804,7 @@ func (r WorkflowAttentionItem) Validate() error {
 	}
 	switch r.Kind {
 	case "question":
-		if err := validateRequiredAttentionString("message", r.Message); err != nil {
+		if err := validateOptionalAttentionString("message", r.Message); err != nil {
 			return err
 		}
 		if r.CurrentNode == nil {
@@ -2863,6 +2824,11 @@ func (r WorkflowAttentionItem) Validate() error {
 		}
 		if err := r.Question.Validate(); err != nil {
 			return err
+		}
+		if r.Question.Kind != WorkflowAttentionQuestionKindApproval || len(r.Question.AccessTargets) == 0 {
+			if err := validateRequiredAttentionString("message", r.Message); err != nil {
+				return err
+			}
 		}
 		return validateWorkflowAttentionFieldsAbsent(r.Kind,
 			workflowAttentionFieldPresence{name: "approval_id", present: r.ApprovalID != nil},
@@ -3006,7 +2972,8 @@ type workflowAttentionInterruptionDetailSchema struct {
 		RequestedRef *string                                 `json:"requested_ref,omitempty"`
 		Cause        WorkflowExecutionTargetUnavailableCause `json:"cause"`
 	} `json:"configured_execution_target_unavailable,omitempty"`
-	SetupRecovery *workflowSetupRecoveryDetailSchema `json:"setup_recovery,omitempty"`
+	SetupRecovery                      *workflowSetupRecoveryDetailSchema   `json:"setup_recovery,omitempty"`
+	OriginalExecutionTargetUnavailable *taskpb.LockedExecutionTargetDetails `json:"original_execution_target_unavailable,omitempty"`
 }
 
 type workflowSetupRecoveryDetailSchema struct {
@@ -3068,14 +3035,7 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 		}
 	}
 	if unavailable := detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
-		requirement := WorkflowExecutionTargetSelectionRequirement{
-			Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable,
-			ConfiguredTarget: &WorkflowExecutionTargetConfiguredTarget{
-				Mode:         unavailable.Mode,
-				RequestedRef: unavailable.RequestedRef,
-			},
-			UnavailableCause: unavailable.Cause,
-		}
+		requirement := NewWorkflowConfiguredTargetSelectionRequirement(unavailable.Mode, unavailable.RequestedRef, unavailable.Cause)
 		if err := requirement.Validate(); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" configured execution target metadata is invalid")
 		}
@@ -3083,6 +3043,11 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 	if recovery := detail.SetupRecovery; recovery != nil {
 		if err := recovery.domain().Validate(); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" setup recovery facts are invalid")
+		}
+	}
+	if unavailable := detail.OriginalExecutionTargetUnavailable; unavailable != nil {
+		if detail.ConfiguredExecutionTargetUnavailable != nil || protovalidate.Validate(unavailable) != nil {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" missing Worktree metadata is invalid")
 		}
 	}
 	return nil

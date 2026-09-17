@@ -7,8 +7,12 @@ import (
 	"reflect"
 	"testing"
 
+	"buf.build/go/protovalidate"
+	definitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestWorkflowExecutionTargetSelectionRequestValidation(t *testing.T) {
@@ -146,24 +150,66 @@ func TestWorkflowGraphMetadataExecutionTargetPolicyValidation(t *testing.T) {
 }
 
 func TestWorkflowExecutionTargetSelectionRequirementValidation(t *testing.T) {
-	configured := WorkflowExecutionTargetSelectionRequirement{
-		Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable,
-		ConfiguredTarget: &WorkflowExecutionTargetConfiguredTarget{
-			Mode: WorkflowExecutionTargetModeDefaultBranch,
+	if err := protovalidate.Validate(&taskpb.SelectionRequired{
+		Reason: &taskpb.SelectionRequired_ConfiguredTargetUnavailable{
+			ConfiguredTargetUnavailable: &taskpb.ConfiguredExecutionTargetUnavailableDetails{
+				Mode:  definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+				Cause: taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE,
+			},
 		},
-		UnavailableCause: WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing,
+	}); err == nil {
+		t.Fatal("configured unavailable selection accepted no managed target")
 	}
+	configured := NewWorkflowConfiguredTargetSelectionRequirement(WorkflowExecutionTargetModeDefaultBranch, nil, WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing)
 	if err := configured.Validate(); err != nil {
 		t.Fatalf("configured requirement invalid: %v", err)
 	}
-
-	for _, requirement := range []WorkflowExecutionTargetSelectionRequirement{
-		{Reason: WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection, UnavailableCause: WorkflowExecutionTargetUnavailableCauseGitFailure},
-		{Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable},
-		{Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable, ConfiguredTarget: configured.ConfiguredTarget, UnavailableCause: WorkflowExecutionTargetUnavailableCause("future")},
-		{Reason: WorkflowExecutionTargetSelectionReason("future")},
+	originalCause := WorkflowLockedExecutionTargetCauseMissingBranch
+	unknownCause := WorkflowLockedExecutionTargetCause("future")
+	gitFailure := WorkflowExecutionTargetUnavailableCauseGitFailure
+	unknownUnavailableCause := WorkflowExecutionTargetUnavailableCause("future")
+	requestedRef := "main"
+	for _, requirement := range []*WorkflowExecutionTargetSelectionRequirement{
+		configured,
+		NewWorkflowConfiguredTargetSelectionRequirement(WorkflowExecutionTargetModeHead, nil, WorkflowExecutionTargetUnavailableCauseGitFailure),
+		NewWorkflowConfiguredTargetSelectionRequirement(WorkflowExecutionTargetModeCustomRef, &requestedRef, WorkflowExecutionTargetUnavailableCauseInvalidRevision),
+		NewWorkflowPolicyTargetSelectionRequirement(),
+		NewWorkflowOriginalTargetSelectionRequirement(originalCause),
 	} {
-		if err := requirement.Validate(); err == nil {
+		data, err := json.Marshal(requirement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded WorkflowExecutionTargetSelectionRequirement
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("selection requirement round trip: %v", err)
+		}
+		if !proto.Equal(requirement.Details, decoded.Details) {
+			t.Fatalf("selection requirement facts changed: %v -> %v", requirement.Details, decoded.Details)
+		}
+	}
+
+	configuredTarget, err := configured.ConfiguredTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requirement := range []workflowExecutionTargetSelectionEnvelope{
+		{Reason: WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection, UnavailableCause: &gitFailure},
+		{Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable},
+		{Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable, ConfiguredTarget: &WorkflowExecutionTargetConfiguredTarget{Mode: WorkflowExecutionTargetModeNone}, UnavailableCause: &gitFailure},
+		{Reason: WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable, ConfiguredTarget: configuredTarget, UnavailableCause: &unknownUnavailableCause},
+		{Reason: WorkflowExecutionTargetSelectionReason("future")},
+		{Reason: WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable},
+		{Reason: WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable, OriginalTargetCause: &unknownCause},
+		{Reason: WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable, OriginalTargetCause: &originalCause, ConfiguredTarget: configuredTarget},
+		{Reason: WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable, OriginalTargetCause: &originalCause, UnavailableCause: &gitFailure},
+	} {
+		data, err := json.Marshal(requirement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded WorkflowExecutionTargetSelectionRequirement
+		if err := json.Unmarshal(data, &decoded); err == nil {
 			t.Fatalf("invalid requirement %#v validated", requirement)
 		}
 	}
@@ -172,9 +218,7 @@ func TestWorkflowExecutionTargetSelectionRequirementValidation(t *testing.T) {
 func TestWorkflowExecutionTargetActionResponsesAreOneOf(t *testing.T) {
 	currentNodes := []WorkflowTaskCurrentNode{{NodeID: "node-agent"}}
 	startApplied := WorkflowTaskStartApplied{CurrentNodes: currentNodes}
-	requirement := WorkflowExecutionTargetSelectionRequirement{
-		Reason: WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection,
-	}
+	requirement := *NewWorkflowPolicyTargetSelectionRequirement()
 	dependencyCount := 2
 	for _, response := range []interface{ Validate() error }{
 		WorkflowTaskStartResponse{Outcome: WorkflowTaskActionOutcomeApplied, Applied: &startApplied},
@@ -306,11 +350,11 @@ func TestWorkflowExecutionTargetDetailAndExplicitRefErrorEncoding(t *testing.T) 
 		t.Fatalf("resolution error code = %d, want %d", resolutionErr.RPCErrorCode(), protocol.ErrCodeWorkflowExecutionTargetResolution)
 	}
 
-	lockedErr := &WorkflowLockedExecutionTargetError{Cause: WorkflowLockedExecutionTargetCauseMissingBranch}
+	lockedErr := &WorkflowLockedExecutionTargetError{Cause: WorkflowLockedExecutionTargetCauseInvalidRoot}
 	lockedData := lockedErr.RPCErrorData()
 	decodedLocked := DecodeWorkflowLockedExecutionTargetError(lockedData, "fallback")
 	var typedLocked *WorkflowLockedExecutionTargetError
-	if !errors.As(decodedLocked, &typedLocked) || typedLocked.Cause != WorkflowLockedExecutionTargetCauseMissingBranch {
+	if !errors.As(decodedLocked, &typedLocked) || typedLocked.Cause != WorkflowLockedExecutionTargetCauseInvalidRoot {
 		t.Fatalf("decoded locked-target error = %#v, want typed missing branch", decodedLocked)
 	}
 	if lockedErr.RPCErrorCode() != protocol.ErrCodeWorkflowLockedExecutionTarget {

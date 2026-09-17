@@ -416,16 +416,29 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	switch {
 	case requirement == nil:
 		fmt.Fprintln(stderr, "Execution target selection is required.")
-	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection:
+	case requirement.Details.GetPolicyRequiresSelection() != nil:
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
-	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable:
-		target := "configured target"
-		if requirement.ConfiguredTarget != nil {
-			target = workflowConfiguredExecutionTargetSelector(*requirement.ConfiguredTarget)
+	case requirement.Details.GetConfiguredTargetUnavailable() != nil:
+		configured, err := requirement.ConfiguredTarget()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
 		}
-		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", target, requirement.UnavailableCause)
+		cause, err := requirement.UnavailableCause()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
+		}
+		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(*configured), cause)
+	case requirement.Details.GetOriginalTargetUnavailable() != nil:
+		cause, err := requirement.OriginalTargetCause()
+		if err != nil {
+			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
+			return
+		}
+		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). Choose a replacement to continue.\n", cause)
 	default:
-		fmt.Fprintf(stderr, "Execution target selection is required: %s.\n", requirement.Reason)
+		fmt.Fprintln(stderr, "Execution target selection response is invalid.")
 	}
 	fmt.Fprintln(stderr, "Rerun with one of:")
 	for _, selection := range []string{"none", "head", "default-branch", "ref:<revision>"} {
@@ -433,7 +446,14 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 		if prefix != "" {
 			prefix += " "
 		}
-		fmt.Fprintf(stderr, "  %s--execution-target %s\n", prefix, selection)
+		branch := ""
+		if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil && selection != "none" {
+			branch = " --branch-name <new-branch-name>"
+		}
+		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
+	}
+	if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil {
+		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }
 
@@ -807,6 +827,10 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		if err != nil {
 			var setupErr *serverapi.WorkflowSetupRetainedError
 			if errors.As(err, &setupErr) {
+				if *jsonOut {
+					_ = writeCommandJSON(stdout, stderr, setupErr.RPCErrorData())
+					return 1
+				}
 				guidance, projectionErr := projectMoveSetupGuidance(recoveryArgs, executionTarget, setupErr)
 				if projectionErr != nil {
 					fmt.Fprintln(stderr, projectionErr)
@@ -1044,6 +1068,8 @@ const (
 	taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure   taskSetupOutcomeKind        = "start_interrupted_setup_failure", "start_interrupted_target_preparation_failure"
 	taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure taskSetupOutcomeKind        = "resume_interrupted_setup_failure", "resume_interrupted_target_preparation_failure"
 	taskSetupOutcomeAlreadyStartedConflict, taskSetupOutcomeMoveSetupFailure                                 taskSetupOutcomeKind        = "already_started_conflict", "move_setup_failure"
+	taskSetupOutcomeMoveReplacementSetupFailure                                                              taskSetupOutcomeKind        = "move_replacement_setup_failure"
+	taskSetupOutcomeResumeReplacementSetupFailure                                                            taskSetupOutcomeKind        = "resume_replacement_setup_failure"
 	taskSetupObservedActionStart, taskSetupObservedActionResume                                              taskSetupObservedActionKind = "start", "resume"
 )
 
@@ -1101,6 +1127,11 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 		if failed.ExecutionTarget == nil {
 			return taskSetupGuidance{}, errors.New("retry-ready Task setup failure requires execution target")
 		}
+		if failed.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
+			result.Outcome = taskSetupOutcomeResumeReplacementSetupFailure
+			result.Actions = taskFreshTargetChoiceActions(base)
+			return result, nil
+		}
 		result.Outcome = taskSetupOutcomeStartInterruptedSetupFailure
 		if action == taskSetupObservedActionResume {
 			result.Outcome = taskSetupOutcomeResumeInterruptedSetupFailure
@@ -1130,17 +1161,33 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 }
 
 func taskTargetActions(base []string, current *string) []taskSetupAction {
+	actions := []taskSetupAction{{Kind: taskSetupActionRetry, Args: append([]string(nil), base...)}}
+	if current != nil {
+		actions[0].Args = append(actions[0].Args, "--execution-target", *current)
+	}
+	return append(actions, taskTargetChoiceActions(base)...)
+}
+
+func taskTargetChoiceActions(base []string) []taskSetupAction {
 	choices := []struct {
 		kind     taskSetupActionKind
-		selector *string
-	}{{taskSetupActionRetry, current}, {taskSetupActionChooseNone, taskSetupStringPointer("none")}, {taskSetupActionChooseHead, taskSetupStringPointer("head")}, {taskSetupActionChooseDefault, taskSetupStringPointer("default-branch")}, {taskSetupActionChooseRef, taskSetupStringPointer("ref:<revision>")}}
+		selector string
+	}{{taskSetupActionChooseNone, "none"}, {taskSetupActionChooseHead, "head"}, {taskSetupActionChooseDefault, "default-branch"}, {taskSetupActionChooseRef, "ref:<revision>"}}
 	actions := make([]taskSetupAction, 0, len(choices))
 	for _, choice := range choices {
 		args := append([]string(nil), base...)
-		if choice.selector != nil {
-			args = append(args, "--execution-target", *choice.selector)
-		}
+		args = append(args, "--execution-target", choice.selector)
 		actions = append(actions, taskSetupAction{Kind: choice.kind, Args: args})
+	}
+	return actions
+}
+
+func taskFreshTargetChoiceActions(base []string) []taskSetupAction {
+	actions := taskTargetChoiceActions(base)
+	for index := range actions {
+		if actions[index].Kind != taskSetupActionChooseNone {
+			actions[index].Args = append(actions[index].Args, "--branch-name", "<new-branch-name>")
+		}
 	}
 	return actions
 }
@@ -1193,15 +1240,21 @@ func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecution
 		}
 		selector = &value
 	}
-	script := setupErr.ScriptPath
-	diagnostic := setupErr.Diagnostic
-	root := setupErr.Worktree.Registered.Git.CanonicalRoot
+	script := setupErr.Details.ScriptPath
+	diagnostic := setupErr.Details.Diagnostic
+	root := setupErr.Details.Worktree.Git.CanonicalRoot
 	var previousRoot *string
-	if retained := setupErr.RetainedPreviousWorktree; retained != nil && retained.Worktree.Registered != nil {
-		value := retained.Worktree.Registered.Git.CanonicalRoot
+	if retained := setupErr.Details.RetainedPreviousWorktree; retained != nil {
+		value := retained.Worktree.Git.CanonicalRoot
 		previousRoot = &value
 	}
-	return taskSetupGuidance{Outcome: taskSetupOutcomeMoveSetupFailure, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: taskTargetActions(base, selector)}, nil
+	outcome := taskSetupOutcomeMoveSetupFailure
+	actions := taskTargetActions(base, selector)
+	if setupErr.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
+		outcome = taskSetupOutcomeMoveReplacementSetupFailure
+		actions = taskFreshTargetChoiceActions(base)
+	}
+	return taskSetupGuidance{Outcome: outcome, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: actions}, nil
 }
 
 func taskSetupStringPointer(value string) *string { return &value }
@@ -1356,17 +1409,20 @@ func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 	case taskSetupOutcomeCompleted, taskSetupOutcomeObservationFailure:
 	case taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure:
 		fmt.Fprintln(stderr, "The Task was started and is now interrupted.")
-	case taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure:
+	case taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure, taskSetupOutcomeResumeReplacementSetupFailure:
 		fmt.Fprintln(stderr, "The Task was resumed and is now interrupted.")
 	case taskSetupOutcomeObservedSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 	case taskSetupOutcomeAlreadyStartedConflict:
 		fmt.Fprintln(stderr, "The Task is already started. Resume it if interrupted; otherwise move it.")
-	case taskSetupOutcomeMoveSetupFailure:
+	case taskSetupOutcomeMoveSetupFailure, taskSetupOutcomeMoveReplacementSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 		fmt.Fprintln(stderr, "The move was not applied.")
 	default:
 		panic(fmt.Sprintf("render Task setup guidance with invalid outcome %q", guidance.Outcome))
+	}
+	if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure || guidance.Outcome == taskSetupOutcomeResumeReplacementSetupFailure {
+		fmt.Fprintln(stderr, "The failed replacement Worktree was retained but is not the Task target. Choose another target with a free branch name; setup will not be retried in this root.")
 	}
 	if guidance.ScriptPath != nil {
 		fmt.Fprintln(stderr, *guidance.ScriptPath)

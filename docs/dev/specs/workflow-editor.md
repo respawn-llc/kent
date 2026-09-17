@@ -170,6 +170,7 @@
 - Changing the kind of a current Node is blocked. A Node without current Task references has no completed-work restriction on its kind.
 - Transition routing, Parameters, and display details may change while Tasks exist. Pending Approvals and unresolved parallel work keep their captured data. A live Exact Execution Scope keeps its model-visible completion requirements; if an incompatible edit makes its completion invalid, completion fails without Task mutation. Start and Resume use the latest valid requirements.
 - Moving a graph connection to a different Transition is blocked only while current Task state depends on it.
+- Completed Tasks must not block removing or retargeting their former incoming Transition Branches. These edits must preserve their results, Parameter values, comments, and Session associations without moving the Tasks. References required by active work or pending Approvals must retain their protections.
 - Backlog and terminal Tasks do not require confirmation before otherwise unreferenced Nodes or transitions are removed.
 - Manual Task moves are blocked when they would violate a selected prior-Node continuation Context Source. Previous-target continuation uses the context resolved for that transition.
 - Saving a Workflow graph never deletes or moves Tasks. Whole-Workflow deletion is the Task-deleting operation.

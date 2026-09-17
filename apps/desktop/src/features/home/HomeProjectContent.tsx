@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Plus } from "lucide-react";
+import { desktopChatEnabled } from "@/shared/feature-flags";
 
 import type { SessionCatalogSummary, SessionCategory } from "@/api";
 import { errorMessage, isProjectMissingError } from "@/api";
@@ -79,6 +81,7 @@ function ProjectContentTabs({
   sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
+  const navigation = useAppNavigation();
   const { t } = useTranslation();
   const { api } = useAppServices();
   const [tab, setTab] = useState<ProjectContentTab>(() => {
@@ -110,7 +113,19 @@ function ProjectContentTabs({
           className="grid-cols-3"
           items={[
             { label: t("home.prototype.tasks"), value: "tasks" },
-            { label: t("home.prototype.sessions"), value: "sessions" },
+            {
+              label: t("home.prototype.sessions"),
+              value: "sessions",
+              action: desktopChatEnabled
+                ? {
+                    ariaLabel: t("chat.newChat"),
+                    children: <Plus size={14} />,
+                    onClick: () => {
+                      void navigation.openNewChat(projectID);
+                    },
+                  }
+                : undefined,
+            },
             { label: t("home.prototype.subagents"), value: "subagents" },
           ]}
           onValueChange={(value) => {

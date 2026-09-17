@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { copyFileSync, mkdtempSync, rmdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -251,12 +252,51 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
+test("Astro policy checks escape filenames in compiler metadata", async () => {
+  // Both Windows separators and Unix quotes require JSON escaping by the compiler.
+  const directory = mkdtempSync(
+    join(fixtureRoot, process.platform === "win32" ? "path-" : 'quoted"path-'),
+  );
+  const path = join(directory, "component.astro");
+  try {
+    copyFileSync(join(fixtureRoot, "tooling/forbidden-effect.astro"), path);
+    const results = await checkEffectPolicy([path]);
+    assert.ok(results.some((result) => result.errorCount > 0));
+    assert.ok(
+      results.some((result) =>
+        result.messages.some(
+          (message) => message.ruleId === "app/no-unowned-effect",
+        ),
+      ),
+    );
+  } finally {
+    unlinkSync(path);
+    rmdirSync(directory);
+  }
+});
+
 test("HTML script data remains data while JavaScript scripts are checked", async () => {
   const results = await checkEffectPolicy([
     join(fixtureRoot, "tooling/allowed-effect-script-data.html"),
   ]);
   assert.equal(results.length, 1);
   assert.deepEqual(results[0].messages, []);
+});
+
+test("embedded policy sources use the same normalized paths as the compiler", async () => {
+  const results = await checkEffectPolicy([
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.astro`,
+    `${fixtureRoot}/tooling/../tooling/forbidden-effect.html`,
+  ]);
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.equal(result.fatalErrorCount, 0);
+    assert.ok(
+      result.messages.some(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  }
 });
 
 test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", async () => {

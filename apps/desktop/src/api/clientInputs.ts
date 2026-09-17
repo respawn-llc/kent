@@ -135,6 +135,7 @@ export type TaskEditInput = Readonly<{
 
 export type TaskMoveInput = Readonly<{
   taskID: string;
+  branchName?: string | undefined;
   targetNodeID: string;
   transitionKey?: string | undefined;
   values?: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -154,6 +155,7 @@ export type TaskResumeInput = Readonly<{
   taskID: string;
   setupOperationID?: SetupOperationID | undefined;
   executionTarget?: WorkflowExecutionTargetSelection | undefined;
+  branchName?: string | undefined;
 }>;
 
 export type OrdinaryQuestionAnswerInput = Readonly<{

@@ -198,7 +198,10 @@ export interface ApiService {
   resolveWorktreeCreateTarget(sessionID: string, target: string): Promise<CreateTargetResolveSuccess>;
   previewWorktreeDelete(sessionID: string, selector: string): Promise<worktree.WorktreeDeletePreview>;
   createWorktree(input: worktree.WorktreeCreateInput): Promise<CreateSuccess>;
-  switchWorktree(sessionID: string, operation: worktree.WorktreeSwitch): Promise<ScheduledAcknowledgement>;
+  switchWorktree(
+    sessionID: string,
+    operation: worktree.WorktreeTransition,
+  ): Promise<ScheduledAcknowledgement>;
   deleteWorktree(
     sessionID: string,
     preview: worktree.WorktreeDeletePreview,

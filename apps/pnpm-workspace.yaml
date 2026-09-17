@@ -3,6 +3,12 @@ packages:
   - "desktop/packages/*"
   - "shared/*"
 
+# Use the installed pnpm when the manifest's reference version differs.
+pmOnFail: warn
+
+overrides:
+  "@tanstack/history": "1.162.2"
+
 # 7 days. Keeps freshly published packages out of local installs/updates.
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:

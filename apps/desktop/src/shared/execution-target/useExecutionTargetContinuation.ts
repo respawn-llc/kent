@@ -9,7 +9,12 @@ import type {
   WorkflowExecutionTargetSelectionRequirement,
   TaskMovePreviewResponse,
 } from "@/api";
-import { decodeWorktreeSetupRetainedError, type WorktreeSetupRetainedError } from "@/api";
+import {
+  decodeWorktreeSetupRetainedError,
+  decodeExecutionTargetChoiceFailure,
+  type ExecutionTargetChoiceFailure,
+  type WorktreeSetupRetainedError,
+} from "@/api";
 import { reportNonCancelledError } from "@/app-facade";
 import {
   initialExecutionTargetSelectionDraft,
@@ -37,11 +42,13 @@ export type PendingTaskInitiatingAction =
       action: TaskInitiatingAction;
       requirement: WorkflowExecutionTargetSelectionRequirement;
       selection: ExecutionTargetSelectionDraft;
+      choiceFailure: ExecutionTargetChoiceFailure | null;
     }>
   | Readonly<{
       kind: "setup_recovery";
       action: Extract<TaskInitiatingAction, { kind: "move" }>;
       failure: WorktreeSetupRetainedError;
+      choiceFailure: ExecutionTargetChoiceFailure | null;
       retrySelection?: WorkflowExecutionTargetSelection;
     }>;
 
@@ -96,6 +103,7 @@ function createTaskInitiatingActions(client: QueryClient) {
                 action,
                 requirement: response.selectionRequired,
                 selection: initialExecutionTargetSelectionDraft(response.selectionRequired),
+                choiceFailure: null,
               });
               return;
             }
@@ -115,6 +123,7 @@ function createTaskInitiatingActions(client: QueryClient) {
                 kind: "setup_recovery",
                 action,
                 failure,
+                choiceFailure: null,
                 ...(selection === undefined ? {} : { retrySelection: selection }),
               });
             } else input.onError(action, error);
@@ -173,13 +182,32 @@ export function useTaskInitiatingActionController(options: Options) {
         taskInitiatingActionTaskID(pending.action),
       ),
     run: (action: TaskInitiatingAction, selection?: WorkflowExecutionTargetSelection) => {
+      const confirmation =
+        pending !== null && taskInitiatingActionTaskID(pending.action) === taskInitiatingActionTaskID(action)
+          ? pending
+          : null;
       submit({
         ...options,
         action,
         ...(selection === undefined ? {} : { selection }),
         onConfirmation: setPending,
+        onError: (failedAction, error) => {
+          const choiceFailure = decodeExecutionTargetChoiceFailure(error);
+          if (
+            choiceFailure !== null &&
+            (confirmation?.kind === "execution_target" || confirmation?.kind === "setup_recovery")
+          ) {
+            setPending({ ...confirmation, choiceFailure });
+          } else {
+            options.onError(failedAction, error);
+          }
+        },
         onCompleted: () => {
-          setPending((current) => (current?.action === action ? null : current));
+          setPending((current) =>
+            current?.action === action || (confirmation !== null && current?.action === confirmation.action)
+              ? null
+              : current,
+          );
         },
       });
     },
@@ -192,15 +220,20 @@ export function useTaskInitiatingActionController(options: Options) {
     selectMode: (mode: WorkflowExecutionTargetSelectionMode) => {
       setPending((current) =>
         current?.kind === "execution_target"
-          ? { ...current, selection: { ...current.selection, mode } }
+          ? { ...current, selection: { ...current.selection, mode }, choiceFailure: null }
           : current,
       );
     },
     setCustomRef: (customRef: string | null) => {
       setPending((current) =>
         current?.kind === "execution_target"
-          ? { ...current, selection: { ...current.selection, customRef } }
+          ? { ...current, selection: { ...current.selection, customRef }, choiceFailure: null }
           : current,
+      );
+    },
+    clearChoiceFailure: () => {
+      setPending((current) =>
+        current?.kind === "execution_target" ? { ...current, choiceFailure: null } : current,
       );
     },
   } as const;

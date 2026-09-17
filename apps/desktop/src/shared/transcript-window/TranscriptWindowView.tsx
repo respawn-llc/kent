@@ -1,20 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type HTMLAttributes,
-  type ReactElement,
-} from "react";
+import { useCallback, useState, type ReactElement, type ReactNode } from "react";
 
-import {
-  VirtualizedInfiniteList,
-  type VirtualizedInfiniteListBoundaryState,
-  type VirtualizedPixelOffsetRequest,
-  useStableCallback,
-} from "@/ui";
+import { VirtualizedInfiniteList, type VirtualizedInfiniteListBoundaryState, useStableCallback } from "@/ui";
 import type {
+  ChatTranscriptPresentationUpdate,
   TranscriptDirection,
   TranscriptRenderItem,
   TranscriptRenderSlots,
@@ -24,21 +12,6 @@ import type {
 
 type TranscriptWindowViewInput = Extract<TranscriptWindowInput, { kind: "edge-visit" | "retry" }>;
 
-export type TranscriptViewportMeasurement = Readonly<{
-  absoluteScrollOffsetPx: number;
-  viewportExtentPx: number;
-  loadedContentEndExtentPx: number;
-  edges: Readonly<{
-    olderAvailable: boolean;
-    newerAvailable: boolean;
-  }>;
-  anchor: Readonly<{
-    presentationKey: string;
-    beforeViewportOffsetPx: number;
-    afterViewportOffsetPx: number;
-  }> | null;
-}>;
-
 export type TranscriptWindowViewProps = Readonly<{
   snapshot: TranscriptWindowSnapshot;
   slots: TranscriptRenderSlots<ReactElement | null>;
@@ -47,19 +20,13 @@ export type TranscriptWindowViewProps = Readonly<{
   retryLabel: string;
   boundaryErrorMessage: (error: Error) => string;
   onInput: (input: TranscriptWindowViewInput) => void;
-  onMeasurement: (measurement: TranscriptViewportMeasurement) => void;
-  pixelOffsetRequest?: VirtualizedPixelOffsetRequest | undefined;
+  presentationUpdate?: ChatTranscriptPresentationUpdate | undefined;
+  scrollRequest?: symbol | null | undefined;
+  overlay?: ((following: boolean) => ReactNode) | undefined;
 }>;
 
-type VisibleAnchor = Readonly<{
-  presentationKey: string;
-  viewportOffsetPx: number;
-}>;
-
-type TranscriptRowWrapperProps = HTMLAttributes<HTMLDivElement> &
-  Readonly<{ "data-transcript-presentation-key": string }>;
-
-const presentationKeyAttribute = "data-transcript-presentation-key";
+type ViewItem = TranscriptRenderItem | Readonly<{ kind: "status"; key: "thinking-status-tail" }>;
+const statusItem = { kind: "status", key: "thinking-status-tail" } as const;
 const transcriptContentClassName = "mx-auto w-full max-w-[1200px]";
 
 export function TranscriptWindowView({
@@ -70,15 +37,21 @@ export function TranscriptWindowView({
   retryLabel,
   boundaryErrorMessage,
   onInput,
-  onMeasurement,
-  pixelOffsetRequest,
+  presentationUpdate,
+  scrollRequest,
+  overlay,
 }: TranscriptWindowViewProps) {
-  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
-  const anchorRef = useRef<VisibleAnchor | null>(null);
-  const emitMeasurement = useStableCallback(onMeasurement);
+  const [atEnd, setAtEnd] = useState(false);
   const emitInput = useStableCallback(onInput);
   const olderAvailable = snapshot.older.cursor !== null;
   const newerAvailable = snapshot.newer.cursor !== null;
+  const following = atEnd && !newerAvailable;
+  const nativeRequest = useTranscriptEndRequest(
+    snapshot.opening.kind,
+    presentationUpdate,
+    scrollRequest,
+    following,
+  );
   const visit = useCallback(
     (direction: TranscriptDirection) => {
       emitInput({ kind: "edge-visit", direction, older: olderAvailable, newer: newerAvailable });
@@ -97,108 +70,68 @@ export function TranscriptWindowView({
     { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage },
     emitInput,
   );
-  const measure = useCallback(() => {
-    if (scrollElement === null) return;
-    const rows = mountedRows(scrollElement);
-    const viewport = scrollElement.getBoundingClientRect();
-    const previousAnchor = anchorRef.current;
-    const survivingRow =
-      previousAnchor === null
-        ? undefined
-        : rows.find((row) => row.dataset.transcriptPresentationKey === previousAnchor.presentationKey);
-    emitMeasurement({
-      absoluteScrollOffsetPx: scrollElement.scrollTop,
-      viewportExtentPx: scrollElement.clientHeight,
-      loadedContentEndExtentPx: scrollElement.scrollHeight,
-      edges: { olderAvailable, newerAvailable },
-      anchor:
-        previousAnchor === null || survivingRow === undefined
-          ? null
-          : {
-              presentationKey: previousAnchor.presentationKey,
-              beforeViewportOffsetPx: previousAnchor.viewportOffsetPx,
-              afterViewportOffsetPx: survivingRow.getBoundingClientRect().top - viewport.top,
-            },
-    });
-    anchorRef.current = firstVisibleAnchor(rows, viewport);
-  }, [emitMeasurement, newerAvailable, olderAvailable, scrollElement]);
-
-  useLayoutEffect(() => {
-    measure();
-  }, [measure, snapshot.items]);
-
-  useEffect(() => {
-    if (scrollElement === null) return;
-    scrollElement.addEventListener("scroll", measure);
-    const observer = new ResizeObserver(measure);
-    const observedRows = new Set<HTMLElement>();
-    const observeMountedRows = () => {
-      const currentRows = new Set(mountedRows(scrollElement));
-      for (const row of observedRows) {
-        if (!currentRows.has(row)) {
-          observer.unobserve(row);
-          observedRows.delete(row);
-        }
-      }
-      for (const row of currentRows) {
-        if (!observedRows.has(row)) {
-          observedRows.add(row);
-          observer.observe(row);
-        }
-      }
-    };
-    observer.observe(scrollElement);
-    observeMountedRows();
-    const mountedRowObserver = new MutationObserver(() => {
-      observeMountedRows();
-      measure();
-    });
-    mountedRowObserver.observe(scrollElement, { childList: true, subtree: true });
-    return () => {
-      mountedRowObserver.disconnect();
-      observer.disconnect();
-      scrollElement.removeEventListener("scroll", measure);
-    };
-  }, [measure, scrollElement, snapshot.items]);
+  const items: readonly ViewItem[] = snapshot.showsLive ? [...snapshot.items, statusItem] : snapshot.items;
 
   return (
-    <VirtualizedInfiniteList
-      className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
-      estimateSize={estimateSize}
-      footer={
-        snapshot.showsLive ? (
-          <div className={transcriptContentClassName} data-transcript-presentation-key="thinking-status-tail">
-            {slots.thinkingStatus(snapshot.thinkingStatus)}
+    <div className="relative h-full min-h-0">
+      <VirtualizedInfiniteList
+        className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
+        endAnchoring={{
+          followEnabled: !newerAvailable,
+          threshold: 80,
+          scrollRequest: nativeRequest,
+          onEndChange: setAtEnd,
+        }}
+        estimateSize={estimateSize}
+        getItemKey={(item) => item.key}
+        hasNextPage={newerAvailable && snapshot.newer.kind !== "error"}
+        hasPreviousPage={olderAvailable && snapshot.older.kind !== "error"}
+        isFetchingNextPage={snapshot.newer.kind === "loading"}
+        isFetchingPreviousPage={snapshot.older.kind === "loading"}
+        items={items}
+        loadingLabel={loadingLabel}
+        nextBoundary={nextBoundary}
+        onLoadMore={() => {
+          visit("newer");
+        }}
+        onLoadPrevious={() => {
+          visit("older");
+        }}
+        previousBoundary={previousBoundary}
+        renderItem={(item) => (
+          <div className={transcriptContentClassName}>
+            {item.kind === "status" ? (
+              slots.thinkingStatus(snapshot.thinkingStatus)
+            ) : (
+              <TranscriptFamilySlot item={item} slots={slots} />
+            )}
           </div>
-        ) : undefined
-      }
-      getItemAnchorKey={presentationKey}
-      getItemKey={presentationKey}
-      getItemWrapperProps={rowWrapperProps}
-      hasNextPage={newerAvailable && snapshot.newer.kind !== "error"}
-      hasPreviousPage={olderAvailable && snapshot.older.kind !== "error"}
-      isFetchingNextPage={snapshot.newer.kind === "loading"}
-      isFetchingPreviousPage={snapshot.older.kind === "loading"}
-      items={snapshot.items}
-      layoutChangeScrollBehavior="natural"
-      loadingLabel={loadingLabel}
-      nextBoundary={nextBoundary}
-      onLoadMore={() => {
-        visit("newer");
-      }}
-      onLoadPrevious={() => {
-        visit("older");
-      }}
-      onScrollElementChange={setScrollElement}
-      pixelOffsetRequest={pixelOffsetRequest}
-      previousBoundary={previousBoundary}
-      renderItem={(item) => (
-        <div className={transcriptContentClassName}>
-          <TranscriptFamilySlot item={item} slots={slots} />
-        </div>
-      )}
-    />
+        )}
+      />
+      {overlay?.(following)}
+    </div>
   );
+}
+
+function useTranscriptEndRequest(
+  opening: TranscriptWindowSnapshot["opening"]["kind"],
+  update: ChatTranscriptPresentationUpdate | undefined,
+  explicit: symbol | null | undefined,
+  following: boolean,
+): symbol | null {
+  const [previous, setPrevious] = useState({ update, explicit, opening });
+  const [request, setRequest] = useState<symbol | null>(() =>
+    opening === "ready" ? Symbol("open transcript") : null,
+  );
+  if (previous.update === update && previous.explicit === explicit && previous.opening === opening) {
+    return request;
+  }
+  setPrevious({ update, explicit, opening });
+  const deliberate = explicit != null && previous.explicit !== explicit;
+  const opened = previous.opening !== "ready" && opening === "ready";
+  const arrived = previous.update !== update && update?.kind === "content" && following;
+  if (deliberate || opened || arrived) setRequest(Symbol("transcript end"));
+  return request;
 }
 
 function transcriptBoundary(
@@ -226,37 +159,6 @@ function transcriptBoundary(
         },
       };
   }
-}
-
-function presentationKey(item: TranscriptRenderItem): string {
-  return item.key;
-}
-
-function rowWrapperProps(item: TranscriptRenderItem): TranscriptRowWrapperProps {
-  return { "data-transcript-presentation-key": item.key };
-}
-
-function mountedRows(scrollElement: HTMLElement): readonly HTMLElement[] {
-  return Array.from(scrollElement.querySelectorAll<HTMLElement>(`[${presentationKeyAttribute}]`));
-}
-
-function firstVisibleAnchor(rows: readonly HTMLElement[], viewport: DOMRect): VisibleAnchor | null {
-  const row = rows.find((candidate) => {
-    const bounds = candidate.getBoundingClientRect();
-    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
-  });
-  return row === undefined
-    ? null
-    : {
-        presentationKey: requiredPresentationKey(row),
-        viewportOffsetPx: row.getBoundingClientRect().top - viewport.top,
-      };
-}
-
-function requiredPresentationKey(row: HTMLElement): string {
-  const key = row.dataset.transcriptPresentationKey;
-  if (key === undefined) throw new Error("Mounted transcript row is missing its presentation key.");
-  return key;
 }
 
 function TranscriptFamilySlot({

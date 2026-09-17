@@ -58,20 +58,32 @@ func TestProtocolErrorReconstructsModelStreamStalled(t *testing.T) {
 }
 
 func TestProtocolErrorDecodesWorktreeBlocked(t *testing.T) {
-	_, err := decodeGeneratedResult(
-		worktreeMethod("TransitionService", "Delete"),
-		&worktreepb.DeleteResult{
-			Outcome: &worktreepb.DeleteResult_Error{Error: &worktreepb.DeleteError{
-				Code: "worktree_blocked",
-				Detail: &worktreepb.DeleteError_WorktreeBlocked{
-					WorktreeBlocked: &worktreepb.BlockedDetails{},
-				},
-			}},
-		},
-		worktreeError[*worktreepb.DeleteError],
-	)
-	if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
-		t.Fatalf("decoded error = %v, want ErrWorktreeBlocked", err)
+	for _, details := range []*worktreepb.BlockedDetails{
+		{},
+		{ActiveSessions: &worktreepb.ActiveSessionBlockers{Sessions: []*worktreepb.BlockingSession{
+			{SessionId: "named-session", Name: proto.String("working session")},
+			{SessionId: "unnamed-session"},
+		}}},
+	} {
+		_, err := decodeGeneratedResult(
+			worktreeMethod("TransitionService", "Delete"),
+			&worktreepb.DeleteResult{
+				Outcome: &worktreepb.DeleteResult_Error{Error: &worktreepb.DeleteError{
+					Code: "worktree_blocked",
+					Detail: &worktreepb.DeleteError_WorktreeBlocked{
+						WorktreeBlocked: details,
+					},
+				}},
+			},
+			worktreeError[*worktreepb.DeleteError],
+		)
+		if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
+			t.Fatalf("decoded error = %v, want ErrWorktreeBlocked", err)
+		}
+		var blocked *worktreecontract.BlockedError
+		if !errors.As(err, &blocked) || !proto.Equal(blocked.Details, details) {
+			t.Fatalf("blocked details lost in transport: %v", err)
+		}
 	}
 }
 
@@ -1448,9 +1460,10 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				Error: &worktreepb.CreateError{
 					Code: "setup_retained",
 					Detail: &worktreepb.CreateError_SetupRetained{SetupRetained: &worktreepb.SetupRetainedDetails{
-						Worktree:   retainedWorktree,
-						ScriptPath: "/repo/scripts/setup.sh",
-						Diagnostic: "setup failed",
+						Worktree:            retainedWorktree,
+						ScriptPath:          "/repo/scripts/setup.sh",
+						Diagnostic:          "setup failed",
+						RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 					}},
 				},
 			}},
@@ -1590,7 +1603,7 @@ func TestProtocolErrorDecodesWorkflowExecutionTargetResolutionError(t *testing.T
 
 func TestProtocolErrorDecodesWorkflowLockedExecutionTargetError(t *testing.T) {
 	source := &serverapi.WorkflowLockedExecutionTargetError{
-		Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch,
+		Cause: serverapi.WorkflowLockedExecutionTargetCauseInvalidRoot,
 	}
 	err := protocolError(&protocol.ResponseError{
 		Code:    protocol.ErrCodeWorkflowLockedExecutionTarget,

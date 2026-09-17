@@ -84,8 +84,12 @@ export function TaskDetailSurface({
     if (taskMissing && navigator !== undefined) return null;
     return <ErrorState body={errorMessage(detail.error)} reveal={false} title={t("states.error")} />;
   }
-  const content = (
-    <ProjectLabelsProvider onBackgroundError={reportLabelError} projectID={detail.data.projectID}>
+  return (
+    <ProjectLabelsProvider
+      onBackgroundError={reportLabelError}
+      projectID={detail.data.projectID}
+      subscribeToProject={false}
+    >
       <TaskLabelAssignmentProvider key={detail.data.id} taskID={detail.data.id}>
         <TaskDetailContent
           key={detail.data.id}
@@ -105,23 +109,5 @@ export function TaskDetailSurface({
         />
       </TaskLabelAssignmentProvider>
     </ProjectLabelsProvider>
-  );
-  if (!attention.isError) {
-    return content;
-  }
-  return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-2)]">
-      <ErrorState
-        body={errorMessage(attention.error)}
-        fullPage={false}
-        onRetry={() => {
-          void attention.refetch();
-        }}
-        retryLabel={t("app.retry")}
-        reveal={false}
-        title={t("states.error")}
-      />
-      <div className="min-h-0">{content}</div>
-    </div>
   );
 }

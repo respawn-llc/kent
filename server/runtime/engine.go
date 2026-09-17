@@ -13,6 +13,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	shelltool "core/server/tools/shell"
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -102,6 +103,7 @@ type Config struct {
 	ToolPreambles                   bool
 	CurrentNodeExecution            *workflowruntime.CurrentNodeExecutionConfig
 	WorkflowPrompt                  *workflowruntime.PromptContract
+	BackgroundShellManager          *shelltool.Manager
 	AskQuestionBatchSkipped         func(tools.AskQuestionBatchMetadata)
 	TranscriptWorkingDir            string
 	// GlobalConfigDir is the absolute persistence root that owns model-visible

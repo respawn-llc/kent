@@ -10,6 +10,7 @@ vi.mock("./routeComponents", async () => {
   const { Outlet } = await import("@tanstack/react-router");
   return {
     ChatRoute: () => <div data-testid="chat-route" />,
+    NewChatRoute: () => <div data-testid="new-chat-route" />,
     HomeShellRoute: () => null,
     ProjectRoute: () => null,
     ProjectTasksRoute: () => null,

@@ -565,11 +565,11 @@ export class ApiClient implements ApiService {
   }
 
   async listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]> {
-    return taskDetail.listPendingAsks(this.#transport, sessionID);
+    return taskDetail.listPendingAsks(this.#transport, { sessionID });
   }
 
   async listPendingPrompts(sessionID: string) {
-    return listPendingPrompts(this.#transport, sessionID);
+    return listPendingPrompts(this.#transport, { sessionID });
   }
 
   subscribeProject(projectID: string) {
@@ -602,7 +602,7 @@ export class ApiClient implements ApiService {
     worktree.previewWorktreeDelete(this.#transport, sessionID, selector);
   createWorktree = async (input: worktreeModels.WorktreeCreateInput) =>
     worktree.createWorktree(this.#transport, input);
-  switchWorktree = async (sessionID: string, operation: worktreeModels.WorktreeSwitch) =>
+  switchWorktree = async (sessionID: string, operation: worktreeModels.WorktreeTransition) =>
     worktree.switchWorktree(this.#transport, sessionID, operation);
   deleteWorktree = async (
     sessionID: string,

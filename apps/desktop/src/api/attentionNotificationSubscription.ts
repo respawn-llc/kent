@@ -1,5 +1,6 @@
 import type { AttentionNotificationEventHandler } from "./attentionNotifications";
 import { ContractError } from "./errors";
+import { parseRpcResponse } from "./clientParse";
 import { attentionNotificationEventParamsSchema } from "./schemas/attentionNotification";
 import type { RpcEventHandler } from "./transport";
 
@@ -12,12 +13,15 @@ export function attentionNotificationRpcHandler(handler: AttentionNotificationEv
       if (method !== "attention.notification") {
         return;
       }
-      const parsed = attentionNotificationEventParamsSchema.safeParse(params);
-      if (parsed.success) {
-        handler.onEvent(parsed.data.event);
+      let parsed;
+      try {
+        parsed = parseRpcResponse(method, attentionNotificationEventParamsSchema, params);
+      } catch (error) {
+        if (!(error instanceof ContractError)) throw error;
+        handler.onError(error);
         return;
       }
-      handler.onError(new ContractError("attention.notification event did not match GUI contract."));
+      handler.onEvent(parsed.event);
     },
   };
 }

@@ -347,8 +347,153 @@ func TestServiceTaskStartRequiresSelectionWithoutApplyingAction(t *testing.T) {
 	if response.Outcome != serverapi.WorkflowTaskActionOutcomeSelectionRequired ||
 		response.Applied != nil ||
 		response.SelectionRequired == nil ||
-		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection {
+		response.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
 		t.Fatalf("start response = %+v, want policy selection requirement", response)
+	}
+}
+
+func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T) {
+	for _, mode := range []workflow.ExecutionTargetMode{workflow.ExecutionTargetModeNone, workflow.ExecutionTargetModeHead, workflow.ExecutionTargetModeDefaultBranch, workflow.ExecutionTargetModeCustomRef} {
+		t.Run(string(mode), func(t *testing.T) {
+			ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+			workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
+			linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+			task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+			execution := newManualMoveExecutionStub(service)
+			service.currentNodeExecution = execution
+			root := t.TempDir()
+			worktreeID := runtimeids.NewGraphEntityID()
+			bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, workflow.TaskID(task.Task.ID), worktreeID, root, true)
+			requested, commit := "HEAD", strings.Repeat("a", 40)
+			started, err := service.store.StartTaskWithExecutionTarget(ctx, workflow.TaskID(task.Task.ID), &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeHead, RequestedRef: &requested, CommitOID: &commit, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: binding.WorkspaceID, SourceWorkspaceRoot: binding.CanonicalRoot, Managed: &workflowstore.ManagedExecutionRoot{WorktreeID: worktreeID, Root: root}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminal := workflowServiceNodeIDByKind(t, definition.Definition, "terminal")
+			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: task.Task.ID, TargetNodeID: terminal}); err != nil {
+				t.Fatal(err)
+			}
+			infrastructure := &recordingExecutionTargetInfrastructure{
+				restoreErr: &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch},
+			}
+			service.executionTargets = infrastructure
+			before, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
+				TaskID: task.Task.ID, TargetNodeID: string(started.Mutation.Created[0].Reference.NodeID),
+			})
+			if err != nil || response.SelectionRequired == nil ||
+				response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+				t.Fatalf("completed reopen = %+v: %v", response, err)
+			}
+			after, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			if err != nil || !reflect.DeepEqual(before.Task, after.Task) {
+				t.Fatalf("selection changed completed Task: %+v -> %+v: %v", before.Task, after.Task, err)
+			}
+			move := serverapi.WorkflowTaskMoveRequest{
+				TaskID: task.Task.ID, TargetNodeID: string(started.Mutation.Created[0].Reference.NodeID),
+				ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetMode(mode)},
+			}
+			if mode == workflow.ExecutionTargetModeCustomRef {
+				move.ExecutionTarget.CustomRef = &requested
+			}
+			unavailable := infrastructure.restoreErr
+			infrastructure.restoreErr = nil
+			if _, err := service.MoveWorkflowTask(ctx, move); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
+				t.Fatalf("healthy original allowed replacement: %v", err)
+			}
+			branch := "reopened"
+			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
+				TaskID: move.TaskID, TargetNodeID: move.TargetNodeID, BranchName: &branch,
+			}); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
+				t.Fatalf("healthy original ignored replacement branch: %v", err)
+			}
+			if reused, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: move.TaskID, TargetNodeID: move.TargetNodeID}); err != nil || reused.Applied == nil {
+				t.Fatalf("healthy original was not reused: %+v: %v", reused, err)
+			}
+			reused, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(move.TaskID))
+			if err != nil || !reflect.DeepEqual(reused.Task.ExecutionTarget, before.Task.ExecutionTarget) ||
+				!reflect.DeepEqual(reused.Task.ManagedWorktreeID, before.Task.ManagedWorktreeID) {
+				t.Fatalf("reuse changed target: %+v: %v", reused.Task, err)
+			}
+			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: task.Task.ID, TargetNodeID: terminal}); err != nil {
+				t.Fatal(err)
+			}
+			before, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			infrastructure.restoreErr = unavailable
+			if mode != workflow.ExecutionTargetModeNone {
+				move.BranchName = &branch
+				infrastructure.resolution = *before.Task.ExecutionTarget
+				infrastructure.resolution.Mode = mode
+				replacementID := runtimeids.NewGraphEntityID()
+				replacementRoot, err := config.CanonicalWorkspaceRoot(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := metadataStore.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
+					ID: replacementID, WorkspaceID: binding.WorkspaceID, CanonicalRoot: replacementRoot, Managed: true,
+				}); err != nil {
+					t.Fatal(err)
+				}
+				infrastructure.materialize = func(workflow.TaskID) (ExecutionTargetMaterialization, error) {
+					return ExecutionTargetMaterialization{RetainedRoot: &workflowstore.ManagedExecutionRoot{WorktreeID: replacementID, Root: replacementRoot}}, nil
+				}
+				infrastructure.resolveErr = &worktree.GitRevisionResolutionError{
+					Kind: worktree.GitRevisionResolutionErrorInvalidRevision, RequestedRef: "missing",
+				}
+				if _, err := service.MoveWorkflowTask(ctx, move); err == nil {
+					t.Fatal("target resolution failure applied Move")
+				}
+				infrastructure.resolveErr = nil
+				retained, err := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
+					Git:  &worktreepb.GitFacts{CanonicalRoot: replacementRoot, HeadObject: commit},
+					Kent: &worktreepb.KentFacts{WorktreeId: replacementID, CanonicalRoot: replacementRoot, DisplayName: branch},
+				}, "/setup.sh", "setup failed", nil, errors.New("setup process failed"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
+				infrastructure.materializeErr = retained
+				var failure *serverapi.WorkflowSetupRetainedError
+				if _, err := service.MoveWorkflowTask(ctx, move); !errors.As(err, &failure) || failure.Details.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
+					t.Fatalf("replacement setup failure = %+v: %v", failure, err)
+				}
+				infrastructure.materializeErr = nil
+			}
+			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			if err != nil || !reflect.DeepEqual(before.Task, after.Task) {
+				t.Fatalf("failed preparation changed Task: %+v -> %+v: %v", before.Task, after.Task, err)
+			}
+			result, err := service.MoveWorkflowTask(ctx, move)
+			if err != nil || result.Applied == nil {
+				t.Fatalf("replacement Move = %+v: %v", result, err)
+			}
+			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			if err != nil || after.Task.ExecutionTarget == nil || after.Task.ExecutionTarget.Mode != mode ||
+				after.Task.Body != before.Task.Body || after.Task.Title != before.Task.Title {
+				t.Fatalf("replacement target/content = %+v: %v", after.Task, err)
+			}
+			if mode != workflow.ExecutionTargetModeNone && infrastructure.materializeRequest.Purpose != worktree.TaskExecutionRootReplacement {
+				t.Fatal("replacement did not use unbound preparation")
+			}
+			move.TargetNodeID = workflowServiceNodeIDByKey(t, definition.Definition, "implement")
+			infrastructure.restoreErr = nil
+			if _, err := service.MoveWorkflowTask(ctx, move); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
+				t.Fatalf("healthy locked target accepted replacement: %v", err)
+			}
+		})
 	}
 }
 
@@ -375,7 +520,7 @@ func TestServiceManualMoveExecutableSelectsTargetThenStartsCurrentNode(t *testin
 	if selectionRequired.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
 		selectionRequired.Applied != nil ||
 		selectionRequired.SelectionRequired == nil ||
-		selectionRequired.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection {
+		selectionRequired.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
 		t.Fatalf("selection response = %+v, want execution-target selection", selectionRequired)
 	}
 	if len(execution.interruptTaskIDs) != 0 {
@@ -1298,7 +1443,7 @@ func TestServiceTaskResumeReselectsUnavailableUnlockedTarget(t *testing.T) {
 	}
 	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
 		response.SelectionRequired == nil ||
-		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable {
+		response.SelectionRequired.Details.GetConfiguredTargetUnavailable() == nil {
 		t.Fatalf("resume response = %+v, want configured target selection", response)
 	}
 	if execution.resumeEligibilityCalls != 1 {
@@ -1416,7 +1561,7 @@ func TestServiceTaskResumeNoOpsWhenTaskAlreadyResumed(t *testing.T) {
 	}
 }
 
-func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
+func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
@@ -1424,11 +1569,14 @@ func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
 	if _, err := service.store.StartTask(ctx, workflow.TaskID(task.Task.ID)); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
-	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	initialCurrentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
 	if err != nil {
 		t.Fatalf("ListCurrentNodes: %v", err)
 	}
-	for _, currentNode := range currentNodes {
+	if len(initialCurrentNodes) != 1 {
+		t.Fatalf("initial current nodes = %+v, want one", initialCurrentNodes)
+	}
+	for _, currentNode := range initialCurrentNodes {
 		if err := service.store.InterruptCurrentNode(
 			ctx,
 			currentNode.Reference,
@@ -1468,25 +1616,73 @@ func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
 		},
 	}
 
-	responses := make(chan serverapi.WorkflowTaskResumeResponse, 2)
-	errs := make(chan error, 2)
+	type resumeResult struct {
+		response serverapi.WorkflowTaskResumeResponse
+		err      error
+	}
+	results := make(chan resumeResult, 2)
 	for range 2 {
 		go func() {
 			response, resumeErr := service.ResumeWorkflowTask(ctx, request)
-			responses <- response
-			errs <- resumeErr
+			results <- resumeResult{response: response, err: resumeErr}
 		}()
 	}
-	outcomes := map[serverapi.WorkflowExecutionTargetActionOutcome]int{}
+
+	applied := 0
+	noOp := 0
+	staleTarget := 0
 	for range 2 {
-		if err := <-errs; err != nil {
-			t.Fatalf("ResumeWorkflowTask: %v", err)
+		result := <-results
+		switch {
+		case result.err == nil:
+			switch result.response.Outcome {
+			case serverapi.WorkflowExecutionTargetActionOutcomeApplied:
+				applied++
+			case serverapi.WorkflowExecutionTargetActionOutcomeNoOp:
+				noOp++
+				if result.response.NoOp == nil || len(result.response.NoOp.CurrentNodes) != 1 {
+					t.Fatalf("no-op ResumeWorkflowTask response = %+v, want one Current Node", result.response)
+				}
+			default:
+				t.Fatalf("ResumeWorkflowTask response = %+v, want applied or no-op", result.response)
+			}
+		case errors.Is(result.err, workflowstore.ErrExecutionTargetAlreadyLocked):
+			staleTarget++
+		default:
+			t.Fatalf("ResumeWorkflowTask: %v", result.err)
 		}
-		outcomes[(<-responses).Outcome]++
 	}
-	if outcomes[serverapi.WorkflowExecutionTargetActionOutcomeApplied] != 1 ||
-		outcomes[serverapi.WorkflowExecutionTargetActionOutcomeNoOp] != 1 {
-		t.Fatalf("concurrent Resume outcomes = %+v, want one applied and one no_op", outcomes)
+	if applied != 1 || noOp+staleTarget != 1 {
+		t.Fatalf(
+			"concurrent Resume results = applied:%d no_op:%d stale_target:%d, want one applied and one no-op or stale-target result",
+			applied,
+			noOp,
+			staleTarget,
+		)
+	}
+
+	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("ListCurrentNodes after concurrent Resume: %v", err)
+	}
+	if len(currentNodes) != 1 ||
+		!currentNodes[0].Reference.Equal(initialCurrentNodes[0].Reference) ||
+		currentNodes[0].Scheduling == nil ||
+		(currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady &&
+			currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted) {
+		t.Fatalf("current nodes after concurrent Resume = %+v, want original node requeued once", currentNodes)
+	}
+
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("GetTaskExecutionTargetContext after concurrent Resume: %v", err)
+	}
+	if staleTarget != 0 && targetContext.Task.ExecutionTarget == nil {
+		t.Fatalf("stale-target Resume had no locked target: %+v", targetContext.Task)
+	}
+	if target := targetContext.Task.ExecutionTarget; target != nil &&
+		(target.Mode != workflow.ExecutionTargetModeNone || targetContext.Task.ManagedWorktreeID != nil) {
+		t.Fatalf("execution target after concurrent Resume = %+v, managed worktree = %v; want no managed target", target, targetContext.Task.ManagedWorktreeID)
 	}
 }
 
@@ -2016,8 +2212,8 @@ type recordingExecutionTargetInfrastructure struct {
 	materializeTaskID         workflow.TaskID
 	materializeRequest        ExecutionTargetMaterializeRequest
 	restoreTaskID             workflow.TaskID
-	restoreRequest            ExecutionTargetRestoreRequest
-	restoreRequests           chan<- ExecutionTargetRestoreRequest
+	restoreRequest            workflow.ExecutionTargetRestoreRequest
+	restoreRequests           chan<- workflow.ExecutionTargetRestoreRequest
 	setupOperationID          *worktreecontract.SetupOperationID
 	setupRequirements         []worktreecontract.SetupRequirement
 	materialize               func(workflow.TaskID) (ExecutionTargetMaterialization, error)
@@ -2213,14 +2409,21 @@ func waitForTaskMutationLane(
 	}
 }
 
-func (i *recordingExecutionTargetInfrastructure) RestoreExecutionTarget(_ context.Context, req ExecutionTargetRestoreRequest) error {
+func (i *recordingExecutionTargetInfrastructure) RestoreExecutionTarget(_ context.Context, req workflow.ExecutionTargetRestoreRequest) error {
 	i.restoreTaskID = req.TaskID
 	i.restoreRequest = req
-	i.setupOperationID = req.SetupOperationID
 	if i.restoreRequests != nil {
 		i.restoreRequests <- req
 	}
 	return i.restoreErr
+}
+
+func (i *recordingExecutionTargetInfrastructure) InspectExecutionTarget(context.Context, workflow.ExecutionTargetRestoreRequest) error {
+	return i.restoreErr
+}
+
+func (i *recordingExecutionTargetInfrastructure) InspectReplacementBranch(context.Context, workflow.TaskID, *string) error {
+	return i.initialBranchErr
 }
 
 func (i *recordingExecutionTargetInfrastructure) ResolveExecutionTarget(_ context.Context, req ExecutionTargetResolveRequest) (workflowstore.ExecutionTargetSnapshot, error) {

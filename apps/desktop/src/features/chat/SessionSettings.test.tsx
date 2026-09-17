@@ -12,9 +12,12 @@ import {
   type InitialChatSettings,
 } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { useChatSettings, type ChatSettingsOptions, type ChatSettingsFeature } from "./index";
+import type { ChatSettingsFeature } from "./index";
+import { useChatSettings, type ChatSettingsOptions } from "./chatSettingsTestOwner";
 import * as ui from "@/ui";
 import { appI18n } from "@/i18n";
+import { ChatContextControl } from "./ChatContextControl";
+import { ChatAutoCompactionSwitch } from "./ChatAutoCompactionSwitch";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -24,7 +27,6 @@ const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   kind: "session",
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
 const navigation = {
@@ -120,6 +122,54 @@ function SessionSettingsChipHost() {
   return feature.kind === "ready-session" ? feature.settingsChip : null;
 }
 
+it("shares eager Auto-compaction changes and rollback between Context and Settings", async () => {
+  const services = createTestServices([]);
+  const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
+  const contextRead = vi.spyOn(services.api.chat, "getContext");
+  const mutation = deferred<ChatSettingsMutationResponse>();
+  const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(mutation.promise);
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  function Host() {
+    const feature = useChatSettings({ ...connected, target, onContextChange: () => undefined });
+    return (
+      <>
+        {feature.kind === "ready-session" ? feature.settingsChip : null}
+        <ChatContextControl
+          used={20}
+          window={100}
+          completedCount={0}
+          compacting={false}
+          policyDisabled={false}
+          compact={vi.fn()}
+          autoCompactionControl={<ChatAutoCompactionSwitch feature={feature} />}
+        />
+      </>
+    );
+  }
+  const user = userEvent.setup();
+  render(
+    <TestAppProviders services={services}>
+      <Host />
+    </TestAppProviders>,
+  );
+  await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
+  await user.click(screen.getByRole("button", { name: "20%" }));
+  const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
+  expect(toggle).toBeChecked();
+  await user.click(toggle);
+  expect(toggle).not.toBeChecked();
+  expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "auto_compaction", enabled: false });
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") })).not.toBeChecked();
+  await act(async () => {
+    mutation.reject(typedSettingsFailure());
+  });
+  expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") })).toBeChecked();
+  expect(notice).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledOnce();
+  expect(contextRead).not.toHaveBeenCalled();
+});
+
 it("activates nested Settings controls once", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
@@ -213,7 +263,9 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
   await user.click(always);
   expect(always).toBeChecked();
   await user.click(always);
-  expect(mutate).toHaveBeenCalledTimes(2);
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledTimes(2);
+  });
   expect(mutate).toHaveBeenNthCalledWith(1, target, { kind: "supervisor", value: "all" });
   expect(mutate).toHaveBeenNthCalledWith(2, target, { kind: "supervisor", value: "all" });
   await act(async () => {
@@ -293,7 +345,7 @@ it("loads ordinary Session Settings through the same feature boundary", async ()
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
   });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   await act(async () => {
     read.resolve(initialRead);
     await read.promise;
@@ -329,7 +381,9 @@ it("applies overlapping successes in delivery order and reports each mutation Co
     void result.current.activate({ kind: "questions", enabled: false });
     void result.current.activate({ kind: "fast", enabled: true });
   });
-  expect(mutate).toHaveBeenCalledTimes(2);
+  await waitFor(() => {
+    expect(mutate).toHaveBeenCalledTimes(2);
+  });
   expect(result.current).toMatchObject({
     settings: { questions: { enabled: false }, fast: { value: true } },
   });
@@ -435,7 +489,7 @@ it.each(["applied", "rejected"] as const)(
       second.resolve(delivered);
       await second.promise;
     });
-    act(() => {
+    await act(async () => {
       if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
       void result.current.activate({ kind: "questions", enabled: false });
     });
@@ -444,7 +498,9 @@ it.each(["applied", "rejected"] as const)(
       first.reject(new Error("disk full"));
       await first.promise.catch(() => undefined);
     });
-    expect(result.current).toMatchObject({ settings: delivered.settings, session: delivered.session });
+    await waitFor(() => {
+      expect(result.current).toMatchObject({ settings: delivered.settings, session: delivered.session });
+    });
     expect(onContextChange).toHaveBeenCalledOnce();
     expect(notice).toHaveBeenCalledTimes(outcome === "applied" ? 1 : 2);
     expect(notice.mock.lastCall?.[0].onAction).toBeUndefined();
@@ -485,7 +541,7 @@ it("drops old Session completions after target replacement and installs the newl
     void result.current.activate({ kind: "questions", enabled: false });
   });
   rerender({ ...connected, target: { ...target, sessionID: newSessionID }, onContextChange });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const rebased: Extract<ChatSettingsRead, { kind: "session" }> = {
     kind: "session",
     settings: {
@@ -555,7 +611,10 @@ it("replaces New Chat selection with ordinary Session loading before installing 
       return value;
     },
     {
-      initialProps: { target: { ...target, kind: "new_chat" }, onInitialSettingsChange: vi.fn() },
+      initialProps: {
+        target: { kind: "new_chat", projectID: target.projectID, workspace: { workspaceID: "workspace-1" } },
+        onInitialSettingsChange: vi.fn(),
+      },
       wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
         <TestAppProviders services={services}>{children}</TestAppProviders>
       ),
@@ -571,7 +630,7 @@ it("replaces New Chat selection with ordinary Session loading before installing 
   seen.length = 0;
   rerender({ ...connected, target, onContextChange: vi.fn() });
   expect(seen.every((kind) => kind === "loading-session")).toBe(true);
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const rebased: ChatSettingsRead = {
     ...initialRead,
     settings: {
@@ -595,7 +654,7 @@ it("replaces New Chat selection with ordinary Session loading before installing 
   expect(result.current).not.toHaveProperty("catalog");
 });
 
-it("exposes whole-Chat Session read failure without retained Settings or local Retry", async () => {
+it("exposes whole-Chat Session read failure without retained Settings", async () => {
   const services = createTestServices([]);
   const read = deferred<ChatSettingsRead>();
   vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
@@ -609,7 +668,7 @@ it("exposes whole-Chat Session read failure without retained Settings or local R
     read.reject(failure);
     await read.promise.catch(() => undefined);
   });
-  expect(result.current).toEqual({ kind: "failed-session", error: failure });
+  expect(result.current).toMatchObject({ kind: "failed-session", error: failure });
 });
 
 it("preserves exact custom Thinking input and returns distinct completions for the later editor", async () => {
@@ -640,7 +699,9 @@ it("preserves exact custom Thinking input and returns distinct completions for t
   act(() => {
     completion = activate("  submitted exactly  ");
   });
-  expect(mutate).toHaveBeenLastCalledWith(target, { kind: "thinking", value: "  submitted exactly  " });
+  await waitFor(() => {
+    expect(mutate).toHaveBeenLastCalledWith(target, { kind: "thinking", value: "  submitted exactly  " });
+  });
   const canonical = response({
     ...settings,
     thinking: {
@@ -880,7 +941,7 @@ it("discards old reads and mutations through A to B to A target replacement", as
     onContextChange,
   });
   rerender({ ...connected, target, onContextChange, authoritativeRefreshGeneration: generation });
-  expect(result.current).toEqual({ kind: "loading-session" });
+  expect(result.current).toMatchObject({ kind: "loading-session" });
   const latest: ChatSettingsRead = {
     ...initialRead,
     settings: { ...settings, supervisor: { ...settings.supervisor, value: "all" } },

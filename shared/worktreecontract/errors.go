@@ -23,6 +23,14 @@ type SelectorError struct {
 	Details *worktreepb.SelectorErrorDetails
 }
 
+type BlockedError struct {
+	Details *worktreepb.BlockedDetails
+}
+
+func (e *BlockedError) Error() string { return ErrWorktreeBlocked.Error() }
+
+func (e *BlockedError) Is(target error) bool { return target == ErrWorktreeBlocked }
+
 func NewSelectorError(
 	kind worktreepb.SelectorErrorKind,
 	input string,
@@ -85,6 +93,7 @@ func NewSetupRetainedError(
 			ScriptPath:               scriptPath,
 			Diagnostic:               diagnostic,
 			RetainedPreviousWorktree: retainedPreviousWorktree,
+			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 		},
 		cause: cause,
 	}, nil

@@ -12,7 +12,7 @@ import {
   taskAttentionSchema,
   taskDetailSchema,
 } from "./schemas/workflowBoard";
-import type { DescriptorRpcTransport, RpcTransport } from "./transport";
+import type { DescriptorRpcTransport, RpcTransport, SessionAttachmentTarget } from "./transport";
 
 export async function listTaskAttention(transport: RpcTransport, taskID: string): Promise<TaskAttention> {
   const response = parseRpcResponse(
@@ -85,15 +85,15 @@ export async function addComment(
 
 export async function listPendingAsks(
   transport: DescriptorRpcTransport,
-  sessionID: string,
+  target: SessionAttachmentTarget,
 ): Promise<readonly PendingAsk[]> {
   const method = QuestionService.method.listPending;
   const result = requireUnarySuccess(
     method,
     await transport.callDescriptorAttachedSession(
-      sessionID,
+      target,
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: target.sessionID }),
     ),
   );
   return result.questions.map(pendingQuestion);

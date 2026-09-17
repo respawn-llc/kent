@@ -151,8 +151,11 @@ func (c *reconnectRetryRuntimeControlClient) ShowGoal(context.Context, *runtimep
 	return c.showGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
-	return c.setGoalResp, nil
+func (c *reconnectRetryRuntimeControlClient) SetGoal(_ context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	return &runtimepb.GoalSetSuccess{
+		Session: request.GetTarget().GetSession(),
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: c.setGoalResp},
+	}, nil
 }
 
 func (c *reconnectRetryRuntimeControlClient) PauseGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {

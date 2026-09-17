@@ -33,7 +33,7 @@ export function ChatUserMessage({
       <div className="chat-message-width">
         <Island className="chat-message-island" level={1} unpadded>
           <CollapsibleMarkdownViewport
-            collapsedHeightClamp={{ minimumLines: 10, maximumLines: 10, viewportPercent: 100 }}
+            collapsedHeightClamp={{ kind: "lines", minimumLines: 10, maximumLines: 10, viewportPercent: 100 }}
             expanded={expanded}
             expandLabel={t("app.expand")}
             onExpand={() => {

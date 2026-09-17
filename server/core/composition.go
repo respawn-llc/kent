@@ -282,10 +282,12 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	runtimeRegistry.WithWorkflowEventPublisher(workflowStore.PublishWorkflowEvent)
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
+	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
 		RuntimeClientFactory: opts.RuntimeClientFactory,
 		RuntimeAuthority:     runtimeAuthority,
 		TaskDependencies:     workflowTaskDependencyCounter,
+		ExecutionTargets:     workflowExecutionTargets,
 	})
 	if err != nil {
 		cleanupNewFailure()
@@ -359,7 +361,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		Activity:         workflowActivity,
 		Attention:        workflowAttention,
 		PendingPrompts:   runtimeRegistry,
-	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
+	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(workflowExecutionTargets), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
@@ -432,6 +434,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		chatOperationOwner,
 		chatTargets,
 		chatRuntimes,
+		runtimeControlService,
 		runtimeControlService,
 	)
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
@@ -530,7 +533,8 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	}
 	if req.Snapshot.Mode == workflow.ExecutionTargetModeNone {
 		prepared, err := i.service.PrepareTaskExecutionRoot(ctx, worktree.TaskExecutionRootPreparationRequest{
-			TaskID: req.TaskID, SetupOperationID: req.SetupOperationID, SetupRequirement: req.SetupRequirement,
+			Purpose: req.Purpose,
+			TaskID:  req.TaskID, SetupOperationID: req.SetupOperationID, SetupRequirement: req.SetupRequirement,
 		})
 		return workflowsvc.ExecutionTargetMaterialization{RetainedPreviousWorktree: prepared.RetainedPreviousWorktree}, err
 	}
@@ -538,6 +542,7 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 		return workflowsvc.ExecutionTargetMaterialization{}, errors.New("managed execution target snapshot is incomplete")
 	}
 	prepared, err := i.service.PrepareTaskExecutionRoot(ctx, worktree.TaskExecutionRootPreparationRequest{
+		Purpose:          req.Purpose,
 		TaskID:           req.TaskID,
 		SetupOperationID: req.SetupOperationID,
 		BranchName:       req.InitialBranchAssertion,
@@ -566,15 +571,33 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	}, err
 }
 
-func (i taskExecutionTargetInfrastructure) RestoreExecutionTarget(ctx context.Context, req workflowsvc.ExecutionTargetRestoreRequest) error {
+func (i taskExecutionTargetInfrastructure) RestoreExecutionTarget(ctx context.Context, req workflow.ExecutionTargetRestoreRequest) error {
 	if i.service == nil {
 		return errors.New("worktree service is required")
 	}
 	_, err := i.service.RestoreLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
 		TaskID:           req.TaskID,
-		SetupOperationID: req.SetupOperationID,
 		BranchName:       req.InitialBranchAssertion,
+		SetupOperationID: req.SetupOperationID,
 	})
+	return executionTargetError(err)
+}
+
+func (i taskExecutionTargetInfrastructure) InspectExecutionTarget(ctx context.Context, req workflow.ExecutionTargetRestoreRequest) error {
+	return executionTargetError(i.service.InspectLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
+		TaskID: req.TaskID, BranchName: req.InitialBranchAssertion,
+	}))
+}
+
+func (i taskExecutionTargetInfrastructure) InspectReplacementBranch(ctx context.Context, taskID workflow.TaskID, branch *string) error {
+	return i.service.InspectTaskReplacementBranch(ctx, taskID, branch)
+}
+
+func executionTargetError(err error) error {
+	var locked *worktree.LockedTaskWorktreeError
+	if errors.As(err, &locked) {
+		return &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCause(locked.Cause)}
+	}
 	return err
 }
 

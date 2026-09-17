@@ -7,6 +7,7 @@ import {
   SetupFailureCauseSchema,
   SetupNotRequiredReason,
   SetupRetryReadiness,
+  SetupRecoveryDisposition,
   SetupService,
   SetupStartResultSchema,
   type SetupEvent,
@@ -60,6 +61,7 @@ const failedSetupEvent = create(SetupEventSchema, {
   phase: {
     case: "failed",
     value: {
+      recoveryDisposition: SetupRecoveryDisposition.RETRY_EXISTING,
       retryReadiness: SetupRetryReadiness.WORKTREE_SETUP_NON_RETRYABLE,
       cause: create(SetupFailureCauseSchema, {
         cause: { case: "canceled", value: {} },

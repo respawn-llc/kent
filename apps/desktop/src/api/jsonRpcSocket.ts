@@ -34,6 +34,7 @@ import type {
   ProjectAttachment,
   RpcEventHandler,
   SessionAttachment,
+  SessionAttachmentTarget,
 } from "./transport";
 
 export const protocolVersion = __KENT_PROTOCOL_VERSION__;
@@ -401,7 +402,7 @@ function attachSessionFromResult(
 
 export function requireSessionAttachment(
   attachment: ProjectAttachment | SessionAttachment | null,
-  target: Readonly<{ projectID?: string; sessionID: string }>,
+  target: SessionAttachmentTarget,
 ): SessionAttachment {
   if (attachment === null || !("sessionID" in attachment)) {
     throw new ContractError("Session attachment was not established.");

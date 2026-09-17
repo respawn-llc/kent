@@ -214,7 +214,10 @@ function validateQuestionNotification(value: NotificationPayload, context: z.Ref
   if (value.approval != null || value.workflow_approval != null || value.interrupted_current_node != null) {
     context.addIssue({ code: "custom", message: "question notification has unrelated payload" });
   }
-  if (value.target.kind !== "workflow_task" || value.target.focus.kind !== "question") {
+  if (value.target.kind === "session_prompt") {
+    return;
+  }
+  if (value.target.focus.kind !== "question") {
     context.addIssue({ code: "custom", message: "question notification target mismatch" });
     return;
   }

@@ -1,7 +1,13 @@
 import type { ApiSubscription } from "./apiService";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
-import type { ChatGoalFact, ChatGoalMutationResult, ChatGoalObservation } from "./chatGoal";
+import type {
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalObservation,
+  ChatGoalSetResult,
+  ChatGoalSetTarget,
+} from "./chatGoal";
 import type {
   ChatSettingsRead,
   ChatSettingsMutation,
@@ -26,7 +32,7 @@ export type {
 
 export type ChatWorkspaceSelector = Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
 export type ChatProjectTarget = Readonly<{ projectID: string; workspace: ChatWorkspaceSelector }>;
-export type ChatSessionTarget = ChatProjectTarget & Readonly<{ sessionID: string }>;
+export type ChatSessionTarget = Readonly<{ projectID: string; sessionID: string }>;
 export type ChatContextTarget = ChatSessionTarget;
 export type ChatSettingsTarget =
   (ChatProjectTarget & Readonly<{ kind: "new_chat" }>) | (ChatSessionTarget & Readonly<{ kind: "session" }>);
@@ -208,7 +214,7 @@ export type ChatApi = Readonly<{
   removePendingWork(target: ChatSessionTarget, itemID: PendingWorkIdentity): Promise<PendingWorkRestoration>;
   getMainView(target: ChatSessionTarget): Promise<ChatMainViewRead>;
   getGoal(target: ChatSessionTarget): Promise<ChatGoalFact>;
-  setGoal(target: ChatSessionTarget, objective: string): Promise<ChatGoalMutationResult>;
+  setGoal(target: ChatGoalSetTarget, objective: string): Promise<ChatGoalSetResult>;
   pauseGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
   resumeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
   completeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;

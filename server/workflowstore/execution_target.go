@@ -115,9 +115,18 @@ func (s *Store) GetTaskExecutionTargetContext(ctx context.Context, taskID workfl
 	}, nil
 }
 
+type executionTargetMutationMode uint8
+
+const (
+	executionTargetReuse executionTargetMutationMode = iota
+	executionTargetInitialLock
+	executionTargetReplacement
+)
+
 type preparedExecutionTargetMutation struct {
-	executionRoot   ExecutionRoot
-	candidateToLock *ExecutionTargetCandidate
+	mode          executionTargetMutationMode
+	executionRoot ExecutionRoot
+	candidate     *ExecutionTargetCandidate
 }
 
 func (s *Store) prepareExecutionTargetMutation(ctx context.Context, task sqlitegen.TaskRecord, candidate *ExecutionTargetCandidate) (preparedExecutionTargetMutation, error) {
@@ -129,16 +138,23 @@ func (s *Store) prepareExecutionTargetMutation(ctx context.Context, task sqliteg
 		if candidate == nil {
 			return preparedExecutionTargetMutation{}, ErrExecutionTargetRequired
 		}
-		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *candidate); err != nil {
+		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *candidate, executionTargetInitialLock); err != nil {
 			return preparedExecutionTargetMutation{}, err
 		}
 		return preparedExecutionTargetMutation{
-			executionRoot:   candidate.Root,
-			candidateToLock: candidate,
+			executionRoot: candidate.Root,
+			candidate:     candidate,
+			mode:          executionTargetInitialLock,
 		}, nil
 	}
 	if candidate != nil {
-		return preparedExecutionTargetMutation{}, ErrExecutionTargetAlreadyLocked
+		if snapshot.Mode == workflow.ExecutionTargetModeNone {
+			return preparedExecutionTargetMutation{}, ErrExecutionTargetAlreadyLocked
+		}
+		if err := validateExecutionTargetCandidateForTask(ctx, s.queries, task, *candidate, executionTargetReplacement); err != nil {
+			return preparedExecutionTargetMutation{}, err
+		}
+		return preparedExecutionTargetMutation{mode: executionTargetReplacement, executionRoot: candidate.Root, candidate: candidate}, nil
 	}
 	root, err := executionRootForTask(ctx, s.queries, task)
 	if err != nil {
@@ -148,8 +164,20 @@ func (s *Store) prepareExecutionTargetMutation(ctx context.Context, task sqliteg
 }
 
 func applyPreparedExecutionTargetMutation(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, prepared preparedExecutionTargetMutation, now int64) error {
-	if prepared.candidateToLock != nil {
-		locked, err := q.LockTaskExecutionTarget(ctx, executionTargetLockParams(task, *prepared.candidateToLock, now))
+	if prepared.candidate != nil {
+		var locked int64
+		var err error
+		switch prepared.mode {
+		case executionTargetInitialLock:
+			locked, err = q.LockTaskExecutionTarget(ctx, executionTargetLockParams(task, *prepared.candidate, now))
+		case executionTargetReplacement:
+			if err := validateExecutionTargetCandidateForTask(ctx, q, task, *prepared.candidate, prepared.mode); err != nil {
+				return err
+			}
+			locked, err = q.ReplaceTaskExecutionTarget(ctx, sqlitegen.ReplaceTaskExecutionTargetParams(executionTargetLockParams(task, *prepared.candidate, now)))
+		default:
+			return errors.New("execution target mutation candidate has invalid mode")
+		}
 		if err != nil {
 			return err
 		}
@@ -371,7 +399,7 @@ func executionRootForManagedWorktree(ctx context.Context, q *sqlitegen.Queries, 
 	return root, nil
 }
 
-func validateExecutionTargetCandidateForTask(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, candidate ExecutionTargetCandidate) error {
+func validateExecutionTargetCandidateForTask(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, candidate ExecutionTargetCandidate, mode executionTargetMutationMode) error {
 	if err := candidate.Validate(); err != nil {
 		return fmt.Errorf("invalid execution target candidate: %w", err)
 	}
@@ -383,6 +411,23 @@ func validateExecutionTargetCandidateForTask(ctx context.Context, q *sqlitegen.Q
 		return errors.New("execution target candidate source workspace does not match task source workspace")
 	}
 	if candidate.Snapshot.Mode == workflow.ExecutionTargetModeNone {
+		return nil
+	}
+	if mode == executionTargetReplacement {
+		root, err := executionRootForManagedWorktree(ctx, q, sourceWorkspace, candidate.Root.Managed.WorktreeID)
+		if err != nil {
+			return err
+		}
+		if root.EffectiveRoot() != candidate.Root.EffectiveRoot() {
+			return errors.New("replacement execution root differs from registered Worktree")
+		}
+		count, err := q.CountTaskManagedWorktreeReferences(ctx, nullableString(candidate.Root.Managed.WorktreeID))
+		if err != nil {
+			return err
+		}
+		if count != 0 {
+			return errors.New("replacement Worktree is already bound to a Task")
+		}
 		return nil
 	}
 	if !task.ManagedWorktreeID.Valid || strings.TrimSpace(task.ManagedWorktreeID.String) == "" || candidate.Root.Managed == nil || task.ManagedWorktreeID.String != candidate.Root.Managed.WorktreeID {

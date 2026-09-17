@@ -401,6 +401,9 @@ func insertTaskCurrentNodeWithKind(
 	if err != nil {
 		return err
 	}
+	if nodeKind == workflow.NodeKindTerminal {
+		params.EnteredByEdgeID = sql.NullString{}
+	}
 	if currentNode.SessionID != nil && nodeKind != workflow.NodeKindAgent {
 		return fmt.Errorf("%s current node cannot retain a Session", nodeKind)
 	}

@@ -16,7 +16,6 @@ export function useComposerPendingWork(
   const stopPending = useAtomValue(model.stopPending);
   const refreshAction = useAtomSet(model.refresh);
   const hydrate = useAtomSet(model.hydrate);
-  const returnedSession = useAtomSet(model.returnedSession);
   const stopAction = useAtomSet(model.stop);
   const discardAction = useAtomSet(model.discard);
   const refresh = useCallback(() => {
@@ -46,7 +45,6 @@ export function useComposerPendingWork(
     items: query.data?.items ?? [],
     observation,
     refresh,
-    returnedSession,
     discard: (item: PendingWorkIdentity) => {
       discardAction({ item, restore, refresh });
     },

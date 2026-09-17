@@ -118,7 +118,7 @@ func newAnimationTranscriptModel(t *testing.T) *uiModel {
 	m := newProjectedStaticUIModel()
 	runtimeClient := newUIRuntimeClientWithReads(
 		ongoingTestSessionID().String(), &countingSessionViewClient{},
-		newUnavailableRuntimeControlService(), nil,
+		newUnavailableRuntimeControlService(), nil, nil,
 	).(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(
 		surface,

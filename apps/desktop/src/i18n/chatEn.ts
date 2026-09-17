@@ -11,6 +11,18 @@ const chatPickerEnglish = {
 };
 
 export const chatEnglish = {
+  tail: {
+    jump: "Jump to latest",
+    loading: "Loading transcript…",
+    loadingLatest: "Loading latest messages…",
+    failed: "Could not load transcript",
+  },
+  newChat: "New Chat",
+  savingDraft: "Saving draft before leaving…",
+  workspace: "Choose workspace",
+  workspacePending: "Wait for the first Chat action to finish before changing workspace.",
+  defaultWorkspaceMissing: "The Project default workspace is unavailable.",
+  worktreeSessionRequired: "Create a Session before using Worktree commands.",
   picker: chatPickerEnglish,
   worktree: chatWorktreeEnglish,
   toolRows: chatToolRowsEnglish,

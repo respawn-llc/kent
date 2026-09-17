@@ -36,33 +36,36 @@ type CompletedInput = Exclude<ComposerCommandResult, { kind: "local" }>;
 type SubmissionCallbacks = Readonly<{
   restore(input: ComposerTextRestoration): void;
   accepted(sessionID: string): void;
+  failed(): void;
   delivered?(result: CompletedInput): void;
 }>;
 type Request = SubmissionCallbacks &
   Readonly<{
     target: ChatMutationTarget;
-    original: string;
+    original: string | null;
     intent: "send" | "queue";
-    command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" }>;
+    command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>;
   }>;
 export type ComposerInputActivation = SubmissionCallbacks &
   Readonly<{
-    submission: ComposerSubmission;
     intent: "send" | "queue";
     selectedToken: string | null;
     commands: readonly ComposerCommand[];
+    source: "editor" | "compact-button";
   }>;
 
 export function createComposerInputViewModel({
   services,
   client,
   target,
+  submission,
   draft,
   t,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: ChatSettingsTarget;
+  target: Atom.Atom<ChatSettingsTarget>;
+  submission: Atom.Atom<ComposerSubmission>;
   draft: ComposerDraftViewModel;
   t: TFunction;
 }>) {
@@ -73,10 +76,13 @@ export function createComposerInputViewModel({
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
     onSuccess: (result, input) => {
-      complete(result, input, t);
+      if (observer.hasListeners()) complete(result, input, t);
     },
     onError: (error, input) => {
-      input.restore({ text: input.original, direction: "append" });
+      if (observer.hasListeners()) {
+        if (input.original !== null) input.restore({ text: input.original, direction: "append" });
+        input.failed();
+      }
       showStatusToast({
         id: "chat-composer-input",
         tone: "danger",
@@ -90,10 +96,13 @@ export function createComposerInputViewModel({
   const submit = Atom.fn<ComposerInputActivation>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (!get(draft.read).isSuccess || input.submission.kind !== "ready") return;
-        const original = get(draft.text);
-        if (original.trim().length === 0) return;
-        const command = resolveComposerCommand(input.selectedToken ?? original, input.commands);
+        const ready = get(submission);
+        if (input.source === "editor" && (!get(draft.read).isSuccess || ready.kind !== "ready")) return;
+        const requestTarget = mutationTarget(get(target), ready);
+        if (requestTarget === null) return;
+        const { text, original, commandText } = submissionText(input, get(draft.text));
+        if (text.trim().length === 0) return;
+        const command = resolveComposerCommand(commandText, input.commands);
         if (command.kind === "unknown-prompt") {
           showStatusToast({
             id: "chat-composer-input",
@@ -103,8 +112,12 @@ export function createComposerInputViewModel({
           });
           return;
         }
-        const requestTarget = mutationTarget(target, input.submission);
-        get.set(draft.submit, undefined);
+        if (command.kind === "unavailable") {
+          get.set(draft.edit, "");
+          command.notify();
+          return;
+        }
+        if (original !== null) yield* get.setResult(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
           observer.mutate({ ...input, target: requestTarget, original, command }),
         ).pipe(Effect.ignore);
@@ -114,11 +127,18 @@ export function createComposerInputViewModel({
   return { result, pending, submit } as const;
 }
 
+function submissionText(input: ComposerInputActivation, draft: string) {
+  return input.source === "compact-button"
+    ? { text: "/compact", original: null, commandText: "/compact" }
+    : { text: draft, original: draft, commandText: input.selectedToken ?? draft };
+}
+
 function mutationTarget(
   target: ChatSettingsTarget,
-  submission: Extract<ComposerSubmission, { kind: "ready" }>,
-): ChatMutationTarget {
+  submission: ComposerSubmission,
+): ChatMutationTarget | null {
   if (target.kind === "session") return target;
+  if (submission.kind !== "ready") return null;
   if (!("initialSettings" in submission)) throw new Error("Ready New Chat requires initial settings.");
   return { ...target, initialSettings: submission.initialSettings };
 }
@@ -126,6 +146,7 @@ function mutationTarget(
 function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
   if ("kind" in result) return;
   if (result.outcome.kind === "accepted") {
+    if (input.target.kind === "new_chat") input.delivered?.(result);
     input.accepted(result.sessionID);
     const diagnostic = result.outcome.diagnostic;
     if (diagnostic !== null)
@@ -138,7 +159,8 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
           .join("\n"),
       });
   } else {
-    input.restore({ text: input.original, direction: "append" });
+    if (input.original !== null) input.restore({ text: input.original, direction: "append" });
+    if (input.target.kind === "new_chat") input.delivered?.(result);
     showStatusToast({
       id: "chat-composer-input",
       tone: "danger",
@@ -149,7 +171,6 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
       ].join("\n"),
     });
   }
-  if (input.target.kind === "new_chat") input.delivered?.(result);
 }
 function rejectionDetails(reason: ChatNotAcceptedReason): readonly string[] {
   if ("command" in reason) return reason.command === null ? [] : [reason.command];

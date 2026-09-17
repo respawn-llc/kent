@@ -315,7 +315,7 @@ func newPTYCheckpointOngoingModel(t *testing.T, writer *analyzer.Writer) *uiMode
 		WithUIOngoingSurface(surface)), 40, 10)
 	runtimeClient := newUIRuntimeClientWithReads(
 		ongoingTestSessionID().String(), &countingSessionViewClient{},
-		newUnavailableRuntimeControlService(), nil,
+		newUnavailableRuntimeControlService(), nil, nil,
 	).(*sessionRuntimeClient)
 	model.ongoingTranscript = newOngoingTranscriptController(
 		surface,

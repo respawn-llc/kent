@@ -11,7 +11,7 @@ import {
   type SidebarRootController,
 } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import { cx, islandSurfaceClassName } from "@/ui";
+import { cx, islandSurfaceClassName, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
 export const AttentionRow = memo(function AttentionRow({
@@ -29,7 +29,9 @@ export const AttentionRow = memo(function AttentionRow({
     item.message ??
     (item.kind === "approval"
       ? t("app.attention.approvalFallback")
-      : t("app.attention.interruptedCurrentNodeFallback"));
+      : item.kind === "interrupted_current_node"
+        ? t("app.attention.interruptedCurrentNodeFallback")
+        : null);
   const chatTarget = desktopChatEnabled ? attentionChatTarget(item) : null;
   if (chatTarget === null) {
     return (
@@ -102,10 +104,18 @@ function AttentionHeader({ item, showChat = false }: Readonly<{ item: AttentionI
   );
 }
 
-function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; message: string }>) {
+function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; message: string | null }>) {
   return (
     <>
-      <span className="min-w-0 line-clamp-5 break-words text-sm text-[var(--color-muted)]">{message}</span>
+      {item.kind === "question" &&
+      item.question.kind === "approval" &&
+      item.question.accessTargets.length > 0 ? (
+        <div className="min-w-0 break-words text-sm text-[var(--color-muted)]">
+          <PromptAccessTargets targets={item.question.accessTargets} />
+        </div>
+      ) : (
+        <span className="min-w-0 line-clamp-5 break-words text-sm text-[var(--color-muted)]">{message}</span>
+      )}
       <span className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
     </>
   );

@@ -59,6 +59,7 @@ export type SessionAttachment = Readonly<{
   workspaceRoot: string;
   sessionID: string;
 }>;
+export type SessionAttachmentTarget = Readonly<{ sessionID: string; projectID?: string }>;
 
 export type AttachedRequest =
   | Readonly<{ kind: "value"; value: JsonValue }>
@@ -111,7 +112,7 @@ export type RpcTransport = Readonly<{
 export type DescriptorRpcTransport = RpcTransport &
   Readonly<{
     callDescriptorAttachedSession<Method extends DescMethod>(
-      sessionID: string,
+      target: SessionAttachmentTarget,
       method: Method,
       request: MessageShape<Method["input"]>,
       options?: RpcDedicatedCallOptions,

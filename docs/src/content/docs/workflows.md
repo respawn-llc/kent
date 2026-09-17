@@ -274,7 +274,7 @@ The editor shows draft validation and execution validation. Draft validation cat
 
 ## 6. Manage Tasks
 
-Graph edits can be blocked when active tasks would be affected. Prefer cleaning the board from in progress task when editing workflows.
+Current unfinished Nodes and pending Approvals can block graph edits that they depend on. Transition Branches referenced only by completed Tasks can be removed or retargeted without moving those Tasks or changing their results, parameter values, comments, or Session associations. A Terminal Node containing Tasks remains protected from deletion.
 
 Project Tasks spans every workflow linked to the project. Each task belongs to one project and one linked workflow; the project supplies workspaces and execution environment, while the workflow supplies the automation path.
 
@@ -466,9 +466,9 @@ The workflow's execution-target policy chooses where executable agent and script
 
 New workflows ask when execution starts. Kent Desktop offers all four concrete targets when selection is required, preselects the repository default branch, and uses the same dialog when a configured Git target cannot be resolved.
 
-Target selection occurs on the first executable start, manual move, or approval. The task locks the selected mode and managed requested/resolved commit facts only when that initiating action succeeds. Later workflow nodes reuse the locked target; a locked target cannot be replaced with another mode.
+Target selection occurs on the first executable start, manual move, or approval. The Task locks the selected mode and managed revision facts after successful preparation. Later workflow nodes reuse that target unless its original Worktree cannot be safely restored.
 
-Configure a workflow policy or select a concrete target when starting, approving, or manually moving a task:
+Configure a workflow policy or select a concrete target when starting, approving, moving, or recovering a Task:
 
 ```bash
 kent workflow update <uuid> --execution-target ask-on-first-execution
@@ -477,8 +477,25 @@ kent workflow update <uuid> --execution-target none|head|default-branch|ref:<rev
 kent task start <task> --execution-target none|head|default-branch|ref:<revision>
 kent task approve <transition-id> --execution-target none|head|default-branch|ref:<revision>
 kent task move <task> <target-node-id> --execution-target none|head|default-branch|ref:<revision>
+kent task resume <task> --execution-target none|head|default-branch|ref:<revision>
 ```
 
-These task actions never prompt. Their override applies only to an unlocked task and does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current session and script target. Task detail does not perform live Git branch discovery; inspect the worktree when branch identity is needed.
+These CLI actions never prompt. An override selects an unlocked Task's target or a replacement required by recovery; it does not edit the workflow. If selection is required, rerun the same action with one concrete selector. `kent task show` reports the source workspace and, after lock, the durable target mode, requested revision, resolved revision, resolved commit, and recorded managed-worktree path when present. It also reports every exact current Session and Script target. Task detail does not perform live Git branch discovery; inspect the Worktree when branch identity is needed.
+
+### Recover An Unavailable Task Target
+
+Completion directly to Done succeeds without a Worktree. Before further Agent or Script work, Kent reuses a valid original Worktree, including detached HEAD, or safely restores its surviving named branch. This applies to Resume, automatic successors, and reopening a completed Task. Kent does not recreate a deleted branch from an old commit or overwrite a leftover directory.
+
+If the original target cannot be safely reused, Kent explains the cause and requires a replacement selection. An automatic successor pauses before execution, preserving the source's completion. Use the same four target choices in Desktop or with CLI Resume/Move. Canceling selection or submitting an invalid ref preserves Task content and leaves recovery available.
+
+Managed replacements use a fresh Worktree and default their branch name to the Task Short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`. The original branch and files remain untouched. A healthy original target cannot be replaced through recovery.
+
+```bash
+kent task resume APP-42 --execution-target ref:main --branch-name APP-42-followup
+```
+
+Kent stops existing Task work before replacing its target. Replacement setup must succeed before Kent saves the target or applies a Move. Failure retains the candidate Worktree and branch without making it the Task target; the Move remains unapplied or the Task remains interrupted. Choose another target with a free branch name, or cancel. Failed candidate files remain available for inspection, but recovery does not retry setup in that candidate. Closing a client does not cancel an accepted Move.
+
+Each Task Start, Resume, or Move action runs setup at most once. Original restoration is distinct from fresh replacement: if setup fails after recreating the original, still-bound checkout, the action reports failure, but a later explicit Resume or Session message may use that checkout without rerunning setup. Stopping Kent during replacement setup does not bind the unfinished candidate; later Resume follows the saved Task target.
 
 More about worktrees on the [Worktree](../worktrees/) page.

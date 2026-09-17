@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"core/server/sessionruntime"
 	"core/shared/protoapi"
@@ -15,6 +16,7 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -41,11 +43,16 @@ type RuntimeAdmissionService interface {
 	) (bool, error)
 }
 
+type ResolvedGoalSetInvoker interface {
+	SetResolvedGoal(context.Context, *runtimepb.GoalSetRequest) (serverapi.ResolvedGoalSetCommit, error)
+}
+
 type Service struct {
 	operations *OperationOwner
 	targets    TargetResolutionService
 	runtimes   RuntimeOpeningService
 	admissions RuntimeAdmissionService
+	goals      ResolvedGoalSetInvoker
 }
 
 func NewService(
@@ -53,12 +60,230 @@ func NewService(
 	targets TargetResolutionService,
 	runtimes RuntimeOpeningService,
 	admissions RuntimeAdmissionService,
+	goals ResolvedGoalSetInvoker,
 ) *Service {
 	return &Service{
 		operations: operations,
 		targets:    targets,
 		runtimes:   runtimes,
 		admissions: admissions,
+		goals:      goals,
+	}
+}
+
+func (s *Service) SetGoal(
+	ctx context.Context,
+	request *runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
+	}
+	if s == nil || s.operations == nil {
+		return nil, errors.New("Chat operation owner is required")
+	}
+	var result *runtimepb.GoalSetSuccess
+	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
+		var operationErr error
+		result, operationErr = s.setGoal(scope, request)
+		return operationErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := operation.Await(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) setGoal(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	target, err := s.resolveTarget(scope, request.Target, request.InitialInputDraft)
+	if err != nil {
+		return settleGoalSetError(target, err)
+	}
+	if request.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
+		return s.settleGoalSet(scope, request, target, nil)
+	}
+	_, attachment, err := s.openRuntime(scope, target)
+	if err != nil {
+		return settleGoalSetError(target, err)
+	}
+	return s.settleGoalSet(scope, request, target, attachment)
+}
+
+func (s *Service) settleGoalSet(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+	target ResolvedTarget,
+	attachment RuntimeAttachment,
+) (*runtimepb.GoalSetSuccess, error) {
+	invocation, invocationErr := s.invokeGoal(scope, request, target)
+	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
+	if invocationErr == nil {
+		releasePolicy = sessionruntime.RuntimeReleaseDetach
+	}
+	var releaseErr error
+	if attachment != nil {
+		releaseErr = scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, releasePolicy)
+		})
+	}
+	if invocationErr != nil {
+		return settleGoalSetError(target, errors.Join(invocationErr, releaseErr))
+	}
+	return goalSetSuccess(
+		target.SessionID,
+		invocation.mutation,
+		errors.Join(invocation.diagnostic, releaseErr),
+	), nil
+}
+
+func settleGoalSetError(
+	target ResolvedTarget,
+	err error,
+) (*runtimepb.GoalSetSuccess, error) {
+	if target.SessionID.IsZero() {
+		return nil, err
+	}
+	return goalSetSuccessRejected(target.SessionID, err), nil
+}
+
+type goalSetInvocation struct {
+	mutation   *runtimepb.GoalMutationSuccess
+	diagnostic error
+}
+
+func (s *Service) invokeGoal(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+	target ResolvedTarget,
+) (goalSetInvocation, error) {
+	if s.goals == nil {
+		return goalSetInvocation{}, errors.New("Goal Set service is required")
+	}
+	resolvedRequest := &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: target.SessionID.String()},
+			},
+		},
+		Objective:       strings.TrimSpace(request.Objective),
+		Actor:           strings.TrimSpace(request.Actor),
+		ExecutionPolicy: request.ExecutionPolicy,
+	}
+	if request.RunId != nil {
+		value := strings.TrimSpace(request.GetRunId())
+		resolvedRequest.RunId = &value
+	}
+	if request.StepId != nil {
+		value := strings.TrimSpace(request.GetStepId())
+		resolvedRequest.StepId = &value
+	}
+	response, err := s.goals.SetResolvedGoal(scope.Context(), resolvedRequest)
+	if err != nil {
+		return goalSetInvocation{}, err
+	}
+	if response.Mutation == nil {
+		return goalSetInvocation{}, errors.New("resolved Goal Set commit requires a mutation")
+	}
+	if err := protoapi.Validate(response.Mutation); err != nil {
+		return goalSetInvocation{}, fmt.Errorf("validate resolved Goal Set mutation: %w", err)
+	}
+	return goalSetInvocation{
+		mutation:   proto.Clone(response.Mutation).(*runtimepb.GoalMutationSuccess),
+		diagnostic: response.Diagnostic,
+	}, nil
+}
+
+func goalSetSuccess(
+	sessionID runtimeids.SessionID,
+	mutation *runtimepb.GoalMutationSuccess,
+	diagnostic error,
+) *runtimepb.GoalSetSuccess {
+	success := &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
+	}
+	if diagnostic != nil {
+		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, sessionID)
+	}
+	return success
+}
+
+func (s *Service) prepareRuntimeWithDraft(
+	scope OperationScope,
+	targetRequest *chatpb.ChatTarget,
+	initialDraft *string,
+) (ResolvedTarget, RuntimeAttachment, error) {
+	target, err := s.resolveTarget(scope, targetRequest, initialDraft)
+	if err != nil {
+		return target, nil, err
+	}
+	return s.openRuntime(scope, target)
+}
+
+func (s *Service) resolveTarget(
+	scope OperationScope,
+	targetRequest *chatpb.ChatTarget,
+	initialDraft *string,
+) (ResolvedTarget, error) {
+	if s == nil || s.targets == nil {
+		return ResolvedTarget{}, errors.New("Chat target resolver is required")
+	}
+	target, err := s.targets.Resolve(scope.Context(), TargetResolutionRequest{
+		Target:       targetRequest,
+		InitialDraft: initialDraft,
+	})
+	if err != nil {
+		return ResolvedTarget{}, err
+	}
+	return target, nil
+}
+
+func (s *Service) openRuntime(
+	scope OperationScope,
+	target ResolvedTarget,
+) (ResolvedTarget, RuntimeAttachment, error) {
+	if s == nil || s.runtimes == nil {
+		return target, nil, errors.New("Session Runtime planner is required")
+	}
+	attachment, err := s.runtimes.Open(scope.Context(), target.SessionID)
+	if err != nil {
+		if attachment == nil {
+			return target, nil, err
+		}
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		return target, nil, errors.Join(err, releaseErr)
+	}
+	if attachment == nil {
+		return target, nil, errors.New("Session Runtime attachment is required")
+	}
+	if attachment.SessionID() != target.SessionID {
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		return target, nil, errors.Join(
+			errors.New("Session Runtime attachment targets another Session"),
+			releaseErr,
+		)
+	}
+	return target, attachment, nil
+}
+
+func goalSetSuccessRejected(
+	sessionID runtimeids.SessionID,
+	err error,
+) *runtimepb.GoalSetSuccess {
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		Outcome: &runtimepb.GoalSetSuccess_Rejected{
+			Rejected: protoapi.GoalSetErrorFromError(err, sessionID),
+		},
 	}
 }
 
@@ -294,43 +519,7 @@ func (s *Service) prepareRuntime(
 	targetRequest *chatpb.ChatTarget,
 	initialDraft string,
 ) (ResolvedTarget, RuntimeAttachment, error) {
-	ctx := scope.Context()
-	if s == nil || s.targets == nil {
-		return ResolvedTarget{}, nil, errors.New("Chat target resolver is required")
-	}
-	target, err := s.targets.Resolve(ctx, TargetResolutionRequest{
-		Target:       targetRequest,
-		InitialDraft: &initialDraft,
-	})
-	if err != nil {
-		return ResolvedTarget{}, nil, err
-	}
-	if s.runtimes == nil {
-		return target, nil, errors.New("Session Runtime planner is required")
-	}
-	attachment, err := s.runtimes.Open(ctx, target.SessionID)
-	if err != nil {
-		if attachment == nil {
-			return target, nil, err
-		}
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(err, releaseErr)
-	}
-	if attachment == nil {
-		return target, nil, errors.New("Session Runtime attachment is required")
-	}
-	if attachment.SessionID() != target.SessionID {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(
-			errors.New("Session Runtime attachment targets another Session"),
-			releaseErr,
-		)
-	}
-	return target, attachment, nil
+	return s.prepareRuntimeWithDraft(scope, targetRequest, &initialDraft)
 }
 
 func (s *Service) admitInput(

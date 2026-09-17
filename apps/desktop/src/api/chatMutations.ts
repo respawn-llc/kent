@@ -5,7 +5,6 @@ import {
   type CompactionNotAccepted,
   type InputNotAccepted,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
-import type { SupervisorValue } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
   LiveService,
   LiveStopStatus,
@@ -23,7 +22,7 @@ import {
 
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
-import { supervisorToWire } from "./chatSupervisor";
+import { initialChatSettingsToWire } from "./chatSettings";
 import { nonBlank } from "./chatSchemas";
 import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
@@ -47,18 +46,32 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
     target: ChatMutationTarget,
     activation: ChatActivation,
   ) => {
-    const call = await transport.callDescriptorAttachedProject({
-      projectID: target.projectID,
-      selector: target.workspace,
-      method,
-      createRequest: (attachment) =>
-        create(method.input, {
-          target: mutationTarget(target, attachment.workspaceID),
-          activation: chatActivation(activation),
-        }),
-    });
-    requireProjectAttachment(call.attachment, target);
-    const success = requireChatSuccess(method, call.result);
+    const result =
+      target.kind === "session"
+        ? await transport.callDescriptorAttachedSession(
+            target,
+            method,
+            create(method.input, {
+              target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+              activation: chatActivation(activation),
+            }),
+          )
+        : await transport
+            .callDescriptorAttachedProject({
+              projectID: target.projectID,
+              selector: target.workspace,
+              method,
+              createRequest: (attachment) =>
+                create(method.input, {
+                  target: mutationTarget(target, attachment.workspaceID),
+                  activation: chatActivation(activation),
+                }),
+            })
+            .then((call) => {
+              requireProjectAttachment(call.attachment, target);
+              return call.result;
+            });
+    const success = requireChatSuccess(method, result);
     const returnedSessionID = mutationSessionID(target, success.session?.sessionId, "Chat mutation");
     if (success.outcome.case === "notAccepted") {
       return {
@@ -87,18 +100,32 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
     queue: async (target, activation) => mutateInput(ChatService.method.queue, target, activation),
     async compact(target, invocation) {
       const method = ChatService.method.compact;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
-        method,
-        createRequest: (attachment) =>
-          create(method.input, {
-            target: mutationTarget(target, attachment.workspaceID),
-            invocation,
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const success = requireChatSuccess(method, call.result);
+      const result =
+        target.kind === "session"
+          ? await transport.callDescriptorAttachedSession(
+              target,
+              method,
+              create(method.input, {
+                target: { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } },
+                invocation,
+              }),
+            )
+          : await transport
+              .callDescriptorAttachedProject({
+                projectID: target.projectID,
+                selector: target.workspace,
+                method,
+                createRequest: (attachment) =>
+                  create(method.input, {
+                    target: mutationTarget(target, attachment.workspaceID),
+                    invocation,
+                  }),
+              })
+              .then((call) => {
+                requireProjectAttachment(call.attachment, target);
+                return call.result;
+              });
+      const success = requireChatSuccess(method, result);
       const returnedSessionID = mutationSessionID(target, success.session?.sessionId, "Chat compaction");
       if (success.outcome.case === "notAccepted") {
         return {
@@ -124,14 +151,12 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
     async stop(target) {
       const requestedSessionID = requireChatSessionID(target);
       const method = LiveService.method.stop;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () => create(method.input, { sessionId: requestedSessionID }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const success = requireChatSuccess(method, call.result);
+        create(method.input, { sessionId: requestedSessionID }),
+      );
+      const success = requireChatSuccess(method, result);
       switch (success.status) {
         case LiveStopStatus.RUNTIME_LIVE_STOP_STATUS_STOPPED:
           return "stopped";
@@ -147,22 +172,19 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
         throw new TypeError("Rollback target ID is required.");
       }
       const method = SessionLifecycleService.method.resolveTransition;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () =>
-          create(method.input, {
-            sessionId: requestedSessionID,
-            transition: {
-              action: SessionTransitionAction.FORK_ROLLBACK,
-              forkRollbackTargetId: input.rollbackTargetID,
-              initialInput: input.initialInput,
-            },
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const directive = requireChatSuccess(method, call.result);
+        create(method.input, {
+          sessionId: requestedSessionID,
+          transition: {
+            action: SessionTransitionAction.FORK_ROLLBACK,
+            forkRollbackTargetId: input.rollbackTargetID,
+            initialInput: input.initialInput,
+          },
+        }),
+      );
+      const directive = requireChatSuccess(method, result);
       if (
         directive.directive.case !== "launch" ||
         directive.directive.value.intent?.intent.case !== "openExistingSessionId" ||
@@ -175,14 +197,12 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
     async listPendingWork(target) {
       const requestedSessionID = requireChatSessionID(target);
       const method = TurnService.method.listPendingWork;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () => create(method.input, { sessionId: requestedSessionID }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const success = requireChatSuccess(method, call.result);
+        create(method.input, { sessionId: requestedSessionID }),
+      );
+      const success = requireChatSuccess(method, result);
       if (success.pendingWork === undefined) {
         throw new ContractError("Pending Work list response omitted its collection.");
       }
@@ -191,18 +211,15 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
     async removePendingWork(target, itemID) {
       const requestedSessionID = requireChatSessionID(target);
       const method = TurnService.method.removePendingWork;
-      const call = await transport.callDescriptorAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
+      const result = await transport.callDescriptorAttachedSession(
+        target,
         method,
-        createRequest: () =>
-          create(method.input, {
-            sessionId: requestedSessionID,
-            itemId: itemID.toJSONValue(),
-          }),
-      });
-      requireProjectAttachment(call.attachment, target);
-      const success = requireChatSuccess(method, call.result);
+        create(method.input, {
+          sessionId: requestedSessionID,
+          itemId: itemID.toJSONValue(),
+        }),
+      );
+      const success = requireChatSuccess(method, result);
       if (success.restoration === undefined) {
         throw new ContractError("Pending Work removal response omitted its restoration.");
       }
@@ -215,7 +232,7 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
 }
 
 function mutationTarget(
-  target: ChatMutationTarget,
+  target: Extract<ChatMutationTarget, { kind: "new_chat" }>,
   workspaceID: string,
 ): {
   target:
@@ -225,35 +242,18 @@ function mutationTarget(
         value: {
           projectId: string;
           workspaceId: string;
-          initialSettings: {
-            agentRole: string;
-            supervisor: SupervisorValue;
-            thinking?: string;
-            fast?: boolean;
-            questionsEnabled: boolean;
-            autoCompactionEnabled: boolean;
-          };
+          initialSettings: ReturnType<typeof initialChatSettingsToWire>;
         };
       };
 } {
   requireChatProjectTarget(target);
-  if (target.kind === "session") {
-    return { target: { case: "session", value: { sessionId: requireChatSessionID(target) } } };
-  }
   return {
     target: {
       case: "newChat",
       value: {
         projectId: target.projectID,
         workspaceId: workspaceID,
-        initialSettings: {
-          agentRole: target.initialSettings.agentRole,
-          supervisor: supervisorToWire(target.initialSettings.supervisor),
-          ...(target.initialSettings.thinking === null ? {} : { thinking: target.initialSettings.thinking }),
-          ...(target.initialSettings.fast === null ? {} : { fast: target.initialSettings.fast }),
-          questionsEnabled: target.initialSettings.questionsEnabled,
-          autoCompactionEnabled: target.initialSettings.autoCompactionEnabled,
-        },
+        initialSettings: initialChatSettingsToWire(target.initialSettings),
       },
     },
   };

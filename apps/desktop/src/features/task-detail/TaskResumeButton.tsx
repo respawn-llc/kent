@@ -1,10 +1,16 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type TaskSetupRecovery, type WorkflowExecutionTargetSelection } from "@/api";
+import {
+  errorMessage,
+  type TaskSetupRecovery,
+  type WorkflowExecutionTarget,
+  type WorkflowExecutionTargetSelection,
+} from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   executeTaskInitiatingAction,
+  executionTargetBranchName,
   resumeTaskInitiatingAction,
   startTaskInitiatingAction,
   TaskInitiatingActionDialogs,
@@ -27,11 +33,13 @@ export function TaskInitiatingActionProvider({
   onApplied,
   onViewDependencies,
   taskID,
+  executionTarget,
 }: Readonly<{
   children: ReactNode;
   onApplied(): void | Promise<void>;
   onViewDependencies(taskID: string): void;
   taskID: string;
+  executionTarget: WorkflowExecutionTarget | null;
 }>) {
   const { api } = useAppServices();
   const { push } = useStatusController();
@@ -104,11 +112,13 @@ export function TaskInitiatingActionProvider({
                 onClose: () => {
                   setRecovery(null);
                 },
-                onSubmit: (selection) => {
-                  run(resumeTaskInitiatingAction(taskID), selection);
+                onSubmit: (selection, branchName) => {
+                  const action = resumeTaskInitiatingAction(taskID);
+                  run({ ...action, branchName: executionTargetBranchName(selection, branchName) }, selection);
                 },
                 recovery,
                 running: continuation.pendingResumeTaskIDs.has(taskID),
+                ...(executionTarget === null ? { retrySelection: recovery.executionTarget } : {}),
               }
         }
       />

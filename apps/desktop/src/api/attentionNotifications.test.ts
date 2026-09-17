@@ -5,6 +5,66 @@ import { ContractError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
 
 describe("attention notification API", () => {
+  it("delivers ordinary Session questions and their resolution", () => {
+    const transport = new FakeRpcTransport([]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const events: AttentionNotificationEvent[] = [];
+    const errors: Error[] = [];
+    client.subscribeAttentionNotifications({
+      onEvent: (event) => events.push(event),
+      onError: (error) => errors.push(error),
+      onComplete() {
+        return;
+      },
+    });
+    const id = { kind: "question", uuid: "session-ask" };
+    transport.emit("attention.notification", {
+      event: {
+        type: "pending",
+        sequence: 1,
+        pending: {
+          id,
+          kind: "question",
+          occurred_at: "2026-09-16T17:17:40Z",
+          revision: 1,
+          question: {
+            prepared_ask_ids: ["session-ask"],
+            materialized_ask_ids: ["session-ask"],
+            current_unresolved_ask_ids: ["session-ask"],
+            skipped_ask_ids: [],
+            display_count: 1,
+            materialized_count: 1,
+          },
+          target: {
+            kind: "session_prompt",
+            project_id: "project-1",
+            session_id: "session-1",
+          },
+        },
+      },
+    });
+    transport.emit("attention.notification", {
+      event: {
+        type: "resolved",
+        sequence: 2,
+        id,
+        kind: "question",
+        occurred_at: "2026-09-16T17:18:40Z",
+      },
+    });
+    expect(errors).toEqual([]);
+    expect(events).toMatchObject([
+      {
+        type: "pending",
+        pending: {
+          question: { skippedAskIDs: [], currentUnresolvedAskIDs: ["session-ask"] },
+          target: { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" },
+        },
+      },
+      { type: "resolved", id },
+    ]);
+  });
+
   it("subscribes to typed attention notifications and rejects malformed events at the API boundary", () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -87,6 +147,12 @@ describe("attention notification API", () => {
     });
 
     expect(errors[0]).toBeInstanceOf(ContractError);
+    const error = errors[0];
+    if (!(error instanceof ContractError)) throw new Error("Expected contract diagnostics.");
+    expect(error.diagnostics).toContainEqual({
+      code: "invalid_type",
+      path: ["event", "pending", "id"],
+    });
 
     transport.emit("attention.notification", {
       event: {

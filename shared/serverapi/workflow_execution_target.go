@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"strings"
 
+	"buf.build/go/protovalidate"
+	definitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type WorkflowExecutionTargetMode string
@@ -54,6 +58,7 @@ type WorkflowExecutionTargetSelectionReason string
 const (
 	WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection     WorkflowExecutionTargetSelectionReason = "policy_requires_selection"
 	WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable WorkflowExecutionTargetSelectionReason = "configured_target_unavailable"
+	WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable   WorkflowExecutionTargetSelectionReason = "original_target_unavailable"
 )
 
 type WorkflowExecutionTargetUnavailableCause string
@@ -67,9 +72,14 @@ const (
 )
 
 type WorkflowExecutionTargetSelectionRequirement struct {
-	Reason           WorkflowExecutionTargetSelectionReason   `json:"reason"`
-	ConfiguredTarget *WorkflowExecutionTargetConfiguredTarget `json:"configured_target,omitempty"`
-	UnavailableCause WorkflowExecutionTargetUnavailableCause  `json:"unavailable_cause,omitempty"`
+	Details *taskpb.SelectionRequired
+}
+
+type workflowExecutionTargetSelectionEnvelope struct {
+	Reason              WorkflowExecutionTargetSelectionReason   `json:"reason"`
+	ConfiguredTarget    *WorkflowExecutionTargetConfiguredTarget `json:"configured_target,omitempty"`
+	UnavailableCause    *WorkflowExecutionTargetUnavailableCause `json:"unavailable_cause,omitempty"`
+	OriginalTargetCause *WorkflowLockedExecutionTargetCause      `json:"original_target_cause,omitempty"`
 }
 
 type WorkflowExecutionTargetActionOutcome string
@@ -98,9 +108,9 @@ type WorkflowLockedExecutionTargetCause string
 
 const (
 	WorkflowLockedExecutionTargetCauseDetachedHead     WorkflowLockedExecutionTargetCause = "detached_head"
+	WorkflowLockedExecutionTargetCauseMissingBranch    WorkflowLockedExecutionTargetCause = "missing_branch"
 	WorkflowLockedExecutionTargetCauseInvalidRoot      WorkflowLockedExecutionTargetCause = "invalid_root"
 	WorkflowLockedExecutionTargetCauseRootInaccessible WorkflowLockedExecutionTargetCause = "root_inaccessible"
-	WorkflowLockedExecutionTargetCauseMissingBranch    WorkflowLockedExecutionTargetCause = "missing_branch"
 	WorkflowLockedExecutionTargetCauseConflict         WorkflowLockedExecutionTargetCause = "conflict"
 	WorkflowLockedExecutionTargetCauseGitFailure       WorkflowLockedExecutionTargetCause = "git_failure"
 )
@@ -259,41 +269,157 @@ func (t WorkflowExecutionTarget) Validate() error {
 }
 
 func (r WorkflowExecutionTargetSelectionRequirement) Validate() error {
-	switch r.Reason {
-	case WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection:
-		if r.ConfiguredTarget != nil || r.UnavailableCause != "" {
-			return errors.New("policy selection requirement cannot include configured target failure")
-		}
-	case WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable:
-		if r.ConfiguredTarget == nil || !validWorkflowExecutionTargetUnavailableCause(r.UnavailableCause) {
-			return errors.New("configured target requirement requires configured target and unavailable cause")
-		}
-		if !validWorkflowManagedExecutionTargetMode(r.ConfiguredTarget.Mode) {
-			return errors.New("configured target requirement mode must be managed")
-		}
-		if r.ConfiguredTarget.Mode == WorkflowExecutionTargetModeCustomRef && (r.ConfiguredTarget.RequestedRef == nil || strings.TrimSpace(*r.ConfiguredTarget.RequestedRef) == "") {
-			return errors.New("configured custom ref requirement requires requested ref")
-		}
-		if r.ConfiguredTarget.Mode != WorkflowExecutionTargetModeCustomRef && r.ConfiguredTarget.RequestedRef != nil {
-			return errors.New("configured non-custom requirement cannot include requested ref")
-		}
-	default:
-		return errors.New("execution target selection requirement reason is invalid")
+	if r.Details == nil {
+		return errors.New("execution target selection requirement is required")
 	}
+	return protovalidate.Validate(r.Details)
+}
+
+func NewWorkflowPolicyTargetSelectionRequirement() *WorkflowExecutionTargetSelectionRequirement {
+	return &WorkflowExecutionTargetSelectionRequirement{Details: &taskpb.SelectionRequired{
+		Reason: &taskpb.SelectionRequired_PolicyRequiresSelection{PolicyRequiresSelection: &emptypb.Empty{}},
+	}}
+}
+
+func NewWorkflowOriginalTargetSelectionRequirement(cause WorkflowLockedExecutionTargetCause) *WorkflowExecutionTargetSelectionRequirement {
+	return &WorkflowExecutionTargetSelectionRequirement{Details: &taskpb.SelectionRequired{
+		Reason: &taskpb.SelectionRequired_OriginalTargetUnavailable{
+			OriginalTargetUnavailable: &taskpb.LockedExecutionTargetDetails{Cause: originalTargetCauses[cause]},
+		},
+	}}
+}
+
+func NewWorkflowConfiguredTargetSelectionRequirement(mode WorkflowExecutionTargetMode, requestedRef *string, cause WorkflowExecutionTargetUnavailableCause) *WorkflowExecutionTargetSelectionRequirement {
+	return &WorkflowExecutionTargetSelectionRequirement{Details: &taskpb.SelectionRequired{
+		Reason: &taskpb.SelectionRequired_ConfiguredTargetUnavailable{
+			ConfiguredTargetUnavailable: &taskpb.ConfiguredExecutionTargetUnavailableDetails{
+				Mode: configuredTargetModes[mode], RequestedRef: requestedRef, Cause: unavailableTargetCauses[cause],
+			},
+		},
+	}}
+}
+
+func (r WorkflowExecutionTargetSelectionRequirement) ConfiguredTarget() (*WorkflowExecutionTargetConfiguredTarget, error) {
+	configured := r.Details.GetConfiguredTargetUnavailable()
+	if configured == nil {
+		return nil, errors.New("configured target selection details are required")
+	}
+	for spelling, value := range configuredTargetModes {
+		if value == configured.Mode {
+			return &WorkflowExecutionTargetConfiguredTarget{Mode: spelling, RequestedRef: configured.RequestedRef}, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown configured target mode: %d", configured.Mode)
+}
+
+func (r WorkflowExecutionTargetSelectionRequirement) UnavailableCause() (WorkflowExecutionTargetUnavailableCause, error) {
+	cause := r.Details.GetConfiguredTargetUnavailable().GetCause()
+	for spelling, value := range unavailableTargetCauses {
+		if value == cause {
+			return spelling, nil
+		}
+	}
+	return "", fmt.Errorf("unknown configured target unavailable cause: %d", cause)
+}
+
+func (r WorkflowExecutionTargetSelectionRequirement) OriginalTargetCause() (WorkflowLockedExecutionTargetCause, error) {
+	cause := r.Details.GetOriginalTargetUnavailable().GetCause()
+	for spelling, value := range originalTargetCauses {
+		if value == cause {
+			return spelling, nil
+		}
+	}
+	return "", fmt.Errorf("unknown original target unavailable cause: %d", cause)
+}
+
+func (r WorkflowExecutionTargetSelectionRequirement) MarshalJSON() ([]byte, error) {
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
+	envelope := workflowExecutionTargetSelectionEnvelope{}
+	switch r.Details.GetReason().(type) {
+	case *taskpb.SelectionRequired_PolicyRequiresSelection:
+		envelope.Reason = WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection
+	case *taskpb.SelectionRequired_ConfiguredTargetUnavailable:
+		envelope.Reason = WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable
+		configured, err := r.ConfiguredTarget()
+		if err != nil {
+			return nil, err
+		}
+		envelope.ConfiguredTarget = configured
+		cause, err := r.UnavailableCause()
+		if err != nil {
+			return nil, err
+		}
+		envelope.UnavailableCause = &cause
+	case *taskpb.SelectionRequired_OriginalTargetUnavailable:
+		envelope.Reason = WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable
+		cause, err := r.OriginalTargetCause()
+		if err != nil {
+			return nil, err
+		}
+		envelope.OriginalTargetCause = &cause
+	default:
+		return nil, errors.New("invalid execution target selection requirement reason")
+	}
+	return json.Marshal(envelope)
+}
+
+func (r *WorkflowExecutionTargetSelectionRequirement) UnmarshalJSON(data []byte) error {
+	var envelope workflowExecutionTargetSelectionEnvelope
+	if err := protocol.DecodeStrictJSON(data, &envelope); err != nil {
+		return err
+	}
+	details := &taskpb.SelectionRequired{}
+	switch envelope.Reason {
+	case WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection:
+		if envelope.ConfiguredTarget != nil || envelope.UnavailableCause != nil || envelope.OriginalTargetCause != nil {
+			return errors.New("policy selection envelope cannot include target failure")
+		}
+		details = NewWorkflowPolicyTargetSelectionRequirement().Details
+	case WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable:
+		if envelope.ConfiguredTarget == nil || envelope.UnavailableCause == nil || envelope.OriginalTargetCause != nil {
+			return errors.New("configured selection envelope requires only configured target failure")
+		}
+		details = NewWorkflowConfiguredTargetSelectionRequirement(envelope.ConfiguredTarget.Mode, envelope.ConfiguredTarget.RequestedRef, *envelope.UnavailableCause).Details
+	case WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable:
+		if envelope.ConfiguredTarget != nil || envelope.UnavailableCause != nil || envelope.OriginalTargetCause == nil {
+			return errors.New("original selection envelope requires only original target failure")
+		}
+		details = NewWorkflowOriginalTargetSelectionRequirement(*envelope.OriginalTargetCause).Details
+	default:
+		return errors.New("invalid selection envelope reason")
+	}
+	result := WorkflowExecutionTargetSelectionRequirement{Details: details}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	*r = result
 	return nil
 }
 
-func validWorkflowExecutionTargetUnavailableCause(cause WorkflowExecutionTargetUnavailableCause) bool {
-	switch cause {
-	case WorkflowExecutionTargetUnavailableCauseInvalidRevision,
-		WorkflowExecutionTargetUnavailableCauseNonCommit,
-		WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing,
-		WorkflowExecutionTargetUnavailableCauseDefaultBranchAmbiguous,
-		WorkflowExecutionTargetUnavailableCauseGitFailure:
-		return true
-	default:
-		return false
-	}
+var originalTargetCauses = map[WorkflowLockedExecutionTargetCause]taskpb.LockedExecutionTargetCause{
+	WorkflowLockedExecutionTargetCauseDetachedHead:     taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD,
+	WorkflowLockedExecutionTargetCauseInvalidRoot:      taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT,
+	WorkflowLockedExecutionTargetCauseRootInaccessible: taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE,
+	WorkflowLockedExecutionTargetCauseMissingBranch:    taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH,
+	WorkflowLockedExecutionTargetCauseConflict:         taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT,
+	WorkflowLockedExecutionTargetCauseGitFailure:       taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE,
+}
+
+var configuredTargetModes = map[WorkflowExecutionTargetMode]definitionpb.ExecutionTargetMode{
+	WorkflowExecutionTargetModeNone:          definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+	WorkflowExecutionTargetModeHead:          definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
+	WorkflowExecutionTargetModeDefaultBranch: definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+	WorkflowExecutionTargetModeCustomRef:     definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,
+}
+
+var unavailableTargetCauses = map[WorkflowExecutionTargetUnavailableCause]taskpb.ExecutionTargetUnavailableCause{
+	WorkflowExecutionTargetUnavailableCauseInvalidRevision:        taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_INVALID_REVISION,
+	WorkflowExecutionTargetUnavailableCauseNonCommit:              taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_NON_COMMIT,
+	WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing:   taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_MISSING,
+	WorkflowExecutionTargetUnavailableCauseDefaultBranchAmbiguous: taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_AMBIGUOUS,
+	WorkflowExecutionTargetUnavailableCauseGitFailure:             taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE,
 }
 
 func validWorkflowExecutionTargetPolicyMode(mode WorkflowExecutionTargetMode) bool {
@@ -333,17 +459,8 @@ func validWorkflowExecutionTargetResolutionErrorCode(code WorkflowExecutionTarge
 }
 
 func validWorkflowLockedExecutionTargetCause(cause WorkflowLockedExecutionTargetCause) bool {
-	switch cause {
-	case WorkflowLockedExecutionTargetCauseDetachedHead,
-		WorkflowLockedExecutionTargetCauseInvalidRoot,
-		WorkflowLockedExecutionTargetCauseRootInaccessible,
-		WorkflowLockedExecutionTargetCauseMissingBranch,
-		WorkflowLockedExecutionTargetCauseConflict,
-		WorkflowLockedExecutionTargetCauseGitFailure:
-		return true
-	default:
-		return false
-	}
+	_, ok := originalTargetCauses[cause]
+	return ok
 }
 
 func (r WorkflowTaskStartResponse) Validate() error {

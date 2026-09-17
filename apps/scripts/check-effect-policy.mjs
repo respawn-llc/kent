@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, extname, join, relative } from "node:path";
+import { dirname, extname, join, normalize, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { appArchitecture } from "../desktop/eslint-app-plugin.js";
 
@@ -99,7 +99,7 @@ async function embeddedSources(path) {
       {
         path: `${path}.tsx`,
         code: astroRequire("@astrojs/compiler/sync").convertToTSX(text, {
-          filename: path,
+          filename: pathToFileURL(path).href,
         }).code,
       },
     ];
@@ -131,7 +131,7 @@ export async function checkEffectPolicy(paths = repositorySources()) {
     embeddedExtensions.has(extname(file)),
   )) {
     for (const script of await embeddedSources(path))
-      virtual.set(script.path, script.code);
+      virtual.set(normalize(script.path), script.code);
   }
   const configPath = join(root, "apps/desktop/tsconfig.app.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -152,15 +152,17 @@ export async function checkEffectPolicy(paths = repositorySources()) {
     languageVersion,
     onError,
     shouldCreateNewSourceFile,
-  ) =>
-    virtual.has(path)
-      ? ts.createSourceFile(path, virtual.get(path), languageVersion, true)
+  ) => {
+    const code = virtual.get(normalize(path));
+    return code !== undefined
+      ? ts.createSourceFile(path, code, languageVersion, true)
       : getSourceFile(
           path,
           languageVersion,
           onError,
           shouldCreateNewSourceFile,
         );
+  };
   const program = ts.createProgram(
     [...ordinary, ...virtual.keys()],
     options,

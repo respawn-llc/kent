@@ -2,6 +2,7 @@ import { queryOptions, type QueryClient } from "@tanstack/react-query";
 
 import type {
   ChatApi,
+  ChatGoalFact,
   ChatGoalProjection,
   ChatMainView,
   ChatMainViewRead,
@@ -10,7 +11,6 @@ import type {
   ChatTranscriptPayloadByKind,
   PendingPrompt,
 } from "@/api";
-import { ChatGoalProjectionSource } from "./chatGoalDestination";
 import type { AppLogger } from "./logging";
 import { recoverOrThrowDebugFailure } from "./debugFailure";
 import { ChatTranscriptHost } from "./chatTranscriptHost";
@@ -45,12 +45,16 @@ export type ChatRuntimeHost = Readonly<{
   onPendingWorkRestored?(restoration: ChatTranscriptPayloadByKind["pending_work_restored"]): void;
   onWorktreeTransitionOutcome?(outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]): void;
   onTranscriptError?(error: Error): void;
+  onManualCompactionCompleted?(): void;
+  onManualCompactionFailed?(diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"]): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
   pendingPrompts: readonly PendingPrompt[];
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
   transcript: ChatTranscriptHost["snapshot"];
+  transcriptPresentationUpdate: ChatTranscriptHost["presentationUpdate"];
+  jumpPending: boolean;
   disposed: boolean;
 }>;
 
@@ -59,7 +63,7 @@ export const chatMainViewQueryOptions = (
   target: ChatSessionTarget,
   admit: (read: ChatMainViewRead) => ChatMainView,
 ) =>
-  queryOptions({
+  queryOptions<ChatMainView>({
     queryKey: queryKeys.chatMainView(target.sessionID),
     queryFn: async () => {
       const read = await api.getMainView(target);
@@ -74,7 +78,6 @@ export const chatMainViewQueryOptions = (
   });
 
 export class ChatRuntimeOwner {
-  readonly goal = new ChatGoalProjectionSource();
   readonly transcript: ChatTranscriptHost;
   readonly #api: ChatRuntimeApi;
   readonly #target: ChatSessionTarget;
@@ -84,11 +87,14 @@ export class ChatRuntimeOwner {
   readonly #listeners = new Set<() => void>();
   #observation: ChatTranscriptObservation | null = null;
   #projection: ChatProjectionState = emptyChatProjectionState();
+  #goal: ChatGoalProjection = { kind: "unobserved" };
+  #goalGeneration = 0;
   #snapshotCache: ChatRuntimeOwnerSnapshot;
   #mainViewToken = 0;
   #mountGeneration = 0;
   #started = false;
   #disposed = false;
+  #pendingCompactionNotice = false;
 
   constructor(
     api: ChatRuntimeApi,
@@ -128,7 +134,7 @@ export class ChatRuntimeOwner {
 
   mainViewOptions() {
     return chatMainViewQueryOptions(this.#api, this.#target, (read) =>
-      this.#admitRead(this.#mainViewToken, this.#projection.metadataRevision, this.goal.generation, read),
+      this.#admitRead(this.#mainViewToken, this.#projection.metadataRevision, this.#goalGeneration, read),
     );
   }
 
@@ -156,6 +162,7 @@ export class ChatRuntimeOwner {
         });
       },
       onObservationLoss: () => {
+        this.#pendingCompactionNotice = false;
         this.transcript.observationLost();
       },
       onError: (error) => this.#host.onTranscriptError?.(error),
@@ -206,11 +213,11 @@ export class ChatRuntimeOwner {
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#pendingCompactionNotice = false;
     this.#mainViewToken++;
     this.#observation?.close();
     this.#observation = null;
     this.transcript.dispose();
-    this.goal.dispose();
     await this.#queryClient.cancelQueries(
       { queryKey: this.#queryKey, exact: true },
       { revert: true, silent: true },
@@ -231,11 +238,11 @@ export class ChatRuntimeOwner {
       read,
       metadataRevisionAtStart,
       goalGenerationAtStart,
-      currentGoalGeneration: this.goal.generation,
+      currentGoalGeneration: this.#goalGeneration,
     });
     this.#storeProjectionMetadata(admitted.state);
     if (admitted.goalFact !== null) {
-      this.goal.admit(admitted.goalFact);
+      this.#admitGoal(admitted.goalFact);
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
@@ -245,7 +252,7 @@ export class ChatRuntimeOwner {
   #startMainViewRead(token: number): void {
     if (this.#disposed || token !== this.#mainViewToken) return;
     const metadataRevisionAtStart = this.#projection.metadataRevision;
-    const goalGenerationAtStart = this.goal.generation;
+    const goalGenerationAtStart = this.#goalGeneration;
     const options = chatMainViewQueryOptions(this.#api, this.#target, (read) =>
       this.#admitRead(token, metadataRevisionAtStart, goalGenerationAtStart, read),
     );
@@ -267,7 +274,7 @@ export class ChatRuntimeOwner {
       this.#queryClient.setQueryData(this.#queryKey, admitted.state.view);
     }
     if (admitted.goalFact !== null) {
-      this.goal.admit(admitted.goalFact);
+      this.#admitGoal(admitted.goalFact);
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
@@ -292,7 +299,9 @@ export class ChatRuntimeOwner {
 
   #applyHostEffects(effects: readonly ChatProjectionHostEffect[]): void {
     for (const effect of effects) {
-      if (effect.kind === "human-input-interrupted") {
+      if (effect.kind === "compaction") {
+        this.#applyCompactionFeedback(effect.feedback);
+      } else if (effect.kind === "human-input-interrupted") {
         this.#host.onHumanInputInterrupted?.(effect.items);
       } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
@@ -306,6 +315,17 @@ export class ChatRuntimeOwner {
     }
   }
 
+  #applyCompactionFeedback(
+    feedback: Extract<ChatProjectionHostEffect, { kind: "compaction" }>["feedback"],
+  ): void {
+    if (feedback.kind === "completed") this.#pendingCompactionNotice = true;
+    else if (feedback.kind === "failed") this.#host.onManualCompactionFailed?.(feedback.diagnostic);
+    else if (this.#pendingCompactionNotice) {
+      this.#pendingCompactionNotice = false;
+      this.#host.onManualCompactionCompleted?.();
+    }
+  }
+
   #notify(): void {
     this.#snapshotCache = this.#projectSnapshot();
     for (const listener of this.#listeners) listener();
@@ -314,10 +334,17 @@ export class ChatRuntimeOwner {
   #projectSnapshot(): ChatRuntimeOwnerSnapshot {
     return {
       pendingPrompts: this.#projection.pendingPrompts,
-      goal: this.goal.snapshot,
+      goal: this.#goal,
       observation: this.#observation?.state ?? { kind: "loading" },
       transcript: this.transcript.snapshot,
+      transcriptPresentationUpdate: this.transcript.presentationUpdate,
+      jumpPending: this.transcript.jumpPending,
       disposed: this.#disposed,
     };
+  }
+
+  #admitGoal(fact: ChatGoalFact): void {
+    this.#goal = { kind: "observed", value: fact };
+    this.#goalGeneration++;
   }
 }

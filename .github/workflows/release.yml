@@ -370,19 +370,39 @@ jobs:
       - name: Install desktop dependencies
         run: just install _apps-dependencies
 
+      - name: Prepare Apple notarization key
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          test -n "$APPLE_API_KEY_P8"
+          umask 077
+          key_path="$RUNNER_TEMP/kent-notarization.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
       - name: Build desktop bundles
         env:
           KENT_VERSION: ${{ needs.prepare_release.outputs.version }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS Developer ID signing. tauri build imports APPLE_CERTIFICATE into an
-          # ephemeral keychain and signs with APPLE_SIGNING_IDENTITY. Notarization is
-          # OFF for v1, so the APPLE_API_* notarization keys are intentionally NOT
-          # exported here (flip them on later to enable notarization).
+          # Tauri signs with Developer ID, notarizes with Apple, and staples the ticket.
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'macos' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'macos' && secrets.APPLE_API_ISSUER || '' }}
         run: just release _desktop-build --version "$KENT_VERSION" --dist-dir dist/desktop --skip-install
+
+      - name: Verify macOS notarization
+        if: matrix.platform == 'macos'
+        run: |
+          codesign --verify --deep --strict apps/desktop/src-tauri/target/release/bundle/macos/Kent.app
+          xcrun stapler validate apps/desktop/src-tauri/target/release/bundle/macos/Kent.app
+
+      - name: Remove Apple notarization key
+        if: always() && matrix.platform == 'macos'
+        run: rm -f "$RUNNER_TEMP/kent-notarization.p8"
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v7.0.1

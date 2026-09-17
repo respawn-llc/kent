@@ -478,10 +478,16 @@ export const attentionItemSchema: z.ZodType<AttentionItem> = z.discriminatedUnio
       kind: z.literal("question"),
       current_node: currentNodeSchema.refine((node) => node.sessionID === null),
       session_name: nonBlankString.nullable(),
-      message: nonBlankString,
+      message: nullableNonBlankString,
       question: questionPromptSchema,
     })
     .strict()
+    .refine(
+      (value) =>
+        value.message !== null ||
+        (value.question.kind === "approval" && value.question.accessTargets.length > 0),
+      { path: ["message"], message: "Message is required unless an approval has access targets" },
+    )
     .transform((value): QuestionAttentionItem => ({
       ...adaptAttentionItemBase(value),
       kind: value.kind,

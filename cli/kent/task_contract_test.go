@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -512,9 +513,7 @@ func TestTaskMoveStructuredValuesSelectionAndDependencyGuidance(t *testing.T) {
 	stderr.Reset()
 	writeWorkflowExecutionTargetSelectionRequiredForCommand(
 		&stderr,
-		&serverapi.WorkflowExecutionTargetSelectionRequirement{
-			Reason: serverapi.WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection,
-		},
+		serverapi.NewWorkflowPolicyTargetSelectionRequirement(),
 		recoveryCommand,
 	)
 	if !strings.Contains(stderr.String(), recoveryCommand+" --execution-target head") {
@@ -544,7 +543,8 @@ func TestTaskSetupGuidanceContracts(t *testing.T) {
 	failed := &worktreepb.SetupEvent{
 		Phase: &worktreepb.SetupEvent_Failed{
 			Failed: &worktreepb.SetupFailed{
-				RetryReadiness: worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
+				RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+				RetryReadiness:      worktreepb.SetupRetryReadiness_WORKTREE_SETUP_RETRY_READY,
 				Cause: &worktreepb.SetupFailureCause{
 					Cause: &worktreepb.SetupFailureCause_ProcessExit{
 						ProcessExit: &worktreepb.SetupProcessExit{ExitCode: 1},
@@ -618,20 +618,78 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
-	guidance, err := projectMoveSetupGuidance(base, &target, &serverapi.WorkflowSetupRetainedError{
-		Worktree:                 taskContractWorkflowSetupWorktree("/tmp/retained"),
-		Diagnostic:               "failed twice",
-		ScriptPath:               "/repo/setup.sh",
-		RetainedPreviousWorktree: &serverapi.WorkflowRetainedPreviousWorktree{Worktree: taskContractWorkflowSetupWorktree("/tmp/previous")},
-	})
+	setupErr := &serverapi.WorkflowSetupRetainedError{
+		Details: &worktreepb.SetupRetainedDetails{
+			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
+			Worktree:                 taskContractSetupWorktree("/tmp/retained").GetRegistered(),
+			Diagnostic:               "failed twice",
+			ScriptPath:               "/repo/setup.sh",
+			RetainedPreviousWorktree: &worktreepb.RetainedPreviousWorktree{Worktree: taskContractSetupWorktree("/tmp/previous").GetRegistered()},
+		},
+	}
+	var decoded *serverapi.WorkflowSetupRetainedError
+	if err := serverapi.DecodeWorkflowSetupRetainedError(setupErr.RPCErrorData(), "failed"); !errors.As(err, &decoded) {
+		t.Fatalf("retained setup round trip: %v", err)
+	}
+	guidance, err := projectMoveSetupGuidance(base, &target, decoded)
 	if err != nil ||
 		guidance.Outcome != taskSetupOutcomeMoveSetupFailure ||
 		guidance.RetainedRoot == nil ||
 		*guidance.RetainedRoot != "/tmp/retained" ||
 		guidance.RetainedPreviousRoot == nil ||
+		*guidance.RetainedPreviousRoot != "/tmp/previous" ||
 		len(guidance.Actions) != 5 ||
 		!slices.Contains(guidance.Actions[0].Args, `{"plan":{"summary":"done"}}`) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
+	}
+	decoded.Details.Diagnostic = " "
+	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+		t.Fatal("missing retained setup diagnostic accepted")
+	}
+	decoded.Details.Diagnostic = setupErr.Details.Diagnostic
+	decoded.Details.Worktree.Kent.CanonicalRoot = "/tmp/different"
+	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+		t.Fatal("mismatched retained setup root accepted")
+	}
+	decoded.Details.Worktree.Kent.CanonicalRoot = decoded.Details.Worktree.Git.CanonicalRoot
+	decoded.Details.RetainedPreviousWorktree.Worktree.Kent.CanonicalRoot = "/tmp/different"
+	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+		t.Fatal("mismatched previous retained setup root accepted")
+	}
+}
+
+func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
+	base := []string{config.Command, "task", "move", "task-1", "node-1"}
+	setupErr := &serverapi.WorkflowSetupRetainedError{
+		Details: &worktreepb.SetupRetainedDetails{
+			RecoveryDisposition: worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT,
+			Worktree:            taskContractSetupWorktree("/tmp/retained").GetRegistered(),
+			Diagnostic:          "setup process failed", ScriptPath: "/repo/setup.sh",
+		},
+	}
+	guidance, err := projectMoveSetupGuidance(base, nil, setupErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guidance.Actions) != 4 {
+		t.Fatalf("replacement choices = %+v", guidance.Actions)
+	}
+	for _, action := range guidance.Actions {
+		if action.Kind == taskSetupActionRetry {
+			t.Fatal("replacement failure offered retry in retained root")
+		}
+		if slices.Contains(action.Args, "--branch-name") != (action.Kind != taskSetupActionChooseNone) {
+			t.Fatalf("replacement branch flags = %+v", action)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := writeCommandJSON(&stdout, &stderr, setupErr.RPCErrorData()); code != 0 {
+		t.Fatalf("structured failure serialization = %d: %s", code, stderr.String())
+	}
+	var decoded *serverapi.WorkflowSetupRetainedError
+	if err := serverapi.DecodeWorkflowSetupRetainedError(stdout.Bytes(), "failed"); !errors.As(err, &decoded) ||
+		decoded.Details.Diagnostic != setupErr.Details.Diagnostic || decoded.Details.Worktree.Git.CanonicalRoot != "/tmp/retained" {
+		t.Fatalf("structured replacement diagnostics lost: %v", err)
 	}
 }
 
@@ -640,7 +698,6 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		name        string
 		delete      bool
 		forceDelete bool
-		agent       bool
 		want        worktreepb.BranchCleanupMode
 		wantError   bool
 	}{
@@ -648,10 +705,9 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		{name: "safe delete", delete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE},
 		{name: "force delete", delete: true, forceDelete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_FORCE},
 		{name: "force requires delete", forceDelete: true, wantError: true},
-		{name: "agent retains branch", delete: true, agent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete, test.agent)
+			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete)
 			if (err != nil) != test.wantError || got != test.want {
 				t.Fatalf("policy=%q err=%v", got, err)
 			}
@@ -716,16 +772,6 @@ func taskContractSetupWorktree(root string) *worktreepb.TopologyEntry {
 				Git:  &worktreepb.GitFacts{CanonicalRoot: root, HeadObject: "0123456789abcdef"},
 				Kent: &worktreepb.KentFacts{WorktreeId: "worktree-1", CanonicalRoot: root, DisplayName: "KENT-453", Managed: true},
 			},
-		},
-	}
-}
-
-func taskContractWorkflowSetupWorktree(root string) serverapi.WorkflowRegisteredWorktreeTopology {
-	return serverapi.WorkflowRegisteredWorktreeTopology{
-		Variant: "registered",
-		Registered: &serverapi.WorkflowRegisteredWorktreeFacts{
-			Git:  serverapi.WorkflowWorktreeGitFacts{CanonicalRoot: root, HeadObject: "0123456789abcdef"},
-			Kent: serverapi.WorkflowWorktreeKentFacts{WorktreeID: "worktree-1", CanonicalRoot: root, DisplayName: "KENT-453", Managed: true},
 		},
 	}
 }

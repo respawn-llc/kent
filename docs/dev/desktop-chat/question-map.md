@@ -91,18 +91,20 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - A new destination without an explicit target anchors at the newest row/composer. Destination disposal discards position, so reopening starts at the default latest anchor.
 - Chat has no global/window-wide session-position registry, cross-destination restoration map, or persisted marker. Position does not define read/unread state.
 - New committed rows and assistant deltas preserve an away-from-tail viewport.
-- Server opaque cursors remain pagination authority. A deep transcript-list module delegates bidirectional page state/retention to TanStack Query and all virtualization, anchoring, following, and end-scroll behavior to TanStack Virtual's official chat APIs.
+- Server opaque cursors remain pagination authority. The transcript window owns bounded page membership; TanStack Virtual's official chat APIs own virtualization, anchoring, following, and end-scroll behavior.
 - JSONL-backed server pages remain compaction-bounded segments. Roughly 100-row pages are excluded from the JSONL design and belong to the SQLite transcript read model; no side index, projector checkpoint, cumulative offset, or persisted page marker is introduced.
-- TanStack Query retains exactly two segments with `maxPages: 2`, matching the TUI's current-plus-one-adjacent bounded window. Query owns far-segment eviction.
+- The existing transcript window retains at most two neighboring server segments and owns far-segment eviction. Tail navigation does not migrate pagination to TanStack Query.
 - Adjacent-segment loading/error uses the existing UI-kit infinite-list boundary row. Loading is compact; failure is inline and actionable with Retry for the same cursor; loaded content remains usable.
 - The absolute oldest transcript edge has no terminal marker or dated divider; the boundary slot disappears.
 - Feature code performs no manual anchor capture, offset/index compensation, `scrollTop` mutation, scroll registry, or custom virtual-range rule.
 - Jump to latest copies Respawn's visual treatment: a 40px circular glass control with a 24px `ArrowDown`, bottom-end aligned 12px above/inset from the composer, and scale animated.
 - Visibility is the inverse of TanStack Virtual `isAtEnd()` with one semantic 80px `scrollEndThreshold`; the previous Respawn two-item condition is superseded by native TanStack ownership.
-- Global tail is derived from both native facts: no newer Query page and Virtual `isAtEnd()`. A local historical-window end never hides Jump to latest.
+- Global tail is derived from the server page's absent newer boundary and Virtual `isAtEnd()`. A local historical-window end never hides Jump to latest.
 - Jump to latest has no visible label or count, has the accessible name Jump to latest, animates to the tail, and honors reduced motion.
-- When the newest segment is evicted, Jump to latest resets the infinite query to its cursorless newest initial page in one request, then calls Virtual `scrollToEnd()`; it never fetches every intermediate newer segment.
+- When the newest segment is evicted, Jump to latest loads one cursorless newest page, replaces the existing bounded window, then calls Virtual `scrollToEnd()`; it never fetches every intermediate newer segment.
+- The shared list exposes an opt-in Chat mode using native anchoring/follow/end-scroll APIs. The transcript view has no before/after row-offset correction machinery. Status belongs to measured content; already-following viewport size changes, including composer growth, invoke native end scrolling without a second composer-height store.
 - One native `isAtEnd()` result owns control visibility and following. Hidden means tail-follow is active; shown means incoming growth preserves the viewport. Clicking the control or manually returning resumes following.
+- Native resize following at a historical local bottom is desired: expanding a row keeps its bottom visible, even when its beginning no longer fits. Jump remains visible when newer history exists. This does not add expansion-reveal behavior for arbitrary rows elsewhere.
 - Committed rows use a typed server locator `(durable session-event sequence, event-local projected-row ordinal)`, scoped by session and identical across page, hydration, and live projections. It adds no JSONL marker or client registry.
 - Every Chat entry point opens the latest transcript row and composer. There are no message-specific deep links, open-at-message instructions, target-page resolvers, target highlights, or transcript-target route/search params; attention and task entry points do not jump to particular rows.
 - Stable prepend and streaming growth behavior.

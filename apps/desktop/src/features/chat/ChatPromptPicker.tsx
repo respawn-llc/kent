@@ -45,7 +45,7 @@ export function ChatPromptPicker({
   usePublishChatPromptPresence(target, visible);
   return (
     <>
-      <div hidden={visible} className="min-h-0 min-w-0">
+      <div hidden={visible} className={visible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}>
         {children}
       </div>
       {visible ? (

@@ -1,6 +1,6 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
-import { create, validate } from "@app/server-api-contract";
+import { create, operationName, validate } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
   BranchCleanupMode,
@@ -198,6 +198,12 @@ describe("Desktop Worktree client", () => {
         },
       ],
     });
+    for (const method of [StatusService.method.get, ListService.method.list]) {
+      expect(transport.attachedSessionCalls).toContainEqual({
+        sessionID: "session-1",
+        method: operationName(method),
+      });
+    }
     expect(transport.descriptorCalls.map(({ request }) => request)).toEqual([
       create(StatusService.method.get.input, { sessionId: "session-1" }),
       create(ListService.method.list.input, { sessionId: "session-1" }),
@@ -254,6 +260,12 @@ describe("Desktop Worktree client", () => {
     const branchless = await resolvePreview(DirtyStateKind.DIRTY_STATE_CLEAN, detachedTopology);
     const transport = new FakeRpcTransport([
       {
+        descriptor: StatusService.method.get,
+        result: create(StatusResultSchema, {
+          outcome: { case: "success", value: { target, worktree: { recordedRoot: "/repo" } } },
+        }),
+      },
+      {
         descriptor: CreateService.method.create,
         result: create(CreateResultSchema, {
           outcome: { case: "success", value: { target, worktree: entry } },
@@ -302,7 +314,20 @@ describe("Desktop Worktree client", () => {
     await client.deleteWorktree("session-1", clean, "confirm");
     await client.deleteWorktree("session-1", unknown, "confirm");
 
-    const mutations = transport.descriptorCalls;
+    for (const method of [
+      CreateService.method.create,
+      TransitionService.method.enter,
+      TransitionService.method.leave,
+      TransitionService.method.delete,
+    ]) {
+      expect(transport.attachedSessionCalls).toContainEqual({
+        sessionID: "session-1",
+        method: operationName(method),
+      });
+    }
+    const mutations = transport.descriptorCalls.filter(
+      ({ descriptor }) => descriptor !== StatusService.method.get,
+    );
     expect(mutations.slice(0, 3).map(({ request }) => request)).toMatchObject([
       { spec: { baseRef: "refs/heads/existing", createBranch: false } },
       { spec: { baseRef: "HEAD", createBranch: true, branchName: "new" } },
@@ -324,7 +349,10 @@ describe("Desktop Worktree client", () => {
     ]);
     expect(mutations[3]).toMatchObject({
       descriptor: TransitionService.method.enter,
-      request: { selector: "feature" },
+      request: {
+        selector: "feature",
+        targetWorkspace: { workspaceId: target.workspaceId, workspaceRoot: target.workspaceRoot },
+      },
     });
     expect(mutations[4]?.descriptor).toBe(TransitionService.method.leave);
     for (const { request } of mutations.slice(5)) {
@@ -407,6 +435,12 @@ describe("Desktop Worktree client", () => {
       new ApiClient(
         new FakeRpcTransport([
           {
+            descriptor: StatusService.method.get,
+            result: create(StatusResultSchema, {
+              outcome: { case: "success", value: { target, worktree: { recordedRoot: "/repo" } } },
+            }),
+          },
+          {
             descriptor: TransitionService.method.enter,
             result: create(EnterResultSchema, {
               outcome: { case: "success", value: { operationId: ids[1] } },
@@ -465,45 +499,49 @@ function isValidTopology(value: TopologyEntry) {
 }
 
 async function resolveTarget(kind: CreateTargetResolutionKind, input: string, resolvedRef?: string) {
-  const client = new ApiClient(
-    new FakeRpcTransport([
-      {
-        descriptor: CreateTargetService.method.resolve,
-        result: create(CreateTargetResolveResultSchema, {
-          outcome: {
-            case: "success",
-            value: {
-              resolution: {
-                kind,
-                input,
-                ...(resolvedRef === undefined ? {} : { resolvedRef }),
-              },
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: CreateTargetService.method.resolve,
+      result: create(CreateTargetResolveResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            resolution: {
+              kind,
+              input,
+              ...(resolvedRef === undefined ? {} : { resolvedRef }),
             },
           },
-        }),
-      },
-    ]),
-    unexpectedProjectOverflow,
-  );
+        },
+      }),
+    },
+  ]);
+  const client = new ApiClient(transport, unexpectedProjectOverflow);
   const resolution = (await client.resolveWorktreeCreateTarget("session-1", input)).resolution;
+  expect(transport.attachedSessionCalls).toContainEqual({
+    sessionID: "session-1",
+    method: operationName(CreateTargetService.method.resolve),
+  });
   if (resolution === undefined) throw new Error("fixture omitted Create target resolution");
   return resolution;
 }
 
 async function resolveSwitch(value: ListEntry) {
-  const client = new ApiClient(
-    new FakeRpcTransport([
-      {
-        descriptor: SelectorService.method.resolve,
-        result: create(SelectorResolveResultSchema, {
-          outcome: { case: "success", value: { worktree: value } },
-        }),
-      },
-    ]),
-    unexpectedProjectOverflow,
-  );
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: SelectorService.method.resolve,
+      result: create(SelectorResolveResultSchema, {
+        outcome: { case: "success", value: { worktree: value } },
+      }),
+    },
+  ]);
+  const client = new ApiClient(transport, unexpectedProjectOverflow);
   const operation = (await client.resolveWorktreeSelector("session-1", "feature")).worktree?.projection
     ?.switch;
+  expect(transport.attachedSessionCalls).toContainEqual({
+    sessionID: "session-1",
+    method: operationName(SelectorService.method.resolve),
+  });
   if (operation === undefined) throw new Error("fixture omitted Switch authority");
   return operation;
 }
@@ -513,23 +551,26 @@ async function resolvePreview(
   worktree: TopologyEntry,
   details: Readonly<{ dirtyFileCount?: number; unknownCause?: string }> = {},
 ) {
-  const client = new ApiClient(
-    new FakeRpcTransport([
-      {
-        descriptor: DeletePreviewService.method.get,
-        result: create(DeletePreviewResultSchema, {
-          outcome: {
-            case: "success",
-            value: {
-              worktree,
-              deletionSelector: "worktree-1",
-              cleanliness: { kind, ...details },
-            },
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: DeletePreviewService.method.get,
+      result: create(DeletePreviewResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            worktree,
+            deletionSelector: "worktree-1",
+            cleanliness: { kind, ...details },
           },
-        }),
-      },
-    ]),
-    unexpectedProjectOverflow,
-  );
-  return client.previewWorktreeDelete("session-1", "feature");
+        },
+      }),
+    },
+  ]);
+  const client = new ApiClient(transport, unexpectedProjectOverflow);
+  const preview = await client.previewWorktreeDelete("session-1", "feature");
+  expect(transport.attachedSessionCalls).toContainEqual({
+    sessionID: "session-1",
+    method: operationName(DeletePreviewService.method.get),
+  });
+  return preview;
 }

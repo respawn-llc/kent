@@ -62,17 +62,7 @@ func newTaskPreparationBatch(
 		}
 	}
 	sort.Slice(ordered, func(left, right int) bool {
-		leftReference := ordered[left].reference
-		rightReference := ordered[right].reference
-		if leftReference.NodeID != rightReference.NodeID {
-			return leftReference.NodeID < rightReference.NodeID
-		}
-		leftBranch, leftScoped := leftReference.TransitionBranchKey()
-		rightBranch, rightScoped := rightReference.TransitionBranchKey()
-		if leftScoped != rightScoped {
-			return !leftScoped
-		}
-		return leftScoped && leftBranch < rightBranch
+		return taskPreparationReferenceLess(ordered[left].reference, ordered[right].reference)
 	})
 	seen := make(map[workflow.CurrentNodeReferenceKey]struct{}, len(ordered))
 	for index, start := range ordered {
@@ -289,39 +279,7 @@ func (c *CurrentNodeController) persistAndRetireFailedTaskPreparationBatch(
 	if !active {
 		return nil, errors.New("failed task preparation batch is no longer the active owner")
 	}
-	detail := workflow.NewCurrentNodeInterruptionDetail(string(reasonCurrentNodeRuntimeStartFailed), cause)
-	var preparationErr *TaskStartPreparationError
-	canonicalDetail := detail
-	if errors.As(cause, &preparationErr) {
-		canonicalDetail = preparationErr.InterruptionDetail()
-	}
-	interrupted := make([]workflow.CurrentNodeReference, 0, len(batch.starts))
-	var persistenceErr error
-	for _, start := range batch.starts[1:] {
-		if err := c.store.InterruptCurrentNode(
-			ctx,
-			start.reference,
-			reasonCurrentNodeRuntimeStartFailed,
-			detail,
-		); err != nil {
-			persistenceErr = fmt.Errorf("interrupt task preparation sibling %v: %w", start.reference, err)
-			break
-		}
-		interrupted = append(interrupted, start.reference)
-	}
-	if persistenceErr == nil {
-		canonical := batch.starts[0].reference
-		if err := c.store.InterruptCurrentNode(
-			ctx,
-			canonical,
-			reasonCurrentNodeRuntimeStartFailed,
-			canonicalDetail,
-		); err != nil {
-			persistenceErr = fmt.Errorf("interrupt canonical task preparation Current Node %v: %w", canonical, err)
-		} else {
-			interrupted = append([]workflow.CurrentNodeReference{canonical}, interrupted...)
-		}
-	}
+	interrupted, persistenceErr := persistTaskPreparationFailure(ctx, taskPreparationReferences(batch), cause, c.store.InterruptCurrentNode)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.runningTaskPreparationLocked(batch.taskID) != batch {

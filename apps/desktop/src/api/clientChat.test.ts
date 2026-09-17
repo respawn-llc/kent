@@ -24,6 +24,15 @@ import {
   SupervisorValue,
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
+  GoalAvailability,
+  GoalClearResultSchema,
+  GoalMutationResultKind,
+  GoalPauseResultSchema,
+  GoalService,
+  GoalSetResultSchema,
+  GoalStatus,
+} from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import {
   BackgroundShellOutputMode,
   CacheWarningMode,
   CompactionMode,
@@ -45,7 +54,6 @@ import { ChatOperationError } from "./chatErrors";
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
 
@@ -231,6 +239,137 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
 }
 
 describe("Desktop Chat read client", () => {
+  it("uses the generated dedicated Goal Set operation for exact and New Chat targets", async () => {
+    const createdAt = { seconds: 10n, nanos: 0 };
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: GoalService.method.set,
+        resultFactory: (_request, callIndex) =>
+          create(GoalSetResultSchema, {
+            outcome: {
+              case: "success",
+              value: {
+                session: {
+                  sessionId: callIndex === 0 ? sessionID : "223e4567-e89b-42d3-a456-426614174000",
+                },
+                outcome: {
+                  case: "mutation",
+                  value: {
+                    kind: GoalMutationResultKind.AUTHORITATIVE_GOAL,
+                    goal: {
+                      id: "goal-1",
+                      objective: callIndex === 0 ? "exact Goal" : "New Chat Goal",
+                      status: GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE,
+                      createdAt,
+                      updatedAt: createdAt,
+                    },
+                    availability: GoalAvailability.AVAILABLE,
+                  },
+                },
+              },
+            },
+          }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+
+    await expect(client.chat.setGoal({ kind: "session", sessionID }, "exact Goal")).resolves.toMatchObject({
+      sessionID,
+      outcome: { kind: "mutation", mutation: { kind: "authoritative_goal" } },
+    });
+    await expect(
+      client.chat.setGoal(
+        {
+          kind: "new_chat",
+          projectID: "project-1",
+          workspaceID: "workspace-1",
+          initialSettings: {
+            agentRole: "default",
+            supervisor: "off",
+            thinking: "medium",
+            fast: false,
+            questionsEnabled: true,
+            autoCompactionEnabled: true,
+          },
+          initialInputDraft: "composer draft",
+        },
+        "New Chat Goal",
+      ),
+    ).resolves.toMatchObject({
+      sessionID: "223e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(transport.descriptorCalls).toHaveLength(2);
+    expect(transport.attachedProjectDescriptorCalls).toHaveLength(1);
+    expect(transport.attachedProjectDescriptorCalls[0]?.request).toMatchObject({
+      target: {
+        target: {
+          case: "newChat",
+          value: {
+            projectId: "project-1",
+            workspaceId: "workspace-1",
+            initialSettings: { agentRole: "default" },
+          },
+        },
+      },
+      executionPolicy: 1,
+      initialInputDraft: "composer draft",
+    });
+  });
+
+  it("rejects Goal mutation dispositions that are illegal for the invoked method", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: GoalService.method.set,
+        result: create(GoalSetResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              session: { sessionId: sessionID },
+              outcome: {
+                case: "mutation",
+                value: { kind: GoalMutationResultKind.AUTHORITATIVE_CLEAR },
+              },
+            },
+          },
+        }),
+      },
+      {
+        descriptor: GoalService.method.pause,
+        result: create(GoalPauseResultSchema, {
+          outcome: {
+            case: "success",
+            value: { kind: GoalMutationResultKind.AUTHORITATIVE_CLEAR },
+          },
+        }),
+      },
+      {
+        descriptor: GoalService.method.clear,
+        result: create(GoalClearResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              kind: GoalMutationResultKind.AUTHORITATIVE_GOAL,
+              goal: {
+                id: "goal-1",
+                objective: "ship",
+                status: GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE,
+                createdAt: { seconds: 1n, nanos: 0 },
+                updatedAt: { seconds: 1n, nanos: 0 },
+              },
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+
+    await expect(client.chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toBeInstanceOf(
+      ContractError,
+    );
+    await expect(client.chat.pauseGoal(target)).rejects.toBeInstanceOf(ContractError);
+    await expect(client.chat.clearGoal(target)).rejects.toBeInstanceOf(ContractError);
+  });
+
   it("accepts a dormant Main View with authoritative Goal absence", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -622,7 +761,6 @@ describe("Desktop Chat mutation adapter", () => {
   const sessionTarget = {
     kind: "session",
     projectID: "project-1",
-    workspace: { workspaceID: "workspace-1" },
     sessionID,
   } as const;
   const newChatTarget = {
@@ -698,7 +836,7 @@ describe("Desktop Chat mutation adapter", () => {
       outcome: { kind: "not_accepted", reason: { kind: "too_soon" } },
     });
 
-    expect(transport.attachedProjectDescriptorCalls.map(({ request }) => request)).toMatchObject([
+    expect(transport.descriptorCalls.map(({ request }) => request)).toMatchObject([
       {
         target: { target: { case: "session", value: { sessionId: sessionID } } },
         activation: { input: { case: "text", value: "continue" } },
@@ -868,7 +1006,7 @@ describe("Desktop Chat mutation adapter", () => {
           workspaceRoot: "/workspace",
           workspaceSelection: { kind: "workspaceID", workspaceID: "workspace-1" },
         },
-        sessionTarget,
+        newChatTarget,
       ),
     ).toThrow(ContractError);
 

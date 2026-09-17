@@ -48,7 +48,7 @@ A workflow-level rule for choosing where a task's executable nodes run. The five
 
 ### Execution Target
 
-The target-selection provenance locked to a task when its first executable action succeeds. For a managed target it records the requested Git revision and resolved commit while the current managed-worktree relation, root, and named branch may be conservatively restored or changed by the operator. A no-managed-worktree target follows the task's current source workspace. Later nodes and retries reuse the locked mode and managed selection provenance despite workflow edits or Git ref movement.
+The target-selection provenance locked to a task when its first executable action succeeds. For a managed target it records the requested Git revision and resolved commit while the current managed-worktree relation, root, and named branch may be conservatively restored or changed by the operator. A no-managed-worktree target follows the task's current source workspace. Later nodes and retries reuse the locked mode and managed selection provenance despite workflow edits or Git ref movement, except for unavailable-original-target replacement defined in [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 
 ### Execution Root
 
@@ -100,7 +100,7 @@ A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as wo
 
 ### Current Nodes
 
-The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. Leaving a Node removes its current execution state.
+The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must not retain its incoming Transition Branch reference. Pending Approvals must retain their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
 
 ### Node Group
 

@@ -157,6 +157,20 @@ export function TaskDetailContent({
     });
   }
 
+  const pageFailure = [{ error: attention.error, retry: () => void attention.refetch() }, observation].find(
+    ({ error }) => error !== null,
+  );
+  if (pageFailure !== undefined) {
+    return (
+      <ErrorState
+        body={errorMessage(pageFailure.error)}
+        title={t("states.error")}
+        onRetry={pageFailure.retry}
+        retryLabel={t("app.retry")}
+      />
+    );
+  }
+
   return (
     <TaskInitiatingActionProvider
       onApplied={mutations.refresh}
@@ -172,17 +186,9 @@ export function TaskDetailContent({
         });
       }}
       taskID={detail.id}
+      executionTarget={detail.executionTarget}
     >
       <TaskDeleteProvider onDismiss={onDeleteDismiss} taskID={detail.id}>
-        {observation.error === null ? null : (
-          <ErrorState
-            fullPage={false}
-            body={errorMessage(observation.error)}
-            title={t("states.error")}
-            onRetry={observation.retry}
-            retryLabel={t("app.retry")}
-          />
-        )}
         <TaskDetailList
           activity={activity}
           answerQuestion={promptAnswers.answerQuestion}

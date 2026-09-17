@@ -16,7 +16,7 @@ export type QuestionAttentionItem = AttentionItemBase &
     kind: "question";
     currentNode: TaskCurrentNode;
     sessionName: string | null;
-    message: string;
+    message: string | null;
     question: AttentionQuestionPrompt;
   }>;
 

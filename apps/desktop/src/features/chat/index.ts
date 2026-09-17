@@ -1,5 +1,10 @@
 export { WorktreeDestination } from "./WorktreeDestination";
 export { ChatShell } from "./ChatShell";
+export { ChatTailSurface } from "./ChatTailSurface";
+export type { ChatTailSurfaceProps } from "./ChatTailSurface";
+export { ChatDestination } from "./ChatDestination";
+export { NewChatDestination } from "./NewChatDestination";
+export type { ChatDestinationOpening } from "./ChatDestinationViewModel";
 export { ChatUserMessage } from "./messageRows/ChatUserMessage";
 export type { ChatUserMessageItem, ChatMessageEditControl } from "./messageRows/ChatUserMessage";
 export { ChatAssistantMessage } from "./messageRows/ChatAssistantMessage";
@@ -16,6 +21,7 @@ export type {
 } from "./messageRows/ChatMessageEditViewModel";
 export { ChatPromptPicker } from "./ChatPromptPicker";
 export { WorktreeControl } from "./WorktreeControl";
+export { WorktreeCommands } from "./WorktreeCommands";
 export type { ChatShellProps, ChatShellState, SelectedSession } from "./ChatShell";
 export { useChatSettings } from "./useChatSettings";
 export { TranscriptReasoningSlot, TranscriptThinkingStatus } from "./transcriptRows";
@@ -27,3 +33,4 @@ export { ChatComposerSurface } from "./ChatComposerSurface";
 export type { ChatComposerProps } from "./ChatComposer";
 export type { ChatComposerLayout } from "./ChatShell";
 export type { ComposerCommand, ComposerCommandInvocation, ComposerCommandResult } from "./composerCommands";
+export * from "./goal";

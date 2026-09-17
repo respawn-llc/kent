@@ -4,6 +4,7 @@ export {
 } from "./ExecutionTargetContinuationDialog";
 export {
   executeTaskInitiatingAction,
+  executionTargetBranchName,
   moveTaskInitiatingAction,
   proceedWithTaskInitiatingAction,
   resumeTaskInitiatingAction,

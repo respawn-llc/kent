@@ -76,10 +76,22 @@ describe("Worktree query ownership", () => {
     if (operation === undefined) throw new Error("fixture omitted Switch authority");
     await services.api.switchWorktree("session-1", operation).catch(() => undefined);
     await services.api.deleteWorktree("session-1", deletion, "confirm").catch(() => undefined);
-    expect(services.transport.descriptorCalls.slice(-3).map(({ request }) => request)).toMatchObject([
-      { spec: { baseRef: "refs/heads/feature-1" } },
-      { selector: "feature-1" },
-      { forceFolderRemoval: true },
-    ]);
+    const expectedSpec: unknown = expect.objectContaining({ baseRef: "refs/heads/feature-1" });
+    const expectedWorkspace: unknown = expect.objectContaining({
+      workspaceId: "workspace-1",
+      workspaceRoot: "/repo",
+    });
+    expect(services.transport.descriptorCalls.map(({ request }) => request)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          spec: expectedSpec,
+        }),
+        expect.objectContaining({
+          selector: "feature-1",
+          targetWorkspace: expectedWorkspace,
+        }),
+        expect.objectContaining({ forceFolderRemoval: true }),
+      ]),
+    );
   });
 });

@@ -294,7 +294,9 @@ describe("transcript live membership and compaction", () => {
     window.dispatch({ kind: "page-success", request: visit(window, "newer"), page: page([row(60)], 300) });
     expect(sequences(window)).toEqual([20, 60]);
     expect(
-      window.dispatch({ kind: "scratch-hydration", hydration: hydration([row(60)], 1) }).effects,
+      window
+        .dispatch({ kind: "scratch-hydration", hydration: hydration([row(60)], 1) })
+        .effects.filter((effect) => effect.kind === "scratch-rehydration"),
     ).toEqual([]);
     expect(sequences(window)).toEqual([60]);
   });

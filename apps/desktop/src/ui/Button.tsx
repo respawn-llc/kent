@@ -42,7 +42,8 @@ export function Button({
 }
 
 const buttonSizeClassNames = {
-  default: "rounded-[var(--radius-m)] px-[10px] py-[4px]",
+  default:
+    "inline-flex items-center justify-center gap-[var(--space-1)] rounded-[var(--radius-m)] px-[10px] py-[4px]",
   icon: "grid h-9 w-9 shrink-0 place-items-center rounded-full p-0",
   "icon-sm": "grid h-7 w-7 shrink-0 place-items-center rounded-full p-0",
 } satisfies Record<ButtonSize, string>;

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { type VirtualItem, useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizedEndAnchoring, type VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
 import type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
@@ -49,6 +50,7 @@ import {
 
 export type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 export type { VirtualizedItemVisibilityTrigger } from "./virtualizedItemVisibilityTriggers";
+export type { VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
 export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   items: readonly TItem[];
@@ -93,6 +95,7 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   visibilityTriggers?: readonly VirtualizedItemVisibilityTrigger[] | undefined;
   pixelOffsetRequest?: VirtualizedPixelOffsetRequest | undefined;
   orientation?: "vertical" | "horizontal" | undefined;
+  endAnchoring?: VirtualizedEndAnchoring | undefined;
 }>;
 
 type VirtualizedInfiniteListResolvedProps<TItem> = Omit<
@@ -184,6 +187,7 @@ function VirtualizedInfiniteListContent<TItem>({
   visibilityTriggers,
   pixelOffsetRequest,
   orientation,
+  endAnchoring,
 }: VirtualizedInfiniteListResolvedProps<TItem>) {
   const horizontal = orientation === "horizontal";
   const getItemAnchorKeyForItem = getItemAnchorKey ?? getItemKey;
@@ -230,15 +234,15 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
+  const nativeEnd = useVirtualizedEndAnchoring(endAnchoring);
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    // Pixel restoration and leading-anchor recovery issue absolute scroll
-    // commands from layout effects. Do not re-enter React synchronously from
-    // those lifecycle paths.
+    // Scroll commands run from layout effects; do not re-enter React there.
+    // End-anchored measured resize correction is completed after commit below.
     useFlushSync: false,
     getItemKey: (index) =>
       virtualizedRowKey({
@@ -250,6 +254,10 @@ function VirtualizedInfiniteListContent<TItem>({
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
     rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
+    ...nativeEnd.options,
+  });
+  useLayoutEffect(() => {
+    nativeEnd.afterCommit(virtualizer);
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
     nonAdjustingResizeItemKey === undefined
@@ -302,7 +310,7 @@ function VirtualizedInfiniteListContent<TItem>({
   }, [horizontal, items.length, validatedPixelOffsetRequest, virtualizer]);
 
   const onScroll = useVirtualizedLeadingAnchor({
-    behavior: layoutChangeScrollBehavior,
+    behavior: endAnchoring === undefined ? layoutChangeScrollBehavior : "natural",
     getItemAnchorKey: getItemAnchorKeyForItem,
     getItemOccurrenceKey: getItemOccurrenceKeyForItem,
     itemStartIndex,

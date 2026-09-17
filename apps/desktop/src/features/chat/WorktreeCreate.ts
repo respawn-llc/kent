@@ -40,7 +40,7 @@ export function createWorktreeCreate({
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
   refreshOpenWorktreeList(sessionID: string): void;
-  submitSwitch(operation: WorktreeSwitch): void;
+  submitSwitch(operation: WorktreeSwitch): Promise<void>;
   push: StatusController["push"];
   t: TFunction;
 }>) {
@@ -77,7 +77,7 @@ export function createWorktreeCreate({
     onSuccess: (result) => {
       const operation = result.worktree?.projection?.switch;
       if (operation === undefined) throw new Error("Created worktree Switch authority is required");
-      submitSwitch(operation);
+      void submitSwitch(operation);
     },
     onError: (error) => {
       if (!(error instanceof WorktreeError) || error.detail.kind !== "setup_retained") return;

@@ -199,6 +199,7 @@ func (r *RuntimeRegistry) attentionPendingEventFromPrompt(sessionID string, snap
 			PreparedAskIDs:          []string{snapshot.Request.ToolCallID},
 			MaterializedAskIDs:      []string{snapshot.Request.ToolCallID},
 			CurrentUnresolvedAskIDs: []string{snapshot.Request.ToolCallID},
+			SkippedAskIDs:           []string{},
 			Preview:                 strings.TrimSpace(snapshot.Request.Question),
 			DisplayCount:            1,
 			MaterializedCount:       1,
