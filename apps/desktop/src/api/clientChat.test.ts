@@ -130,7 +130,6 @@ function runtimePlanResult(planSessionID: string) {
       },
       modelContextWindow: 100000,
       auth: "",
-      systemPromptFile: "",
       timeoutSeconds: 30,
       verboseOutput: false,
     },

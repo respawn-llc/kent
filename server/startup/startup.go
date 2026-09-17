@@ -50,6 +50,7 @@ type OnboardingRequest struct {
 func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config

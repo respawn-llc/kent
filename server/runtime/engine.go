@@ -1048,10 +1048,12 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if err != nil {
 		return session.LockedContract{}, err
 	}
-	lock.EnabledTools = toolspec.IDStrings(reloaded.ActiveToolIDs)
+	if e.store.Meta().RetainedToolSelection != nil {
+		lock.EnabledTools = toolspec.IDStrings(reloaded.ActiveToolIDs)
+	}
 	lock.HasEnabledTools = true
 	if e.cfg.RefreshToolRegistry != nil {
-		if err := e.cfg.RefreshToolRegistry(reloaded.ActiveToolIDs); err != nil {
+		if err := e.cfg.RefreshToolRegistry(toolIDsFromNames(lock.EnabledTools)); err != nil {
 			return session.LockedContract{}, err
 		}
 	}

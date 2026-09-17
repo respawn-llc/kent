@@ -62,6 +62,7 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler,
 	bootstrapReq := buildRequest(req, authHandler)
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config
@@ -435,6 +436,7 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 	}
 	refreshed, err := serverbootstrap.ResolveConfig(d.bootstrap)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return d.activationError(resp, err)
 	}
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(refreshed.Config)
