@@ -392,9 +392,10 @@ describe("Goal sidebar", () => {
     const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
-    view.unmount();
+    // Closing a sidebar does not close its window or replace the window's Atom registry.
+    view.rerender(<TestAppProviders services={services}>{null}</TestAppProviders>);
 
-    const { unmount: unmountReplacement } = render(
+    view.rerender(
       <TestAppProviders services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
@@ -413,7 +414,7 @@ describe("Goal sidebar", () => {
     });
     expect(await screen.findByText("hydrated replacement")).toBeInTheDocument();
     expect(screen.queryByText("close-safe success")).not.toBeInTheDocument();
-    unmountReplacement();
+    view.unmount();
   });
 });
 
