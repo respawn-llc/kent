@@ -258,6 +258,10 @@ export type WorktreeFailure =
 export type WorktreeErrorDetail =
   | Readonly<{ kind: "internal"; cause: string | null }>
   | Readonly<{
+      kind: "delete_partial";
+      details: Extract<DeleteError["detail"], { case: "deletePartial" }>["value"];
+    }>
+  | Readonly<{
       kind: "selector";
       details: Extract<WorktreeFailure["detail"], { case: "selectorError" }>["value"];
     }>
@@ -310,6 +314,9 @@ export function requireWorktreeSuccess<Success, Failure extends WorktreeFailure>
 function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): RpcError {
   const generic = protobufRpcError(method, failure);
   const detail = failure.detail;
+  if (detail.case === "deletePartial") {
+    return new WorktreeError(generic, { kind: "delete_partial", details: detail.value });
+  }
   if (detail.case === "internalFailure") {
     return new WorktreeError(generic, { kind: "internal", cause: detail.value.cause ?? null });
   }

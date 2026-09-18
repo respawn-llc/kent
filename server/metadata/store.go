@@ -134,10 +134,12 @@ func (e *WorktreeWorkspaceMismatchError) Error() string {
 }
 
 type SessionExecutionTargetUpdate struct {
-	SessionID  string
-	Workspace  *SessionExecutionTargetUpdateWorkspace
-	Worktree   *SessionExecutionTargetUpdateWorktree
-	CwdRelpath string
+	SessionID          string
+	Workspace          *SessionExecutionTargetUpdateWorkspace
+	Worktree           *SessionExecutionTargetUpdateWorktree
+	CwdRelpath         string
+	ExpectedWorktreeID *string
+	WorktreeReminder   *session.WorktreeReminderState
 }
 
 type SessionExecutionTargetUpdateWorkspace struct {
@@ -630,17 +632,34 @@ func (s *Store) UpdateSessionExecutionTarget(ctx context.Context, update Session
 		}
 		worktreeID = sql.NullString{String: trimmedWorktreeID, Valid: true}
 	}
+	var expectedWorktreeID sql.NullString
+	if update.ExpectedWorktreeID != nil {
+		if strings.TrimSpace(*update.ExpectedWorktreeID) == "" {
+			return ErrWorktreeIDRequired
+		}
+		expectedWorktreeID = sql.NullString{String: *update.ExpectedWorktreeID, Valid: true}
+	}
+	reminderJSON, err := encodeWorktreeReminder(update.WorktreeReminder)
+	if err != nil {
+		return err
+	}
 	params := sqlitegen.UpdateSessionExecutionTargetByIDParams{
-		WorkspaceID: workspaceID,
-		WorktreeID:  worktreeID,
-		CwdRelpath:  normalizeSessionCwdRelpath(update.CwdRelpath),
-		SessionID:   trimmedSessionID,
+		WorkspaceID:          workspaceID,
+		WorktreeID:           worktreeID,
+		CwdRelpath:           normalizeSessionCwdRelpath(update.CwdRelpath),
+		SessionID:            trimmedSessionID,
+		ExpectedWorktreeID:   expectedWorktreeID,
+		WorktreeReminderJson: reminderJSON,
+		UpdatedAtUnixMs:      time.Now().UTC().UnixMilli(),
 	}
 	rows, err := s.queries.UpdateSessionExecutionTargetByID(ctx, params)
 	if err != nil {
 		return fmt.Errorf("update session execution target: %w", err)
 	}
 	if rows == 0 {
+		if update.ExpectedWorktreeID != nil {
+			return errors.New("session was removed or its execution target changed")
+		}
 		return session.ErrSessionNotFound
 	}
 	return nil
@@ -663,22 +682,6 @@ func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]
 		return nil, errors.New("metadata store is required")
 	}
 	return s.queries.ListProjectSessionIDs(ctx, strings.TrimSpace(projectID))
-}
-
-func (s *Store) ListSessionsTargetingWorktree(ctx context.Context, worktreeID string) ([]WorktreeSessionBlocker, error) {
-	var out []WorktreeSessionBlocker
-	var cursor *WorktreeSessionCursor
-	for {
-		page, err := s.ListSessionsTargetingWorktreePage(ctx, worktreeID, cursor)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Sessions...)
-		if page.Next == nil {
-			return out, nil
-		}
-		cursor = page.Next
-	}
 }
 
 func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeID string, before *WorktreeSessionCursor) (WorktreeSessionPage, error) {

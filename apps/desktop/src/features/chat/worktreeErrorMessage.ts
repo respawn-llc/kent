@@ -8,28 +8,43 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
   switch (detail.kind) {
     case "internal":
       return detail.cause ?? t("chat.worktree.internalFailure");
+    case "delete_partial":
+      return [
+        t("chat.worktree.deletePartial", {
+          sessionCount: detail.details.retargetedSessions.toString(),
+        }),
+        detail.details.blocked === undefined
+          ? detail.details.diagnostic
+          : blockedMessage(detail.details.blocked, t),
+      ].join("\n");
     case "create":
       return detail.diagnostic;
     case "setup_retained":
       return detail.details.diagnostic;
     case "selector":
       return selectorMessage(detail.details, t);
-    case "blocked": {
-      const blockers = detail.details.activeSessions;
-      if (blockers === undefined) return t("chat.worktree.operationBlocked");
-      return [
-        t("chat.worktree.activeSessionsBlocked"),
-        ...blockers.sessions.map((session) =>
-          session.name === undefined ? session.sessionId : `${session.name} (${session.sessionId})`,
-        ),
-        ...(blockers.hasMore ? [t("chat.worktree.moreBlockingSessions")] : []),
-      ].join("\n");
-    }
+    case "blocked":
+      return blockedMessage(detail.details, t);
     case "capacity":
       return t("chat.worktree.pendingCapacity");
     case "delete_precondition":
       return t("chat.worktree.deleteChanged");
   }
+}
+
+function blockedMessage(
+  details: Extract<WorktreeError["detail"], { kind: "blocked" }>["details"],
+  t: TFunction,
+): string {
+  const blockers = details.activeSessions;
+  if (blockers === undefined) return t("chat.worktree.operationBlocked");
+  return [
+    t("chat.worktree.activeSessionsBlocked"),
+    ...blockers.sessions.map((session) =>
+      session.name === undefined ? session.sessionId : `${session.name} (${session.sessionId})`,
+    ),
+    ...(blockers.hasMore ? [t("chat.worktree.moreBlockingSessions")] : []),
+  ].join("\n");
 }
 
 function selectorMessage(

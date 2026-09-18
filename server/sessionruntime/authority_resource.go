@@ -518,7 +518,8 @@ func (a *Authority) openRuntime(
 	if ownerID == "" {
 		return RuntimeAttachment{}, errors.New("runtime owner id is required")
 	}
-	gate := a.gateFor(request.SessionID)
+	gate, releaseGate := a.gateFor(request.SessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 	if len(gate.blocks) != 0 {
@@ -584,7 +585,8 @@ func (a *Authority) ReleaseRuntime(ctx context.Context, request RuntimeReleaseRe
 		return RuntimeReleaseResult{}, errors.New("runtime detach release requires owner drop")
 	}
 	sessionID := request.Resource.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -649,7 +651,8 @@ func (a *Authority) closeRetiringResource(ctx context.Context, resource *agentRe
 		return nil
 	}
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -677,7 +680,8 @@ func (a *Authority) retireRuntimeAbortResource(ctx context.Context, resource *ag
 		return nil
 	}
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -748,7 +752,8 @@ func (a *Authority) StartAgentExecution(ctx context.Context, request AgentExecut
 	if request.Runner == nil {
 		return nil, errors.New("agent runner is required")
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return nil, err
 	}
@@ -934,7 +939,8 @@ func (a *Authority) RunCurrentTurn(
 		return errors.New("turn callback is required")
 	}
 	sessionID := descriptor.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGateReference := a.gateFor(sessionID)
+	defer releaseGateReference()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return err
 	}

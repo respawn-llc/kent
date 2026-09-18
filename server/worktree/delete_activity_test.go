@@ -250,14 +250,6 @@ func deleteServiceTestWorktree(env *serviceTestEnv, worktreeID string) <-chan de
 	return deleted
 }
 
-func TestAcquireDeleteTargetActivityRejectsBlankPresentOptions(t *testing.T) {
-	env := newServiceTestEnv(t)
-	blankRoot := " \t "
-	if _, err := env.service.acquireDeleteTargetActivity(env.ctx, nil, &blankRoot); err == nil {
-		t.Fatal("acquireDeleteTargetActivity accepted a blank present target root")
-	}
-}
-
 func TestDeleteWorktreeRejectsInFlightStartAndCompletesUnrelatedWorktree(t *testing.T) {
 	lifecycle := &deleteInFlightStartLifecycle{
 		StartBarrier: testsetup.NewStartBarrier(),

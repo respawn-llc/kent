@@ -52,6 +52,8 @@ The Main Workspace and Git main worktree cannot be deleted. Deletion blocks whil
 
 Dirty worktrees, or worktrees whose state cannot be determined, require `--force`. This flag applies only to the worktree folder. Agent and human CLI callers retain branches by default. `--delete-branch` deletes a branch without confirmation only when Git considers it safe. Supplying both `--delete-branch` and `--force-delete-branch` authorizes deletion even when the branch is unmerged.
 
+Deletion moves idle Sessions back to Main Workspace in bounded batches. If a later step fails, completed moves are kept and the error reports their count. Resolve the reported blocker or failure and retry to finish cleanup.
+
 If Git retains the branch, deletion succeeds and the CLI prints `Kept branch <name>: <diagnostic>`.
 
 Deleting an ongoing Task's Worktree preserves the Task, its Sessions, and its managed binding. See [Task target recovery](../workflows/#recover-an-unavailable-task-target) before continuing its executable work.

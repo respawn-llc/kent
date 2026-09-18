@@ -685,7 +685,10 @@
 - If human input becomes accepted first, that delete attempt fails. If deletion retires and retargets first, later input activates or attaches to a Runtime on the new target.
 - A Session without an Active Session Runtime is retargeted in durable metadata and receives one typed model-visible Worktree-change entry.
 - A live background process whose Working Directory is inside the Worktree blocks deletion immediately.
-- A rejected deletion leaves Session targets, worktree information, Git state, and branch state unchanged.
+- Worktree deletion must process targeting Sessions with bounded memory independent of historical Session count. It must release Session-start admission after each bounded batch and discard unused admission bookkeeping.
+- Each dormant Session move must commit its Main Workspace target and typed Worktree-change reminder together before physical deletion. Completed moves must remain applied if a later Session becomes active or a later deletion step fails.
+- A failure after Session moves must report how many Sessions were moved and the reason deletion stopped. A retry must process the remaining targeting Sessions without rewriting completed moves or their reminders.
+- A deletion rejected before any Session move leaves Session targets, worktree information, Git state, and branch state unchanged.
 - Task Worktree creation and conservative restoration use the same setup behavior. Restoration follows the named-branch and root rules above.
 - Creation follows the Task-specific collision rules above.
 - CLI target overrides, interaction, structured outcomes, and already-started guidance follow [CLI Commands](cli-commands.md#workflow-and-task-mutation).

@@ -431,6 +431,10 @@ func writeWorktreeDeleteError(stderr io.Writer, err error) {
 		fmt.Fprintln(stderr, err)
 		return
 	}
+	var partial *worktreecontract.DeletePartialError
+	if errors.As(err, &partial) {
+		fmt.Fprintln(stderr, partial)
+	}
 	details := blocked.Details.ActiveSessions
 	fmt.Fprintln(stderr, "Can't delete a worktree that is used by other agents! First, ask the Sessions to leave that worktree or finish their work, then retry.")
 	for _, session := range details.Sessions {
