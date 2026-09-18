@@ -1502,7 +1502,6 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 			SessionID:        plan.Descriptor.SessionID().String(),
 			ActiveSettings:   active,
 			EnabledTools:     append([]toolspec.ID(nil), plan.EnabledTools...),
-			WorkspaceRoot:    plan.WorkspaceRoot,
 			Sources:          maps.Clone(plan.Source.Sources),
 			ProviderSettings: providerSettings,
 		})
