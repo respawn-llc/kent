@@ -131,6 +131,7 @@ func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
 		return RuntimeSupport{}, fmt.Errorf("compile shell postprocessor: %w", err)
 	}
 	background, err := shelltool.NewManager(
+		shelltool.WithMaxConcurrent(cfg.Settings.Shell.MaxConcurrent),
 		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
 		shelltool.WithPostprocessor(runner),
 	)

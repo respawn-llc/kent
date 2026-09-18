@@ -93,7 +93,7 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 	cfg := config.App{
 		PersistenceRoot: t.TempDir(),
 		Settings: config.Settings{
-			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Shell: config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 	}
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
@@ -133,7 +133,7 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 	cfg := config.App{
 		PersistenceRoot: t.TempDir(),
 		Settings: config.Settings{
-			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Shell:    config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 			Workflow: config.WorkflowSettings{Concurrency: 1},
 		},
 	}

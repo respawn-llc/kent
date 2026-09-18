@@ -90,6 +90,7 @@ type Timeouts struct {
 }
 
 type ShellSettings struct {
+	MaxConcurrent      int
 	PostprocessingMode ShellPostprocessingMode
 	PostprocessHook    *string
 }

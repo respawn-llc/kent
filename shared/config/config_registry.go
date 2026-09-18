@@ -133,6 +133,14 @@ func (rootOnlySetting[T]) appliesToSubagentRole() bool {
 	return false
 }
 
+type globalOnlySetting[T any] struct {
+	rootOnlySetting[T]
+}
+
+func (globalOnlySetting[T]) appliesToFileLayer(layer settingsFileLayer) bool {
+	return layer == settingsFileLayerGlobal
+}
+
 func settingAppliesToSubagentRole(setting registrySetting) bool {
 	scoped, ok := setting.(subagentRoleApplicableSetting)
 	return !ok || scoped.appliesToSubagentRole()
@@ -428,6 +436,10 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{}),
+		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("shell.max_concurrent", DefaultMaxConcurrentShells,
+			func(state *settingsState, value int) { state.Settings.Shell.MaxConcurrent = value },
+			func(state settingsState) int { return state.Settings.Shell.MaxConcurrent },
+			"", nil, settingDocOptions{})}},
 		newStringSetting("shell.postprocessing_mode", ShellPostprocessingMode(defaultShellPostprocessingMode),
 			func(state *settingsState, value ShellPostprocessingMode) {
 				state.Settings.Shell.PostprocessingMode = value
@@ -746,6 +758,7 @@ func newSettingsRegistry() settingsRegistry {
 			validateWebSearch,
 			validateTimeouts,
 			validateShellOutputMaxChars,
+			validateShellMaxConcurrent,
 			validateMinimumExecToBgSeconds,
 			validateBGShellsOutput,
 			validateShellPostprocessing,
