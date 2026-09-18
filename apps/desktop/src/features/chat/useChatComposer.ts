@@ -79,7 +79,7 @@ export function useChatComposer(options: ChatComposerOptions) {
   const observation = useMemo(
     () => ({
       ...pending.observation,
-      ...(target.kind === "session" ? chatCompactionFeedback(services, target) : {}),
+      ...(target?.kind === "session" ? chatCompactionFeedback(services, target) : {}),
     }),
     [pending.observation, services, target],
   );

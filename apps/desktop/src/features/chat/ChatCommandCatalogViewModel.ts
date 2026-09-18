@@ -1,4 +1,4 @@
-import { QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { ChatSettingsTarget } from "@/api";
@@ -9,14 +9,14 @@ export function createChatCommandCatalogViewModel({
   services,
   client,
   target,
-}: Readonly<{ services: AppServices; client: QueryClient; target: Atom.Atom<ChatSettingsTarget> }>) {
+}: Readonly<{ services: AppServices; client: QueryClient; target: Atom.Atom<ChatSettingsTarget | null> }>) {
   const current = Atom.make((get) => {
     const selected = get(target);
     const observer = new QueryObserver(client, {
       ...composerReadOptions,
       queryKey: ["chat-command-catalog", crypto.randomUUID()],
       staleTime: Infinity,
-      queryFn: async () => services.api.chat.getCommandCatalog(selected),
+      queryFn: selected === null ? skipToken : async () => services.api.chat.getCommandCatalog(selected),
     });
     return { observer, read: queryAtom(observer) };
   });

@@ -27,6 +27,7 @@ import "./chatComposer.css";
 export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
   settingsChip?: ReactNode;
+  underControls?: ReactNode;
   availableHeight: number | null;
   onHeightChange(height: number): void;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
@@ -35,6 +36,7 @@ export type ChatComposerProps = Readonly<{
 export function ChatComposer({
   settings,
   settingsChip,
+  underControls,
   availableHeight,
   onHeightChange,
   editorRef,
@@ -45,6 +47,7 @@ export function ChatComposer({
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
   const pickerOpen = composer.pickerOpen;
+  const promptVisible = promptPicker != null && promptPicker.state.current !== null;
   const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
     availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
   useLayoutEffect(() => {
@@ -84,6 +87,7 @@ export function ChatComposer({
   const editorRegion = (
     <textarea
       ref={editor}
+      autoFocus
       className={cx(fieldInputClassName, "chat-composer-editor")}
       rows={1}
       value={composer.text}
@@ -108,11 +112,10 @@ export function ChatComposer({
         </PeekingSurface>
       )}
       <Island className="chat-composer-input" style={heightStyle} unpadded>
-        {promptPicker !== null ? (
-          <ChatPromptPicker picker={promptPicker}>{editorRegion}</ChatPromptPicker>
-        ) : (
-          editorRegion
-        )}
+        <div hidden={promptVisible} className={promptVisible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}>
+          {editorRegion}
+        </div>
+        {promptPicker !== null && <ChatPromptPicker picker={promptPicker} />}
         <ComposerControls
           composer={composer}
           settings={settings}
@@ -120,6 +123,7 @@ export function ChatComposer({
           stoppable={stoppable}
         />
       </Island>
+      {underControls}
     </div>
   );
 }
@@ -204,7 +208,7 @@ function ComposerControls({
         composer.submit("send");
       }}
     >
-      {composer.inputPending || composer.navigationPending || composer.draft.kind === "loading" ? (
+      {composer.inputPending || composer.navigationPending ? (
         <Spinner size="sm" className="text-[var(--color-on-primary)]" />
       ) : (
         <ArrowUp size={18} />
@@ -216,7 +220,7 @@ function ComposerControls({
       <div className="min-w-0 flex-1">
         {settingsChip ?? ("settingsChip" in settings ? settings.settingsChip : null)}
       </div>
-      {composer.target.kind === "session" && (
+      {composer.target?.kind === "session" && (
         <SessionChatContext compact={composer.compact} settings={settings} />
       )}
       {stoppable && (

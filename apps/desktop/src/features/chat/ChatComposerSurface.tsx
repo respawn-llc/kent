@@ -7,7 +7,7 @@ import type { useChatComposer } from "./useChatComposer";
 import { useChatPromptPicker } from "./useChatPromptPicker";
 
 type Composer = ReturnType<typeof useChatComposer>;
-type SurfaceProps = Readonly<{ composer: Composer; children: ReactNode }>;
+type SurfaceProps = Readonly<{ composer: Composer; children: ReactNode; enabled?: boolean }>;
 type SurfaceState = Readonly<{
   composer: Composer;
   activity: ChatRuntimeActivity | null;
@@ -17,11 +17,11 @@ type SurfaceState = Readonly<{
 }>;
 const ComposerSurfaceContext = createContext<SurfaceState | null>(null);
 
-export function ChatComposerSurface({ composer, children }: SurfaceProps) {
+export function ChatComposerSurface({ composer, children, enabled = true }: SurfaceProps) {
   const promptPicker = useChatPromptPicker(composer.target);
   const { activity, observationError } = useChatRuntimePresentation();
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
-  const keyboard = useComposerKeyboard(composer, stoppable, observationError);
+  const keyboard = useComposerKeyboard(composer, stoppable, observationError, enabled);
   return (
     <ComposerSurfaceContext.Provider
       value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}

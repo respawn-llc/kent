@@ -1,6 +1,19 @@
 .chat-composer {
   min-width: 0;
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
   padding: var(--space-3);
+}
+
+.chat-under-controls > * {
+  animation: surface-reveal var(--motion-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-under-controls > * {
+    animation: none;
+  }
 }
 
 .chat-composer-input {

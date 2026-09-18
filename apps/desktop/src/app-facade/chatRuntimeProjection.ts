@@ -37,6 +37,7 @@ type PendingMetadata = Readonly<{
   runtime?: Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }>;
 }>;
 export type ChatProjectionState = Readonly<{
+  activeProcesses: ReadonlySet<string>;
   pendingPrompts: readonly PendingPrompt[];
   view: ChatMainView | null;
   metadataRevision: number;
@@ -61,7 +62,13 @@ export type ChatProjectionResult = Readonly<{
 }>;
 
 export function emptyChatProjectionState(): ChatProjectionState {
-  return { view: null, metadataRevision: 0, pendingMetadata: null, pendingPrompts: [] };
+  return {
+    view: null,
+    metadataRevision: 0,
+    pendingMetadata: null,
+    pendingPrompts: [],
+    activeProcesses: new Set(),
+  };
 }
 
 export function reduceChatProjection(
@@ -81,8 +88,23 @@ export function reduceChatProjection(
     case "hydration":
       return admitHydration(state, input.hydration);
     case "event":
-      return admitEvent(state, input.event);
+      return input.event.kind === "background_activity"
+        ? result({
+            ...state,
+            activeProcesses: activeProcessUpdate(state.activeProcesses, input.event.payload),
+          })
+        : admitEvent(state, input.event);
   }
+}
+
+function activeProcessUpdate(
+  previous: ReadonlySet<string>,
+  process: ChatTranscriptPayloadByKind["background_activity"],
+): ReadonlySet<string> {
+  const active = new Set(previous);
+  if (process.Lifecycle === "backgrounded") active.add(process.ProcessID);
+  else active.delete(process.ProcessID);
+  return active;
 }
 
 function admitRead(
@@ -121,6 +143,11 @@ function admitHydration(
   };
   const next = {
     ...admitMetadata(state, metadata),
+    activeProcesses: new Set(
+      hydration.BackgroundActivities.filter((process) => process.Lifecycle === "backgrounded").map(
+        (process) => process.ProcessID,
+      ),
+    ),
     pendingPrompts: orderPendingPrompts(
       hydration.PendingPrompts.flatMap((update) => (update.state === "pending" ? [update.prompt] : [])),
     ),

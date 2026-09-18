@@ -1,4 +1,4 @@
-import { queryOptions, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, skipToken, type QueryClient } from "@tanstack/react-query";
 
 import type { ApiService } from "@/api";
 import { queryKeys } from "./queryKeys";
@@ -41,10 +41,10 @@ export const worktreeStatusQueryOptions = (api: ApiService, sessionID: string) =
     queryFn: async () => api.getWorktreeStatus(sessionID),
   });
 
-export const worktreeListQueryOptions = (api: ApiService, sessionID: string) =>
+export const worktreeListQueryOptions = (api: ApiService, sessionID: string | null) =>
   queryOptions({
-    queryKey: queryKeys.worktreeList(sessionID),
-    queryFn: async () => api.listWorktrees(sessionID),
+    queryKey: sessionID === null ? (["worktree", null, "list"] as const) : queryKeys.worktreeList(sessionID),
+    queryFn: sessionID === null ? skipToken : async () => api.listWorktrees(sessionID),
     staleTime: 0,
     structuralSharing: false,
     retry: false,

@@ -11,6 +11,7 @@ const chatPickerEnglish = {
 };
 
 export const chatEnglish = {
+  openingFailed: "Chat could not be loaded. Retry the failed read or go back.",
   tail: {
     jump: "Jump to latest",
     loading: "Loading transcript…",

@@ -1,16 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useAppServices, workspaceCatalogInfiniteQueryOptions } from "@/app-facade";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAppServices } from "@/app-facade";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
 import { useChatComposer } from "./useChatComposer";
-import { chatDestinationCommands } from "./chatDestinationCommands";
+import { promptCommands } from "./promptCommands";
+import { useWorktreeCommands } from "./WorktreeCommands";
+import { useOwnedSidebarRoots, useStatusController } from "@/app-facade";
+import { useStableCallback } from "@/ui";
 import type { ComposerCommand } from "./composerCommands";
 import { useGoalSidebarLauncher } from "./goal/useGoalSidebarLauncher";
 import { useNewChatGoalActions } from "./goal/goalBinding";
 import type { ChatNotAcceptedReason, ChatSettingsTarget } from "@/api";
+import { useChatWorkspace } from "./useChatWorkspace";
 
 export function useChatDestination({
   opening,
@@ -35,15 +39,47 @@ export function useChatDestination({
   }, []);
   const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t }));
   const target = useAtomValue(model.target);
-  const selection = useAtomValue(model.selection);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const workspaceCatalog = useInfiniteQuery({
-    ...workspaceCatalogInfiniteQueryOptions(services.api, target.projectID),
-    enabled: selection.kind === "new_chat" && workspaceOpen,
-    retry: false,
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const focusComposer = useCallback(() => editorRef.current?.focus(), []);
+  const worktreeCommands = useWorktreeCommands(
+    target?.kind === "session" ? target.sessionID : null,
+    focusComposer,
+  );
+  const roots = useOwnedSidebarRoots();
+  const { push } = useStatusController();
+  const openProcesses = useStableCallback(() => {
+    if (target?.kind !== "session") {
+      push({
+        id: "processes-session-required",
+        tone: "danger",
+        title: t("processes.title"),
+        body: t("processes.sessionRequired"),
+      });
+      return;
+    }
+    void roots
+      .open({ kind: "processes", projectID: target.projectID, sessionID: target.sessionID })
+      .lifecycle.then((outcome) => {
+        if (outcome === "closed") focusComposer();
+      });
   });
+  const processesCommand: ComposerCommand = {
+    token: "/ps",
+    aliases: [],
+    description: t("processes.title"),
+    preview: null,
+    execution: {
+      kind: "direct",
+      send: async () => {
+        openProcesses();
+        return { kind: "local" };
+      },
+    },
+  };
+  const selection = useAtomValue(model.selection);
   const adoptAction = useAtomSet(model.adopt);
   const selectWorkspace = useAtomSet(model.selectWorkspace);
+  const workspace = useChatWorkspace(selection, selectWorkspace);
   const firstActionPending = useAtomValue(model.firstActionPending);
   const settings = useChatSettings({ model: model.settings, ...navigation });
   const catalog = useAtomValue(model.catalog.read);
@@ -64,7 +100,9 @@ export function useChatDestination({
   const composer = useChatComposer({
     model: model.composer,
     commands: [
-      ...chatDestinationCommands(services.api.chat, target.kind === "new_chat", t, catalog.data),
+      ...promptCommands(catalog.data ?? [], t),
+      ...worktreeCommands.commands,
+      processesCommand,
       ...commands,
     ],
     catalog,
@@ -76,18 +114,27 @@ export function useChatDestination({
     },
   });
   const goalActions = useNewChatGoalActions(model.goal);
-  const openGoal = useGoalSidebarLauncher({
-    kind: "new_chat",
-    api: services.api.chat,
-    binding: model.goal,
-    setGoal: async (objective) =>
-      goalActions.setGoal({
-        objective,
-        delivered: (delivery) => {
-          adopt(delivery.target.sessionID, delivery.origin);
+  const goalState = useAtomValue(model.goal.state);
+  const openGoal = useGoalSidebarLauncher(
+    target?.kind === "session"
+      ? {
+          kind: "session",
+          api: services.api.chat,
+          target,
+        }
+      : {
+          kind: "new_chat",
+          api: services.api.chat,
+          binding: model.goal,
+          setGoal: async (objective) =>
+            goalActions.setGoal({
+              objective,
+              delivered: (delivery) => {
+                adopt(delivery.target.sessionID, delivery.origin);
+              },
+            }),
         },
-      }),
-  });
+  );
   return {
     target,
     settings,
@@ -95,10 +142,11 @@ export function useChatDestination({
     adopt,
     selectWorkspace,
     openGoal,
+    goalState,
     firstActionPending,
-    workspace: selection.kind === "new_chat" ? selection.workspace : null,
-    workspaceOpen,
-    setWorkspaceOpen,
-    workspaceCatalog,
+    ...workspace,
+    editorRef,
+    commandPresentation: worktreeCommands.presentation,
+    worktreeObservation: worktreeCommands.observation,
   } as const;
 }

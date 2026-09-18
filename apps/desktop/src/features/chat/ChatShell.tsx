@@ -2,15 +2,17 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useWindowChromeTitle, type SessionChatTarget } from "@/app-facade";
-import { ErrorState } from "@/ui";
+import { ErrorState, LoadingState } from "@/ui";
 
 export type SelectedSession = Pick<SessionChatTarget, "projectID" | "sessionID">;
 
 export type ChatShellState =
   | Readonly<{ kind: "ready" }>
+  | Readonly<{ kind: "loading" }>
   | Readonly<{
       kind: "error";
       diagnostic?: ReactNode;
+      details?: ReactNode;
       onRetry: () => void;
     }>;
 
@@ -27,7 +29,7 @@ export type ChatComposerLayout = Readonly<{
   onHeightChange(height: number): void;
 }>;
 const ignoreHeight = () => {
-  /* Production viewport integration supplies the height callback. */
+  /* Flex layout resizes the transcript; its viewport owns end anchoring. */
 };
 
 export function ChatShell<Target>({
@@ -56,12 +58,14 @@ export function ChatShell<Target>({
     };
   }, [state.kind]);
 
+  if (state.kind === "loading") return <LoadingState title={t("states.loading")} />;
   if (state.kind === "error") {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="chat-shell">
         <div className="min-h-0 flex-1">
           <ErrorState
             body={state.diagnostic}
+            details={state.details}
             onRetry={state.onRetry}
             retryLabel={t("app.retry")}
             title={t("states.error")}

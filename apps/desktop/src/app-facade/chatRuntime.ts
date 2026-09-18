@@ -49,6 +49,7 @@ export type ChatRuntimeHost = Readonly<{
   onManualCompactionFailed?(diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"]): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
+  activeProcessCount: number;
   pendingPrompts: readonly PendingPrompt[];
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
@@ -278,7 +279,11 @@ export class ChatRuntimeOwner {
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
-    if (admitted.state.pendingPrompts !== current.pendingPrompts) this.#notify();
+    if (
+      admitted.state.pendingPrompts !== current.pendingPrompts ||
+      admitted.state.activeProcesses !== current.activeProcesses
+    )
+      this.#notify();
   }
 
   #currentProjection(): ChatProjectionState {
@@ -294,6 +299,7 @@ export class ChatRuntimeOwner {
       metadataRevision: state.metadataRevision,
       pendingMetadata: state.pendingMetadata,
       pendingPrompts: state.pendingPrompts,
+      activeProcesses: state.activeProcesses,
     };
   }
 
@@ -333,6 +339,7 @@ export class ChatRuntimeOwner {
 
   #projectSnapshot(): ChatRuntimeOwnerSnapshot {
     return {
+      activeProcessCount: this.#projection.activeProcesses.size,
       pendingPrompts: this.#projection.pendingPrompts,
       goal: this.#goal,
       observation: this.#observation?.state ?? { kind: "loading" },

@@ -8,6 +8,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import type { ApiService, ApiSubscription } from "./apiService";
 import type { ChatApi } from "./chat";
+import type { ChatSessionTarget } from "./chatTypes";
 import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
 import { parseRpcResponse as parse } from "./clientParse";
@@ -140,7 +141,7 @@ export class ApiClient implements ApiService {
 
   readonly chat: ChatApi;
 
-  listProcesses = async (projectID: string) => processes.listProcesses(this.#transport, projectID);
+  listProcesses = async (target: ChatSessionTarget) => processes.listProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {

@@ -1,4 +1,4 @@
-import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { MutationObserver, QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { TFunction } from "i18next";
@@ -24,7 +24,7 @@ export function createChatSettingsViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: Atom.Atom<ChatSettingsTarget>;
+  target: Atom.Atom<ChatSettingsTarget | null>;
   t: TFunction;
 }>) {
   const report = (body: string) => {
@@ -42,12 +42,15 @@ export function createChatSettingsViewModel({
       ...composerReadOptions,
       queryKey: ["chat-settings", crypto.randomUUID()],
       staleTime: Infinity,
-      queryFn: async () => {
-        const result = await services.api.chat.getSettings(selected);
-        if (result.kind !== selected.kind)
-          throw new ContractError("Chat Settings returned a different target kind.");
-        return result;
-      },
+      queryFn:
+        selected === null
+          ? skipToken
+          : async () => {
+              const result = await services.api.chat.getSettings(selected);
+              if (result.kind !== selected.kind)
+                throw new ContractError("Chat Settings returned a different target kind.");
+              return result;
+            },
     });
     const read = queryAtom(observer);
     const state = Atom.make((get): SettingsState => {
@@ -55,12 +58,12 @@ export function createChatSettingsViewModel({
       const edit = get(local);
       if (result.isError)
         return {
-          kind: selected.kind === "new_chat" ? "failed-new-chat" : "failed-session",
+          kind: selected?.kind !== "session" ? "failed-new-chat" : "failed-session",
           error: result.error,
         };
       if (result.data !== undefined)
         return edit?.source === result.data ? edit.state : loadedState(result.data);
-      return loadingState(selected.kind);
+      return loadingState(selected?.kind ?? "new_chat");
     });
     return {
       selected,
@@ -103,7 +106,7 @@ export function createChatSettingsViewModel({
       Effect.gen(function* () {
         const scope = get(current);
         const initial = get(scope.read).data;
-        if (initial === undefined) {
+        if (initial === undefined || scope.selected === null) {
           input.rejected(new ContractError("Chat Settings are not ready."));
           return;
         }

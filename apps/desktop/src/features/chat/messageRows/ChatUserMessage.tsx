@@ -19,7 +19,7 @@ export function ChatUserMessage({
   edit,
 }: Readonly<{
   item: ChatUserMessageItem;
-  neighbors?: MessageNeighbors;
+  neighbors?: MessageNeighbors | undefined;
   edit: ChatMessageEditControl;
 }>) {
   const { t } = useTranslation();

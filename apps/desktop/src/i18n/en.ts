@@ -397,6 +397,8 @@ export const englishResources = {
       delete: "Delete",
     },
     processes: {
+      activeCount: "PS {{count}}",
+      sessionRequired: "Create a Session before opening its processes.",
       title: "Processes",
       loading: "Loading processes",
       loadFailed: "Processes could not be loaded",

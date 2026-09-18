@@ -77,7 +77,7 @@ export function SidebarDestinationView({
   if (destination.kind === "projectEdit")
     return <ProjectEditDestination destination={destination} navigator={navigator} />;
   if (destination.kind === "processes")
-    return <ProcessesSidebar key={destination.projectID} projectID={destination.projectID} />;
+    return <ProcessesSidebar key={destination.sessionID} target={destination} />;
   return <>{destination.content}</>;
 }
 

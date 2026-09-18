@@ -32,7 +32,7 @@ export function createComposerPendingViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: Atom.Atom<ChatSettingsTarget>;
+  target: Atom.Atom<ChatSettingsTarget | null>;
   t: TFunction;
 }>) {
   const owner = crypto.randomUUID();
@@ -55,10 +55,10 @@ export function createComposerPendingViewModel({
         "chat-composer-pending",
         owner,
         identity,
-        selected.kind === "session" ? selected.sessionID : null,
+        selected?.kind === "session" ? selected.sessionID : null,
       ],
       queryFn:
-        selected.kind === "session" ? async () => services.api.chat.listPendingWork(selected) : skipToken,
+        selected?.kind === "session" ? async () => services.api.chat.listPendingWork(selected) : skipToken,
     });
     return { observer, read: queryAtom(observer) };
   });
@@ -66,7 +66,7 @@ export function createComposerPendingViewModel({
   const refresh = Atom.fn<undefined>()(
     (_, get) =>
       Effect.gen(function* () {
-        if (get(target).kind !== "session") return;
+        if (get(target)?.kind !== "session") return;
         yield* Effect.tryPromise(async () => client.fetchQuery(get(current).observer.options)).pipe(
           Effect.ignore,
         );
@@ -76,7 +76,7 @@ export function createComposerPendingViewModel({
   const hydrate = Atom.fn<undefined>()(
     (_, get) =>
       Effect.sync(() => {
-        if (get(target).kind === "session") get.set(scope, crypto.randomUUID());
+        if (get(target)?.kind === "session") get.set(scope, crypto.randomUUID());
       }),
     { concurrent: true },
   );
@@ -93,7 +93,7 @@ export function createComposerPendingViewModel({
     ({ onSuccess }, get) =>
       Effect.gen(function* () {
         const selected = get(target);
-        if (selected.kind !== "session") return;
+        if (selected?.kind !== "session") return;
         yield* Effect.tryPromise(async () => stopObserver.mutate(selected, { onSuccess })).pipe(
           Effect.ignore,
         );
@@ -124,7 +124,7 @@ export function createComposerPendingViewModel({
     (input, get) =>
       Effect.gen(function* () {
         const selected = get(target);
-        if (selected.kind !== "session") return;
+        if (selected?.kind !== "session") return;
         discardObserver.setOptions({
           ...discardOptions,
           mutationKey: [...discardKey, input.item.toJSONValue()],

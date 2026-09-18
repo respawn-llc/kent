@@ -45,6 +45,10 @@ export function useChatRuntimeActivity() {
   return useChatMainViewState().data?.activity ?? null;
 }
 
+function processCount(snapshot: ChatRuntimeOwnerSnapshot | null): number {
+  return snapshot === null ? 0 : snapshot.activeProcessCount;
+}
+
 export function useChatRuntimePresentation() {
   const owner = useContext(ChatRuntimeContext);
   const snapshot = useSyncExternalStore(
@@ -59,6 +63,7 @@ export function useChatRuntimePresentation() {
     },
   );
   return {
+    activeProcessCount: processCount(snapshot),
     activity: query.data?.activity ?? null,
     sessionName: query.data?.sessionName ?? null,
     goal: snapshot?.goal.kind === "observed" ? snapshot.goal.value : null,

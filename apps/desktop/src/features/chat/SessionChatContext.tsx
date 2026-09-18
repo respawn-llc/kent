@@ -8,14 +8,15 @@ export function SessionChatContext({
   settings,
 }: Readonly<{ compact(): void; settings: ChatSettingsFeature }>) {
   const { data } = useChatMainViewState();
+  if (data === undefined) return null;
   return (
     <ChatContextControl
-      used={data?.status.contextUsage.usedTokens ?? 0}
-      window={data?.status.contextUsage.windowTokens ?? null}
+      used={data.status.contextUsage.usedTokens}
+      window={data.status.contextUsage.windowTokens}
       autoCompactionControl={<ChatAutoCompactionSwitch feature={settings} />}
-      policyDisabled={data?.status.compactionMode === "disabled"}
-      completedCount={data?.status.compactionCount ?? 0}
-      compacting={isCompacting(data?.activity)}
+      policyDisabled={data.status.compactionMode === "disabled"}
+      completedCount={data.status.compactionCount}
+      compacting={isCompacting(data.activity)}
       compact={compact}
     />
   );

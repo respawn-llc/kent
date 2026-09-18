@@ -10,6 +10,7 @@ export function useComposerKeyboard(
   composer: ReturnType<typeof useChatComposer>,
   stoppable: boolean,
   observationError: Error | null,
+  enabled = true,
 ) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
@@ -63,6 +64,7 @@ export function useComposerKeyboard(
         advance({ kind: "focus" });
       },
       onKeyDown: (event: KeyboardEvent) => {
+        if (!enabled) return;
         if (handled(event)) return;
         if (event.key === "Escape" && handlePickerKey(composer, event)) return;
         if (platform === "macos" && event.metaKey && event.key === "." && stopAvailable) {
@@ -84,6 +86,7 @@ export function useComposerKeyboard(
       },
     },
     onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!enabled) return;
       if (handled(event) || handlePickerKey(composer, event)) return;
       const direction = historyDirection(event);
       if (direction !== null) {

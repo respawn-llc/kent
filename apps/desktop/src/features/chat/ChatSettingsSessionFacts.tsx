@@ -46,7 +46,7 @@ export function ChatSettingsSessionFacts({
           as="button"
           onActivate={() => {
             closeAndNavigate(() => {
-              navigation.openParentSession(previousSessionID);
+              void navigation.openParentSession(previousSessionID);
             });
           }}
           reason={undefined}

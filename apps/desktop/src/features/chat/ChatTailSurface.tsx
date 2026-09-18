@@ -7,26 +7,17 @@ import { useChatRuntimeOwner, useChatRuntimeSnapshot, useStatusController } from
 import { TranscriptWindowView, type TranscriptWindowViewProps } from "@/shared/transcript-window";
 import { ErrorState, IconTooltipButton, LoadingState, useOpacityExit } from "@/ui";
 
-import { ChatShell, type ChatShellProps } from "./ChatShell";
 import "./chatTail.css";
+import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 
-export type ChatTailSurfaceProps = Omit<ChatShellProps, "content" | "onComposerHeightChange"> &
-  Pick<TranscriptWindowViewProps, "slots" | "estimateSize">;
-
-/** Mount inside the selected Session's runtime provider; row slots remain owned by the composition. */
-export function ChatTailSurface({ slots, estimateSize, ...shell }: ChatTailSurfaceProps) {
-  return (
-    <ChatShell {...shell} content={() => <ChatTranscriptTail slots={slots} estimateSize={estimateSize} />} />
-  );
-}
-
-function ChatTranscriptTail({
+export function ChatTranscriptTail({
   slots,
   estimateSize,
-}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize">) {
+  openingVisible = true,
+}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize"> & Readonly<{ openingVisible?: boolean }>) {
   const { t } = useTranslation();
   const owner = useChatRuntimeOwner();
-  const { transcript, transcriptPresentationUpdate, jumpPending } = useChatRuntimeSnapshot();
+  const { transcript, transcriptPresentationUpdate, jumpPending, observation } = useChatRuntimeSnapshot();
   const status = useStatusController();
   const [scrollRequest, setScrollRequest] = useState<symbol | null>(null);
   const jump = async () => {
@@ -47,43 +38,59 @@ function ChatTranscriptTail({
         break;
     }
   };
-  if (transcript.opening.kind === "loading") return <LoadingState title={t("chat.tail.loading")} />;
   if (transcript.opening.kind === "disposed") return null;
-  if (transcript.opening.kind === "error") {
-    return (
+  const failure =
+    transcript.opening.kind === "error"
+      ? transcript.opening.error
+      : observation.kind === "error"
+        ? observation.error
+        : null;
+  const error =
+    failure === null ? null : (
       <ErrorState
+        fullPage={transcript.opening.kind !== "ready"}
         title={t("chat.tail.failed")}
-        body={errorMessage(transcript.opening.error)}
+        body={chatOperationFailureMessage(t, failure, "opening")}
+        details={errorMessage(failure)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          owner.transcript.dispatch({ kind: "opening-retry" });
+          if (transcript.opening.kind === "error") owner.transcript.dispatch({ kind: "opening-retry" });
+          if (observation.kind === "error") owner.retryTranscriptObservation();
         }}
       />
     );
-  }
+  if (transcript.opening.kind !== "ready")
+    return (
+      error ?? (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null)
+    );
   return (
-    <TranscriptWindowView
-      snapshot={transcript}
-      presentationUpdate={transcriptPresentationUpdate}
-      scrollRequest={scrollRequest}
-      slots={slots}
-      estimateSize={estimateSize}
-      loadingLabel={t("chat.tail.loading")}
-      retryLabel={t("app.retry")}
-      boundaryErrorMessage={errorMessage}
-      onInput={(input) => {
-        owner.transcript.dispatch(input);
-      }}
-      overlay={(following) => (
-        <JumpToLatest
-          visible={!following || jumpPending}
-          pending={jumpPending}
-          onClick={() => {
-            void jump();
+    <div className="flex h-full min-h-0 flex-col">
+      {error}
+      <div className="min-h-0 flex-1">
+        <TranscriptWindowView
+          snapshot={transcript}
+          presentationUpdate={transcriptPresentationUpdate}
+          scrollRequest={scrollRequest}
+          slots={slots}
+          estimateSize={estimateSize}
+          loadingLabel={t("chat.tail.loading")}
+          retryLabel={t("app.retry")}
+          boundaryErrorMessage={errorMessage}
+          onInput={(input) => {
+            owner.transcript.dispatch(input);
           }}
+          overlay={(following) => (
+            <JumpToLatest
+              visible={!following || jumpPending}
+              pending={jumpPending}
+              onClick={() => {
+                void jump();
+              }}
+            />
+          )}
         />
-      )}
-    />
+      </div>
+    </div>
   );
 }
 

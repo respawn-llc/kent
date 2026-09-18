@@ -8,12 +8,12 @@ import { showStatusToast } from "@/ui";
 import { appI18n } from "@/i18n";
 import { createPromptPickerViewModel } from "./PromptPickerViewModel";
 
-export function useChatPromptPicker(target: ChatSettingsTarget) {
+export function useChatPromptPicker(target: ChatSettingsTarget | null) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const owner = useOptionalChatRuntimeOwner();
   const presentation = useMemo(() => {
-    if (target.kind === "new_chat") return Atom.make(null);
+    if (target?.kind !== "session") return Atom.make(null);
     if (owner === null) throw new Error("Session prompt ownership requires ChatRuntimeProvider.");
     const model = createPromptPickerViewModel({
       owner,

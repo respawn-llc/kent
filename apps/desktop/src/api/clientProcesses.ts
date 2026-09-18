@@ -8,14 +8,15 @@ import {
 import { timestampMillis } from "./clientTime";
 import { requireUnarySuccess } from "./protobufRpc";
 import type { DesktopProcess } from "./processes";
+import type { ChatSessionTarget } from "./chatTypes";
 import type { DescriptorRpcTransport } from "./transport";
 
 export async function listProcesses(
   transport: DescriptorRpcTransport,
-  projectID: string,
+  target: ChatSessionTarget,
 ): Promise<readonly DesktopProcess[]> {
   const method = ViewService.method.list;
-  const request = create(method.input, { projectId: projectID.trim() });
+  const request = create(method.input, { projectId: target.projectID, ownerSessionId: target.sessionID });
   const success = requireUnarySuccess(method, await transport.callDescriptor(method, request));
   return success.processes.map(processFromGenerated);
 }

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { replaceWorktreeListRead, useAppServices, worktreeListQueryOptions } from "@/app-facade";
 import type { ChatExecutionTarget } from "@/api";
 
-export function useWorktreeList(sessionID: string, target?: ChatExecutionTarget | null) {
+export function useWorktreeList(sessionID: string | null, target?: ChatExecutionTarget | null) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const query = useQuery({
@@ -12,6 +12,7 @@ export function useWorktreeList(sessionID: string, target?: ChatExecutionTarget 
     enabled: false,
   });
   const refresh = useCallback(() => {
+    if (sessionID === null) return;
     void replaceWorktreeListRead(client, api, sessionID);
   }, [api, client, sessionID]);
   useEffect(() => {

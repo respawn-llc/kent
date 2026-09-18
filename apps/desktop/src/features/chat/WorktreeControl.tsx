@@ -1,7 +1,7 @@
 import { AlertTriangle, GitBranch } from "lucide-react";
 import type { ChatExecutionTarget } from "@/api";
 import { useOwnedSidebarRoots } from "@/app-facade";
-import { Button, Spinner } from "@/ui";
+import { Button } from "@/ui";
 import type { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
 
@@ -16,6 +16,7 @@ export function WorktreeControl({
 }>) {
   const roots = useOwnedSidebarRoots();
   const label = target === null ? null : worktreeTarget(target, query.data);
+  if (label?.title === undefined) return null;
   return (
     <div className="min-w-0">
       <Button
@@ -27,14 +28,14 @@ export function WorktreeControl({
             if (outcome === "closed" && returnFocus.isConnected) returnFocus.focus();
           });
         }}
-        variant={label?.warning === true ? "warning" : "ghost"}
+        variant={label.warning ? "warning" : "ghost"}
       >
-        {label?.warning === true ? (
+        {label.warning ? (
           <AlertTriangle className="shrink-0" size={16} />
         ) : (
           <GitBranch className="shrink-0" size={16} />
         )}
-        {label?.title === undefined ? <Spinner size="sm" /> : <span className="truncate">{label.title}</span>}
+        <span className="truncate">{label.title}</span>
       </Button>
     </div>
   );
