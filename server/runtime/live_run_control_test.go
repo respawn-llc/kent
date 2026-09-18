@@ -287,6 +287,125 @@ func TestTryInterruptActiveRunCancelsCompactionStep(t *testing.T) {
 	}
 }
 
+func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
+	client := &heldRuntimeCompactionClient{
+		fakeCompactionClient: &fakeCompactionClient{
+			responses: []llm.Response{finalTextResponse("unexpected continuation")},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	var mu sync.Mutex
+	var restored []InterruptedHumanInput
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		OnEvent: func(event Event) {
+			if event.HumanInputInterrupted != nil {
+				mu.Lock()
+				restored = append(restored, event.HumanInputInterrupted.Items...)
+				mu.Unlock()
+			}
+		},
+	})
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- eng.stepLifecycle.Run(t.Context(), exclusiveStepOptions{
+			EmitRunState: true, ActiveKind: ActiveKindUserTurn,
+		}, func(context.Context, string) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	pendingWorkTestWait(t, started, "Agent Step")
+	handle, err := eng.CaptureActiveRunResult(t.Context())
+	pendingWorkTestNoError(t, err)
+	eng.compactionRuntimeState().SetManualCompactionEligible(true)
+	pendingWorkTestNoError(t, eng.CompactContext(t.Context(), ""))
+	steer, err := eng.Steer(t.Context(), "retained steer", nil)
+	pendingWorkTestNoError(t, err)
+	queued, err := eng.QueueUserMessage(t.Context(), "retained queue")
+	pendingWorkTestNoError(t, err)
+	close(release)
+	pendingWorkTestNoError(t, <-done)
+	pendingWorkTestWait(t, client.started, "compaction before continuation")
+
+	stopped, err := eng.TryInterruptActiveRun()
+	pendingWorkTestNoError(t, err)
+	if !stopped {
+		t.Fatal("Stop did not interrupt compaction")
+	}
+	waitEngineLifecycleTasks(t, eng)
+	if _, err := handle.Wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("retained Live Run outcome = %v, want cancellation", err)
+	}
+	mu.Lock()
+	items := slices.Clone(restored)
+	mu.Unlock()
+	if len(items) != 2 || items[0].QueueItemID != steer.ID || items[1].QueueItemID != queued.ID {
+		t.Fatalf("restored inputs = %+v, want retained Steer and Queue in acceptance order", items)
+	}
+	if pending := pendingWorkTestSnapshot(t, eng); len(pending.Items) != 0 {
+		t.Fatalf("Stop left Pending Work: %+v", pending.Items)
+	}
+	client.mu.Lock()
+	calls := len(client.calls)
+	client.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("Stop launched continuation: provider calls = %d", calls)
+	}
+}
+
+func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
+	client := &goalCompactionClient{
+		heldRuntimeCompactionClient: &heldRuntimeCompactionClient{
+			fakeCompactionClient: &fakeCompactionClient{},
+			started:              make(chan struct{}),
+			release:              make(chan struct{}),
+		},
+		goal: newScriptedGoalLoopClient(),
+	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	_, err := eng.SetGoal(t.Context(), "retain goal across compaction", session.GoalActorUser)
+	pendingWorkTestNoError(t, err)
+	pendingWorkTestNoError(t, eng.StartGoalLoop())
+	client.goal.waitStarted(t, 1)
+	handle, err := eng.CaptureActiveRunResult(t.Context())
+	pendingWorkTestNoError(t, err)
+	eng.compactionRuntimeState().SetManualCompactionEligible(true)
+	pendingWorkTestNoError(t, eng.CompactContext(t.Context(), ""))
+	client.goal.releaseCall(1)
+	pendingWorkTestWait(t, client.started, "compaction between Goal Steps")
+
+	stopped, err := eng.TryInterruptActiveRun()
+	pendingWorkTestNoError(t, err)
+	if !stopped {
+		t.Fatal("Stop did not interrupt compaction")
+	}
+	waitGoalLoopRunning(t, eng, false)
+	if !eng.GoalLoopSuspended() {
+		t.Fatal("Stop during compaction did not suspend the retained Goal continuation")
+	}
+	if _, err := handle.Wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("retained Goal Live Run outcome = %v, want cancellation", err)
+	}
+	if calls := client.goal.callCount(); calls != 1 {
+		t.Fatalf("Stop launched Goal continuation: provider calls = %d", calls)
+	}
+}
+
+type goalCompactionClient struct {
+	*heldRuntimeCompactionClient
+	goal *scriptedGoalLoopClient
+}
+
+func (c *goalCompactionClient) Generate(ctx context.Context, request llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+	return c.goal.Generate(ctx, request, callbacks)
+}
+
 func TestExclusiveStepEmitRunStateControlsActiveLiveRunGroup(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})

@@ -171,7 +171,8 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 				orphaned = group.status == RunStatusRunning && !group.hasPendingContinuation()
 				return true
 			})
-		} else if snapshot.ActiveKind == ActiveKindRuntimeMaintenance {
+		} else if !activeKindUsesLiveRun(snapshot.ActiveKind) {
+			// These Steps do not replace the retained Agent Step's Live Run.
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interrupt()
 		} else {
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptMatchingStep(snapshot)
