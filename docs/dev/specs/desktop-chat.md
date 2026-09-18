@@ -242,7 +242,7 @@
 - Setting changes create no transcript rows.
 - Every setting activation, Session ID Copy, and setting failure keeps settings open. Escape, clicking away, Task navigation, or parent-Session navigation closes settings.
 - Initial Settings loading and failure use the whole-Chat loading and failure presentation rather than an independent Settings placeholder or unavailable trigger.
-- Switching workspaces inside an already-open New Chat must use the local workspace-chip and Settings loading/error presentation while preserving visible unsent text, rather than repeating whole-Chat initial loading.
+- Switching workspaces inside an already-open New Chat must use the local workspace-chip and Settings loading presentation while preserving visible unsent text, rather than repeating whole-Chat initial loading. A Settings read failure must use whole-Chat Error with Retry and preserve that unsent text through recovery.
 
 ## Composer And Pending Work
 
@@ -397,7 +397,7 @@
 - The command dialog must show the existing Dirty or Unknown preview warning when applicable. It must offer `No` and `Yes`, plus `Yes and branch` only for a branch-backed target. It must have no X close button.
 - `Yes` must use ordinary Confirm behavior. `Yes and branch` must use ordinary Confirm + Branch behavior. Neither choice must bypass deletion blockers.
 - `No` or Escape must dismiss the command dialog and restore composer focus.
-- A deletion rejection after command-dialog confirmation must close the dialog and show one error Sonner. Desktop must not bypass a raced blocker or retry automatically. The list-launched popup retains its inline failure behavior.
+- A deletion rejection after command-dialog confirmation must close the dialog and show one error Sonner. Desktop must not bypass a raced blocker or retry automatically. A deletion rejection from the list-launched popup must keep that popup open and show one error Sonner without an inline failure.
 - Malformed or unsupported Worktree command arguments change no state and show one error Sonner with localized Worktree usage.
 - Submitting a rejected Worktree command clears that command from the composer. Desktop does not create a transcript row or send it to the model.
 - In New Chat, every recognized Worktree command clears from the composer and shows one error Sonner explaining that a Session is required.

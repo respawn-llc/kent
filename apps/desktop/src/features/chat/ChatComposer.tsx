@@ -39,7 +39,7 @@ export function ChatComposer({
   editorRef,
 }: ChatComposerProps) {
   const { t } = useTranslation();
-  const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
+  const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
@@ -107,8 +107,8 @@ export function ChatComposer({
         </PeekingSurface>
       )}
       <Island className="chat-composer-input" style={heightStyle} unpadded>
-        {composer.target.kind === "session" ? (
-          <ChatPromptPicker target={composer.target}>{editorRegion}</ChatPromptPicker>
+        {promptPicker !== null ? (
+          <ChatPromptPicker picker={promptPicker}>{editorRegion}</ChatPromptPicker>
         ) : (
           editorRegion
         )}

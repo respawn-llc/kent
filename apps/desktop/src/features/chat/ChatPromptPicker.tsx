@@ -1,46 +1,16 @@
-import { useMemo, type ReactNode } from "react";
-import { useAtomValue } from "@effect/atom-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { errorMessage, type ChatSessionTarget } from "@/api";
-import {
-  useAppServices,
-  useChatRuntimeOwner,
-  useChatRuntimeSnapshot,
-  usePublishChatPromptPresence,
-} from "@/app-facade";
-import { showStatusToast } from "@/ui";
-import { appI18n } from "@/i18n";
-import { createPromptPickerViewModel, usePromptPickerActions } from "./PromptPickerViewModel";
+import type { ReactNode } from "react";
+import { usePublishChatPromptPresence } from "@/app-facade";
 import { PromptPickerView } from "./PromptPickerView";
+import type { useChatPromptPicker } from "./useChatPromptPicker";
 
 export function ChatPromptPicker({
-  target,
+  picker,
   children,
-}: Readonly<{ target: ChatSessionTarget; children: ReactNode }>) {
-  const { api } = useAppServices();
-  const client = useQueryClient();
-  const owner = useChatRuntimeOwner();
-  const runtime = useChatRuntimeSnapshot();
-  const model = useMemo(
-    () =>
-      createPromptPickerViewModel({
-        owner,
-        client,
-        api: api.chat,
-        onError: (error) => {
-          showStatusToast({
-            id: `chat-prompt-send:${target.sessionID}`,
-            title: appI18n.t("chat.picker.sendingFailed"),
-            body: errorMessage(error),
-            tone: "danger",
-          });
-        },
-      }),
-    [owner, client, api, target],
-  );
-  const state = useAtomValue(model.state);
-  const request = useAtomValue(model.request);
-  const actions = usePromptPickerActions(model);
+}: Readonly<{
+  picker: ReturnType<typeof useChatPromptPicker>;
+  children: ReactNode;
+}>) {
+  const { target, state, request, actions, prompts } = picker;
   const visible = state.current !== null;
   usePublishChatPromptPresence(target, visible);
   return (
@@ -50,7 +20,7 @@ export function ChatPromptPicker({
       </div>
       {visible ? (
         <PromptPickerView
-          prompts={runtime.pendingPrompts}
+          prompts={prompts}
           state={state}
           isPending={request.isPending}
           dispatch={(action, focusField) => {

@@ -17,10 +17,19 @@ import {
   type ChatSettingsRead,
   type InitialChatSettings,
 } from "@/api";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { deferred } from "@/test-support/chat-runtime";
+import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
+import {
+  deferred,
+  hydration,
+  mainViewRead,
+  target as sessionTarget,
+  transcriptPage,
+} from "@/test-support/chat-runtime";
+import { question, approval } from "@/test-support/chat-prompts";
+import { approvalDecisionLabel } from "@/shared/prompt-presentation";
 import {
   queryKeys,
+  ChatPromptPresenceProvider,
   readBrowserStorage,
   writeBrowserStorage,
   SidebarRootContext,
@@ -29,8 +38,10 @@ import {
 import { createTestSidebarController } from "@/test-support/sidebar";
 import { useChatDestination } from "./useChatDestination";
 import { ChatDestination } from "./ChatDestination";
+import type { ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { appI18n } from "@/i18n";
 import type { ComposerCommand } from "./composerCommands";
+import type { ChatTranscriptHandler, PromptAnswerBatchResponse } from "@/api";
 
 const opening = {
   kind: "new_chat",
@@ -50,7 +61,7 @@ const baseline: InitialChatSettings = {
   questionsEnabled: true,
   autoCompactionEnabled: true,
 };
-const catalog: ChatSettingsRead = {
+const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
   kind: "new_chat",
   initialSettings: baseline,
   catalog: {
@@ -109,6 +120,144 @@ function setup(commands: readonly ComposerCommand[] = []) {
   return { ...view, services, draft, read, observe, steer, queue, goal, compact };
 }
 
+function renderDestination(services: TestAppServices, client: QueryClient, opening: ChatDestinationOpening) {
+  const router = createRouter({ history: createMemoryHistory(), routeTree: createRootRoute() });
+  return render(
+    <RouterContextProvider router={router}>
+      <TestAppProviders services={services} queryClient={client}>
+        <SidebarRootContext.Provider value={createTestSidebarController()}>
+          <SidebarRootOwner>
+            <ChatPromptPresenceProvider>
+              <ChatDestination opening={opening} navigation={navigation} />
+            </ChatPromptPresenceProvider>
+          </SidebarRootOwner>
+        </SidebarRootContext.Provider>
+      </TestAppProviders>
+    </RouterContextProvider>,
+  );
+}
+
+function sessionWithPrompts() {
+  const services = createTestServices([]);
+  const choice = catalog.catalog.choices[0];
+  if (choice === undefined) throw new Error("Missing settings choice");
+  const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
+    kind: "session",
+    session: { sessionID: sessionTarget.sessionID, previousSessionID: null, task: null },
+    settings: {
+      selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
+      agentChoices: [choice.agent],
+      agentEditability: { kind: "editable" },
+      agentLocked: false,
+      cachingLocked: false,
+      workflowLocked: false,
+      supervisor: choice.supervisor,
+      thinking: choice.thinking,
+      fast: choice.fast,
+      questions: choice.questions,
+      autoCompaction: choice.autoCompaction,
+    },
+  });
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
+  vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
+  const pending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items: [] });
+  const handlers: ChatTranscriptHandler[] = [];
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
+    handlers.push(handler);
+    return { close: vi.fn() };
+  });
+  const response = deferred<PromptAnswerBatchResponse>();
+  const answer = vi.spyOn(services.api.chat, "answerPromptBatch").mockReturnValue(response.promise);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderDestination(services, client, { kind: "session", ...sessionTarget });
+  return { handlers, settings, pending, answer, client, response };
+}
+
+it("retains pending prompt answers and commentary through a Settings read failure without replay", async () => {
+  const view = sessionWithPrompts();
+  const prompts = [question(), approval(), question("last", { createdAt: "2026-09-12T00:00:02.000Z" })];
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    }),
+  );
+  const user = userEvent.setup();
+  await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
+  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
+  view.settings.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => {
+    await view.client.refetchQueries({ queryKey: ["chat-settings"] });
+  });
+  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  expect(await screen.findByDisplayValue("last draft")).toBeInTheDocument();
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("radio", { name: "two" }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledOnce();
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
+    {
+      toolCallID: prompts[0]?.toolCallID,
+      kind: "question",
+      selectedOptionNumber: 1,
+      freeform: "first answer",
+    },
+    { toolCallID: prompts[1]?.toolCallID, kind: "declined" },
+    { toolCallID: prompts[2]?.toolCallID, kind: "question", selectedOptionNumber: 2, freeform: "last draft" },
+  ]);
+});
+
+it("keeps an admitted prompt submission pending through Pending Work read recovery", async () => {
+  const view = sessionWithPrompts();
+  const prompt = approval();
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    }),
+  );
+  const user = userEvent.setup();
+  await user.type(
+    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
+    "approval commentary",
+  );
+  const option = approvalDecisionLabel("allow_once", appI18n.t);
+  await user.click(screen.getByRole("radio", { name: option }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledOnce();
+  });
+  const reads = view.pending.mock.calls.length;
+  view.pending.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => {
+    await view.client.refetchQueries({ queryKey: ["chat-composer-pending"], type: "active" });
+  });
+  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  expect(await screen.findByRole("radio", { name: option })).toBeDisabled();
+  expect(screen.getByDisplayValue("approval commentary")).toHaveAttribute("readonly");
+  expect(view.pending).toHaveBeenCalledTimes(reads + 2);
+  expect(view.answer).toHaveBeenCalledOnce();
+  await act(async () => {
+    view.response.resolve({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
+  });
+  await waitFor(() => expect(screen.queryByRole("radio", { name: option })).not.toBeInTheDocument());
+  expect(view.answer).toHaveBeenCalledOnce();
+});
+
 it.each(["settings", "workspace"] as const)(
   "replaces mounted Chat on cached %s failure and restores its unsent input after Retry",
   async (source) => {
@@ -123,18 +272,7 @@ it.each(["settings", "workspace"] as const)(
     const read = source === "settings" ? settings : workspaces;
     const send = vi.spyOn(services.api.chat, "steer");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const router = createRouter({ history: createMemoryHistory(), routeTree: createRootRoute() });
-    render(
-      <RouterContextProvider router={router}>
-        <TestAppProviders services={services} queryClient={client}>
-          <SidebarRootContext.Provider value={createTestSidebarController()}>
-            <SidebarRootOwner>
-              <ChatDestination opening={opening} navigation={navigation} />
-            </SidebarRootOwner>
-          </SidebarRootContext.Provider>
-        </TestAppProviders>
-      </RouterContextProvider>,
-    );
+    renderDestination(services, client, opening);
     const user = userEvent.setup();
     await user.type(await screen.findByRole("textbox"), "unsent input");
     if (source === "workspace") {
