@@ -1347,9 +1347,9 @@ func (a *Authority) InterruptSession(
 		)
 	}
 	engine := resource.engine
-	resource.mu.Unlock()
 	execution.cancel()
 	interrupted, interruptErr := engine.TryInterruptActiveRun()
+	resource.mu.Unlock()
 	if interruptErr == nil && !interrupted && !alreadyCanceled {
 		interruptErr = engine.PersistInterruption()
 	}
