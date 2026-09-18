@@ -53,7 +53,7 @@ export function useComposerPendingWork(
     discardPending: model.discardPending,
     stop: () => {
       stopAction({
-        onSettled: () => {
+        onSuccess: () => {
           if (mainView.kind === "session") void mainView.retry();
         },
       });

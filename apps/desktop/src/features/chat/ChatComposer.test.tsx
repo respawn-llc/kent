@@ -579,9 +579,10 @@ it.each([
   expect(editor).toHaveValue("");
 });
 
-it.each(["idle", "stopped"] as const)(
-  "resynchronizes stale activity after Stop returns %s",
+it.each(["idle", "stopped", "failed"] as const)(
+  "resynchronizes activity only after a successful Stop: %s",
   async (result) => {
+    const report = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     const services = createTestServices([], undefined, { platform: "linux" });
     vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: () => undefined });
     const idle = mainViewRead();
@@ -599,6 +600,7 @@ it.each(["idle", "stopped"] as const)(
     vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
     vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
     const stop = vi.spyOn(services.api.chat, "stop").mockImplementation(async () => {
+      if (result === "failed") throw new Error("Stop request failed");
       read.mockResolvedValue(mainViewRead(2));
       return result;
     });
@@ -636,6 +638,14 @@ it.each(["idle", "stopped"] as const)(
     await waitFor(() => {
       expect(stop).toHaveBeenCalledOnce();
     });
+    if (result === "failed") {
+      await waitFor(() => {
+        expect(report).toHaveBeenCalled();
+      });
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(button).not.toBeDisabled();
+      return;
+    }
     await waitFor(() => {
       expect(read).toHaveBeenCalledTimes(2);
     });
@@ -1005,34 +1015,6 @@ it.each([true, false])(
     expect(result.current.text).toBe("");
   },
 );
-
-it("restores exact text in either direction and does not add separators for empty input", async () => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
-  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
-  act(() => {
-    result.current.restore(" \nfirst ", "append");
-  });
-  expect(result.current.text).toBe(" \nfirst ");
-  act(() => {
-    result.current.restore("", "prepend");
-  });
-  expect(result.current.text).toBe(" \nfirst ");
-  act(() => {
-    result.current.restore("last\n ", "append");
-  });
-  expect(result.current.text).toBe(" \nfirst \nlast\n ");
-  act(() => {
-    result.current.restore("before", "prepend");
-  });
-  expect(result.current.text).toBe("before\n \nfirst \nlast\n ");
-});
 
 it("prepends live interrupted messages in event order and restores Discard only after success", async () => {
   const services = createTestServices([]);

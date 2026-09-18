@@ -7,6 +7,34 @@ import { createChatStorageFixture } from "./chatStorageFixture";
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 
+it("restores exact text in either direction and does not add separators for empty input", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  act(() => {
+    result.current.restore(" \nfirst ", "append");
+  });
+  expect(result.current.text).toBe(" \nfirst ");
+  act(() => {
+    result.current.restore("", "prepend");
+  });
+  expect(result.current.text).toBe(" \nfirst ");
+  act(() => {
+    result.current.restore("last\n ", "append");
+  });
+  expect(result.current.text).toBe(" \nfirst \nlast\n ");
+  act(() => {
+    result.current.restore("before", "prepend");
+  });
+  expect(result.current.text).toBe("before\n \nfirst \nlast\n ");
+});
+
 it("places a late saved draft before typing without losing exact whitespace", async () => {
   const services = createTestServices([]);
   let deliver!: (text: string) => void;
