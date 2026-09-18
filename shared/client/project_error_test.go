@@ -38,13 +38,13 @@ func TestProjectErrorRejectsMissingDetails(t *testing.T) {
 			return connectionAttachmentGeneratedError("workspace_not_registered", nil, nil, nil, nil, nil)
 		}, serverapi.ErrWorkspaceNotRegistered},
 		{"mutation", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_mutation_failed", nil, nil, nil, nil, nil, nil)
+			return projectWorkspaceMutationGeneratedError("workspace_mutation_failed", nil, nil, nil, nil, nil)
 		}, serverapi.ErrWorkspaceMutationFailed},
 		{"detach conflict", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_detach_conflict", nil, nil, nil, nil, nil, nil)
+			return projectWorkspaceMutationGeneratedError("workspace_detach_conflict", nil, nil, nil, nil, nil)
 		}, serverapi.ErrWorkspaceDetachConflict},
 		{"path identity", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_path_identity", nil, nil, nil, nil, nil, nil)
+			return projectWorkspaceMutationGeneratedError("workspace_path_identity", nil, nil, nil, nil, nil)
 		}, serverapi.ErrWorkspacePathIdentity},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

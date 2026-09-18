@@ -65,7 +65,7 @@ func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptReque
 				return nil, err
 			}
 			return decodeGeneratedResult(method, result, func(failure *runpromptpb.Error) error {
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			})
 		default:
 			return nil, fmt.Errorf("%s received an unexpected frame %T", operation.Name, selected)

@@ -244,7 +244,7 @@ func (c *Remote) GetReadiness(ctx context.Context, req *emptypb.Empty) (*serverp
 		req,
 		&serverpb.GetReadinessResult{},
 		func(failure *serverpb.GetReadinessError) error {
-			return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -259,8 +259,6 @@ func (c *Remote) GetUpdateStatus(ctx context.Context, req *emptypb.Empty) (*serv
 				return serverapi.ErrServerAuthRequired
 			case "server_not_ready":
 				return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}

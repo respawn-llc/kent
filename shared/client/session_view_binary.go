@@ -12,7 +12,7 @@ func (c *Remote) GetSessionMainView(ctx context.Context, request *sessionpb.Main
 		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetMainView"),
 		request, &sessionpb.MainViewResult{},
 		func(failure *sessionpb.MainViewError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -21,7 +21,7 @@ func (c *Remote) GetSessionTranscriptPage(ctx context.Context, request *transcri
 		bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "ReadService", "GetPage"),
 		request, &transcriptpb.PageResult{},
 		func(failure *transcriptpb.PageError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -30,6 +30,6 @@ func (c *Remote) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req
 		bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "ReadService", "GetLatestFinalAnswer"),
 		request, &transcriptpb.LatestFinalAnswerResult{},
 		func(failure *transcriptpb.LatestFinalAnswerError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }

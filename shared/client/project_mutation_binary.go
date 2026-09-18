@@ -6,7 +6,6 @@ import (
 
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
@@ -35,7 +34,6 @@ func (c *Remote) SetDefaultWorkspace(ctx context.Context, request *projectpb.Set
 				failure.GetWorkspacePathIdentity(),
 				nil,
 				failure.GetWorkspaceMutationFailed(),
-				failure.GetInternalFailure(),
 			)
 		})
 }
@@ -51,7 +49,6 @@ func (c *Remote) UnlinkWorkspaceFromProject(ctx context.Context, request *projec
 				failure.GetWorkspacePathIdentity(),
 				failure.GetWorkspaceDetachConflict(),
 				failure.GetWorkspaceMutationFailed(),
-				failure.GetInternalFailure(),
 			)
 		})
 	if err != nil {
@@ -75,7 +72,7 @@ func (c *Remote) DeleteProject(ctx context.Context, request *projectpb.DeletePro
 				return serverapi.ErrServerAuthRequired
 			}
 			return projectNotFoundGeneratedError(
-				failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+				failure.Code, failure.GetProjectNotFound())
 		})
 	if err != nil {
 		return nil, err
@@ -124,8 +121,6 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 			case "workspace_path_missing":
 				return validateEmptyProjectMutationDetail(
 					failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}
@@ -142,8 +137,6 @@ func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
 	case "workspace_path_missing":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -157,8 +150,6 @@ func projectUpdateGeneratedError(failure *projectpb.UpdateProjectError) error {
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "project_key_conflict":
 		return projectKeyConflictError(failure.GetProjectKeyConflict())
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -174,8 +165,6 @@ func projectAttachGeneratedError(failure *projectpb.AttachWorkspaceError) error 
 		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
 	case "workspace_path_missing":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -188,7 +177,6 @@ func projectWorkspaceMutationGeneratedError(
 	pathIdentity *projectpb.WorkspacePathIdentityDetails,
 	detachConflict *projectpb.WorkspaceDetachConflictDetails,
 	mutation *projectpb.WorkspaceMutationDetails,
-	internal *sharedpb.InternalFailureDetails,
 ) error {
 	switch code {
 	case "auth_required":
@@ -203,8 +191,6 @@ func projectWorkspaceMutationGeneratedError(
 		return protoapi.WorkspaceDetachConflictFromProto(detachConflict)
 	case "workspace_mutation_failed":
 		return protoapi.WorkspaceMutationFromProto(mutation)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(internal)
 	default:
 		return generatedOperationFailure(code)
 	}
