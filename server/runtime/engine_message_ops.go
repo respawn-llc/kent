@@ -1016,7 +1016,7 @@ func environmentContextMessage(workspaceRoot string, model string, now time.Time
 	rows = append(rows,
 		fmt.Sprintf("OS: %s", osName),
 		fmt.Sprintf("Current TZ: %s (UTC%s)", tzName, formatUTCOffset(tzOffset)),
-		fmt.Sprintf("Date/time: %s", now.Format(time.RFC3339)),
+		fmt.Sprintf("Date/time at conversation start: %s", now.Format("2006-01-02T15:04:05")),
 		fmt.Sprintf("Shell: %s", shell),
 		fmt.Sprintf("CWD: %s", cwd),
 		fmt.Sprintf("CPU arch: %s", cpuArch),
