@@ -568,11 +568,8 @@ func TestApprovalActionRuntimeInterruptWinnerOrders(t *testing.T) {
 		name string
 		run  func(*approvalActionHarness) (bool, error)
 	}{
-		{"InterruptCurrentAgentTurn", func(h *approvalActionHarness) (bool, error) {
-			return h.authority.InterruptCurrentAgentTurn(context.Background(), h.sessionID, func() error { return ErrExecutionNoLongerLive })
-		}},
-		{"InterruptCurrentLiveRun", func(h *approvalActionHarness) (bool, error) {
-			return h.authority.InterruptCurrentLiveRun(context.Background(), h.sessionID)
+		{"InterruptSession", func(h *approvalActionHarness) (bool, error) {
+			return h.authority.InterruptSession(context.Background(), h.sessionID)
 		}},
 	} {
 		for _, approvalFirst := range []bool{true, false} {

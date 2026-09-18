@@ -505,10 +505,6 @@ func (s *stubExclusiveStepLifecycle) InterruptCurrent(func(*RunSnapshot)) (*RunS
 	return nil, nil
 }
 
-func (s *stubExclusiveStepLifecycle) InterruptCurrentAgentTurn(func(*RunSnapshot)) (*RunSnapshot, error) {
-	return nil, nil
-}
-
 func (s *stubExclusiveStepLifecycle) IsBusy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -853,7 +849,7 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 	}
 }
 
-func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testing.T) {
+func TestExclusiveStepLifecycleInterruptCancelsStoppableWork(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		kind      ActiveKind
@@ -864,8 +860,11 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 		{name: string(ActiveKindWorkflowTurn), kind: ActiveKindWorkflowTurn, wantMatch: true},
 		{name: string(ActiveKindGoalLoop), kind: ActiveKindGoalLoop, wantMatch: true},
 		{name: "closing_user_turn", kind: ActiveKindUserTurn, closing: true},
-		{name: string(ActiveKindBackground), kind: ActiveKindBackground},
-		{name: string(ActiveKindCompaction), kind: ActiveKindCompaction},
+		{name: string(ActiveKindBackground), kind: ActiveKindBackground, wantMatch: true},
+		{name: string(ActiveKindCompaction), kind: ActiveKindCompaction, wantMatch: true},
+		{name: string(ActiveKindPreSubmitCompaction), kind: ActiveKindPreSubmitCompaction, wantMatch: true},
+		{name: string(ActiveKindUserShell), kind: ActiveKindUserShell, wantMatch: true},
+		{name: string(ActiveKindRuntimeMaintenance), kind: ActiveKindRuntimeMaintenance},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
@@ -884,7 +883,7 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 				},
 			}
 
-			interrupted, err := lifecycle.InterruptCurrentAgentTurn(nil)
+			interrupted, err := lifecycle.InterruptCurrent(nil)
 			if matched := interrupted != nil; err != nil || matched != test.wantMatch {
 				t.Fatalf("agent-turn interrupt matched/error=%t/%v, want %t for %s", matched, err, test.wantMatch, test.kind)
 			}
@@ -898,7 +897,7 @@ func TestExclusiveStepLifecycleAgentTurnInterruptMatchesOnlyAgentTurns(t *testin
 	}
 }
 
-func TestExclusiveStepLifecycleAgentTurnPersistenceFailureDoesNotCancel(t *testing.T) {
+func TestExclusiveStepLifecycleInterruptCancelsDespitePersistenceFailure(t *testing.T) {
 	persistErr := errors.New("interruption persistence failed")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
@@ -917,15 +916,15 @@ func TestExclusiveStepLifecycleAgentTurnPersistenceFailureDoesNotCancel(t *testi
 	}
 	gate.FailNext(persistErr)
 
-	snapshot, err := lifecycle.InterruptCurrentAgentTurn(nil)
+	snapshot, err := lifecycle.InterruptCurrent(nil)
 	if snapshot != nil || !errors.Is(err, persistErr) {
 		t.Fatalf("agent-turn interrupt = (%+v, %v), want persistence failure", snapshot, err)
 	}
-	if canceled {
-		t.Fatal("Agent Turn context was canceled before interruption persisted")
+	if !canceled {
+		t.Fatal("persistence failure prevented cancellation")
 	}
-	if lifecycle.active.interrupted {
-		t.Fatal("persistence failure left Agent Turn marked interrupted")
+	if repeated, err := lifecycle.InterruptCurrent(nil); err != nil || repeated != nil {
+		t.Fatalf("repeated interrupt restarted cancellation after persistence failure: %v, %v", repeated, err)
 	}
 }
 

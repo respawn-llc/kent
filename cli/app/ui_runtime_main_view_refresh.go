@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/cli/tui"
+	"core/shared/protoapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,9 +19,10 @@ const (
 )
 
 type runtimeMainViewRefreshRequest struct {
-	cause    runtimeMainViewRefreshCause
-	class    runtimeSyncPolicyClass
-	priority int
+	cause                  runtimeMainViewRefreshCause
+	class                  runtimeSyncPolicyClass
+	priority               int
+	interruptedSubmitToken *uint64
 }
 
 type runtimeMainViewRefreshDecision struct {
@@ -148,7 +150,13 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 		).view
 	}
 	applyCmd := m.applyRuntimeMainViewState(canonical)
-	return sequenceCmds(applyCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh().cmd)
+	var restoreCmd tea.Cmd
+	if req.interruptedSubmitToken != nil && m.activeSubmit.token == *req.interruptedSubmitToken &&
+		canonical.Activity != nil && !protoapi.RuntimeActivityActiveForControl(canonical.Activity) {
+		m.activeSubmit = activeSubmitState{}
+		restoreCmd = m.inputController().restoreInterruptedInputsIntoComposer()
+	}
+	return sequenceCmds(applyCmd, restoreCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh().cmd)
 }
 
 func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) tea.Cmd {

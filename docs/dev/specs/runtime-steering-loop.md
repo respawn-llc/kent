@@ -204,7 +204,10 @@
 - Manual Move denies a pending Workflow Approval before applying the requested move.
 - Every public Instant Stop route revalidates and admits Stop through Session Runtime Authority before it cancels an Agent execution.
 - A stale Stop cannot cancel a successor execution.
-- Only a matching exact live Agent execution, including one waiting for a Question or Approval, authorizes Instant Stop.
+- Session Runtime Authority must stop the selected live Agent execution, including a Question or Approval wait, or selected stoppable Runtime-owned work, including compaction and foreground shell execution.
+- If no stoppable work remains, Interrupt must succeed with the authoritative Runtime state so clients can discard a stale busy projection.
+- Runtime must panic in development when settled execution ownership contradicts running activity. In production, Runtime must interrupt the inconsistent activity and publish a transcript error through ordinary Runtime output handling.
+- Valid startup, finalization, and compaction transitions must not trigger the ownership invariant.
 - Only matching live Agent or Script execution authorizes Task Interrupt.
 - Stop closes the matching execution to new associated human input before cancellation begins.
 - Input accepted after Stop admission belongs to later Runtime work and is not removed by that execution's cleanup.
@@ -213,7 +216,7 @@
 - Stop closes pending Question and Approval calls through the ordinary interrupted execution outcome.
 - When the stopped execution reaches its boundary, Kent removes its pending human Send/Steer and post-turn Queue messages.
 - Non-message Session mutations remain accepted after Stop.
-- Worktree and foreground-shell operations already running continue under their own owners after Stop.
+- Worktree operations already running must continue under their own owners after Stop.
 - When Stop races a durable human-message append, Kent does not promise one commit-or-restore outcome.
 - Text involved in that race may commit, be returned for restoration, be duplicated, or be lost.
 - Kent broadcasts removed human text once in an ephemeral interruption event with its item identities and text in server acceptance order.

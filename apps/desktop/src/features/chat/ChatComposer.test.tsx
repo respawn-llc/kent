@@ -363,6 +363,70 @@ it.each([
   expect(editor).toHaveValue("");
 });
 
+it.each(["idle", "stopped"] as const)(
+  "resynchronizes stale activity after Stop returns %s",
+  async (result) => {
+    const services = createTestServices([], undefined, { platform: "linux" });
+    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: () => undefined });
+    const idle = mainViewRead();
+    const read = vi.spyOn(services.api.chat, "getMainView").mockResolvedValue({
+      ...idle,
+      mainView: {
+        ...idle.mainView,
+        activity: {
+          ...idle.mainView.activity,
+          state: "running",
+          activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+        },
+      },
+    });
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+    const stop = vi.spyOn(services.api.chat, "stop").mockImplementation(async () => {
+      read.mockResolvedValue(mainViewRead(2));
+      return result;
+    });
+    function Probe() {
+      const { composer, stoppable } = useComposerSurface();
+      return (
+        <button
+          disabled={!stoppable}
+          onClick={() => {
+            composer.pending.stop();
+          }}
+        >
+          Stop probe
+        </button>
+      );
+    }
+    function Composer() {
+      const composer = useChatComposer(target);
+      return (
+        <ChatComposerSurface composer={composer}>
+          <Probe />
+        </ChatComposerSurface>
+      );
+    }
+    render(
+      <TestAppProviders services={services}>
+        <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
+          <Composer />
+        </ChatRuntimeProvider>
+      </TestAppProviders>,
+    );
+    const button = screen.getByRole("button", { name: "Stop probe" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledOnce();
+    });
+    await waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => expect(button).toBeDisabled());
+  },
+);
+
 it("clears an armed Stop on transcript loss while allowing a subsequent independent Stop", async () => {
   const services = createTestServices([], undefined, { platform: "linux" });
   const mainView = mainViewRead();

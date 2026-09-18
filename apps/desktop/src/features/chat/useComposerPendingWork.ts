@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 
 import type { PendingWorkIdentity } from "@/api";
-import type { ChatRuntimeHost } from "@/app-facade";
+import { useChatRuntimePresentation, type ChatRuntimeHost } from "@/app-facade";
 import type { ComposerPendingViewModel } from "./ComposerPendingViewModel";
 import type { ComposerTextRestoration } from "./ComposerDraftViewModel";
 
@@ -10,6 +10,7 @@ export function useComposerPendingWork(
   model: ComposerPendingViewModel,
   restore: (input: ComposerTextRestoration) => void,
 ) {
+  const { mainView } = useChatRuntimePresentation();
   const query = useAtomValue(model.read);
   useAtomMount(model.stopping);
   useAtomMount(model.discarding);
@@ -50,7 +51,11 @@ export function useComposerPendingWork(
     },
     discardPending: model.discardPending,
     stop: () => {
-      stopAction(undefined);
+      stopAction({
+        onSettled: () => {
+          if (mainView.kind === "session") void mainView.retry();
+        },
+      });
     },
     stopPending,
   };

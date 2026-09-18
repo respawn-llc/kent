@@ -186,7 +186,7 @@ func TestSupervisorStartedQuestionCanBeInterrupted(t *testing.T) {
 	if !live || handle.Scope().ID() != pending.scopeID {
 		t.Fatal("Supervisor question has no current exact execution")
 	}
-	if interrupted, err := h.authority.InterruptCurrentAgentTurn(h.ctx, h.sessionID, nil); err != nil || !interrupted {
+	if interrupted, err := h.authority.InterruptSession(h.ctx, h.sessionID); err != nil || !interrupted {
 		t.Fatalf("interrupt Supervisor question = (%t, %v)", interrupted, err)
 	}
 	if _, err := handle.Wait(h.ctx); !errors.Is(err, context.Canceled) {

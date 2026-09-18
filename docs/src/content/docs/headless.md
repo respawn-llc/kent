@@ -28,6 +28,8 @@ kent run wait <session-id> # wait for the model's turn to end
 kent run watch <session-id> # report the next question or terminal outcome
 ```
 
+Stop interrupts Agent work, compaction, and foreground shells. An already-idle Session succeeds without restarting work. Running worktree operations continue to completion. If Kent detects inconsistent running state, it interrupts that activity and records a transcript error.
+
 When a human invokes `kent run steer`, the running Session receives a user message. When another Kent Session invokes it, the running Session receives a developer-role agent steer that identifies the source Session and includes the command form for replying.
 
 Headless `kent run` Sessions cannot create Questions. To inspect or answer a pending Question from an interactive or Workflow Session:

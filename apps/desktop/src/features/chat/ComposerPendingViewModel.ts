@@ -98,12 +98,14 @@ export function createComposerPendingViewModel({
   });
   const stopping = queryAtom(stopObserver);
   const stopPending = mutationPendingAtom(client, { mutationKey: stopKey });
-  const stop = Atom.fn<undefined>()(
-    (_, get) =>
+  const stop = Atom.fn<{ onSettled: () => void }>()(
+    ({ onSettled }, get) =>
       Effect.gen(function* () {
         const selected = get(target);
         if (selected.kind !== "session") return;
-        yield* Effect.tryPromise(async () => stopObserver.mutate(selected)).pipe(Effect.ignore);
+        yield* Effect.tryPromise(async () => stopObserver.mutate(selected, { onSettled })).pipe(
+          Effect.ignore,
+        );
       }),
     { concurrent: true },
   );
