@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useAtomSet } from "@effect/atom-react";
 import { usePublishChatPromptPresence } from "@/app-facade";
 import { PromptPickerView } from "./PromptPickerView";
 import type { useChatPromptPicker } from "./useChatPromptPicker";
@@ -7,10 +8,11 @@ export function ChatPromptPicker({
   picker,
   children,
 }: Readonly<{
-  picker: ReturnType<typeof useChatPromptPicker>;
+  picker: NonNullable<ReturnType<typeof useChatPromptPicker>>;
   children: ReactNode;
 }>) {
-  const { target, state, request, actions, prompts } = picker;
+  const { target, state, request, prompts } = picker;
+  const dispatch = useAtomSet(picker.dispatch);
   const visible = state.current !== null;
   usePublishChatPromptPresence(target, visible);
   return (
@@ -24,7 +26,7 @@ export function ChatPromptPicker({
           state={state}
           isPending={request.isPending}
           dispatch={(action, focusField) => {
-            actions.dispatch({ action, focusField });
+            dispatch({ action, focusField });
           }}
         />
       ) : null}

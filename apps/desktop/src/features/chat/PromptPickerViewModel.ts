@@ -104,7 +104,8 @@ export function createPromptPickerViewModel({
     { concurrent: true },
   );
   const observation: Atom.Atom<PickerState> = state;
-  return { state: observation, request, dispatch } as const;
+  const prompts = Atom.make((get) => get(runtime).pendingPrompts);
+  return { state: observation, request, dispatch, prompts } as const;
 }
 
 export type PromptPickerViewModel = ReturnType<typeof createPromptPickerViewModel>;
