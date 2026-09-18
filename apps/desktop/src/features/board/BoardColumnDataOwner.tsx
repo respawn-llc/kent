@@ -107,16 +107,16 @@ export function BoardColumnDataOwner({
   const paginationEnabled = !isPlaceholderData && cardsQuery.data !== undefined;
   const replacementDataRetained = cardsQuery.data !== undefined && isPlaceholderData;
   const retryCards = useCallback(() => {
-    void refetch();
+    refetch();
   }, [refetch]);
   const loadNewer = useCallback(() => {
     if (paginationEnabled && hasPreviousPage && !isFetchingPreviousPage) {
-      void fetchPreviousPage();
+      fetchPreviousPage();
     }
   }, [fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage, paginationEnabled]);
   const loadOlder = useCallback(() => {
     if (paginationEnabled && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
+      fetchNextPage();
     }
   }, [fetchNextPage, hasNextPage, isFetchingNextPage, paginationEnabled]);
   const initialBoundary = useMemo<VirtualizedInfiniteListBoundaryState | undefined>(

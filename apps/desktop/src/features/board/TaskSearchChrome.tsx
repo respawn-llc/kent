@@ -1,13 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { SearchIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -21,51 +13,30 @@ import {
 import { InteractiveChip } from "@/ui";
 import { adjacentSearchResult, useTaskSearchSelection } from "./taskSearchSelection";
 import { TaskSearchDialog, useTaskSearchShortcuts } from "./BoardTaskSearch";
+import { createBoardSearchModel, type TaskSearchInvocation } from "./BoardSearchModel";
 
-type TaskSearchInvocation =
-  Readonly<{ projectId: string; onOpenTask(taskID: string): void }> | Readonly<{ projectId?: never }>;
-
-type TaskSearchController = Readonly<{
-  invocation: TaskSearchInvocation | null;
-  open: boolean;
-  cancelProjectSearch(projectId: string): void;
-  close(): void;
-  openSearch(invocation: TaskSearchInvocation): void;
-}>;
-
-const TaskSearchControllerContext = createContext<TaskSearchController | null>(null);
+const TaskSearchControllerContext = createContext<ReturnType<typeof createBoardSearchModel> | null>(null);
 
 export function TaskSearchProvider({ children }: Readonly<{ children: ReactNode }>) {
-  const [state, setState] = useState<Pick<TaskSearchController, "invocation" | "open">>({
-    invocation: null,
-    open: false,
-  });
-  const cancelProjectSearch = useCallback((projectId: string): void => {
-    setState((current) =>
-      current.invocation?.projectId === projectId ? { invocation: null, open: false } : current,
-    );
-  }, []);
-  const close = useCallback((): void => {
-    setState((current) => ({ ...current, open: false }));
-  }, []);
-  const openSearch = useCallback((invocation: TaskSearchInvocation): void => {
-    setState({ invocation, open: true });
-  }, []);
-  const value = useMemo(
-    () => ({ ...state, cancelProjectSearch, close, openSearch }),
-    [cancelProjectSearch, close, openSearch, state],
-  );
+  const [model] = useState(createBoardSearchModel);
+  useAtomMount(model.state);
   return (
-    <TaskSearchControllerContext.Provider value={value}>{children}</TaskSearchControllerContext.Provider>
+    <TaskSearchControllerContext.Provider value={model}>{children}</TaskSearchControllerContext.Provider>
   );
 }
 
-function useTaskSearchController(): TaskSearchController {
+function useTaskSearchController() {
   const controller = useContext(TaskSearchControllerContext);
   if (controller === null) {
     throw new Error("Task Search requires TaskSearchProvider.");
   }
-  return controller;
+  return {
+    ...useAtomValue(controller.state),
+    cancelProjectSearch: useAtomSet(controller.cancelProjectSearch, { mode: "value" }),
+    close: useAtomSet(controller.close, { mode: "value" }),
+    openSearch: useAtomSet(controller.openSearch, { mode: "value" }),
+    activate: useAtomSet(controller.activate, { mode: "value" }),
+  };
 }
 
 export function TaskSearchProjectTrigger({
@@ -153,7 +124,7 @@ export function TaskSearchHost() {
 }
 
 function OwnedTaskSearchHost() {
-  const { invocation, close, open, openSearch } = useTaskSearchController();
+  const { invocation, close, open, openSearch, activate: activateDestination } = useTaskSearchController();
   const { open: openSidebar } = useOwnedSidebarRoots();
   const memory = useTaskSearchMemory();
   const pendingActivationRef = useRef<Readonly<{ invocation: TaskSearchInvocation; taskID: string }> | null>(
@@ -191,13 +162,8 @@ function OwnedTaskSearchHost() {
     if (pending === null) {
       return;
     }
-    if (pending.invocation.projectId !== undefined) {
-      pending.invocation.onOpenTask(pending.taskID);
-      return;
-    }
-    const destination = { kind: "taskDetail" as const, mode: "overlay" as const, taskID: pending.taskID };
-    openSidebar(destination);
-  }, [openSidebar]);
+    activateDestination({ ...pending, openSidebar });
+  }, [activateDestination, openSidebar]);
   const openGlobalSearch = useCallback((): void => {
     pendingActivationRef.current = null;
     openSearch({});
