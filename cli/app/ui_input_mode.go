@@ -95,7 +95,6 @@ type uiStatusOverlayState struct {
 	loading         bool
 	scroll          int
 	snapshot        uiStatusSnapshot
-	error           string
 	refreshToken    uint64
 	pendingSections map[uiStatusSection]bool
 	sectionWarnings map[uiStatusSection]string

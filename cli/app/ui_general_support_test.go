@@ -124,19 +124,6 @@ type stubProgressiveStatusCollector struct {
 	gitCalls   int
 }
 
-func (s *stubProgressiveStatusCollector) Collect(_ context.Context, _ uiStatusRequest) (uiStatusSnapshot, error) {
-	snapshot := s.base
-	snapshot.Auth = s.authResult.Auth
-	snapshot.Subscription = s.authResult.Subscription
-	snapshot.Git = s.gitResult.Git
-	snapshot.Skills = s.envResult.Skills
-	snapshot.SkillTokenCounts = s.envResult.SkillTokenCounts
-	snapshot.AgentsPaths = s.envResult.AgentsPaths
-	snapshot.AgentTokenCounts = s.envResult.AgentTokenCounts
-	snapshot.CollectorWarning = s.envResult.CollectorWarning
-	return snapshot, nil
-}
-
 func (s *stubProgressiveStatusCollector) CollectBase(_ uiStatusRequest) uiStatusSnapshot {
 	return s.base
 }

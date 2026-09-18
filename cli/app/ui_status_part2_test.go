@@ -200,6 +200,46 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	}
 }
 
+func TestStatusRefreshSectionFailurePreservesProgressiveResults(t *testing.T) {
+	collector := &stubProgressiveStatusCollector{
+		gitResult: uiStatusGitStageResult{Git: uiStatusGitInfo{Visible: true, Branch: "working-branch"}},
+		envResult: uiStatusEnvironmentStageResult{CollectorWarning: "environment inspection failed"},
+	}
+	model := newProjectedStaticUIModel(WithUIStatusCollector(collector))
+	cmd := model.statusRefreshCmd()
+	if !model.status.loading {
+		t.Fatal("refresh did not expose loading while sections were pending")
+	}
+	messages := collectCmdMessages(t, cmd)
+	var environment statusEnvironmentRefreshDoneMsg
+	for _, message := range messages {
+		if result, ok := message.(statusEnvironmentRefreshDoneMsg); ok {
+			environment = result
+		}
+	}
+	next, _ := model.Update(environment)
+	model = next.(*uiModel)
+	if !model.status.loading || model.status.snapshot.CollectorWarning == "" {
+		t.Fatal("failed section did not expose its warning while other sections remained loading")
+	}
+	for _, message := range messages {
+		switch message.(type) {
+		case statusBaseRefreshDoneMsg, statusAuthRefreshDoneMsg, statusGitRefreshDoneMsg:
+			next, _ := model.Update(message)
+			model = next.(*uiModel)
+		}
+	}
+	if model.status.loading {
+		t.Fatal("loading remained after every section completed")
+	}
+	if !model.status.snapshot.Git.Visible || model.status.snapshot.Git.Branch != collector.gitResult.Git.Branch {
+		t.Fatal("section failure discarded the independently completed Git result")
+	}
+	if model.status.snapshot.CollectorWarning != collector.envResult.CollectorWarning {
+		t.Fatal("later section completion discarded the earlier failure warning")
+	}
+}
+
 func TestStatusRefreshDefersRuntimeAndAuthReadsToCommands(t *testing.T) {
 	authStatus := &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)}
 	runtimeClient := &statusRefreshRuntimeClient{}

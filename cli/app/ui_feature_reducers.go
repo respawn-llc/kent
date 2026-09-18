@@ -45,29 +45,11 @@ func (m *uiModel) reduceFeatureMessage(msg tea.Msg) uiFeatureUpdateResult {
 
 func (m *uiModel) reduceStatusMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
-	case statusRefreshDoneMsg:
-		if msg.token != m.status.refreshToken {
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, nil)
-		}
-		m.status.pendingSections = nil
-		m.status.sectionWarnings = nil
-		m.status.loading = false
-		if msg.err != nil {
-			m.status.error = msg.err.Error()
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-		}
-		m.status.error = ""
-		m.status.snapshot = msg.snapshot
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, nil)
 	case statusBaseRefreshDoneMsg:
 		if msg.token != m.status.refreshToken {
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
-		m.status.error = ""
 		snapshot := msg.snapshot
 		if statusHasAuthData(m.status.snapshot) {
 			snapshot.Auth = m.status.snapshot.Auth

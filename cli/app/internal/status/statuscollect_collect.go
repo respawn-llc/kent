@@ -24,24 +24,6 @@ type Collector struct {
 	SessionNameReadTimeout time.Duration
 }
 
-func (c Collector) Collect(ctx context.Context, req Request) (Snapshot, error) {
-	snapshot := c.EnrichBase(ctx, req, c.CollectBase(req))
-	authResult := c.CollectAuth(ctx, req, snapshot)
-	gitResult := c.CollectGit(ctx, req, snapshot)
-	envResult := c.CollectEnvironment(ctx, req, snapshot)
-	snapshot.Auth = authResult.Auth
-	snapshot.Subscription = authResult.Subscription
-	snapshot.Git = gitResult.Git
-	snapshot.SkillPolicy = envResult.SkillPolicy
-	snapshot.Skills = envResult.Skills
-	snapshot.SkillTokenCounts = envResult.SkillTokenCounts
-	snapshot.AgentsPaths = envResult.AgentsPaths
-	snapshot.AgentTokenCounts = envResult.AgentTokenCounts
-	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, authResult.Warning)
-	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, envResult.CollectorWarning)
-	return snapshot, nil
-}
-
 func (c Collector) CollectBase(req Request) Snapshot {
 	collectedAt := req.CurrentTime
 	if collectedAt.IsZero() {
