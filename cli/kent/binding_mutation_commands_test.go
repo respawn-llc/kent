@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,6 +17,36 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestBindingConnectionDiscoveryUsesSharedAndEnvironmentWithoutMetadata(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	t.Setenv(config.PersistenceRootEnvName, root)
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{
+		filepath.Join(root, "config.toml"):                                  "server_host = \"server.example\"\nserver_port = 53000\n",
+		filepath.Join(root, "db"):                                           "metadata access must not be needed",
+		filepath.Join(workspace, config.ConfigDirName, "config.toml"):       "server_port = 53001\n",
+		filepath.Join(workspace, config.ConfigDirName, "config.local.toml"): "malformed = [",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := loadBindingCommandConfig(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Settings.ServerHost != "server.example" || app.Settings.ServerPort != 53001 {
+		t.Fatalf("connection settings = %s:%d", app.Settings.ServerHost, app.Settings.ServerPort)
+	}
+	t.Setenv("KENT_SERVER_PORT", "53002")
+	app, err = loadBindingCommandConfig(workspace)
+	if err != nil || app.Settings.ServerPort != 53002 {
+		t.Fatalf("environment endpoint = %d, error=%v", app.Settings.ServerPort, err)
+	}
+}
 
 func TestBindingMutationArgumentsAndSelector(t *testing.T) {
 	var stderr bytes.Buffer

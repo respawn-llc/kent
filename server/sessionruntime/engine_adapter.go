@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/runlog"
 	"core/server/runtime"
@@ -23,10 +24,11 @@ import (
 )
 
 type AgentRuntimePlanOptions struct {
+	MainWorkspaceRoot                   string
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
-	Sources                             map[string]string
+	Sources                             map[string]config.Origin
 	Headless                            bool
 	QuestionsEnabled                    *bool
 	AutoCompactionEnabled               *bool
@@ -42,6 +44,8 @@ type AgentRuntimePlanOptions struct {
 	StartLogLines                       []string
 	RecoveredWarningProvider            func() (string, bool, error)
 	AgentSelection                      *session.ChatSettingsState
+	ExplicitToolSelection               *config.ToolSelection
+	RequiredTools                       []toolspec.ID
 }
 
 type AgentRuntimePlan struct {
@@ -49,6 +53,9 @@ type AgentRuntimePlan struct {
 }
 
 func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, error) {
+	if strings.TrimSpace(options.MainWorkspaceRoot) == "" {
+		return AgentRuntimePlan{}, errors.New("Main Workspace root is required")
+	}
 	if options.QuestionsEnabled == nil {
 		return AgentRuntimePlan{}, errors.New("effective Session Questions setting is required")
 	}
@@ -62,7 +69,9 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 		return AgentRuntimePlan{}, errors.New("agent runtime filesystem context is required")
 	}
 	options.Settings = cloneAgentRuntimeSettings(options.Settings)
+	options.ExplicitToolSelection = config.CloneToolSelection(options.ExplicitToolSelection)
 	options.EnabledTools = append([]toolspec.ID(nil), options.EnabledTools...)
+	options.RequiredTools = append([]toolspec.ID(nil), options.RequiredTools...)
 	options.Sources = maps.Clone(options.Sources)
 	options.StartLogLines = append([]string(nil), options.StartLogLines...)
 	options.FilesystemContext = options.FilesystemContext.Clone()
@@ -82,7 +91,8 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 
 func cloneAgentRuntimeSettings(settings config.Settings) config.Settings {
 	cloned := settings
-	cloned.SystemPromptFiles = append([]config.SystemPromptFile(nil), settings.SystemPromptFiles...)
+	cloned.SystemPromptFile = textutil.Pointer(settings.SystemPromptFile)
+	cloned.Reviewer.SystemPromptFile = textutil.Pointer(settings.Reviewer.SystemPromptFile)
 	cloned.EnabledTools = maps.Clone(settings.EnabledTools)
 	cloned.SkillToggles = maps.Clone(settings.SkillToggles)
 	cloned.Shell.PostprocessHook = cloneStringPointer(settings.Shell.PostprocessHook)
@@ -173,6 +183,30 @@ func (a *Authority) buildAgentResource(
 	if plan == nil {
 		return nil, ErrAgentRuntimePlanRequired
 	}
+	if err := store.AdoptToolSelection(plan.options.ExplicitToolSelection); err != nil {
+		return nil, err
+	}
+	if meta := store.Meta(); meta.RetainedToolSelection != nil {
+		effective, err := launch.ApplyRetainedToolSelection(config.App{Settings: plan.options.Settings, Source: config.SourceReport{Sources: plan.options.Sources}}, meta)
+		if err != nil {
+			return nil, err
+		}
+		copiedPlan := *plan
+		copiedPlan.options.Settings, copiedPlan.options.Sources = effective.Settings, effective.Source.Sources
+		copiedPlan.options.EnabledTools, err = launch.ActiveToolIDsForPlan(effective.Settings, effective.Source, meta.Locked)
+		if err != nil {
+			return nil, err
+		}
+		required, err := launch.WithRequiredRunPromptTools(launch.SessionPlan{ActiveSettings: copiedPlan.options.Settings, EnabledTools: copiedPlan.options.EnabledTools}, copiedPlan.options.RequiredTools)
+		if err != nil {
+			return nil, err
+		}
+		copiedPlan.options.Settings, copiedPlan.options.EnabledTools = required.ActiveSettings, required.EnabledTools
+		if required.QuestionsEnabled {
+			copiedPlan.options.QuestionsEnabled = textutil.Value(true)
+		}
+		plan = &copiedPlan
+	}
 	if _, err := applyAgentSelection(store, plan.options.AgentSelection); err != nil {
 		return nil, err
 	}
@@ -250,6 +284,8 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	}
 	options := plan.options
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
+		RequiredTools:                       options.RequiredTools,
 		Context:                             resource.ctx,
 		Headless:                            options.Headless,
 		QuestionsEnabled:                    options.QuestionsEnabled,

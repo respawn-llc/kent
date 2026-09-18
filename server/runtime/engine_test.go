@@ -918,9 +918,7 @@ func TestSystemPromptRefreshFailureKeepsContractAbsentAndRetries(t *testing.T) {
 		CompactionMode:        "local",
 		AutoCompactionEnabled: &autoCompactionEnabled,
 		ToolPreambles:         false,
-		SystemPromptFiles: []config.SystemPromptFile{
-			{Path: systemPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
-		},
+		SystemPromptFile:      &config.SystemPromptFile{Path: systemPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit first: %v", err)
@@ -1006,7 +1004,7 @@ func TestLegacyNonBooleanSystemPromptSnapshotIsNotRefreshed(t *testing.T) {
 		t.Fatalf("mark locked: %v", err)
 	}
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}, Usage: llm.Usage{WindowTokens: 200000}}}}
-	eng := mustNewExecTestEngine(t, store, client, Config{SystemPromptFiles: []config.SystemPromptFile{{Path: filepath.Join(t.TempDir(), "new.md"), Scope: config.SystemPromptFileScopeWorkspaceConfig}}})
+	eng := mustNewExecTestEngine(t, store, client, Config{SystemPromptFile: &config.SystemPromptFile{Path: filepath.Join(t.TempDir(), "new.md"), Scope: config.SystemPromptFileScopeWorkspaceConfig}})
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}

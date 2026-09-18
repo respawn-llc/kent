@@ -101,7 +101,7 @@ func TestBeginMutationReacquiresWorkspaceLaneWhenSessionWorkspaceChanges(t *test
 	env := newServiceTestEnv(t)
 	secondWorkspace := t.TempDir()
 	initGitRepo(t, secondWorkspace)
-	secondCfg, err := config.Load(secondWorkspace, config.LoadOptions{})
+	secondCfg, err := config.Load(secondWorkspace, secondWorkspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load second workspace: %v", err)
 	}
@@ -200,7 +200,7 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, ".kent-test"))
 	initGitRepo(t, workspace)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

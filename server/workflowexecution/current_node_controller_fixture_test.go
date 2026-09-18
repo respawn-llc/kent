@@ -974,7 +974,7 @@ func newCurrentNodeQuestionFixtureWithPromptFeed(
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
-	appCfg, err := config.Load(workspace, config.LoadOptions{})
+	appCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -1067,6 +1067,7 @@ func (f currentNodeQuestionFixture) startAgentExecutionWithClient(
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.cfg.WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),

@@ -49,7 +49,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	root := t.TempDir()
 	t.Chdir(root)
 	testsetup.InitializeGitRepository(t, root)
-	cfg, err := config.Load(root, config.LoadOptions{})
+	cfg, err := config.Load(root, root, config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	facts := created.Worktree.Topology.GetRegistered()
-	cfg, err := config.Load(f.a.CanonicalRoot, config.LoadOptions{})
+	cfg, err := config.Load(f.a.CanonicalRoot, f.a.CanonicalRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

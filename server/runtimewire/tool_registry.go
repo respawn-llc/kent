@@ -121,6 +121,18 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 	}
 }
 
+func (b *LocalToolRegistryBinding) ReplaceEnabledTools(enabled []toolspec.ID) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	previous := b.enabled
+	b.enabled = append([]toolspec.ID(nil), enabled...)
+	if err := b.rebuildLocked(); err != nil {
+		b.enabled = previous
+		return err
+	}
+	return nil
+}
+
 func (b *LocalToolRegistryBinding) ReplaceFilesystemContext(next tools.FilesystemContext) error {
 	if b == nil {
 		return fmt.Errorf("local tool registry binding is required")

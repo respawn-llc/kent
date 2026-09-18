@@ -214,6 +214,7 @@ func captureSessionRequest(
 		auth.NewManager(authStore, nil),
 		nil,
 		runtimewire.RuntimeWiringOptions{
+			MainWorkspaceRoot:                   *bootstrap.MainWorkspaceRoot,
 			QuestionsEnabled:                    textutil.Value(resolved.QuestionsEnabled),
 			AutoCompactionEnabled:               textutil.Value(resolved.AutoCompactionEnabled),
 			FilesystemContext:                   filesystemContext,
@@ -303,7 +304,10 @@ func loadSessionConfig(bootstrap launch.BootstrapPlan, persistenceRoot string) (
 	if strings.TrimSpace(bootstrap.WorkspaceRoot) == "" {
 		return config.LoadGlobal(options)
 	}
-	return config.Load(bootstrap.WorkspaceRoot, options)
+	if bootstrap.MainWorkspaceRoot == nil {
+		return config.App{}, errors.New("Session bootstrap must supply its Main Workspace root")
+	}
+	return config.Load(bootstrap.WorkspaceRoot, *bootstrap.MainWorkspaceRoot, options)
 }
 
 func resolvePersistedWorkflowInspection(ctx context.Context, app config.App, metadataStore *metadata.Store, store *session.Store) (workflowrunner.PersistedWorkflowInspection, error) {

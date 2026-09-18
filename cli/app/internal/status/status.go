@@ -116,7 +116,7 @@ type ModelInfo struct {
 }
 
 type ConfigInfo struct {
-	SettingsPath    string
+	Files           []config.SourceFile
 	OverrideSources []string
 	Supervisor      string
 	AutoCompaction  bool

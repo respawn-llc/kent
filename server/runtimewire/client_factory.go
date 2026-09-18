@@ -27,7 +27,7 @@ type RuntimeClientRequest struct {
 	ActiveSettings   config.Settings
 	EnabledTools     []toolspec.ID
 	WorkspaceRoot    string
-	Sources          map[string]string
+	Sources          map[string]config.Origin
 	ProviderSettings RuntimeClientProviderSettings
 }
 
@@ -53,7 +53,7 @@ func (f RuntimeClientFactoryFunc) NewRuntimeClient(ctx context.Context, req Runt
 	return f(ctx, req)
 }
 
-func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFactory, purpose RuntimeClientPurpose, storeSessionID string, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, sources map[string]string, provider RuntimeClientProviderSettings) (llm.Client, error) {
+func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFactory, purpose RuntimeClientPurpose, storeSessionID string, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, sources map[string]config.Origin, provider RuntimeClientProviderSettings) (llm.Client, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -75,6 +75,6 @@ func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFacto
 	return client, nil
 }
 
-func cloneSources(sources map[string]string) map[string]string {
+func cloneSources(sources map[string]config.Origin) map[string]config.Origin {
 	return maps.Clone(sources)
 }

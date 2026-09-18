@@ -2,7 +2,6 @@ package sessionservice
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"core/server/auth"
@@ -85,11 +84,11 @@ func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 }
 
 func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
-	root, containerDir, store := createPersistedSession(t)
+	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(root, nil)
+	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -113,7 +112,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	if forkID.String() == store.Meta().SessionID {
 		t.Fatal("rollback launch targeted the parent")
 	}
-	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), sessionServiceTestPersistence.Options()...); err != nil {
+	if _, err := session.OpenByID(cfg.PersistenceRoot, forkID.String(), metadataStore.AuthoritativeSessionStoreOptions()...); err != nil {
 		t.Fatalf("open forked session: %v", err)
 	}
 	assertSessionLaunchPreparation(

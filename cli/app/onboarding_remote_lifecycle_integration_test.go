@@ -70,10 +70,12 @@ func runOnboardingRemoteLifecycleHelper(configPath string) error {
 	settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 	result, err := runOnboardingFlow(ctx, config.App{
 		Settings: settings,
-		Source: config.SourceReport{Sources: map[string]string{
-			"thinking_level":          "default",
-			"reviewer.model":          "default",
-			"reviewer.thinking_level": "default",
+		Source: config.SourceReport{Sources: map[string]config.Origin{
+			"thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+			"reviewer.model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model"}},
+
+			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
 		}},
 	}, remote, remote)
 	output := onboardingRemoteLifecycleProcessResult{

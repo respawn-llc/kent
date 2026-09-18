@@ -50,6 +50,7 @@ func TestMain(m *testing.M) {
 func requiredRuntimeWireTestOptions(options RuntimeWiringOptions) RuntimeWiringOptions {
 	options.QuestionsEnabled = textutil.Value(true)
 	options.AutoCompactionEnabled = textutil.Value(true)
+	options.MainWorkspaceRoot = options.FilesystemContext.Access.ExecutionTargetRoot.LexicalPath
 	return options
 }
 
@@ -161,7 +162,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		CustomInput: textutil.Value("*** Begin Patch\n*** Delete File: target.txt\n*** End Patch\n"),
 	}
 	client := scriptedllm.NewClient(scriptedllm.Script{
-		Steps: []scriptedllm.Step{scriptedllm.ToolBatch("", call)},
+		Steps: []scriptedllm.Step{scriptedllm.FinalAnswer("ready"), scriptedllm.ToolBatch("", call)},
 	})
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 	active.Debug = true
@@ -179,6 +180,9 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
 	t.Cleanup(func() { _ = wiring.Close() })
+	if _, err := wiring.Engine.SubmitUserMessage(context.Background(), "establish contract"); err != nil {
+		t.Fatal(err)
+	}
 	if err := wiring.LocalTools.registry.ReplaceHandlers(tools.HandlerRegistration{
 		ID:      toolspec.ToolPatch,
 		Handler: mismatchedDeletionPresentationHandler{},
@@ -499,15 +503,22 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 			t.Fatalf("write system prompt: %v", err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(originalWorkspace, config.ConfigDirName, "config.local.toml"), []byte("model = \"main-private\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeWorkspace, config.ConfigDirName, "config.local.toml"), []byte("invalid = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := session.Create(t.TempDir(), "ws", originalWorkspace, sessioncontract.SessionCategoryMain, runtimeWireTestSessionPersistence.Options()...)
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
 	binding := newRuntimeWireBinding(t, originalWorkspace, toolspec.ToolPatch)
 	reloader := launchPromptFacingSnapshotReloader{
-		store:      store,
-		localTools: binding,
-		configRoot: configRoot,
+		store:             store,
+		localTools:        binding,
+		configRoot:        configRoot,
+		mainWorkspaceRoot: originalWorkspace,
 	}
 	if err := store.EnsureDurable(); err != nil {
 		t.Fatalf("materialize store: %v", err)
@@ -532,13 +543,16 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload prompt-facing config: %v", err)
 	}
-	if len(reloaded.Settings.SystemPromptFiles) == 0 {
-		t.Fatal("expected system prompt files from active workspace config")
+	if reloaded.Settings.SystemPromptFile == nil {
+		t.Fatal("expected system prompt file from active workspace config")
 	}
-	got := reloaded.Settings.SystemPromptFiles[len(reloaded.Settings.SystemPromptFiles)-1].Path
+	got := reloaded.Settings.SystemPromptFile.Path
 	want := filepath.Join(activeWorkspace, config.ConfigDirName, "system.md")
 	if got != want {
 		t.Fatalf("system prompt path = %q, want active workspace path %q", got, want)
+	}
+	if reloaded.Settings.Model != "main-private" {
+		t.Fatalf("private configuration followed Working Directory: %s", reloaded.Settings.Model)
 	}
 }
 
@@ -1544,7 +1558,7 @@ func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
-		map[string]string{"reviewer.model_capabilities.supports_reasoning_effort": "file"},
+		map[string]config.Origin{"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}}},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",
 	)
@@ -1588,10 +1602,11 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			}
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
-			sources := map[string]string{}
+			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
-				sources["model_capabilities.supports_vision_inputs"] = "file"
+				sources["model_capabilities.supports_vision_inputs"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_vision_inputs"}}
+
 			}
 			wiring, err := NewRuntimeWiring(
 				store, materializedRuntimeWireEventLog(t, store), active,
@@ -1650,7 +1665,7 @@ func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
-		map[string]string{"model_capabilities.supports_reasoning_effort": "file"},
+		map[string]config.Origin{"model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_reasoning_effort"}}},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",
 	)

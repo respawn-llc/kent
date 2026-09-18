@@ -64,8 +64,8 @@ func newSupervisorTurnHarness(t *testing.T) *supervisorTurnHarness {
 	settings.Reviewer.Frequency = "all"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
 		Settings: settings, Client: model(h.main),
-		EnabledTools:          []toolspec.ID{toolspec.ToolAskQuestion},
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		EnabledTools:      []toolspec.ID{toolspec.ToolAskQuestion},
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{

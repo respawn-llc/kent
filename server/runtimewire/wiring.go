@@ -2,6 +2,7 @@ package runtimewire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,13 +38,15 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	MainWorkspaceRoot                   string
+	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
 	Context                             context.Context
 	OnEvent                             func(evt runtime.Event)
 	Headless                            bool
 	QuestionsEnabled                    *bool
 	AutoCompactionEnabled               *bool
-	Sources                             map[string]string
+	Sources                             map[string]config.Origin
 	Client                              llm.Client
 	ClientFactory                       RuntimeClientFactory
 	ReviewerClientFactory               RuntimeClientFactory
@@ -77,6 +80,9 @@ func NewRuntimeWiringWithBackground(
 	background *shelltool.Manager,
 	opts RuntimeWiringOptions,
 ) (*RuntimeWiring, error) {
+	if opts.PromptFacingSnapshotReloader == nil && strings.TrimSpace(opts.MainWorkspaceRoot) == "" {
+		return nil, errors.New("Main Workspace root is required for configuration reload")
+	}
 	if opts.Client != nil && opts.ClientFactory != nil {
 		return nil, ErrRuntimeClientFactoryConflict
 	}
@@ -212,8 +218,12 @@ func NewRuntimeWiringWithBackground(
 			store:                               store,
 			localTools:                          localTools,
 			configRoot:                          opts.GlobalConfigDir,
+			mainWorkspaceRoot:                   opts.MainWorkspaceRoot,
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
+	}
+	if len(opts.RequiredTools) != 0 {
+		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
 		Model:                           active.Model,
@@ -229,8 +239,9 @@ func NewRuntimeWiringWithBackground(
 		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
-		SubagentCatalogSettings:         active,
-		SystemPromptFiles:               active.SystemPromptFiles,
+		SubagentCatalog:                 config.App{Settings: active, Source: config.SourceReport{Sources: opts.Sources}},
+		SystemPromptFile:                active.SystemPromptFile,
+		RefreshToolRegistry:             localTools.ReplaceEnabledTools,
 		AutoCompactTokenLimit:           active.ContextCompactionThresholdTokens,
 		PreSubmitCompactionLeadTokens:   active.PreSubmitCompactionLeadTokens,
 		ContextWindowTokens:             active.ModelContextWindow,
@@ -280,12 +291,31 @@ type launchPromptFacingSnapshotReloader struct {
 	store                               *session.Store
 	localTools                          *LocalToolRegistryBinding
 	configRoot                          string
+	mainWorkspaceRoot                   string
 	skipContinuationAgentRoleValidation bool
+}
+
+type requiredToolsSnapshotReloader struct {
+	base     runtime.PromptFacingSnapshotReloader
+	required []toolspec.ID
+}
+
+func (r requiredToolsSnapshotReloader) ReloadPromptFacingSnapshotConfig(ctx context.Context, sessionID string) (runtime.PromptFacingSnapshotConfig, error) {
+	snapshot, err := r.base.ReloadPromptFacingSnapshotConfig(ctx, sessionID)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	plan, err := launch.WithRequiredRunPromptTools(launch.SessionPlan{ActiveSettings: snapshot.Settings, EnabledTools: snapshot.ActiveToolIDs}, r.required)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	snapshot.Settings, snapshot.ActiveToolIDs = plan.ActiveSettings, plan.EnabledTools
+	return snapshot, nil
 }
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
 	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
-	app, err := config.Load(workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
+	app, err := config.Load(workingDirectory, r.mainWorkspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}
@@ -333,7 +363,7 @@ func runtimeClientCapabilities(ctx context.Context, client llm.Client, override 
 	return provider.ProviderCapabilities(ctx)
 }
 
-func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]string, reasoningKey string, visionKey string) session.LockedModelCapabilities {
+func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]config.Origin, reasoningKey string, visionKey string) session.LockedModelCapabilities {
 	locked := llm.LockedModelCapabilitiesForModel(model, provider)
 	reasoningConfigured := inheritedModelCapabilitySourceConfigured(sources, reasoningKey)
 	visionConfigured := inheritedModelCapabilitySourceConfigured(sources, visionKey)
@@ -346,7 +376,7 @@ func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabil
 	return locked
 }
 
-func inheritedModelCapabilitySourceConfigured(sources map[string]string, key string) bool {
+func inheritedModelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
 	if modelCapabilitySourceConfigured(sources, key) {
 		return true
 	}
@@ -360,13 +390,8 @@ func inheritedModelCapabilitySourceConfigured(sources map[string]string, key str
 	}
 }
 
-func modelCapabilitySourceConfigured(sources map[string]string, key string) bool {
-	switch strings.TrimSpace(sources[key]) {
-	case "file", "env", "cli", "subagent":
-		return true
-	default:
-		return false
-	}
+func modelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
+	return sources[key].Configured()
 }
 
 func reviewerProviderRuntimeSettings(active config.Settings) RuntimeClientProviderSettings {

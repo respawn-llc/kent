@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -34,10 +35,10 @@ func TestSkillToggleChangesOnlySkillContext(t *testing.T) {
 			newTestToolRegistry(t, tools.HandlerRegistration{
 				ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
 			}), Config{
-				Model:                   "gpt-5",
-				EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-				SkillPolicy:             policy,
-				SubagentCatalogSettings: catalog,
+				Model:           "gpt-5",
+				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+				SkillPolicy:     policy,
+				SubagentCatalog: testsetup.ProgrammaticConfig(t, catalog),
 			})
 		if _, err := engine.SubmitUserMessage(context.Background(), "work"); err != nil {
 			t.Fatalf("submit with skill enabled=%t: %v", enabled, err)
@@ -75,7 +76,7 @@ func TestSkillToggleChangesOnlySkillContext(t *testing.T) {
 		contexts = append(contexts, otherContext)
 
 		builder := newMetaContextBuilder(workspace, "gpt-5", "", policy, time.Unix(0, 0)).
-			withSubagents(catalog, []toolspec.ID{toolspec.ToolExecCommand})
+			withSubagents(testsetup.ProgrammaticConfig(t, catalog), []toolspec.ID{toolspec.ToolExecCommand})
 		projection, err := builder.Build(baseMetaContextBuildOptions(false))
 		if err != nil {
 			t.Fatalf("build fixed-time context: %v", err)

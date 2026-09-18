@@ -70,11 +70,11 @@ func releaseServeTestPortForConfig(cfg config.App) {
 func registerServeWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.HomeSettingsPath); err != nil {
+	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
@@ -131,11 +131,11 @@ func TestConfiguredServeRequiresAuthWhenRequested(t *testing.T) {
 func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if err := os.Remove(cfg.Source.HomeSettingsPath); err != nil {
+	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("remove settings: %v", err)
 	}
 	appCore, err := startCoreWithBootstrap(context.Background(), request, true, envAuthHandler{})
@@ -154,7 +154,7 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
 	writeServeSettings(t, home, "model = \"gpt-5\"\n")
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -540,7 +540,7 @@ model = "gpt-5"
 openai_base_url = "http://127.0.0.1:11434/v1"
 `)
 	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load for binding: %v", err)
 	}
@@ -620,11 +620,11 @@ func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	loadCfg, err := config.Load(workspace, config.LoadOptions{})
+	loadCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.HomeSettingsPath); err != nil {
+	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
 
@@ -709,6 +709,9 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 		t.Fatal("expected missing-config serve startup surface")
 	}
 	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
+	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {
+		t.Fatalf("move metadata directory before blocking activation: %v", err)
+	}
 	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
 		t.Fatalf("write metadata blocker: %v", err)
 	}

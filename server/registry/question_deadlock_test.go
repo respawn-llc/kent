@@ -139,7 +139,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		questionCall = 2
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-		Settings: settings, FilesystemContext: filesystem,
+		MainWorkspaceRoot: filesystem.Access.ExecutionTargetRoot.LexicalPath,
+		Settings:          settings, FilesystemContext: filesystem,
 		EnabledTools:     []toolspec.ID{toolspec.ToolAskQuestion},
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
 		Client: &questionDeadlockClient{generate: func(_ context.Context, call int32) (llm.Response, error) {

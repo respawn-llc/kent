@@ -16,6 +16,7 @@
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings — each section loads independently with a loading placeholder; section failures become warnings listed in the Warnings section, never a blank overlay. The section set is behavior-level; copy/layout is presentation.
 - Keys: scroll only (shared conventions); no actions.
 - `/status` does not show server ownership because the TUI is always a client.
+- The Config section must show a tree of contributing configuration-file paths in global → shared workspace → Main Workspace private precedence order. It must omit files that did not contribute settings and retain the environment and command-line override summary. It must not add a per-property source list.
 
 ## /goal
 

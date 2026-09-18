@@ -20,9 +20,10 @@ type BootstrapRequest struct {
 }
 
 type BootstrapPlan struct {
-	WorkspaceRoot    string
-	OpenAIBaseURL    string
-	UseOpenAIBaseURL bool
+	WorkspaceRoot     string
+	MainWorkspaceRoot *string
+	OpenAIBaseURL     string
+	UseOpenAIBaseURL  bool
 }
 
 func ResolveSessionCaller(persistenceRoot string, sessionID string) (subagentpolicy.Caller, error) {
@@ -65,6 +66,15 @@ func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (Bootstr
 		return BootstrapPlan{}, err
 	}
 	meta := store.Meta()
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		return BootstrapPlan{}, err
+	}
+	target, targetErr := metadataStore.ResolveSessionExecutionTarget(context.Background(), meta.SessionID)
+	if err := errors.Join(targetErr, metadataStore.Close()); err != nil {
+		return BootstrapPlan{}, err
+	}
+	plan.MainWorkspaceRoot = textutil.Value(target.WorkspaceRoot)
 	if !req.WorkspaceRootExplicit && strings.TrimSpace(meta.WorkspaceRoot) != "" {
 		plan.WorkspaceRoot = strings.TrimSpace(meta.WorkspaceRoot)
 	}

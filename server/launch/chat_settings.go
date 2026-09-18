@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
@@ -79,11 +80,11 @@ func prepareChatAgentCatalog(app config.App, authState auth.State, preparation R
 		}
 		entries = append(entries, entry)
 	}
-	defaultPrompts := entries[0].comparison.Settings.SystemPromptFiles
+	defaultPrompt := entries[0].comparison.Settings.SystemPromptFile
 	for index := range entries {
-		entries[index].Choice.CustomSystemPrompt = !slices.Equal(
-			entries[index].comparison.Settings.SystemPromptFiles,
-			defaultPrompts,
+		entries[index].Choice.CustomSystemPrompt = !textutil.EqualOptional(
+			entries[index].comparison.Settings.SystemPromptFile,
+			defaultPrompt,
 		)
 	}
 	return PreparedChatAgentCatalog{entries: entries}, nil

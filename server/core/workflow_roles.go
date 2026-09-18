@@ -12,7 +12,7 @@ import (
 )
 
 type configTargetAgentCatalog struct {
-	settings config.Settings
+	app config.App
 }
 
 type configRoleResolver = configTargetAgentCatalog
@@ -22,22 +22,22 @@ func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.T
 	if trimmed == "" {
 		return workflow.TargetAgentRole{}, false
 	}
-	lookup := config.LookupSubagentRole(r.settings, trimmed)
+	lookup := config.LookupSubagentRole(r.app.Settings, trimmed)
 	if lookup.Status != config.SubagentRoleLookupPresent || lookup.NormalizedSelector == nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	effective, err := launch.ResolveConfiguredSubagentSettings(r.settings, *lookup.NormalizedSelector)
+	effective, err := launch.ResolveConfiguredSubagentSettings(r.app, *lookup.NormalizedSelector)
 	if err != nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	targetRole := targetAgentRoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet && lookup.Role.AgentCallable)
+	targetRole := targetAgentRoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet() && lookup.Role.AgentCallable)
 	return targetRole, true
 }
 
 func (r configTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
-	roles := make([]workflow.TargetAgentRole, 0, len(r.settings.Subagents))
-	for name, role := range r.settings.Subagents {
-		if !role.AgentCallableSet || !role.AgentCallable {
+	roles := make([]workflow.TargetAgentRole, 0, len(r.app.Settings.Subagents))
+	for name, role := range r.app.Settings.Subagents {
+		if !role.AgentCallableSet() || !role.AgentCallable {
 			continue
 		}
 		resolved, ok := r.ResolveConfiguredRole(name)

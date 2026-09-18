@@ -62,10 +62,11 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler)
 	bootstrapReq := buildRequest(req, authHandler)
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config
-	if cfg.Source.SettingsFileExists {
+	if cfg.Source.SettingsFileExists() {
 		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler)
 		if err != nil {
 			return nil, err
@@ -102,7 +103,7 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 		return config.App{}, nil, err
 	}
 	cfg = refreshed.Config
-	if cfg.Source.SettingsFileExists {
+	if cfg.Source.SettingsFileExists() {
 		_ = rootLease.Close()
 		return config.App{}, nil, errStartupControlSurfaceNotRequired
 	}
@@ -115,7 +116,7 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
 		PersistenceRoot: cfg.PersistenceRoot,
 		WorkspaceRoot:   cfg.WorkspaceRoot,
-		SettingsPath:    cfg.Source.HomeSettingsPath,
+		SettingsPath:    cfg.Source.File(config.FileGlobal).Path,
 	})
 	if err != nil {
 		_ = rootLease.Close()
@@ -393,6 +394,7 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 	}
 	refreshed, err := serverbootstrap.ResolveConfig(d.bootstrap)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return d.activationError(resp, err)
 	}
 	background, err := serverbootstrap.BuildShellManager(refreshed.Config)

@@ -190,7 +190,14 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	}
 
 	appendSectionTitle("Config")
-	appendWrapped(statusDisplayPath(snapshot.Config.SettingsPath, snapshot.Workdir), subtleStyle)
+	treeStyle := lipgloss.NewStyle().Foreground(palette.muted).Faint(true)
+	for index, file := range snapshot.Config.Files {
+		branch := "├─"
+		if index == len(snapshot.Config.Files)-1 {
+			branch = "└─"
+		}
+		appendWrapped(treeStyle.Render(branch+" ")+statusDisplayPath(file.Path, snapshot.Workdir), lipgloss.Style{})
+	}
 	if len(snapshot.Config.OverrideSources) > 0 {
 		appendWrapped("overrides: "+strings.Join(snapshot.Config.OverrideSources, ", "), lipgloss.Style{})
 	}
@@ -202,7 +209,6 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	loadedSkills, failedSkills := statusPartitionSkills(snapshot.Skills)
 	subheaderStyle := lipgloss.NewStyle().Foreground(palette.primary).Bold(true)
 	directoryStyle := lipgloss.NewStyle().Foreground(palette.foreground)
-	treeStyle := lipgloss.NewStyle().Foreground(palette.muted).Faint(true)
 	errorStyle := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Error.Adaptive()).Bold(true)
 	appendGap()
 	switch statusSkillsPresentation(snapshot, l.statusSectionLoading(uiStatusSectionEnvironment)) {

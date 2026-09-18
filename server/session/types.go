@@ -3,6 +3,7 @@ package session
 import (
 	"time"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -41,9 +42,15 @@ func (c LockedContract) WithReviewerPromptSnapshot(snapshot LockedReviewerPrompt
 }
 
 func (c LockedContract) WithRequestShape(fields LockedRequestShapeBackfill) LockedContract {
-	c.EnabledTools = append([]string(nil), fields.EnabledTools...)
-	c.HasEnabledTools = fields.HasEnabledTools
-	c.WebSearchMode = fields.WebSearchMode
+	if !c.HasEnabledTools {
+		if len(c.EnabledTools) == 0 {
+			c.EnabledTools = append([]string(nil), fields.EnabledTools...)
+		}
+		c.HasEnabledTools = fields.HasEnabledTools
+	}
+	if c.WebSearchMode == "" {
+		c.WebSearchMode = fields.WebSearchMode
+	}
 	return c
 }
 
@@ -200,6 +207,7 @@ type Meta struct {
 	Continuation                    *ContinuationContext             `json:"continuation,omitempty"`
 	ChatSettings                    *ChatSettingsOverrides           `json:"chat_settings,omitempty"`
 	OriginalThinkingEffort          *string                          `json:"original_thinking_effort,omitempty"`
+	RetainedToolSelection           *config.ToolSelection            `json:"retained_tool_selection,omitempty"`
 	CreatedAt                       time.Time                        `json:"created_at"`
 	UpdatedAt                       time.Time                        `json:"updated_at"`
 	LastSequence                    int64                            `json:"last_sequence"`

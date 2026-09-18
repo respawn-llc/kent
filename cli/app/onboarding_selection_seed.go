@@ -200,7 +200,7 @@ func seedVerbositySelection(value config.ModelVerbosity) (onboardingVerbositySel
 	}
 }
 
-func seedSupervisorSelection(settings config.Settings, sources map[string]string, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
+func seedSupervisorSelection(settings config.Settings, sources map[string]config.Origin, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
 	var frequency onboardingSupervisorFrequency
 	switch strings.TrimSpace(settings.Reviewer.Frequency) {
 	case "", "off":
@@ -268,14 +268,17 @@ func seedCompactionSelection(value config.CompactionMode) (onboardingCompactionS
 	}
 }
 
-func requiredOnboardingSource(sources map[string]string, key string) (string, error) {
+func requiredOnboardingSource(sources map[string]config.Origin, key string) (config.SourceKind, error) {
 	source, ok := sources[key]
 	if !ok {
 		return "", conversionError(key, nil, "source provenance is missing")
 	}
-	switch source {
-	case "default", "file", "env", "cli", "subagent":
-		return source, nil
+	switch source.Kind {
+	case config.SourceDefault, config.SourceFileKind, config.SourceEnv, config.SourceCLI, config.SourceInput:
+		if !source.Declares(key) {
+			return config.SourceDefault, nil
+		}
+		return source.Kind, nil
 	default:
 		return "", conversionError(key, source, "unknown source provenance")
 	}

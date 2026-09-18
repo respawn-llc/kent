@@ -6,6 +6,7 @@ import (
 
 	"core/server/launch"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -32,6 +33,7 @@ func ActivationRequestFromSessionPlan(
 		AutoCompactionEnabled:    textutil.Value(plan.AutoCompactionEnabled),
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           agentSelection,
+		ExplicitToolSelection:    config.CloneToolSelection(plan.ExplicitToolSelection),
 		Source:                   plan.Source,
 	}
 	if err := request.Validate(); err != nil {

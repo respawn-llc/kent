@@ -53,6 +53,7 @@ type sessionLaunchPlan struct {
 	AutoCompactionEnabled      bool
 	ThinkingOverrideExplicit   bool
 	ActivationAgentSelection   *serverapi.SessionRuntimeAgentSelection
+	ExplicitToolSelection      *config.ToolSelection
 	StatusConfig               uiStatusConfig
 	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
@@ -246,6 +247,10 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	explicitTools, err := protoapi.ToolSelectionFromProto(resp.Plan.ExplicitToolSelection)
+	if err != nil {
+		return sessionLaunchPlan{}, err
+	}
 	return sessionLaunchPlan{
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
@@ -259,6 +264,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: resp.Plan.ThinkingOverrideExplicit,
 		ActivationAgentSelection: activationAgentSelection,
+		ExplicitToolSelection:    explicitTools,
 		StatusConfig: uiStatusConfig{
 			WorkspaceRoot:   executionTarget.EffectiveWorkdir,
 			ExecutionTarget: executionTarget,
@@ -389,8 +395,8 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	return merged
 }
 
-func sourceIsCLI(sources map[string]string, key string) bool {
-	return strings.TrimSpace(sources[key]) == "cli"
+func sourceIsCLI(sources map[string]config.Origin, key string) bool {
+	return sources[key].Kind == config.SourceCLI
 }
 
 func hasCLIToolOverride(source config.SourceReport) bool {

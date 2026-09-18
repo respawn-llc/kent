@@ -18,6 +18,7 @@ type SessionRuntimeActivateRequest struct {
 	AutoCompactionEnabled    *bool
 	ThinkingOverrideExplicit bool
 	AgentSelection           *SessionRuntimeAgentSelection
+	ExplicitToolSelection    *config.ToolSelection
 	Source                   config.SourceReport
 }
 
@@ -54,6 +55,11 @@ const (
 )
 
 func (r SessionRuntimeActivateRequest) Validate() error {
+	if r.ExplicitToolSelection != nil {
+		if err := r.ExplicitToolSelection.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := validateScopedSessionID(r.SessionID); err != nil {
 		return err
 	}

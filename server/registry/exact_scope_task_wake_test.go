@@ -90,6 +90,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		t.Fatalf("new filesystem context: %v", err)
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     filesystemContext.Access.ExecutionTargetRoot.LexicalPath,
 		Settings:              settings,
 		FilesystemContext:     filesystemContext,
 		QuestionsEnabled:      textutil.Value(true),

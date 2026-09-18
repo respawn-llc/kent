@@ -39,6 +39,7 @@ type AuthHandler interface {
 func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
+		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config
@@ -52,7 +53,7 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 			return nil, err
 		}
 	}
-	if !cfg.Source.SettingsFileExists {
+	if !cfg.Source.SettingsFileExists() {
 		return nil, ErrOnboardingRequired
 	}
 	background, err := serverbootstrap.BuildShellManager(cfg)
