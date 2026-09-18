@@ -47,6 +47,7 @@ import {
 } from "@/api/composition";
 
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
+export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
 
 type FakeJsonRoute = Readonly<{
   method: string;

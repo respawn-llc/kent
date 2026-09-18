@@ -9,14 +9,7 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
     case "internal":
       return detail.cause ?? t("chat.worktree.internalFailure");
     case "delete_partial":
-      return [
-        t("chat.worktree.deletePartial", {
-          sessionCount: detail.details.retargetedSessions.toString(),
-        }),
-        detail.details.blocked === undefined
-          ? detail.details.diagnostic
-          : blockedMessage(detail.details.blocked, t),
-      ].join("\n");
+      return partialDeletionMessage(detail.details, t);
     case "create":
       return detail.diagnostic;
     case "setup_retained":
@@ -30,6 +23,16 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
     case "delete_precondition":
       return t("chat.worktree.deleteChanged");
   }
+}
+
+function partialDeletionMessage(
+  details: Extract<WorktreeError["detail"], { kind: "delete_partial" }>["details"],
+  t: TFunction,
+): string {
+  return [
+    t("chat.worktree.deletePartial", { sessionCount: details.retargetedSessions.toString() }),
+    details.blocked?.activeSessions === undefined ? details.diagnostic : blockedMessage(details.blocked, t),
+  ].join("\n");
 }
 
 function blockedMessage(
