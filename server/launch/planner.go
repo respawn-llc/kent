@@ -224,12 +224,6 @@ func ResolvePromptFacingSnapshotConfig(app config.App, store *session.Store, ski
 	}, nil
 }
 
-// ResolveReadOnlyPromptFacingSnapshotPlan reconstructs the current persisted
-// Agent-role projection without backfills or other Store mutations.
-func ResolveReadOnlyPromptFacingSnapshotPlan(app config.App, store *session.Store, skipContinuationAgentRoleValidation bool) (SessionPlan, error) {
-	return resolvePromptFacingSnapshotPlan(app, store, skipContinuationAgentRoleValidation)
-}
-
 type ReadOnlySessionContextSettings struct {
 	Settings              config.Settings
 	AutoCompactionEnabled bool
