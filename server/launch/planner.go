@@ -39,11 +39,8 @@ type SessionExecutionTargetResolver interface {
 	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error)
 }
 
-type SessionProjectWorkspaceBoundaryResolver interface {
+type SessionWorkspaceContextResolver interface {
 	ResolveSessionProjectWorkspaceBoundary(ctx context.Context, sessionID string) (metadata.ProjectWorkspaceBoundary, error)
-}
-
-type SessionManagedWorktreeRootsResolver interface {
 	ListManagedWorktreeRoots(ctx context.Context) ([]string, error)
 }
 
@@ -66,7 +63,7 @@ type Planner struct {
 	ReloadConfig             func() (config.App, error)
 	PersistedSessions        session.PersistedSessionResolver
 	ExecutionTargets         SessionExecutionTargetResolver
-	ProjectWorkspaceBoundary SessionProjectWorkspaceBoundaryResolver
+	ProjectWorkspaceBoundary SessionWorkspaceContextResolver
 	MetadataStoreOpener      MetadataExecutionTargetStoreOpener
 }
 
@@ -543,11 +540,7 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 	if err != nil {
 		return SessionPlan{}, err
 	}
-	managedRootsResolver, ok := p.ProjectWorkspaceBoundary.(SessionManagedWorktreeRootsResolver)
-	if !ok {
-		return SessionPlan{}, errors.New("project managed worktree roots resolver is required")
-	}
-	managedWorktreeRoots, err := managedRootsResolver.ListManagedWorktreeRoots(ctx)
+	managedWorktreeRoots, err := p.ProjectWorkspaceBoundary.ListManagedWorktreeRoots(ctx)
 	if err != nil {
 		return SessionPlan{}, err
 	}
