@@ -886,19 +886,6 @@ func (c *metaContextCollector) result() metaContextBuildResult {
 	return result
 }
 
-func splitMetaContextMessages(messages []llm.Message) ([]llm.Message, []llm.Message) {
-	meta := make([]llm.Message, 0, 4)
-	transcript := make([]llm.Message, 0, len(messages))
-	for _, message := range messages {
-		if _, ok := classifyMetaContextMessage(message); ok {
-			meta = append(meta, message)
-			continue
-		}
-		transcript = append(transcript, message)
-	}
-	return meta, transcript
-}
-
 func classifyMetaContextMessage(message llm.Message) (metaContextClassification, bool) {
 	if message.Role != llm.RoleDeveloper || message.MessageType == nil {
 		return metaContextClassification{}, false
