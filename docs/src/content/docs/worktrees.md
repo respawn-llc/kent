@@ -16,6 +16,8 @@ kent worktree delete <selector>
 
 Every command supports `--json`. Session-scoped commands automatically use the current Session inside a Kent shell or accept `--session <id>` explicitly.
 
+Agents receive their Worktree context when a conversation starts, including workflow Sessions, and retain it after compaction. Context reminders distinguish starting or continuing in a Worktree from switching into one.
+
 ## Select a Project or Workspace
 
 `list`, `create`, and `delete` work without a Session. Use `--project <project-id>` for that Project's default Workspace, or add `--workspace <workspace-id>` to choose another Workspace within it.

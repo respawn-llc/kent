@@ -277,20 +277,30 @@ func worktreeReminderStateForTransition(previous *syncedWorktree, previousTarget
 }
 
 func worktreeReminderStateForExitedWorktree(worktree metadata.WorktreeRecord, workspaceRoot, effectiveCwd string) (session.WorktreeReminderState, error) {
-	gitMetadata, err := worktreeGitMetadataFromRecord(worktree)
+	worktreeContext, err := ContextFromRecord(worktree, workspaceRoot, effectiveCwd)
 	if err != nil {
 		return session.WorktreeReminderState{}, err
 	}
 	contextID := uuid.New()
+	worktreeContext.ContextID = &contextID
 	return session.WorktreeReminderState{
-		Mode: session.WorktreeReminderModeExit,
-		WorktreeContext: session.WorktreeContext{
-			Branch:        optionalWorktreeBranchName(gitMetadata.Branch),
-			WorktreePath:  strings.TrimSpace(worktree.CanonicalRoot),
-			WorkspaceRoot: workspaceRoot,
-			EffectiveCwd:  effectiveCwd,
-			ContextID:     &contextID,
-		},
+		Mode:            session.WorktreeReminderModeExit,
+		WorktreeContext: worktreeContext,
+	}, nil
+}
+
+// ContextFromRecord projects the recorded Worktree identity and Git branch
+// into the context used by Session reminders.
+func ContextFromRecord(worktree metadata.WorktreeRecord, workspaceRoot, effectiveCwd string) (session.WorktreeContext, error) {
+	gitMetadata, err := worktreeGitMetadataFromRecord(worktree)
+	if err != nil {
+		return session.WorktreeContext{}, err
+	}
+	return session.WorktreeContext{
+		Branch:        optionalWorktreeBranchName(gitMetadata.Branch),
+		WorktreePath:  strings.TrimSpace(worktree.CanonicalRoot),
+		WorkspaceRoot: workspaceRoot,
+		EffectiveCwd:  effectiveCwd,
 	}, nil
 }
 

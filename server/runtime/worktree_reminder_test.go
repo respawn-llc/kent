@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"core/prompts"
 	"core/server/llm"
@@ -263,9 +264,10 @@ func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing
 }
 
 func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
-	prevPrompt := prompts.WorktreeModePrompt
-	prompts.WorktreeModePrompt = "enter {{branch}}"
-	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+	prevPrompt := prompts.WorktreePostCompactionPrompt
+	prompts.WorktreePostCompactionPrompt = "{{cwd}}"
+	defer func() { prompts.WorktreePostCompactionPrompt = prevPrompt }()
+	compactionDone := make(chan EventKind, 1)
 
 	store := mustCreateTestSession(t)
 	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
@@ -285,6 +287,11 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:          "gpt-5",
 		CompactionMode: "local",
+		OnEvent: func(event Event) {
+			if event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed {
+				compactionDone <- event.Kind
+			}
+		},
 	})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "start"); err != nil {
@@ -293,12 +300,26 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	if err := eng.CompactContext(context.Background(), ""); err != nil {
 		t.Fatalf("compact: %v", err)
 	}
+	select {
+	case kind := <-compactionDone:
+		if kind != EventCompactionCompleted {
+			t.Fatalf("compaction failed: %s", kind)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for compaction")
+	}
 
 	compactedMessages := eng.transcriptRuntimeState().SnapshotMessages()
 	if got := worktreeReminderMessageCount(compactedMessages); got != 1 {
 		t.Fatalf("worktree reminders after compaction = %d, want 1 messages=%+v", got, compactedMessages)
 	}
 	assertLatestWorktreeContext(t, compactedMessages, target)
+	for _, message := range compactedMessages {
+		if message.WorktreeContext != nil && (message.Content == nil || *message.Content != target.EffectiveCwd) {
+			content, _ := textutil.OptionalValue(message.Content)
+			t.Fatalf("compaction did not use the post-compaction Worktree template: content=%q", content)
+		}
+	}
 	if err := eng.Close(); err != nil {
 		t.Fatalf("close compacted engine: %v", err)
 	}
@@ -398,7 +419,7 @@ func TestRepeatedSubmissionsDoNotDuplicateMaterializedWorktreeReminder(t *testin
 
 func TestSameCWDChangedWorktreeTargetMaterializesNewContext(t *testing.T) {
 	prevPrompt := prompts.WorktreeModePrompt
-	prompts.WorktreeModePrompt = "enter {{branch}}"
+	prompts.WorktreeModePrompt = "{{cwd}}"
 	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
 
 	const sharedCWD = "/tmp/shared-cwd"
@@ -446,6 +467,9 @@ func TestSameCWDChangedWorktreeTargetMaterializesNewContext(t *testing.T) {
 		t.Fatalf("latest worktree context = %+v, want %+v", latest, secondTarget)
 	}
 	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 2)
+	if latest.Content == nil || *latest.Content != secondTarget.EffectiveCwd {
+		t.Fatal("target change did not use the switch Worktree template")
+	}
 }
 
 func TestConfirmedSameCWDTargetChangeBypassesLegacyFallback(t *testing.T) {
@@ -801,7 +825,7 @@ func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testi
 	}
 
 	assertModelCallCount(t, client, 2)
-	exitMessage, ok := worktreeModeExitMetaMessage(exitTarget, t.TempDir())
+	exitMessage, ok := worktreeModeExitMetaMessage(exitTarget, t.TempDir(), prompts.WorktreePromptSwitch)
 	if !ok {
 		t.Fatal("expected exit reminder message")
 	}

@@ -557,6 +557,7 @@ func (e *Engine) compactionReinjectedMetaContextProjection(ctx context.Context, 
 	builder := e.activeMetaContextBuilder(e.currentModel(), skillPolicy)
 	opts := baseMetaContextBuildOptions(false)
 	opts.IncludeHeadless = meta.HeadlessActive
+	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)
 	if mode == compactionModeWorkflowPostCompletion {
 		opts.SubagentInvocationContext = config.SubagentInvocationContextWorkflow

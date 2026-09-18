@@ -63,6 +63,7 @@ type metaContextBuildOptions struct {
 	IncludeWorkflow           bool
 	WorkflowMessage           *llm.Message
 	WorktreeReminder          *session.WorktreeReminderState
+	WorktreePromptKind        prompts.WorktreePromptKind
 	SessionRebindReminder     *session.SessionRebindReminder
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
@@ -278,9 +279,9 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		)
 		switch opts.WorktreeReminder.Mode {
 		case session.WorktreeReminderModeEnter:
-			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder, home)
+			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		case session.WorktreeReminderModeExit:
-			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder, home)
+			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		}
 		if ok {
 			collector.addMessages([]llm.Message{message})
@@ -661,8 +662,8 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 	return out
 }
 
-func worktreeModeMetaMessage(state session.WorktreeReminderState, home string) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModePrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
 		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
@@ -676,8 +677,8 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState, home string) (
 	}, true
 }
 
-func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
 		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
