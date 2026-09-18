@@ -97,7 +97,8 @@ func TestFreshPlacementCreatesDurablePreviousSessionChild(t *testing.T) {
 func newPlacementFixture(t *testing.T) (config.App, *metadata.Store, *session.Store, *sessionlaunch.Service) {
 	t.Helper()
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
-	cfg, err := config.Load(t.TempDir(), config.LoadOptions{})
+	workspace := t.TempDir()
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
