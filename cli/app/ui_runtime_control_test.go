@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"core/server/llm"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
@@ -703,7 +702,7 @@ func TestRuntimeControlMarksDisconnectOnTransportError(t *testing.T) {
 }
 
 func TestRuntimeControlClearsDisconnectOnReachableServerError(t *testing.T) {
-	client := &runtimeControlFakeClient{submitErr: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}}
+	client := &runtimeControlFakeClient{submitErr: errors.New("request rejected")}
 	m := newProjectedTestUIModel(client)
 	m.setRuntimeDisconnected(true)
 

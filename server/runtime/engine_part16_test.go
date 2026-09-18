@@ -24,7 +24,7 @@ func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
 			},
 		},
 		compactionErrors: []error{
-			&llm.APIStatusError{StatusCode: 400, Body: `{"error":{"type":"invalid_request_error","code":"invalid_tool_arguments","message":"tool arguments must be an object"}}`},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, ProviderType: "invalid_request_error", ProviderCode: "invalid_tool_arguments", Message: "tool arguments must be an object"},
 			nil,
 		},
 		compactionResponses: []llm.CompactionResponse{
@@ -70,7 +70,7 @@ func TestOpenAIModelCompact404DoesNotFallbackToLocalCompaction(t *testing.T) {
 				Usage:     llm.Usage{InputTokens: 4000, OutputTokens: 1000, WindowTokens: 200000},
 			},
 		},
-		compactionErr: &llm.APIStatusError{StatusCode: 404, Body: "not found"},
+		compactionErr: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 404, Code: llm.UnifiedErrorCodeUnknown, Message: "not found"},
 		caps: llm.ProviderCapabilities{
 			ProviderID:                    "openai",
 			SupportsResponsesAPI:          true,
