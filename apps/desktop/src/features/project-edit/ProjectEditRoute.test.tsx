@@ -38,10 +38,10 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   useAppServices: () => services,
   useAppNavigation: () => navigation,
-  useNativeDialogFallback: () => ({ fallback: null, open: vi.fn(async () => undefined) }),
   useSidebarBackWhen: sidebarBackWhen,
   useSidebarHeaderOffset: () => 0,
   useStatusController: () => ({ push: statusPush }),
+  useNativeDialogFallback: () => ({ fallback: null, open: vi.fn(async () => undefined) }),
   useWindowChromeTitle: () => undefined,
 }));
 
@@ -120,6 +120,75 @@ beforeEach(() => {
   statusPush.mockClear();
   sidebarBackWhen.mockClear();
   navigation.openHome = vi.fn(async () => undefined);
+});
+
+it("confirms workspace detach above the destination and refreshes the sidebar list", async () => {
+  const workspace = { id: "workspace-extra", name: "Extra", rootPath: "/extra", isDefault: false };
+  listWorkspaces.mockResolvedValue({
+    projectID: project.projectID,
+    offset: 0,
+    workspaces: [workspace],
+    nextOffset: null,
+  });
+  const response = deferred<Awaited<ReturnType<typeof services.api.unlinkWorkspace>>>();
+  const unlink = vi.spyOn(services.api, "unlinkWorkspace").mockReturnValue(response.promise);
+  const nativeWindow = vi.spyOn(services.nativeBridge.dialogs, "openWindow");
+  const view = mount();
+  const button = await screen.findByRole("button", {
+    name: appI18n.t("projectEdit.unlinkWorkspace", { path: "/extra" }),
+  });
+  fireEvent.click(button);
+  const dialog = screen.getByRole("dialog", { name: appI18n.t("projectEdit.unlinkTitle") });
+  expect(view.container).not.toContainElement(dialog);
+  expect(document.body).toContainElement(dialog);
+  expect(nativeWindow).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("projectEdit.unlinkConfirm") }));
+  await waitFor(() => {
+    expect(unlink).toHaveBeenCalledOnce();
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  listWorkspaces.mockResolvedValue({
+    projectID: project.projectID,
+    offset: 0,
+    workspaces: [],
+    nextOffset: null,
+  });
+  await act(async () => {
+    response.resolve({
+      projectID: project.projectID,
+      workspaceID: workspace.id,
+      project: null,
+      blockers: [],
+    });
+    await response.promise;
+  });
+  await waitFor(() => expect(button).not.toBeInTheDocument());
+});
+
+it("reports a detach failure in the destination after closing confirmation", async () => {
+  listWorkspaces.mockResolvedValue({
+    projectID: project.projectID,
+    offset: 0,
+    workspaces: [workspace],
+    nextOffset: null,
+  });
+  vi.spyOn(services.api, "unlinkWorkspace").mockRejectedValue(new Error("request failed"));
+  mount();
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: appI18n.t("projectEdit.unlinkWorkspace", { path: workspace.rootPath }),
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("projectEdit.unlinkConfirm") }));
+  await waitFor(() => {
+    expect(statusPush).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", {
+      name: appI18n.t("projectEdit.unlinkWorkspace", { path: workspace.rootPath }),
+    }),
+  ).toBeEnabled();
 });
 
 it("keeps drafts when unrelated Home selection changes the navigation callback", () => {

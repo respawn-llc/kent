@@ -103,6 +103,7 @@ export const englishResources = {
         worktreeExitCwd: "Switched worktree to main workspace: {{cwd}}",
         worktree: "worktree",
         sessionRebind: "Session rebound",
+        agentSteer: "Message from another agent",
       },
     },
     labels: {
@@ -263,7 +264,6 @@ export const englishResources = {
       projectSaved: "Project saved.",
       defaultWorkspaceSaved: "Default workspace saved.",
       workspaceUnlinkBlocked: "Workspace cannot be unlinked yet.",
-      unlinkWindowError: "Workspace unlink window failed",
       unlinkWorkspace: "Unlink {{path}}",
       unlinkTitle: "Unlink workspace?",
       unlinkBody:

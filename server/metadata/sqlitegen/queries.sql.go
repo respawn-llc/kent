@@ -9134,15 +9134,27 @@ UPDATE sessions
 SET
     workspace_id = ?1,
     worktree_id = ?2,
-    cwd_relpath = ?3
-WHERE id = ?4
+    cwd_relpath = ?3,
+    metadata_json = CASE WHEN CAST(?4 AS TEXT) IS NULL
+        THEN metadata_json
+        ELSE json_set(metadata_json, '$.worktree_reminder', json(CAST(?4 AS TEXT)))
+    END,
+    updated_at_unix_ms = CASE WHEN CAST(?4 AS TEXT) IS NULL
+        THEN updated_at_unix_ms
+        ELSE ?5
+    END
+WHERE id = ?6
+    AND (?7 IS NULL OR worktree_id = ?7)
 `
 
 type UpdateSessionExecutionTargetByIDParams struct {
-	WorkspaceID sql.NullString
-	WorktreeID  sql.NullString
-	CwdRelpath  string
-	SessionID   string
+	WorkspaceID          sql.NullString
+	WorktreeID           sql.NullString
+	CwdRelpath           string
+	WorktreeReminderJson sql.NullString
+	UpdatedAtUnixMs      int64
+	SessionID            string
+	ExpectedWorktreeID   interface{}
 }
 
 func (q *Queries) UpdateSessionExecutionTargetByID(ctx context.Context, arg UpdateSessionExecutionTargetByIDParams) (int64, error) {
@@ -9150,9 +9162,12 @@ func (q *Queries) UpdateSessionExecutionTargetByID(ctx context.Context, arg Upda
 		arg.WorkspaceID,
 		arg.WorktreeID,
 		arg.CwdRelpath,
+		arg.WorktreeReminderJson,
+		arg.UpdatedAtUnixMs,
 		arg.SessionID,
+		arg.ExpectedWorktreeID,
 	)
-	err = recordQueryError(ctx, err, updateSessionExecutionTargetByID, 4)
+	err = recordQueryError(ctx, err, updateSessionExecutionTargetByID, 7)
 
 	if err != nil {
 		return 0, err

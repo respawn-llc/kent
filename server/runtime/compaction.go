@@ -331,15 +331,6 @@ func isAgentStepKind(kind ActiveKind) bool {
 	}
 }
 
-func isInterruptibleAgentTurn(kind ActiveKind) bool {
-	switch kind {
-	case ActiveKindUserTurn, ActiveKindWorkflowTurn, ActiveKindGoalLoop:
-		return true
-	default:
-		return false
-	}
-}
-
 func (c *defaultContextCompactor) TriggerHandoff(ctx context.Context, stepID string, activeCall llm.ToolCall, summarizerPrompt string, futureAgentMessage string) (string, bool, error) {
 	e := c.engine
 	_ = activeCall

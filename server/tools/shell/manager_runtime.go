@@ -276,6 +276,7 @@ func (m *Manager) emitEvent(evt Event) bool {
 func (m *Manager) waitForExit(entry *processEntry) {
 	defer close(entry.done)
 	err := entry.cmd.Wait()
+	m.releaseProcessSlot()
 	exitCode, state := processExitState(err)
 	if !entry.isBackgrounded() {
 		entry.setExited(exitCode, state)
@@ -525,12 +526,22 @@ func (m *Manager) allocateProcessSlot() (string, string, error) {
 	if m.closed {
 		return "", "", errors.New("background shell manager is closed")
 	}
+	if m.occupiedSlots >= m.maxConcurrent {
+		return "", "", &ConcurrentShellLimitError{Limit: m.maxConcurrent}
+	}
 	if err := os.MkdirAll(m.tempDir, 0o700); err != nil {
 		return "", "", fmt.Errorf("prepare background shell temp dir: %w", err)
 	}
 	id := strconv.Itoa(m.nextID)
 	m.nextID++
+	m.occupiedSlots++
 	return id, filepath.Join(m.tempDir, id+".log"), nil
+}
+
+func (m *Manager) releaseProcessSlot() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.occupiedSlots--
 }
 
 func (m *Manager) releaseEntry(id string) {

@@ -257,6 +257,20 @@ func worktreeCreateFailure(request *worktreepb.CreateRequest, err error) proto.M
 }
 
 func worktreeDeleteFailure(request *worktreepb.DeleteRequest, err error) proto.Message {
+	var partial *worktreecontract.DeletePartialError
+	if errors.As(err, &partial) {
+		details := &worktreepb.DeletePartialDetails{
+			RetargetedSessions: partial.RetargetedSessions,
+			Diagnostic:         partial.Cause.Error(),
+		}
+		var blocked *worktreecontract.BlockedError
+		if errors.As(partial.Cause, &blocked) {
+			details.Blocked = blocked.Details
+		} else if errors.Is(partial.Cause, worktreecontract.ErrWorktreeBlocked) {
+			details.Blocked = &worktreepb.BlockedDetails{}
+		}
+		return details
+	}
 	var precondition *worktreecontract.DeletePreconditionError
 	if errors.As(err, &precondition) && precondition != nil && precondition.Details != nil {
 		return precondition.Details

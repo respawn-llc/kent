@@ -2750,13 +2750,7 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 		{
 			name: "runtime interrupt",
 			interrupt: func(ctx context.Context, authority *Authority, sessionID runtimeids.SessionID) (bool, error) {
-				return authority.InterruptCurrentAgentTurn(ctx, sessionID, nil)
-			},
-		},
-		{
-			name: "live stop",
-			interrupt: func(ctx context.Context, authority *Authority, sessionID runtimeids.SessionID) (bool, error) {
-				return authority.InterruptCurrentLiveRun(ctx, sessionID)
+				return authority.InterruptSession(ctx, sessionID)
 			},
 		},
 	}

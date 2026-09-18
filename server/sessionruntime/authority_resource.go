@@ -518,7 +518,8 @@ func (a *Authority) openRuntime(
 	if ownerID == "" {
 		return RuntimeAttachment{}, errors.New("runtime owner id is required")
 	}
-	gate := a.gateFor(request.SessionID)
+	gate, releaseGate := a.gateFor(request.SessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 	if len(gate.blocks) != 0 {
@@ -584,7 +585,8 @@ func (a *Authority) ReleaseRuntime(ctx context.Context, request RuntimeReleaseRe
 		return RuntimeReleaseResult{}, errors.New("runtime detach release requires owner drop")
 	}
 	sessionID := request.Resource.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -649,7 +651,8 @@ func (a *Authority) closeRetiringResource(ctx context.Context, resource *agentRe
 		return nil
 	}
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -677,7 +680,8 @@ func (a *Authority) retireRuntimeAbortResource(ctx context.Context, resource *ag
 		return nil
 	}
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 
@@ -748,7 +752,8 @@ func (a *Authority) StartAgentExecution(ctx context.Context, request AgentExecut
 	if request.Runner == nil {
 		return nil, errors.New("agent runner is required")
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return nil, err
 	}
@@ -934,7 +939,8 @@ func (a *Authority) RunCurrentTurn(
 		return errors.New("turn callback is required")
 	}
 	sessionID := descriptor.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGateReference := a.gateFor(sessionID)
+	defer releaseGateReference()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return err
 	}
@@ -1260,40 +1266,9 @@ func (a *Authority) WithInterruptibleAgentTurn(
 	)
 }
 
-func (a *Authority) InterruptCurrentAgentTurn(
+func (a *Authority) InterruptSession(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	withoutExecution func() error,
-) (bool, error) {
-	return a.interruptCurrentAgentExecution(
-		ctx,
-		sessionID,
-		withoutExecution,
-		func(engine *runtime.Engine) (bool, error) {
-			return engine.TryInterruptActiveAgentTurn()
-		},
-	)
-}
-
-func (a *Authority) InterruptCurrentLiveRun(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-) (bool, error) {
-	return a.interruptCurrentAgentExecution(
-		ctx,
-		sessionID,
-		func() error { return nil },
-		func(engine *runtime.Engine) (bool, error) {
-			return engine.TryInterruptActiveRun()
-		},
-	)
-}
-
-func (a *Authority) interruptCurrentAgentExecution(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-	withoutExecution func() error,
-	interrupt func(*runtime.Engine) (bool, error),
 ) (bool, error) {
 	if a == nil {
 		return false, errors.New("session runtime authority is required")
@@ -1301,36 +1276,39 @@ func (a *Authority) interruptCurrentAgentExecution(
 	if sessionID.IsZero() {
 		return false, errors.New("session id is required")
 	}
-	if interrupt == nil {
-		return false, errors.New("Agent execution interrupt operation is required")
-	}
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	runWithoutExecution := func(missing error) (bool, error) {
-		if err := context.Cause(ctx); err != nil {
-			return false, err
-		}
-		if withoutExecution != nil {
-			return false, withoutExecution()
-		}
-		return false, missing
 	}
 	a.mu.Lock()
 	resource := a.resources[sessionID]
 	if resource == nil {
 		a.mu.Unlock()
-		return runWithoutExecution(errors.Join(
-			serverapi.ErrRuntimeUnavailable,
-			fmt.Errorf("session %s has no active runtime available", sessionID),
-		))
+		return false, context.Cause(ctx)
 	}
 	resource.mu.Lock()
 	execution := resource.current
 	resource.mu.Unlock()
 	a.mu.Unlock()
 	if execution == nil {
-		return runWithoutExecution(ErrExecutionNoLongerLive)
+		var interrupted bool
+		err := resource.withEngine(ctx, resource.ref, func(_ context.Context, engine *runtime.Engine) error {
+			gate, releaseGate := a.gateFor(sessionID)
+			defer releaseGate()
+			if err := gate.lock.LockContext(ctx); err != nil {
+				return err
+			}
+			defer gate.lock.Unlock()
+			resource.mu.Lock()
+			successor := resource.current != nil
+			resource.mu.Unlock()
+			if successor {
+				return nil
+			}
+			var err error
+			interrupted, err = engine.TryInterruptActiveRun()
+			return err
+		})
+		return interrupted, err
 	}
 
 	execution.exactMu.Lock()
@@ -1339,13 +1317,13 @@ func (a *Authority) interruptCurrentAgentExecution(
 	live := a.byScope[execution.scope.ID()] == execution
 	a.mu.Unlock()
 	if !live {
-		return false, ErrExecutionNoLongerLive
+		return false, nil
 	}
+	alreadyCanceled := context.Cause(execution.ctx) != nil
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
 	execution.prompts.mu.Lock()
-	promptPending := len(execution.prompts.pending) != 0
 	closure := execution.prompts.closeLocked(context.Canceled)
 	execution.prompts.mu.Unlock()
 	publicationErr := execution.prompts.publishClosure(closure)
@@ -1358,7 +1336,7 @@ func (a *Authority) interruptCurrentAgentExecution(
 	resource.mu.Lock()
 	if resource.current != execution {
 		resource.mu.Unlock()
-		return false, errors.Join(publicationErr, ErrExecutionNoLongerLive)
+		return false, publicationErr
 	}
 	if resource.rejectsNewUseLocked() || resource.engine == nil {
 		resource.mu.Unlock()
@@ -1369,16 +1347,13 @@ func (a *Authority) interruptCurrentAgentExecution(
 		)
 	}
 	engine := resource.engine
-	interrupted, interruptErr := interrupt(engine)
-	if interruptErr == nil && !interrupted && promptPending {
-		interruptErr = engine.PersistInterruption()
-		interrupted = interruptErr == nil
-	}
-	if interruptErr == nil && interrupted {
-		execution.cancel()
-	}
+	execution.cancel()
+	interrupted, interruptErr := engine.TryInterruptActiveRun()
 	resource.mu.Unlock()
-	return interrupted, errors.Join(publicationErr, interruptErr)
+	if interruptErr == nil && !interrupted && !alreadyCanceled {
+		interruptErr = engine.PersistInterruption()
+	}
+	return interrupted || !alreadyCanceled, errors.Join(publicationErr, interruptErr)
 }
 
 func (a *Authority) retainResource(ref runtimeids.SessionResourceRef) (*ResourceRetention, error) {

@@ -1,6 +1,6 @@
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import { queryKeys } from "@/app-facade";
@@ -221,7 +221,39 @@ it("admits only one inline Unlink while its request is pending", async () => {
   expect(close).toHaveBeenCalledTimes(1);
 });
 
-it("keeps inline confirmation open for blockers and permits an explicit retry", async () => {
+it("refreshes the visible workspace catalog after Unlink", async () => {
+  const context = fixture();
+  const workspace = { id: "workspace-2", name: "Extra", rootPath: "/extra", isDefault: false };
+  const list = vi.spyOn(context.services.api, "listWorkspaces");
+  list.mockResolvedValue({
+    projectID: project.projectID,
+    workspaces: [workspace],
+    nextOffset: null,
+    offset: 0,
+  });
+  vi.spyOn(context.services.api, "unlinkWorkspace").mockImplementation(async () => {
+    list.mockResolvedValue({ projectID: project.projectID, workspaces: [], nextOffset: null, offset: 0 });
+    return { blockers: [], project: null, projectID: project.projectID, workspaceID: workspace.id };
+  });
+  const view = renderHook(
+    () => ({
+      workspaces: useAtomValue(context.model.workspaces),
+      ...useProjectEditActions(context.model),
+    }),
+    { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
+  );
+  await waitFor(() => {
+    expect(view.result.current.workspaces).toHaveLength(1);
+  });
+  act(() => {
+    view.result.current.unlink({ workspaceID: workspace.id, close: vi.fn() });
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaces).toHaveLength(0);
+  });
+});
+
+it("closes confirmation before reporting blockers and permits an explicit retry", async () => {
   const view = setup();
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
     projectID: project.projectID,
@@ -234,13 +266,13 @@ it("keeps inline confirmation open for blockers and permits an explicit retry", 
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1", close });
   });
-  expect(close).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1", close });
   });
   expect(unlink).toHaveBeenCalledTimes(2);
-  expect(invalidate).not.toHaveBeenCalledWith(
+  expect(invalidate).toHaveBeenCalledWith(
     expect.objectContaining({ queryKey: queryKeys.projectWorkspaceCatalog(project.projectID) }),
   );
 });

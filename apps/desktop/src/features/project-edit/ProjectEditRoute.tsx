@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { useAtomMount, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 import { Plus, Save } from "lucide-react";
 
@@ -8,7 +8,6 @@ import { errorMessage, isProjectMissingError } from "@/api";
 import type { SidebarPageNavigator } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useAppNavigation } from "@/app-facade";
-import { useNativeDialogFallback } from "@/app-facade";
 import { usePublishSidebarHeaderAction } from "@/app-facade";
 import { useSidebarBackWhen } from "@/app-facade";
 import { useSidebarHeaderOffset } from "@/app-facade";
@@ -20,6 +19,7 @@ import {
   ErrorState,
   HelpHint,
   LoadingState,
+  Spinner,
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
@@ -35,9 +35,8 @@ import {
   ProjectKeyField,
   ProjectNameField,
   WorkspaceRow,
-  WorkspaceUnlinkFallbackDialog,
+  WorkspaceUnlinkDialog,
   type WorkspaceUnlinkTarget,
-  workspaceUnlinkDialogWidth,
 } from "./ProjectEditParts";
 
 const projectEditContentMaxWidthClassName = "max-w-[1200px]";
@@ -64,7 +63,6 @@ export function ProjectEditRoute({
       navigator,
     }),
   );
-  useAtomMount(model.workspaceChanges);
   const query = useAtomValue(model.metadata);
   const actions = useProjectEditActions(model);
   const catalog = useAtomValue(model.catalog);
@@ -109,7 +107,6 @@ export function ProjectEditRoute({
         actions.previousPage();
       }}
       previousBoundary={projectCatalogPreviousBoundary(catalog, actions.previousPage, t)}
-      projectID={projectId}
       workspaceOccurrences={workspaceOccurrences}
     />
   );
@@ -128,7 +125,6 @@ function ProjectEditContent({
   onLoadMore,
   onLoadPrevious,
   previousBoundary,
-  projectID,
   workspaceOccurrences,
 }: Readonly<{
   model: ProjectEditViewModel;
@@ -143,11 +139,9 @@ function ProjectEditContent({
   onLoadMore: () => void;
   onLoadPrevious: () => void;
   previousBoundary: VirtualizedInfiniteListBoundaryState | undefined;
-  projectID: string;
   workspaceOccurrences: readonly ProjectWorkspaceOccurrence[];
 }>) {
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
   const {
     save: saveProject,
     editName: setNameDraft,
@@ -164,28 +158,10 @@ function ProjectEditContent({
     dirty,
     canSave: validSave,
     pending,
+    unlinkPending,
   } = useAtomValue(model.state);
   const mutating = pending;
-  const unlinkDialog = useNativeDialogFallback<WorkspaceUnlinkTarget>({
-    errorNoticeID: "workspace-unlink-window-error",
-    errorTitle: t("projectEdit.unlinkWindowError"),
-    nativeAvailable: nativeBridge.capabilities.dialogWindows,
-    openNative: async (target) => {
-      await nativeBridge.dialogs.openWindow(
-        workspaceUnlinkWindowOptions(target, t("projectEdit.unlinkTitle")),
-      );
-    },
-    renderFallback: (target, close) => (
-      <WorkspaceUnlinkFallbackDialog
-        disabled={mutating}
-        onClose={close}
-        onConfirm={(nextTarget) => {
-          unlink({ workspaceID: nextTarget.workspaceID, close });
-        }}
-        target={target}
-      />
-    ),
-  });
+  const [unlinkTarget, setUnlinkTarget] = useState<WorkspaceUnlinkTarget | null>(null);
   // Publish the save control into the shared sidebar header (left of delete). It only appears when a
   // draft differs from the saved value; the ViewModel owns action admission.
   const canSave = validSave && !mutating;
@@ -227,20 +203,28 @@ function ProjectEditContent({
   usePublishSidebarHeaderAction(headerActions);
 
   const header = (
-    <ProjectEditListHeader
-      disabled={mutating}
-      keyDraft={keyDraft}
-      keyErrors={keyErrors}
-      metadata={metadata}
-      nameDraft={nameDraft}
-      nameErrors={nameErrors}
-      onAttach={() => {
-        chooseWorkspace(undefined);
-      }}
-      onKeyDown={projectSaveShortcut}
-      onKeyChange={setKeyDraft}
-      onNameChange={setNameDraft}
-    />
+    <>
+      {unlinkPending && (
+        <div className="flex items-center gap-[var(--space-2)]">
+          <Spinner size="sm" />
+          {t("states.loading")}
+        </div>
+      )}
+      <ProjectEditListHeader
+        disabled={mutating}
+        keyDraft={keyDraft}
+        keyErrors={keyErrors}
+        metadata={metadata}
+        nameDraft={nameDraft}
+        nameErrors={nameErrors}
+        onAttach={() => {
+          chooseWorkspace(undefined);
+        }}
+        onKeyDown={projectSaveShortcut}
+        onKeyChange={setKeyDraft}
+        onNameChange={setNameDraft}
+      />
+    </>
   );
 
   return (
@@ -249,7 +233,23 @@ function ProjectEditContent({
       className="h-full min-h-0 overflow-hidden"
       data-testid="project-edit-route"
     >
-      {unlinkDialog.fallback}
+      {unlinkTarget !== null && (
+        <WorkspaceUnlinkDialog
+          disabled={mutating}
+          onClose={() => {
+            setUnlinkTarget(null);
+          }}
+          onConfirm={(target) => {
+            unlink({
+              workspaceID: target.workspaceID,
+              close: () => {
+                setUnlinkTarget(null);
+              },
+            });
+          }}
+          target={unlinkTarget}
+        />
+      )}
       <ProjectWorkspaceList
         disabled={mutating}
         hasNextPage={hasNextPage}
@@ -265,8 +265,7 @@ function ProjectEditContent({
           saveDefaultWorkspace(workspace);
         }}
         onUnlink={(workspace) => {
-          void unlinkDialog.open({
-            projectID,
+          setUnlinkTarget({
             rootPath: workspace.rootPath,
             workspaceID: workspace.id,
           });
@@ -496,19 +495,4 @@ function projectCatalogPreviousBoundary(
     };
   }
   return undefined;
-}
-
-function workspaceUnlinkWindowOptions(target: WorkspaceUnlinkTarget, title: string) {
-  return {
-    initialHeight: 320,
-    initialWidth: workspaceUnlinkDialogWidth,
-    label: `workspace-unlink-${target.projectID}-${target.workspaceID}`,
-    params: {
-      projectID: target.projectID,
-      rootPath: target.rootPath,
-      workspaceID: target.workspaceID,
-    },
-    route: "/native-dialog/workspace-unlink",
-    title,
-  };
 }

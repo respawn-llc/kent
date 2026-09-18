@@ -5,12 +5,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ChatSettingsTarget } from "@/api";
 import { useAppServices } from "@/app-facade";
-import { createChatComposerViewModel } from "@/features/chat/ChatComposerViewModel";
+import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import {
   useChatComposer as useComposer,
   type ChatComposerOptions,
   type ComposerSubmission,
-} from "@/features/chat/useChatComposer";
+} from "./useChatComposer";
 
 export function useChatComposer(
   options: ChatSettingsTarget & Omit<ChatComposerOptions, "model"> & { submission?: ComposerSubmission },
@@ -56,3 +56,9 @@ export function useChatComposer(
     draftPair: useAtomValue(model.draft.value),
   };
 }
+
+export const target = {
+  kind: "session",
+  projectID: "project-1",
+  sessionID: "session-1",
+} as const;

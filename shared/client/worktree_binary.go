@@ -161,6 +161,19 @@ type worktreeFailure interface {
 
 func worktreeError[Failure worktreeFailure](failure Failure) error {
 	switch failure.GetCode() {
+	case "delete_partial":
+		if typed, ok := any(failure).(interface {
+			GetDeletePartial() *worktreepb.DeletePartialDetails
+		}); ok && typed.GetDeletePartial() != nil {
+			details := typed.GetDeletePartial()
+			cause := errors.New(details.Diagnostic)
+			if details.Blocked != nil {
+				cause = errors.Join(cause, &worktreecontract.BlockedError{Details: details.Blocked})
+			}
+			return &worktreecontract.DeletePartialError{
+				RetargetedSessions: details.RetargetedSessions, Cause: cause,
+			}
+		}
 	case "project_not_found":
 		return serverapi.ErrProjectNotFound
 	case "workspace_not_registered":

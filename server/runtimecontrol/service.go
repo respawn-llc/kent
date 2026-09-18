@@ -476,16 +476,7 @@ func (s *Service) interrupt(ctx context.Context, sessionID string) (*runtimepb.R
 	if err != nil {
 		return nil, err
 	}
-	interrupted, err := s.authority.InterruptCurrentAgentTurn(ctx, id, nil)
-	if err == nil && !interrupted {
-		err = serverapi.NewRuntimeCommandNotAcceptedError(errors.New("no active Agent Turn"))
-	}
-	switch {
-	case errors.Is(err, sessionruntime.ErrExecutionNoLongerLive):
-		err = serverapi.NewRuntimeCommandNotAcceptedError(errors.New("no active Agent Turn"))
-	case errors.Is(err, serverapi.ErrRuntimeUnavailable):
-		err = serverapi.NewRuntimeCommandNotAcceptedError(err)
-	}
+	_, err = s.authority.InterruptSession(ctx, id)
 	if err != nil {
 		return nil, err
 	}

@@ -622,7 +622,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	cfg.Settings.MaxSubagentDepth = 2
 	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
 	cfg.Settings.ShellOutputMaxChars = 16_000
-	cfg.Settings.Shell = config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin}
+	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{

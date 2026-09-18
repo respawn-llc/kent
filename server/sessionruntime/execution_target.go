@@ -353,7 +353,8 @@ func (a *Authority) RetireIdleRuntime(ctx context.Context, sessionID string) (bo
 	if err != nil {
 		return false, err
 	}
-	gate := a.gateFor(id)
+	gate, releaseGate := a.gateFor(id)
+	defer releaseGate()
 	if err := gate.lock.LockContext(ctx); err != nil {
 		return false, err
 	}
@@ -640,7 +641,8 @@ func (a *Authority) withMaintenanceResourceAdmission(
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	if block := gate.unauthorizedMaintenanceBlock(ctx); block != nil &&
 		((admission != maintenanceAdmissionExactStepBoundary &&
@@ -696,7 +698,8 @@ func (a *Authority) withMaintenanceResourceAdmission(
 
 func (a *Authority) retireExactResource(ctx context.Context, resource *agentResource) error {
 	sessionID := resource.ref.SessionID()
-	gate := a.gateFor(sessionID)
+	gate, releaseGate := a.gateFor(sessionID)
+	defer releaseGate()
 	gate.lock.Lock()
 	defer gate.lock.Unlock()
 	a.mu.Lock()

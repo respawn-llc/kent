@@ -192,7 +192,7 @@ func validLaunchSettings(model string) config.Settings {
 		MinimumExecToBgSeconds:           15,
 		CompactionMode:                   "local",
 		BGShellsOutput:                   "default",
-		Shell:                            config.ShellSettings{PostprocessingMode: "builtin"},
+		Shell:                            config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: "builtin"},
 		CacheWarningMode:                 "default",
 		ModelContextWindow:               272000,
 		ContextCompactionThresholdTokens: 258400,

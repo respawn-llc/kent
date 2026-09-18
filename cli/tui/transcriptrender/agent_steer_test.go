@@ -23,6 +23,11 @@ func TestAgentSteerNoticeUsesFullOngoingAndDetailExpansion(t *testing.T) {
 	if PlainLines(collapsed.Lines)[0] == "full" {
 		t.Fatal("collapsed detail agent steer used full content")
 	}
+	row.GetNotice().CompactLabel = stringPtr("different server label")
+	relabeled := RenderCommittedRow(row, 80, "dark", ModeDetailCollapsed)
+	if PlainLines(collapsed.Lines)[0] != PlainLines(relabeled.Lines)[0] {
+		t.Fatal("collapsed agent steer label depends on server prose")
+	}
 	expanded := RenderCommittedRow(row, 80, "dark", ModeDetailExpanded)
 	if PlainLines(expanded.Lines)[0] == "compact" {
 		t.Fatal("expanded detail agent steer used compact content")
