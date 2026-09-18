@@ -1,4 +1,3 @@
-import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
@@ -106,12 +105,4 @@ export function createPromptPickerViewModel({
   const observation: Atom.Atom<PickerState> = state;
   const prompts = Atom.make((get) => get(runtime).pendingPrompts);
   return { state: observation, request, dispatch, prompts } as const;
-}
-
-export type PromptPickerViewModel = ReturnType<typeof createPromptPickerViewModel>;
-
-export function usePromptPickerActions(model: PromptPickerViewModel) {
-  useAtomMount(model.request);
-  useAtomMount(model.state);
-  return { dispatch: useAtomSet(model.dispatch) };
 }
