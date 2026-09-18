@@ -77,6 +77,13 @@ export function createBoardRead(
     if (previous !== next.retained) get.set(retained, next.retained);
     return { ...current, data: next.data, isPending: current.isPending && next.data === undefined };
   });
-  const retry = Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true });
+  const retry = Atom.fn(
+    () =>
+      Effect.promise(async () => {
+        const current = observer.getCurrentResult();
+        if (current.isEnabled && !current.isFetching) await observer.refetch();
+      }),
+    { concurrent: true },
+  );
   return { state, retry } as const;
 }

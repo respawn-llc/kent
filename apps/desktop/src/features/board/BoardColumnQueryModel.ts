@@ -66,15 +66,23 @@ export function createBoardColumnQueryModel(api: ApiService, client: QueryClient
           !input.enabled ||
           !input.queriesEnabled ||
           get(state).isPlaceholderData ||
-          current.data === undefined ||
-          current.isFetching
+          current.data === undefined
         )
           return;
-        if (direction === "next" && current.hasNextPage) await observer.fetchNextPage();
-        if (direction === "previous" && current.hasPreviousPage) await observer.fetchPreviousPage();
+        if (direction === "next" && current.hasNextPage && !current.isFetchingNextPage)
+          await observer.fetchNextPage();
+        if (direction === "previous" && current.hasPreviousPage && !current.isFetchingPreviousPage)
+          await observer.fetchPreviousPage();
       }),
     { concurrent: true },
   );
-  const retry = Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true });
+  const retry = Atom.fn(
+    () =>
+      Effect.promise(async () => {
+        const current = observer.getCurrentResult();
+        if (current.isEnabled && !current.isFetching) await observer.refetch();
+      }),
+    { concurrent: true },
+  );
   return { inputs, state, page, retry } as const;
 }
