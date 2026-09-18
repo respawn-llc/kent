@@ -8,20 +8,19 @@ import type {
   TaskDependencyDirectionProjection,
   TaskDependencyItem,
 } from "@/api";
-import type { TaskSearchResult } from "@/app-facade";
 import { TaskStatusIcon } from "@/shared/task-status";
-import { ActionableListRow, Button, Island } from "@/ui";
+import { ActionableListRow, Button, Island, Spinner } from "@/ui";
 import { TaskDependencyPicker } from "./TaskDependencyPicker";
 import { TaskDependencyProgressChip } from "./TaskDependencyProgressChip";
-import { requiredTaskDependencyDirection } from "./dependencyCache";
+import { requiredTaskDependencyDirection, taskDependencyPairForDirection } from "./dependencyCache";
+import { useTaskDependencyActions, type DependencyInteraction } from "./dependencyActions";
 
 export function DependenciesArea({
   dependencies,
   excludedTaskIDs,
   navigationDisabled = false,
   onAdd,
-  onRemove,
-  onSelectCandidate,
+  interaction,
   onSelectTask,
   previewProgress = false,
   projectID,
@@ -30,8 +29,7 @@ export function DependenciesArea({
   excludedTaskIDs(direction: TaskDependencyDirection): ReadonlySet<string>;
   navigationDisabled?: boolean;
   onAdd(direction: TaskDependencyDirection): void;
-  onRemove(direction: TaskDependencyDirection, item: TaskDependencyItem): void;
-  onSelectCandidate(direction: TaskDependencyDirection, result: TaskSearchResult): Promise<unknown>;
+  interaction: DependencyInteraction;
   onSelectTask(taskID: string): void;
   previewProgress?: boolean | undefined;
   projectID: string;
@@ -58,8 +56,7 @@ export function DependenciesArea({
         excludedTaskIDs={excludedTaskIDs("blocked-by")}
         navigationDisabled={navigationDisabled}
         onAdd={onAdd}
-        onRemove={onRemove}
-        onSelectCandidate={onSelectCandidate}
+        interaction={interaction}
         onSelectTask={onSelectTask}
         projectID={projectID}
       />
@@ -69,8 +66,7 @@ export function DependenciesArea({
         excludedTaskIDs={excludedTaskIDs("blocks")}
         navigationDisabled={navigationDisabled}
         onAdd={onAdd}
-        onRemove={onRemove}
-        onSelectCandidate={onSelectCandidate}
+        interaction={interaction}
         onSelectTask={onSelectTask}
         projectID={projectID}
       />
@@ -83,8 +79,7 @@ function DependencyDirection({
   excludedTaskIDs,
   navigationDisabled,
   onAdd,
-  onRemove,
-  onSelectCandidate,
+  interaction,
   onSelectTask,
   projectID,
 }: Readonly<{
@@ -92,8 +87,7 @@ function DependencyDirection({
   excludedTaskIDs: ReadonlySet<string>;
   navigationDisabled: boolean;
   onAdd(direction: TaskDependencyDirection): void;
-  onRemove(direction: TaskDependencyDirection, item: TaskDependencyItem): void;
-  onSelectCandidate(direction: TaskDependencyDirection, result: TaskSearchResult): Promise<unknown>;
+  interaction: DependencyInteraction;
   onSelectTask(taskID: string): void;
   projectID: string;
 }>) {
@@ -131,7 +125,8 @@ function DependencyDirection({
             onCreateTask={() => {
               onAdd(direction.direction);
             }}
-            onSelect={async (result) => onSelectCandidate(direction.direction, result)}
+            interaction={interaction}
+            direction={direction.direction}
             projectID={projectID}
             trigger={trigger}
           />
@@ -144,12 +139,13 @@ function DependencyDirection({
       </header>
       <div className="grid gap-[2px]">
         {direction.items.map((item) => (
-          <DependencyRow
+          <DependencyActionRow
             direction={direction.direction}
             item={item}
             key={item.taskID}
             navigationDisabled={navigationDisabled}
-            onRemove={onRemove}
+            interaction={interaction}
+            projectID={projectID}
             onSelectTask={onSelectTask}
           />
         ))}
@@ -159,16 +155,16 @@ function DependencyDirection({
 }
 
 function DependencyRow({
-  direction,
   item,
   navigationDisabled,
   onRemove,
   onSelectTask,
+  pending,
 }: Readonly<{
-  direction: TaskDependencyDirection;
   item: TaskDependencyItem;
   navigationDisabled: boolean;
-  onRemove(direction: TaskDependencyDirection, item: TaskDependencyItem): void;
+  onRemove(): void;
+  pending: boolean;
   onSelectTask(taskID: string): void;
 }>) {
   const { t } = useTranslation();
@@ -179,12 +175,13 @@ function DependencyRow({
           aria-label={t("task.dependenciesRemove")}
           className="grid size-7 place-items-center rounded-[var(--radius-s)] border-0 bg-transparent text-[var(--color-error)] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-error)_35%,transparent)] disabled:cursor-not-allowed disabled:opacity-45"
           data-testid={`dependency-remove-${item.taskID}`}
+          aria-busy={pending}
           onClick={() => {
-            onRemove(direction, item);
+            onRemove();
           }}
           type="button"
         >
-          <X aria-hidden="true" size={15} />
+          {pending ? <Spinner size="sm" /> : <X aria-hidden="true" size={15} />}
         </button>
       }
       data-satisfaction={item.satisfaction ?? undefined}
@@ -204,5 +201,52 @@ function DependencyRow({
         <span className="min-w-0 truncate">{item.title}</span>
       </span>
     </ActionableListRow>
+  );
+}
+
+type ActionRowProps = Readonly<{
+  direction: TaskDependencyDirection;
+  item: TaskDependencyItem;
+  navigationDisabled: boolean;
+  onSelectTask(taskID: string): void;
+  interaction: DependencyInteraction;
+  projectID: string;
+}>;
+
+function DependencyActionRow(props: ActionRowProps) {
+  const { interaction, direction, item } = props;
+  return interaction.kind === "persisted" ? (
+    <PersistedDependencyRow {...props} interaction={interaction} />
+  ) : (
+    <DependencyRow
+      {...props}
+      pending={false}
+      onRemove={() => {
+        interaction.onRemove(direction, item);
+      }}
+    />
+  );
+}
+
+function PersistedDependencyRow({
+  interaction,
+  ...props
+}: ActionRowProps &
+  Readonly<{
+    interaction: Extract<DependencyInteraction, { kind: "persisted" }>;
+  }>) {
+  const action = useTaskDependencyActions(
+    props.projectID,
+    interaction.taskID,
+    taskDependencyPairForDirection(interaction.taskID, props.direction, props.item.taskID),
+  );
+  return (
+    <DependencyRow
+      {...props}
+      pending={action.pending}
+      onRemove={() => {
+        action.submit({ kind: "remove", onChanged: interaction.onChanged });
+      }}
+    />
   );
 }

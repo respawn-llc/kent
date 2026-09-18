@@ -15,6 +15,7 @@ import {
   compactExternalUrlLabel,
   safeExternalUrl,
   showStatusToast,
+  Spinner,
 } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
@@ -33,21 +34,22 @@ export type TaskDraft = Readonly<{
   title: string;
   body: string;
 }>;
+export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
 
 export function TaskHeaderIsland({
   canSaveDraft,
   detail,
-  disabled,
+  saving,
   draft,
   onDraftChange,
   onSave,
 }: Readonly<{
   canSaveDraft: boolean;
   detail: TaskDetail;
-  disabled: boolean;
+  saving: boolean;
   draft: TaskDraft;
   onDraftChange: (draft: TaskDraft) => void;
-  onSave: (draft?: TaskDraft) => Promise<void>;
+  onSave: SaveTaskDraft;
 }>) {
   const { t } = useTranslation();
   const title = draft.title;
@@ -69,7 +71,7 @@ export function TaskHeaderIsland({
       onSubmit={(event) => {
         event.preventDefault();
         if (canSaveDraft) {
-          void onSave();
+          onSave();
         }
       }}
     >
@@ -79,7 +81,6 @@ export function TaskHeaderIsland({
           fieldIslandInputClassName(1, taskDetailIslandRadius),
           "min-w-0 flex-1 px-[var(--space-3)] py-[var(--space-2)] text-[1.125rem] font-bold",
         )}
-        disabled={disabled}
         onChange={(event) => {
           onDraftChange(nextTitle(event.target.value));
         }}
@@ -102,14 +103,15 @@ export function TaskHeaderIsland({
             }`}
             data-testid="task-detail-save"
             disabled={!canSaveDraft || !dirty}
+            aria-busy={saving}
             size="icon"
             tabIndex={dirty ? undefined : -1}
             type="submit"
             variant="primary"
           >
-            <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+            {saving ? <Spinner /> : <Save aria-hidden="true" size={16} strokeWidth={1.75} />}
           </Button>
-          {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={disabled} /> : null}
+          {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={false} /> : null}
         </span>
       ) : null}
     </form>
@@ -131,7 +133,7 @@ export function DescriptionIsland({
   error: unknown;
   onDraftChange: (draft: TaskDraft) => void;
   onPresentationChange: (presentation: DescriptionPresentationState) => void;
-  onSave: (draft?: TaskDraft) => Promise<void>;
+  onSave: SaveTaskDraft;
   presentation: DescriptionPresentationState;
   submitting: boolean;
 }>) {
@@ -145,13 +147,9 @@ export function DescriptionIsland({
         onPresentationChange({ ...presentation, editing: false });
         return;
       }
-      void onSave(draft)
-        .then(() => {
-          onPresentationChange({ ...presentation, editing: false });
-        })
-        .catch(() => {
-          return;
-        });
+      onSave(draft, () => {
+        onPresentationChange({ ...presentation, editing: false });
+      });
     },
     policy: submitPolicy,
   } as const;

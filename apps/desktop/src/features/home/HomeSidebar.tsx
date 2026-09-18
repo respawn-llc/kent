@@ -127,7 +127,7 @@ export function HomeSidebar({
               items={workflows}
               loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
-                void workflowsQuery.fetchNextPage();
+                workflowsQuery.fetchNextPage();
               }}
               paddingEnd={24}
               paddingStart={24}

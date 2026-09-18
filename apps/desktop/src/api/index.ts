@@ -182,6 +182,7 @@ export {
   type TaskSetupRecovery,
 } from "./schemas/workflowBoard";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
+export type { ProjectObservation } from "./projectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";
 export type {
   ApprovalAttentionItem,

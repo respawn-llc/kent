@@ -1,10 +1,16 @@
 import { useMemo } from "react";
+import * as Effect from "effect/Effect";
 import { useStableCallback } from "@/ui";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { errorMessage, type WorkflowProjectEvent } from "@/api";
-import { queryKeys, useLocalSubscription } from "@/app-facade";
+import {
+  queryKeys,
+  useLocalSubscription,
+  useProjectObservation,
+  ProjectObservationFailure,
+} from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 
@@ -59,14 +65,27 @@ export function useWorkflowEditorData(rawProjectID: string, workflowID: string) 
       });
     }
   }
-  const workflowObservation = useWorkflowEditorSubscription("workflow", workflowID, refresh, {
+  const workflowObservation = useWorkflowEditorSubscription(workflowID, refresh, {
     affectsEditor: (event) => shouldRefreshWorkflowDefinition(event, workflowID),
     shouldNotify: (event) => shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID),
   });
-  const projectObservation = useWorkflowEditorSubscription("project", projectID, refresh, {
-    affectsEditor: (event) => shouldRefreshWorkflowLink(event, projectID, workflowID),
-    shouldNotify: (event) => shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID),
-  });
+  const projectObservation = useProjectObservation(
+    projectContext ? projectID : null,
+    projectID,
+    (observation) =>
+      Effect.tryPromise({
+        try: async () => {
+          if (observation.kind === "open") await refresh(false);
+          if (
+            observation.kind === "event" &&
+            shouldRefreshWorkflowLink(observation.event, projectID, workflowID)
+          ) {
+            await refresh(shouldNotifyWorkflowEditorRefresh(observation.event, projectID, workflowID));
+          }
+        },
+        catch: (cause) => new ProjectObservationFailure(cause),
+      }),
+  );
 
   return {
     activeLink,
@@ -81,7 +100,6 @@ export function useWorkflowEditorData(rawProjectID: string, workflowID: string) 
 }
 
 function useWorkflowEditorSubscription(
-  scope: "workflow" | "project",
   id: string,
   refresh: (notify: boolean) => Promise<void>,
   {
@@ -93,7 +111,7 @@ function useWorkflowEditorSubscription(
   }>,
 ) {
   const { api } = useAppServices();
-  const identity = useMemo(() => ({ scope, id }), [scope, id]);
+  const identity = useMemo(() => ({ id }), [id]);
   const refreshOrFail = useStableCallback((notify: boolean, reportFailure: (error: Error) => void) => {
     void refresh(notify).catch((cause: unknown) => {
       reportFailure(cause instanceof Error ? cause : new Error(errorMessage(cause)));
@@ -115,7 +133,7 @@ function useWorkflowEditorSubscription(
         reportFailure(error);
       },
     };
-    return scope === "workflow" ? api.subscribeWorkflow(id, handler) : api.subscribeProject(id, handler);
+    return api.subscribeWorkflow(id, handler);
   });
 }
 

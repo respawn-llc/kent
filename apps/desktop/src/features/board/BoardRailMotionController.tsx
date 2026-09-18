@@ -48,7 +48,6 @@ type DisplayedSnapshot = Readonly<{
 
 export type BoardRailMotionControllerProps = Readonly<{
   activeDrag: ActiveBoardCardDrag | null;
-  actionsDisabled: boolean;
   board: SelectedWorkflowBoard;
   columnDropState: (column: BoardColumn) => BoardColumnDropState;
   columnIsCollapsed: (column: BoardColumn) => boolean;
@@ -63,6 +62,7 @@ export type BoardRailMotionControllerProps = Readonly<{
   onResumeTask: (taskID: string) => void;
   pendingInterruptTaskIDs?: ReadonlySet<string> | undefined;
   pendingResumeTaskIDs?: ReadonlySet<string> | undefined;
+  pendingStartMoveTaskIDs?: ReadonlySet<string> | undefined;
   pendingCardMove: PendingBoardCardMove | null;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
@@ -73,7 +73,6 @@ const emptyPendingMoveColumnIDs: ReadonlySet<string> = new Set();
 
 export function BoardRailMotionController({
   activeDrag,
-  actionsDisabled,
   board,
   columnDropState,
   columnIsCollapsed,
@@ -88,6 +87,7 @@ export function BoardRailMotionController({
   onResumeTask,
   pendingInterruptTaskIDs,
   pendingResumeTaskIDs,
+  pendingStartMoveTaskIDs,
   pendingCardMove,
   scrollportRef,
 }: BoardRailMotionControllerProps) {
@@ -446,7 +446,6 @@ export function BoardRailMotionController({
                 {section.columns.map((column) => (
                   <BoardColumnMotionBoundary
                     activeDrag={activeDrag}
-                    actionsDisabled={actionsDisabled}
                     board={board}
                     displayedCards={displayedColumns.get(column.id)}
                     column={column}
@@ -467,6 +466,7 @@ export function BoardRailMotionController({
                     onResumeTask={onResumeTask}
                     pendingInterruptTaskIDs={pendingInterruptTaskIDs}
                     pendingResumeTaskIDs={pendingResumeTaskIDs}
+                    pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
                     scrollportRef={scrollportRef}
                   />
                 ))}
@@ -474,7 +474,6 @@ export function BoardRailMotionController({
             ) : (
               <BoardColumnMotionBoundary
                 activeDrag={activeDrag}
-                actionsDisabled={actionsDisabled}
                 board={board}
                 displayedCards={displayedColumns.get(section.column.id)}
                 column={section.column}
@@ -495,6 +494,7 @@ export function BoardRailMotionController({
                 onResumeTask={onResumeTask}
                 pendingInterruptTaskIDs={pendingInterruptTaskIDs}
                 pendingResumeTaskIDs={pendingResumeTaskIDs}
+                pendingStartMoveTaskIDs={pendingStartMoveTaskIDs}
                 scrollportRef={scrollportRef}
               />
             ),

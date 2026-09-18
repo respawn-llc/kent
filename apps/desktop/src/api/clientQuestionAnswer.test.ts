@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create, operationName } from "@app/server-api-contract";
 import {
   AnswerService,
@@ -31,7 +32,7 @@ describe("ApiClient prompt answer batches", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const response = await client.answerPromptBatch(batchRequest);
     expect(transport.calls).toEqual([]);
     expect(transport.attachedSessionCalls).toEqual([
@@ -81,7 +82,7 @@ describe("ApiClient prompt answer batches", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(client.answerPromptBatch(batchRequest)).rejects.toThrow();
     expect(transport.attachedSessionCalls).toHaveLength(1);
   });

@@ -14,7 +14,8 @@ import {
   TaskInitiatingActionDialogs,
   startTaskInitiatingAction,
   type TaskInitiatingActionDialogResult,
-  useTaskResumeAction,
+  resumeTaskInitiatingAction,
+  moveTaskInitiatingAction,
 } from "@/shared/execution-target";
 import { ProjectLabelsProvider, useProjectLabelFilter } from "@/shared/labels";
 import { TaskDeleteConfirmationDialog } from "@/shared/task-delete";
@@ -30,7 +31,6 @@ import { BoardNoWorkflowState } from "./BoardNoWorkflowState";
 import { classifyDrop } from "./BoardDropActions";
 import { ManualMoveDialog } from "./ManualMoveDialog";
 import { useBoardInitiatingActionController } from "./useBoardInitiatingActionController";
-import { useManualMoveController } from "./useManualMoveController";
 import "./board.css";
 import { BoardFilterRow } from "./BoardFilterRow";
 import { BoardQueryProvider } from "./BoardQueryContext";
@@ -45,14 +45,6 @@ export type BoardRouteProps = Readonly<{
 }>;
 
 const emptyExpandedEmptyColumnIDs: ReadonlySet<string> = new Set();
-
-function boardDragDisabled(
-  actionsDisabled: boolean,
-  initiatingActionRunning: boolean,
-  workflowValidForTaskCreation: boolean,
-): boolean {
-  return actionsDisabled || initiatingActionRunning || !workflowValidForTaskCreation;
-}
 
 const manualMoveBlockerTranslationKeys = {
   invalid_workflow: "board.moveBlockedInvalidWorkflow",
@@ -251,32 +243,17 @@ function BoardContent({
     },
     [push, t],
   );
-  const {
-    initiatingAction,
-    runCardAction,
-    actionPending: initiatingActionPending,
-    actionsDisabled: initiatingActionsDisabled,
-  } = useBoardInitiatingActionController({
+  const { initiatingAction, runCardAction } = useBoardInitiatingActionController({
     api,
     moveErrorTitle: t("board.moveFailed"),
     onActionError: reportActionError,
     onApplied: actions.refresh,
     refreshErrorTitle: t("board.loadFailed"),
     startErrorTitle: t("board.startFailed"),
+    resumeErrorTitle: t("board.resumeFailed"),
   });
-  const resumeAction = useTaskResumeAction(initiatingAction);
-  const manualMove = useManualMoveController({
-    api,
-    onPreviewBlocked: reportMovePreviewBlocked,
-    onPreviewError: reportMoveError,
-    runAction: runCardAction,
-  });
-  const actionsDisabled = initiatingActionsDisabled || manualMove.actionsDisabled;
-  const dragDisabled = boardDragDisabled(
-    actionsDisabled,
-    initiatingAction.running,
-    board.selectedWorkflow.validForTaskCreation,
-  );
+  const manualMove = initiatingAction.pending?.kind === "move_preview" ? initiatingAction.pending : null;
+  const dragDisabled = !board.selectedWorkflow.validForTaskCreation;
   const {
     activeDrag,
     pendingCardMove,
@@ -288,7 +265,8 @@ function BoardContent({
   } = useBoardDragLifecycle({
     disabled: dragDisabled,
     rootRef: scrollportRef,
-    actionPending: manualMove.actionsDisabled || initiatingActionPending,
+    pendingTaskIDs: initiatingAction.pendingStartMoveTaskIDs,
+    confirmationTaskID: initiatingAction.confirmationTaskID,
   });
   const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
     errorNoticeID: "task-delete-window-error",
@@ -370,7 +348,13 @@ function BoardContent({
     }
     if (dropAction.kind === "move") {
       settleCardDrop(column.id, rect);
-      manualMove.preview(dragPayload.taskID, column.id);
+      initiatingAction.preview({
+        taskID: dragPayload.taskID,
+        targetNodeID: column.id,
+        execute: async () => api.previewMoveTask(dragPayload.taskID, column.id),
+        onBlocked: reportMovePreviewBlocked,
+        onError: reportMoveError,
+      });
       return;
     }
     cancelActiveDrag();
@@ -378,11 +362,11 @@ function BoardContent({
   }
 
   function interruptTask(taskID: string): void {
-    void actions.interrupt.execute(taskID).catch(reportInterruptError);
+    actions.interrupt.execute(taskID, reportInterruptError);
   }
 
   function resumeTask(taskID: string): void {
-    void resumeAction.execute(taskID).catch(reportResumeError);
+    initiatingAction.run(resumeTaskInitiatingAction(taskID));
   }
 
   function deleteTask(taskID: string): void {
@@ -405,10 +389,6 @@ function BoardContent({
 
   function reportInterruptError(error: unknown): void {
     reportActionError("board-interrupt-error", t("board.interruptFailed"), error);
-  }
-
-  function reportResumeError(error: unknown): void {
-    reportActionError("board-resume-error", t("board.resumeFailed"), error);
   }
 
   function reportDeleteError(error: unknown): void {
@@ -453,14 +433,6 @@ function BoardContent({
   function handleTaskInitiatingDialogResult(result: TaskInitiatingActionDialogResult): void {
     if (result.kind === "view_dependencies") {
       openTaskDependencies(result.taskID);
-      return;
-    }
-    if (result.action.kind === "resume") {
-      const resumed =
-        result.selection === undefined
-          ? resumeAction.execute(result.action.taskID)
-          : resumeAction.continueExecution(result.action, result.selection);
-      void resumed.catch(reportResumeError);
       return;
     }
     runCardAction(result.action, result.selection);
@@ -547,7 +519,6 @@ function BoardContent({
           >
             <BoardRailMotionController
               activeDrag={activeDrag}
-              actionsDisabled={actionsDisabled}
               board={board}
               columnDropState={columnDropState}
               columnIsCollapsed={columnIsCollapsed}
@@ -562,19 +533,34 @@ function BoardContent({
               pendingCardMove={pendingCardMove}
               onResumeTask={resumeTask}
               pendingInterruptTaskIDs={actions.interrupt.pendingTaskIDs}
-              pendingResumeTaskIDs={resumeAction.pendingTaskIDs}
+              pendingResumeTaskIDs={initiatingAction.pendingResumeTaskIDs}
+              pendingStartMoveTaskIDs={initiatingAction.pendingStartMoveTaskIDs}
               scrollportRef={scrollportRef}
             />
           </div>
         </DragDropSurface>
         <BoardHorizontalScrollbar scrollportRef={scrollportRef} />
       </div>
-      <ManualMoveDialog
-        key={manualMove.pending?.id ?? "closed"}
-        onCancel={manualMove.cancel}
-        onSubmit={manualMove.submit}
-        preview={manualMove.pending?.preview ?? null}
-      />
+      {manualMove === null ? null : (
+        <ManualMoveDialog
+          key={manualMove.action.actionID.toJSONValue()}
+          onCancel={initiatingAction.close}
+          onSubmit={(input) => {
+            initiatingAction.close();
+            runCardAction(
+              moveTaskInitiatingAction(
+                {
+                  ...manualMove.action.input,
+                  ...(input.transitionKey === undefined ? {} : { transitionKey: input.transitionKey }),
+                  ...(input.values === undefined ? {} : { values: input.values }),
+                },
+                manualMove.action.actionID,
+              ),
+            );
+          }}
+          preview={manualMove.preview}
+        />
+      )}
       <TaskInitiatingActionDialogs
         continuation={initiatingAction}
         onResult={handleTaskInitiatingDialogResult}

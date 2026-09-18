@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
@@ -270,7 +271,7 @@ describe("Desktop Chat read client", () => {
           }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.chat.setGoal({ kind: "session", sessionID }, "exact Goal")).resolves.toMatchObject({
       sessionID,
@@ -360,7 +361,7 @@ describe("Desktop Chat read client", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toBeInstanceOf(
       ContractError,
@@ -377,7 +378,9 @@ describe("Desktop Chat read client", () => {
       },
     ]);
 
-    await expect(new ApiClient(transport).chat.getMainView(target)).resolves.toMatchObject({
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getMainView(target),
+    ).resolves.toMatchObject({
       mainView: { sessionID, activity: { state: "unavailable" } },
       goal: { goal: null, availability: "available" },
     });
@@ -409,7 +412,7 @@ describe("Desktop Chat read client", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.chat.getMainView(target)).resolves.toMatchObject({
       mainView: {
@@ -457,7 +460,7 @@ describe("Desktop Chat read client", () => {
           }),
         },
       ]);
-      const activationClient = new ApiClient(activationTransport);
+      const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
       await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
         sessionID,
         generation: 7,
@@ -480,6 +483,7 @@ describe("Desktop Chat read client", () => {
           result: runtimePlanResult("223e4567-e89b-42d3-a456-426614174000"),
         },
       ]),
+      unexpectedProjectOverflow,
     );
     await expect(mismatchedPlanClient.chat.activateRuntime(target)).rejects.toBeInstanceOf(ContractError);
   });
@@ -529,7 +533,7 @@ describe("Desktop Chat read client", () => {
         startResult: create(R.GoalService.method.observe.output, { outcome: { case: "success", value: {} } }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.chat.getGoal(target)).resolves.toEqual({
       goal: { id: sessionID, objective: "ship", status: "active", createdAt: now, updatedAt: now },
@@ -624,6 +628,7 @@ describe("Desktop Chat read client", () => {
             }),
         },
       ]),
+      unexpectedProjectOverflow,
     );
 
     await expect(
@@ -663,7 +668,7 @@ describe("Desktop Chat read client", () => {
         }),
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     client.chat.subscribeTranscript(target, {
       onEvent: (event) => events.push(event),
       onComplete: (completion) => completions.push(completion),
@@ -811,7 +816,7 @@ describe("Desktop Chat mutation adapter", () => {
         }),
       },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
 
     await chat.steer(sessionTarget, { kind: "text", text: "continue" });
     await chat.queue(newChatTarget, {
@@ -941,7 +946,7 @@ describe("Desktop Chat mutation adapter", () => {
         }),
       },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
 
     const queued = await chat.queue(sessionTarget, { kind: "text", text: "continue" });
     if (queued.outcome.kind !== "accepted") throw new Error("Expected accepted Queue fixture.");
@@ -977,6 +982,7 @@ describe("Desktop Chat mutation adapter", () => {
           }),
         },
       ]),
+      unexpectedProjectOverflow,
     ).chat;
     const error = await failingChat
       .queue(sessionTarget, { kind: "text", text: "continue" })
@@ -1029,7 +1035,10 @@ describe("Desktop Chat mutation adapter", () => {
         },
       ]);
       await expect(
-        new ApiClient(transport).chat.steer(sessionTarget, { kind: "text", text: "continue" }),
+        new ApiClient(transport, unexpectedProjectOverflow).chat.steer(sessionTarget, {
+          kind: "text",
+          text: "continue",
+        }),
       ).rejects.toBeInstanceOf(Error);
     }
   });

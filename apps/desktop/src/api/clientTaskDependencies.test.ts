@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { taskDependenciesSchema, taskDependencyListResponseSchema } from "./schemas/workflowBoard";
 import { FakeRpcTransport } from "@/test-support/api";
@@ -131,7 +132,7 @@ describe("task dependency client contract", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.addTaskDependency("task-1", "task-2")).resolves.toMatchObject({
       outcome: "added",

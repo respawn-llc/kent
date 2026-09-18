@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 
 import { ApiClient } from "./client";
@@ -72,7 +73,7 @@ const literalInput: TaskSearchInput = {
 describe("ApiClient task search", () => {
   it("sends the exact literal search payload and maps the grouped response", async () => {
     const transport = new FakeRpcTransport([{ method: "workflow.task.search", result: literalResponse }]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const controller = new AbortController();
 
     await expect(client.searchTasks(literalInput, controller.signal)).resolves.toEqual({
@@ -148,6 +149,7 @@ describe("ApiClient task search", () => {
           result: { ...literalResponse, next_offset: null },
         },
       ]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.searchTasks(literalInput)).resolves.toMatchObject({
@@ -181,6 +183,7 @@ describe("ApiClient task search", () => {
     } as const;
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.searchTasks(literalInput)).resolves.toMatchObject({
@@ -217,6 +220,7 @@ describe("ApiClient task search", () => {
     } as const;
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.searchTasks({ ...literalInput, mode: "fts5" })).rejects.toBeInstanceOf(ContractError);
@@ -272,6 +276,7 @@ describe("ApiClient task search", () => {
   ])("rejects $name", async ({ response }) => {
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.searchTasks(literalInput)).rejects.toBeInstanceOf(ContractError);
@@ -288,7 +293,7 @@ describe("ApiClient task search", () => {
       },
     });
     const transport = new FakeRpcTransport([{ method: "workflow.task.search", error: typedError }]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(
       client.searchTasks({
@@ -350,7 +355,10 @@ describe("ApiClient task search", () => {
       data: { type: "task_search_error", reason: "normalized_too_short" },
     }),
   ])("keeps generic or malformed RPC failures visible", async (error) => {
-    const client = new ApiClient(new FakeRpcTransport([{ method: "workflow.task.search", error }]));
+    const client = new ApiClient(
+      new FakeRpcTransport([{ method: "workflow.task.search", error }]),
+      unexpectedProjectOverflow,
+    );
 
     await expect(client.searchTasks(literalInput)).rejects.toBe(error);
     expect(decodeTaskSearchError(error)).toBeNull();

@@ -49,7 +49,7 @@ vi.mock("@/shared/labels", () => ({
   useProjectLabelCatalog: () => ({ data: { labels: [] } }),
 }));
 vi.mock("@/shared/task-mutations", () => ({
-  useCreateTask: () => ({ error: fixture.createError, isPending: false, mutateAsync: vi.fn() }),
+  useCreateTask: () => ({ error: fixture.createError, isPending: false, submit: vi.fn() }),
 }));
 vi.mock("@/shared/task-dependencies", async (importOriginal) => ({
   ...(await importOriginal<typeof TaskDependenciesModule>()),

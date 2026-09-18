@@ -9,7 +9,7 @@ import type { KanbanCardVM, KanbanColumnVM } from "./BoardColumnViewModel";
 import { useBoardDragLifecycle, type ActiveBoardCardDrag } from "./BoardDragState";
 import { projectPendingBoardCardMove } from "./BoardCardMotionModel";
 import { useBoardInitiatingActionController } from "./useBoardInitiatingActionController";
-import { createTestServices, startupRoutes } from "@/test-support/app-services";
+import { TestAppProviders, createTestServices, startupRoutes } from "@/test-support/app-services";
 import { startTaskInitiatingAction } from "@/shared/execution-target";
 import type { TaskStartResponse } from "@/api";
 import { deferred } from "@/test-support/chat-runtime";
@@ -19,7 +19,8 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/app-facade", () => ({
+vi.mock("@/app-facade", async (importOriginal) => ({
+  ...(await importOriginal()),
   formatRelativeTime: () => "now",
   useOwnedSidebarRoots: () => ({ open: vi.fn() }),
 }));
@@ -89,7 +90,13 @@ describe("KanbanColumn retained replacement boundary", () => {
   it("holds a dropped card at its destination while confirmation or execution is pending", async () => {
     const rootRef = { current: null };
     const { result, rerender } = renderHook(
-      ({ actionPending }) => useBoardDragLifecycle({ disabled: false, rootRef, actionPending }),
+      ({ actionPending }) =>
+        useBoardDragLifecycle({
+          disabled: false,
+          rootRef,
+          pendingTaskIDs: new Set(actionPending ? [card.id] : []),
+          confirmationTaskID: null,
+        }),
       { initialProps: { actionPending: false } },
     );
     const stored = new Map([
@@ -160,22 +167,27 @@ describe("KanbanColumn retained replacement boundary", () => {
       const refresh = deferred<undefined>();
       vi.spyOn(services.api, "startTask").mockReturnValue(response.promise);
       const onActionError = vi.fn();
-      const { result } = renderHook(() => {
-        const action = useBoardInitiatingActionController({
-          api: services.api,
-          onActionError,
-          onApplied: async () => refresh.promise,
-          startErrorTitle: "start",
-          moveErrorTitle: "move",
-          refreshErrorTitle: "refresh",
-        });
-        const gesture = useBoardDragLifecycle({
-          disabled: false,
-          rootRef: { current: null },
-          actionPending: action.actionPending,
-        });
-        return { action, gesture };
-      });
+      const { result } = renderHook(
+        () => {
+          const action = useBoardInitiatingActionController({
+            api: services.api,
+            onActionError,
+            onApplied: async () => refresh.promise,
+            startErrorTitle: "start",
+            moveErrorTitle: "move",
+            refreshErrorTitle: "refresh",
+            resumeErrorTitle: "resume",
+          });
+          const gesture = useBoardDragLifecycle({
+            disabled: false,
+            rootRef: { current: null },
+            pendingTaskIDs: action.initiatingAction.pendingStartMoveTaskIDs,
+            confirmationTaskID: action.initiatingAction.pending === null ? null : card.id,
+          });
+          return { action, gesture };
+        },
+        { wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders> },
+      );
       act(() => {
         result.current.gesture.start(drag);
       });
@@ -242,7 +254,7 @@ describe("KanbanColumn retained replacement boundary", () => {
               key={item.id}
               column={item}
               cards={item.id === column.id ? [card] : []}
-              actionsDisabled={false}
+
               dragDisabled={false}
               dropState="idle"
               hasMoreCards={false}
@@ -305,7 +317,6 @@ describe("KanbanColumn retained replacement boundary", () => {
 
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[]}
         column={column}
         dragDisabled={false}
@@ -336,7 +347,6 @@ describe("KanbanColumn retained replacement boundary", () => {
 
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[card]}
         column={column}
         dragDisabled
@@ -370,7 +380,6 @@ describe("KanbanColumn retained replacement boundary", () => {
     const onResumeTask = vi.fn();
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[{ ...card, statusKind: "queued" }]}
         column={column}
         dragDisabled={false}
@@ -395,11 +404,10 @@ describe("KanbanColumn retained replacement boundary", () => {
     expect(screen.queryByRole("button", { name: "board.resume" })).not.toBeInTheDocument();
   });
 
-  it("optimistically swaps only the pending Task action", () => {
+  it("shows loading only for the pending Task action", () => {
     const secondCard = { ...card, id: "task-2", shortID: "KNT-2", title: "Second Task" };
     renderColumn(
       <KanbanColumn
-        actionsDisabled={false}
         cards={[card, secondCard]}
         column={{ ...column, taskCount: 2 }}
         dragDisabled={false}
@@ -420,15 +428,18 @@ describe("KanbanColumn retained replacement boundary", () => {
       />,
     );
 
-    expect(screen.getAllByRole("button", { name: "board.resume" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "board.resume" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "board.interrupt" })).toBeDisabled();
+    const resumes = screen.getAllByRole("button", { name: "board.resume" });
+    expect(resumes).toHaveLength(2);
+    expect(resumes.filter((button) => button.getAttribute("aria-busy") === "true")).toHaveLength(1);
+    for (const button of resumes) expect(button).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "board.interrupt" })).not.toBeInTheDocument();
   });
 
   it("does not restore a drag after the selected Workflow becomes invalid", async () => {
     const rootRef = { current: null };
     const { result, rerender } = renderHook(
-      ({ disabled }) => useBoardDragLifecycle({ disabled, rootRef, actionPending: false }),
+      ({ disabled }) =>
+        useBoardDragLifecycle({ disabled, rootRef, pendingTaskIDs: new Set(), confirmationTaskID: null }),
       {
         initialProps: { disabled: false },
       },

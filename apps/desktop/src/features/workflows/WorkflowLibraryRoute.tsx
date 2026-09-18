@@ -39,7 +39,9 @@ function WorkflowLibraryContent() {
       <ErrorState
         body={errorMessage(workflowsQuery.error)}
         chromePadding
-        onRetry={() => void workflowsQuery.refetch()}
+        onRetry={() => {
+          workflowsQuery.refetch();
+        }}
         retryLabel={t("app.retry")}
         title={t("workflowLibrary.loadFailed")}
       />
@@ -73,7 +75,9 @@ function WorkflowLibraryContent() {
           isFetchingNextPage={workflowsQuery.isFetchingNextPage}
           items={workflows}
           loadingLabel={t("app.loadingMore")}
-          onLoadMore={() => void workflowsQuery.fetchNextPage()}
+          onLoadMore={() => {
+            workflowsQuery.fetchNextPage();
+          }}
           paddingEnd={16}
           paddingStart={16}
           renderItem={(workflow) => <WorkflowLibraryCard workflow={workflow} />}

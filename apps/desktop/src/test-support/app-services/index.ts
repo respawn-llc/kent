@@ -6,12 +6,14 @@ import {
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ProjectCatalogService } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { createElement, useMemo, type ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 
 import { ApiClient, protocolVersion } from "@/api/composition";
 import {
   AppServicesProvider,
+  projectEventDiagnostics,
   StatusProvider,
   TaskSearchMemoryProvider,
   WindowFocusProvider,
@@ -53,19 +55,22 @@ export type CreateTestServicesOptions = Readonly<{
 export function TestAppProviders({
   children,
   services,
+  queryClient: suppliedQueryClient,
 }: Readonly<{
   children: ReactNode;
   services: AppServices;
+  queryClient?: QueryClient;
 }>) {
   const queryClient = useMemo(
     () =>
+      suppliedQueryClient ??
       new QueryClient({
         defaultOptions: {
           mutations: { retry: false },
           queries: { retry: false },
         },
       }),
-    [],
+    [suppliedQueryClient],
   );
   return createElement(
     I18nextProvider,
@@ -73,12 +78,14 @@ export function TestAppProviders({
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(AppServicesProvider, {
-        services,
-        children: createElement(WindowFocusProvider, {
-          children: createElement(WindowChromeTitleProvider, {
-            children: createElement(StatusProvider, {
-              children: createElement(TaskSearchMemoryProvider, { children }),
+      createElement(RegistryProvider, {
+        children: createElement(AppServicesProvider, {
+          services,
+          children: createElement(WindowFocusProvider, {
+            children: createElement(WindowChromeTitleProvider, {
+              children: createElement(StatusProvider, {
+                children: createElement(TaskSearchMemoryProvider, { children }),
+              }),
             }),
           }),
         }),
@@ -93,15 +100,16 @@ export function createTestServices(
   options: CreateTestServicesOptions = {},
 ): TestAppServices {
   const transport = new FakeRpcTransport(routes);
+  const logger = createTestLogger();
   const resolvedNativeBridge =
     nativeBridge ??
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
-    api: new ApiClient(transport),
+    api: new ApiClient(transport, projectEventDiagnostics(logger)),
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",
-    logger: createTestLogger(),
+    logger,
     nativeBridge: resolvedNativeBridge,
     protocolVersion,
     storageNamespace: {

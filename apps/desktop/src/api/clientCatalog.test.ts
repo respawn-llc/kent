@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { describe, expect, it } from "vitest";
 import { create } from "@app/server-api-contract";
 import {
@@ -149,7 +150,7 @@ function clientWith(
     | typeof ProjectCatalogService.method.listWorkspaces,
   result: ReturnType<typeof create>,
 ): ApiClient {
-  return new ApiClient(new FakeRpcTransport([{ descriptor, result }]));
+  return new ApiClient(new FakeRpcTransport([{ descriptor, result }]), unexpectedProjectOverflow);
 }
 
 function sessionResult(

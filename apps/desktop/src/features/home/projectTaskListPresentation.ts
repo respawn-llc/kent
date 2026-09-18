@@ -26,7 +26,6 @@ type ProjectTaskPresentationInput = Readonly<{
   onToggle: (group: ProjectTaskGroup) => void;
   pendingResumeTaskIDs: ReadonlySet<string>;
   projectID: string;
-  resumeDisabled: boolean;
   taskDetailID: string | null;
   t: TFunction;
 }>;
@@ -119,7 +118,6 @@ function groupEntries(
         onTaskActivate: input.onTaskActivate,
         pendingResume: input.pendingResumeTaskIDs.has(task.id),
         projectID: input.projectID,
-        resumeDisabled: input.resumeDisabled,
         task,
         taskDetailID: input.taskDetailID,
         t: input.t,

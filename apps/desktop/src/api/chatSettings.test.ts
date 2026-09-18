@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
 import {
   AutoCompactionPolicy,
@@ -125,7 +126,7 @@ describe("Chat Settings descriptor adapter", () => {
       },
     ]);
 
-    const result = await new ApiClient(transport).chat.getSettings(newChatTarget);
+    const result = await new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget);
 
     expect(result).toMatchObject({
       kind: "new_chat",
@@ -177,7 +178,9 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(new ApiClient(transport).chat.getSettings(sessionTarget)).resolves.toMatchObject({
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+    ).resolves.toMatchObject({
       kind: "session",
       settings: {
         selectedAgent: { role: "default" },
@@ -224,7 +227,10 @@ describe("Chat Settings descriptor adapter", () => {
           result: mutationResponse(),
         },
       ]);
-      const result = await new ApiClient(transport).chat.mutateSettings(sessionTarget, operation);
+      const result = await new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(
+        sessionTarget,
+        operation,
+      );
       expect(transport.descriptorCalls[0]?.request).toMatchObject({
         session: { sessionId: sessionID },
         operation: { operation: wire },
@@ -264,7 +270,10 @@ describe("Chat Settings descriptor adapter", () => {
         { descriptor: ChatSettingsService.method.mutate, result: response },
       ]);
       await expect(
-        new ApiClient(transport).chat.mutateSettings(sessionTarget, { kind: "agent", role: "reviewer" }),
+        new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
+          kind: "agent",
+          role: "reviewer",
+        }),
       ).resolves.toMatchObject({
         result: { kind: "rejected", reason },
         settings: { selectedAgent: { role: "default" } },
@@ -296,7 +305,7 @@ describe("Chat Settings descriptor adapter", () => {
         result: create(MutationResponseSchema, { outcome: { case: "error", value: error } }),
       },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
     for (const operation of [
       async () => chat.getSettings(newChatTarget),
       async () => chat.getSettings(sessionTarget),
@@ -335,7 +344,9 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(new ApiClient(transport).chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(Error);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
+    ).rejects.toBeInstanceOf(Error);
   });
 
   it("rejects ambiguous duplicate Agent baselines in the New Chat catalog", async () => {
@@ -356,7 +367,9 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(new ApiClient(transport).chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(Error);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
+    ).rejects.toBeInstanceOf(Error);
   });
 
   it("rejects malformed Task identity even when its short ID is paired", async () => {
@@ -379,7 +392,9 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(new ApiClient(transport).chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(Error);
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+    ).rejects.toBeInstanceOf(Error);
   });
 
   it("decodes unsupported capabilities and locked policy without inventing creation values", async () => {
@@ -412,7 +427,9 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(new ApiClient(transport).chat.getSettings(sessionTarget)).resolves.toMatchObject({
+    await expect(
+      new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+    ).resolves.toMatchObject({
       kind: "session",
       settings: {
         thinking: { kind: "unsupported" },
@@ -461,7 +478,7 @@ describe("Chat Settings descriptor adapter", () => {
       { descriptor: ChatSettingsService.method.mutate, result: response },
     ]);
     await expect(
-      new ApiClient(transport).chat.mutateSettings(sessionTarget, {
+      new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
         kind: "thinking",
         value: "precise custom effort",
       }),
@@ -506,7 +523,7 @@ describe("Chat Settings descriptor adapter", () => {
       },
       { descriptor: ChatSettingsService.method.mutate, result: mutation },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
     await expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
     await expect(chat.mutateSettings(sessionTarget, { kind: "fast", enabled: true })).rejects.toBeInstanceOf(
       ContractError,
@@ -532,7 +549,7 @@ describe("Chat Settings descriptor adapter", () => {
           }),
       },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
     await expect(chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(ContractError);
     await expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
   });
@@ -555,7 +572,9 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(new ApiClient(transport).chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(Error);
+      await expect(
+        new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+      ).rejects.toBeInstanceOf(Error);
     }
   });
 
@@ -594,7 +613,9 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(new ApiClient(transport).chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(Error);
+      await expect(
+        new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
+      ).rejects.toBeInstanceOf(Error);
     }
   });
 
@@ -654,7 +675,10 @@ describe("Chat Settings descriptor adapter", () => {
         { descriptor: ChatSettingsService.method.mutate, result: invalid },
       ]);
       await expect(
-        new ApiClient(transport).chat.mutateSettings(sessionTarget, { kind: "fast", enabled: true }),
+        new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
+          kind: "fast",
+          enabled: true,
+        }),
       ).rejects.toBeInstanceOf(Error);
     }
   });
@@ -693,7 +717,9 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(new ApiClient(transport).chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(Error);
+      await expect(
+        new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
+      ).rejects.toBeInstanceOf(Error);
     }
   });
 
@@ -750,7 +776,7 @@ describe("Chat Settings descriptor adapter", () => {
           result: create(MutationResponseSchema, { outcome: { case: "error", value: wire } }),
         },
       ]);
-      const chat = new ApiClient(transport).chat;
+      const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
       for (const operation of [
         async () => chat.getSettings(sessionTarget),
         async () => chat.mutateSettings(sessionTarget, { kind: "questions", enabled: false }),
@@ -774,7 +800,10 @@ describe("Chat Settings descriptor adapter", () => {
       { descriptor: ChatSettingsService.method.mutate, result: response },
     ]);
     await expect(
-      new ApiClient(transport).chat.mutateSettings(sessionTarget, { kind: "questions", enabled: false }),
+      new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
+        kind: "questions",
+        enabled: false,
+      }),
     ).resolves.toMatchObject({
       context: { compactionMode: expected },
     });
@@ -817,7 +846,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    const chat = new ApiClient(transport).chat;
+    const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
     const result = await chat.getSettings(newChatTarget);
     if (result.kind !== "new_chat") throw new Error("Expected New Chat.");
     expect(result.initialSettings).toEqual({

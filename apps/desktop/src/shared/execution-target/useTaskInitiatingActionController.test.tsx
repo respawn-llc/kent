@@ -1,6 +1,8 @@
 import { CancelledError } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { vi } from "vitest";
+import { useMemo, type ReactNode } from "react";
+import { TestAppProviders, createTestServices } from "@/test-support/app-services";
 
 import type { TaskInitiatingActionResult } from "./executionTargetContinuation";
 import {
@@ -18,22 +20,29 @@ describe("task initiating action controller", () => {
     const onAppliedError = vi.fn();
     const refreshFailure = new Error("refresh failed");
     let onAppliedFailure: unknown = refreshFailure;
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute: async () => appliedResume(action),
-        onApplied: async () => {
-          throw onAppliedFailure;
-        },
-        onAppliedError,
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute: async () => appliedResume(action),
+          onApplied: async () => {
+            throw onAppliedFailure;
+          },
+          onAppliedError,
+        }),
+      { wrapper: Wrapper },
     );
 
-    await act(async () => result.current.run(action));
-    expect(onAppliedError).toHaveBeenCalledWith(refreshFailure);
+    await act(async () => {
+      result.current.run(action);
+    });
+    expect(onAppliedError).toHaveBeenCalledWith(refreshFailure, expect.objectContaining({ kind: "resume" }));
 
     onAppliedError.mockReset();
     onAppliedFailure = new CancelledError();
-    await act(async () => result.current.run(action));
+    await act(async () => {
+      result.current.run(action);
+    });
     expect(onAppliedError).not.toHaveBeenCalled();
   });
 
@@ -63,16 +72,16 @@ describe("task initiating action controller", () => {
           };
     });
     const onApplied = vi.fn<(result: TaskInitiatingActionResult) => void>();
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied,
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({ onError: vi.fn(), execute, onApplied, onAppliedError: vi.fn() }),
+      { wrapper: Wrapper },
     );
     const action = startTaskInitiatingAction("task-1");
 
-    await act(async () => result.current.run(action));
+    await act(async () => {
+      result.current.run(action);
+    });
     expect(result.current.pending).toMatchObject({
       kind: "dependency_confirmation",
       action: { proceedDespiteDependencies: false },
@@ -86,7 +95,9 @@ describe("task initiating action controller", () => {
     act(() => {
       result.current.close();
     });
-    await act(async () => result.current.run(proceedWithTaskInitiatingAction(dependencyPending.action)));
+    await act(async () => {
+      result.current.run(proceedWithTaskInitiatingAction(dependencyPending.action));
+    });
     expect(result.current.pending).toMatchObject({
       kind: "execution_target",
       action: {
@@ -110,18 +121,20 @@ describe("task initiating action controller", () => {
       }
       return completion.promise;
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
     const action = startTaskInitiatingAction("task-1");
     await act(async () => {
-      const first = result.current.run(action);
-      const second = result.current.run(action);
-      expect(execute).toHaveBeenCalledOnce();
+      result.current.run(action);
+      result.current.run(startTaskInitiatingAction("task-1"));
       completion.resolve({
         kind: "start",
         action,
@@ -140,7 +153,6 @@ describe("task initiating action controller", () => {
           },
         },
       });
-      await Promise.all([first, second]);
     });
     expect(execute).toHaveBeenCalledOnce();
   });
@@ -173,19 +185,22 @@ describe("task initiating action controller", () => {
         },
       };
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
     const firstAction = resumeTaskInitiatingAction("task-1");
     const secondAction = resumeTaskInitiatingAction("task-2");
 
     await act(async () => {
-      const firstRun = result.current.run(firstAction);
-      const secondRun = result.current.run(secondAction);
+      result.current.run(firstAction);
+      result.current.run(secondAction);
       first.resolve({
         kind: "resume",
         action: firstAction,
@@ -204,13 +219,12 @@ describe("task initiating action controller", () => {
           },
         },
       });
-      await Promise.all([firstRun, secondRun]);
     });
 
     expect(execute.mock.calls.map(([action]) => action)).toEqual([firstAction, secondAction]);
   });
 
-  it("serializes every distinct action queued behind one active action", async () => {
+  it("runs independent Tasks while earlier Task requests remain pending", async () => {
     const first = deferred<TaskInitiatingActionResult>();
     const second = deferred<TaskInitiatingActionResult>();
     const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => {
@@ -221,12 +235,15 @@ describe("task initiating action controller", () => {
       if (action.taskID === "task-2") return second.promise;
       return appliedResume(action);
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
     const actions = [
       resumeTaskInitiatingAction("task-1"),
@@ -234,33 +251,33 @@ describe("task initiating action controller", () => {
       resumeTaskInitiatingAction("task-3"),
     ] as const;
 
-    const runs: Promise<void>[] = [];
-    act(() => {
+    await act(async () => {
       for (const action of actions) {
-        runs.push(result.current.run(action));
+        result.current.run(action);
       }
     });
-    expect(execute.mock.calls.map(([action]) => action)).toEqual([actions[0]]);
+    expect(execute).toHaveBeenCalledTimes(3);
     await act(async () => {
       first.resolve(appliedResume(actions[0]));
       await first.promise;
     });
     await vi.waitFor(() => {
-      expect(execute.mock.calls.map(([action]) => action)).toEqual(actions.slice(0, 2));
+      expect(execute).toHaveBeenCalledTimes(3);
     });
     await act(async () => {
       second.resolve(appliedResume(actions[1]));
-      await Promise.all(runs);
     });
 
     expect(execute.mock.calls.map(([action]) => action)).toEqual(actions);
   });
 
-  it("keeps a pending action exclusive across equivalent action objects", async () => {
+  it("replaces the single confirmation with the newest response from an independent Task", async () => {
+    const first = deferred<undefined>();
     const execute = vi.fn(async (action: TaskInitiatingAction): Promise<TaskInitiatingActionResult> => {
       if (action.kind !== "start") {
         throw new Error("Controller test only supports Start actions.");
       }
+      if (action.taskID === "task-1") await first.promise;
       return {
         kind: "start",
         action,
@@ -270,24 +287,26 @@ describe("task initiating action controller", () => {
         },
       };
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
     const action = startTaskInitiatingAction("task-1");
-    await act(async () => result.current.run(action));
-
     await act(async () => {
-      await result.current.run({ ...action });
+      result.current.run(action);
+      result.current.run(startTaskInitiatingAction("task-2"));
     });
-    await act(async () => {
-      await expect(result.current.run(startTaskInitiatingAction("task-2"))).rejects.toThrow();
-    });
-
     expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.current.pending).toMatchObject({ action: { taskID: "task-2" } });
+    await act(async () => {
+      first.resolve(undefined);
+    });
     expect(result.current.pending).toMatchObject({ action: { taskID: "task-1" } });
   });
 
@@ -313,22 +332,25 @@ describe("task initiating action controller", () => {
               },
       };
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
 
-    await act(async () =>
+    await act(async () => {
       result.current.run(
         moveTaskInitiatingAction({
           taskID: "task-1",
           targetNodeID: "node-2",
         }),
-      ),
-    );
+      );
+    });
     const dependencyPending = result.current.pending;
     if (dependencyPending?.kind !== "dependency_confirmation") {
       throw new Error("Expected dependency confirmation.");
@@ -336,7 +358,9 @@ describe("task initiating action controller", () => {
     act(() => {
       result.current.close();
     });
-    await act(async () => result.current.run(proceedWithTaskInitiatingAction(dependencyPending.action)));
+    await act(async () => {
+      result.current.run(proceedWithTaskInitiatingAction(dependencyPending.action));
+    });
 
     expect(result.current.pending).toMatchObject({
       kind: "execution_target",
@@ -380,19 +404,24 @@ describe("task initiating action controller", () => {
       }
       throw new Error("execution target setup failed");
     });
-    const { result } = renderHook(() =>
-      useTaskInitiatingActionController({
-        execute,
-        onApplied: vi.fn(),
-        onAppliedError: vi.fn(),
-      }),
+    const { result } = renderHook(
+      () =>
+        useTaskInitiatingActionController({
+          onError: vi.fn(),
+          execute,
+          onApplied: vi.fn(),
+          onAppliedError: vi.fn(),
+        }),
+      { wrapper: Wrapper },
     );
     const action = moveTaskInitiatingAction({
       taskID: "task-1",
       targetNodeID: "node-2",
     });
 
-    await act(async () => result.current.run(action));
+    await act(async () => {
+      result.current.run(action);
+    });
     act(() => {
       result.current.selectMode("custom_ref");
       result.current.setCustomRef("feature/manual-move");
@@ -403,12 +432,10 @@ describe("task initiating action controller", () => {
     }
 
     await act(async () => {
-      await expect(
-        result.current.run(action, {
-          mode: "custom_ref",
-          customRef: "feature/manual-move",
-        }),
-      ).rejects.toThrow("execution target setup failed");
+      result.current.run(action, {
+        mode: "custom_ref",
+        customRef: "feature/manual-move",
+      });
     });
 
     expect(result.current.pending).toMatchObject({
@@ -418,6 +445,11 @@ describe("task initiating action controller", () => {
     });
   });
 });
+
+function Wrapper({ children }: Readonly<{ children: ReactNode }>) {
+  const services = useMemo(() => createTestServices([]), []);
+  return <TestAppProviders services={services}>{children}</TestAppProviders>;
+}
 
 function deferred<T>(): Readonly<{
   promise: Promise<T>;

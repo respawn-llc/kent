@@ -1,10 +1,19 @@
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
-import { useMemo } from "react";
+import {
+  InfiniteQueryObserver,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
 
-import { TaskSearchError, type TaskSearchGroup, type TaskSearchResponse } from "@/api";
+import { TaskSearchError, type ApiService, type TaskSearchGroup, type TaskSearchResponse } from "@/api";
 import { queryKeys } from "./queryKeys";
 import { useAppServices } from "./useAppServices";
-import { useRetainedQueryData } from "./useRetainedQueryData";
+import { retainQueryData, type RetainedQueryData } from "./useRetainedQueryData";
+import { queryAtom } from "./queryAtom";
 
 export const taskSearchDebounceMs = 300;
 const taskSearchPageSize = 40;
@@ -23,17 +32,65 @@ export type TaskSearchResult = Readonly<{
   group: TaskSearchGroup;
 }>;
 
-export function useTaskSearch(projectID: string | null, open: boolean, debouncedQuery: string) {
+type SearchData = InfiniteData<SearchPage, number | null>;
+type SearchScope = Readonly<{ projectID: string | null }>;
+
+export function useTaskSearch(projectID: string | null, open: boolean, query: string) {
   const { api } = useAppServices();
+  const client = useQueryClient();
+  const debouncedQuery = useSearchDebounce(query);
+  const [retained] = useState(() => Atom.make<RetainedQueryData<SearchData, SearchScope> | null>(null));
+  useAtomMount(retained);
+  const model = useMemo(
+    () => createTaskSearchModel({ api, client, projectID, open, debouncedQuery, retained }),
+    [api, client, projectID, open, debouncedQuery, retained],
+  );
+  const state = useAtomValue(model.state);
+  const refetch = useAtomSet(model.retry, { mode: "value" });
+  const fetchNextPage = useAtomSet(model.nextPage, { mode: "value" });
+  return { ...state, request: { ...state.request, refetch, fetchNextPage } };
+}
+
+function useSearchDebounce(value: string): string {
+  const [text] = useState(() => Atom.make(value));
+  const timing = useMemo(
+    () =>
+      Atom.make((get) =>
+        Effect.gen(function* () {
+          yield* Effect.sleep(taskSearchDebounceMs);
+          get.set(text, value);
+        }),
+      ),
+    [text, value],
+  );
+  useAtomMount(timing);
+  return useAtomValue(text);
+}
+
+function createTaskSearchModel({
+  api,
+  client,
+  projectID,
+  open,
+  debouncedQuery,
+  retained,
+}: Readonly<{
+  api: ApiService;
+  client: QueryClient;
+  projectID: string | null;
+  open: boolean;
+  debouncedQuery: string;
+  retained: Atom.Writable<RetainedQueryData<SearchData, SearchScope> | null>;
+}>) {
   const trimmedQuery = debouncedQuery.trim();
   const searchable = Array.from(trimmedQuery).length >= 3;
-  const request = useInfiniteQuery<
+  const observer = new InfiniteQueryObserver<
     SearchPage,
     Error,
     InfiniteData<SearchPage, number | null>,
     readonly (string | null)[],
     number | null
-  >({
+  >(client, {
     queryKey: queryKeys.taskSearch(projectID, trimmedQuery),
     queryFn: async ({ pageParam, signal }) => ({
       offset: pageParam,
@@ -58,19 +115,46 @@ export function useTaskSearch(projectID: string | null, open: boolean, debounced
     getNextPageParam: (lastPage) => lastPage.response.nextOffset ?? undefined,
     maxPages: retainedTaskSearchPages,
   });
-  const retainedData = useRetainedQueryData({ projectID }, request.data, sameTaskSearchProject);
-  const normalizedTooShort = request.error instanceof TaskSearchError;
-  const visibleData = searchable && !normalizedTooShort ? retainedData : undefined;
-  const paginationUsesVisibleData = visibleData !== undefined && visibleData === request.data;
-  const results = useMemo(() => flattenSearchResults(visibleData), [visibleData]);
-  return {
-    displayedQuery: visibleData?.pages[0]?.query ?? null,
-    normalizedTooShort,
-    paginationUsesVisibleData,
-    request,
-    results,
-    searchable,
-  };
+  const observed = queryAtom(observer);
+  const request: typeof observed = open ? observed : Atom.make(observer.getCurrentResult());
+  const state = Atom.make((get) => {
+    const current = get(request);
+    const previous = get.once(retained);
+    const next = retainQueryData(
+      previous,
+      { scope: { projectID }, data: current.data, retain: true },
+      sameTaskSearchProject,
+    );
+    if (next.retained !== previous) get.set(retained, next.retained);
+    const normalizedTooShort = current.error instanceof TaskSearchError;
+    const visible = searchable && !normalizedTooShort ? next.data : undefined;
+    return {
+      displayedQuery: visible?.pages[0]?.query ?? null,
+      normalizedTooShort,
+      paginationUsesVisibleData: visible !== undefined && visible === current.data,
+      request: current,
+      results: flattenSearchResults(visible),
+      searchable,
+    };
+  });
+  const nextPage = Atom.fn(
+    (_, get) =>
+      Effect.promise(async () => {
+        const current = observer.getCurrentResult();
+        if (open && get(state).paginationUsesVisibleData && current.hasNextPage && !current.isFetching) {
+          await observer.fetchNextPage();
+        }
+      }),
+    { concurrent: true },
+  );
+  const retry = Atom.fn(
+    () =>
+      Effect.promise(async () => {
+        if (open && searchable && !observer.getCurrentResult().isFetching) await observer.refetch();
+      }),
+    { concurrent: true },
+  );
+  return { state, nextPage, retry } as const;
 }
 
 function flattenSearchResults(

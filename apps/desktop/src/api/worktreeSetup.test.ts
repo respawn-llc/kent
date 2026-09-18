@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
 import {
@@ -127,7 +128,7 @@ describe("worktree setup API", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const startSetupID = newSetupOperationID();
 
     client.subscribeWorktreeSetup(startSetupID, {
@@ -165,7 +166,7 @@ describe("worktree setup API", () => {
 
   it("subscribes to typed worktree setup events and rejects malformed setup ids", () => {
     const transport = successfulTransport();
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: SetupEvent[] = [];
     const errors: Error[] = [];
 
@@ -196,7 +197,7 @@ describe("worktree setup API", () => {
   it("forwards one terminal outcome or error and closes once", () => {
     for (const terminal of [completedSetupEvent, notRequiredSetupEvent, failedSetupEvent]) {
       const transport = successfulTransport();
-      const observed = observe(new ApiClient(transport));
+      const observed = observe(new ApiClient(transport, unexpectedProjectOverflow));
       transport.openDescriptor(SetupService.method.subscribe);
       transport.emitDescriptor(SetupService.method.subscribe, SetupService.method.event, startedSetupEvent);
       transport.emitDescriptor(SetupService.method.subscribe, SetupService.method.event, terminal);
@@ -228,7 +229,7 @@ describe("worktree setup API", () => {
       },
     ]) {
       const transport = successfulTransport();
-      const observed = observe(new ApiClient(transport));
+      const observed = observe(new ApiClient(transport, unexpectedProjectOverflow));
       transport.openDescriptor(SetupService.method.subscribe);
       trigger(transport);
       transport.failDescriptor(SetupService.method.subscribe, new Error("late"));

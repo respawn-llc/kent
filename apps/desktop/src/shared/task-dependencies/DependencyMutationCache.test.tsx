@@ -1,12 +1,13 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 
 import type { TaskDetail } from "@/api";
-import { AppServicesProvider, queryKeys } from "@/app-facade";
+import { queryKeys } from "@/app-facade";
+import { TestAppProviders } from "@/test-support/app-services";
 import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
-import { useTaskMutations } from "./useTaskDetailData";
+import { useTaskDependencyActions } from "./dependencyActions";
 
 describe("Task dependency removal", () => {
   it("adds an existing Task and invalidates both Tasks plus project views", async () => {
@@ -31,15 +32,16 @@ describe("Task dependency removal", () => {
     queryClient.setQueryData(blockerTaskKey, {});
     queryClient.setQueryData(blockedTaskKey, {});
     queryClient.setQueryData(taskListKey, {});
-    const { result } = renderHook(() => useTaskMutations("task-1", "project-1"), {
-      wrapper: testWrapper(services, queryClient),
-    });
+    const { result } = renderHook(
+      () =>
+        useTaskDependencyActions("project-1", "task-1", { blockerTaskID: "task-3", blockedTaskID: "task-1" }),
+      {
+        wrapper: testWrapper(services, queryClient),
+      },
+    );
 
     await act(async () => {
-      await result.current.addDependency.mutateAsync({
-        blockerTaskID: "task-3",
-        blockedTaskID: "task-1",
-      });
+      result.current.submit({ kind: "add" });
     });
 
     expect(queryClient.getQueryState(blockerTaskKey)?.isInvalidated).toBe(true);
@@ -78,15 +80,16 @@ describe("Task dependency removal", () => {
     queryClient.setQueryData(boardKey, {});
     queryClient.setQueryData(cardsKey, {});
     queryClient.setQueryData(taskListKey, {});
-    const { result } = renderHook(() => useTaskMutations("task-1", "project-1"), {
-      wrapper: testWrapper(services, queryClient),
-    });
+    const { result } = renderHook(
+      () =>
+        useTaskDependencyActions("project-1", "task-1", { blockerTaskID: "task-2", blockedTaskID: "task-1" }),
+      {
+        wrapper: testWrapper(services, queryClient),
+      },
+    );
 
     await act(async () => {
-      await result.current.removeDependency.mutateAsync({
-        blockerTaskID: "task-2",
-        blockedTaskID: "task-1",
-      });
+      result.current.submit({ kind: "remove" });
     });
 
     expect(queryClient.getQueryData<TaskDetail>(queryKeys.task("task-1"))?.dependencies.blockerCount).toBe(0);
@@ -96,7 +99,7 @@ describe("Task dependency removal", () => {
     expect(queryClient.getQueryState(taskListKey)?.isInvalidated).toBe(true);
   });
 
-  it("restores the dependency before requesting an authoritative reload after failure", async () => {
+  it("restores the dependency after failure without a repair read", async () => {
     const services = createTaskDetailTestServices(taskWithBlocker(), {
       routes: [
         {
@@ -109,20 +112,19 @@ describe("Task dependency removal", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKeys.task("task-1"), detail);
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    const { result } = renderHook(() => useTaskMutations("task-1", "project-1"), {
-      wrapper: testWrapper(services, queryClient),
+    const { result } = renderHook(
+      () =>
+        useTaskDependencyActions("project-1", "task-1", { blockerTaskID: "task-2", blockedTaskID: "task-1" }),
+      {
+        wrapper: testWrapper(services, queryClient),
+      },
+    );
+
+    await act(async () => {
+      result.current.submit({ kind: "remove" });
     });
 
-    await expect(
-      result.current.removeDependency.mutateAsync({
-        blockerTaskID: "task-2",
-        blockedTaskID: "task-1",
-      }),
-    ).rejects.toThrow();
-
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.task("task-1"),
-    });
+    expect(invalidate).not.toHaveBeenCalled();
     expect(queryClient.getQueryData<TaskDetail>(queryKeys.task("task-1"))?.dependencies.blockerCount).toBe(1);
   });
 });
@@ -130,9 +132,9 @@ describe("Task dependency removal", () => {
 function testWrapper(services: ReturnType<typeof createTaskDetailTestServices>, queryClient: QueryClient) {
   return function TestWrapper({ children }: Readonly<{ children: ReactNode }>) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <AppServicesProvider services={services}>{children}</AppServicesProvider>
-      </QueryClientProvider>
+      <TestAppProviders services={services} queryClient={queryClient}>
+        {children}
+      </TestAppProviders>
     );
   };
 }

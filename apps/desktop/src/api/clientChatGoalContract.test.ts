@@ -6,7 +6,7 @@ import {
   GoalSetResultSchema,
   GoalStatus,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
-import { FakeRpcTransport } from "@/test-support/api";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ChatOperationError } from "./chatErrors";
 import { chatGoalSetResultFromGenerated } from "./chatGoal";
@@ -47,7 +47,10 @@ describe("Desktop Chat Goal Set contract", () => {
     ]);
 
     await expect(
-      new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship"),
+      new ApiClient(transport, unexpectedProjectOverflow).chat.setGoal(
+        { kind: "session", sessionID },
+        "ship",
+      ),
     ).rejects.toMatchObject({ detail: expected });
   });
 
@@ -83,7 +86,7 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    const error = await new ApiClient(transport).chat
+    const error = await new ApiClient(transport, unexpectedProjectOverflow).chat
       .setGoal({ kind: "session", sessionID }, "ship")
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ChatOperationError);
@@ -120,7 +123,10 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    const result = await new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship");
+    const result = await new ApiClient(transport, unexpectedProjectOverflow).chat.setGoal(
+      { kind: "session", sessionID },
+      "ship",
+    );
     expect(result.sessionID).toBe(sessionID);
     expect(result.outcome.kind).toBe("rejected");
     if (result.outcome.kind !== "rejected") throw new Error("Expected a rejected Goal Set outcome.");
@@ -171,7 +177,10 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    const result = await new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship");
+    const result = await new ApiClient(transport, unexpectedProjectOverflow).chat.setGoal(
+      { kind: "session", sessionID },
+      "ship",
+    );
     expect(result.sessionID).toBe(sessionID);
     expect(result.outcome.kind).toBe("mutation");
     if (result.outcome.kind !== "mutation") throw new Error("Expected a mutation Goal Set outcome.");

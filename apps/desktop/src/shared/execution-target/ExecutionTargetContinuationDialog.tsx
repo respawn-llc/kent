@@ -10,7 +10,7 @@ import type {
   ExecutionTargetChoiceFailure,
 } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, TextInput, Spinner } from "@/ui";
+import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, Spinner, TextInput } from "@/ui";
 import {
   executionTargetSelectionFromDraft,
   executionTargetBranchName,
@@ -61,7 +61,6 @@ export function TaskSetupRecoveryDialog({
   return (
     <Dialog closeLabel={t("app.close")} onClose={close} open={open} title={t("task.interrupted")}>
       <div className="grid gap-[var(--space-3)]">
-        {running ? <Spinner size="sm" /> : null}
         <p className="m-0 whitespace-pre-wrap font-mono text-sm text-[var(--color-error)]">
           {recovery.diagnostic}
         </p>
@@ -87,13 +86,13 @@ export function TaskSetupRecoveryDialog({
             {recoveryDisposition === "retry_existing" ? (
               <Button
                 data-testid="setup-recovery-retry"
-                disabled={running}
+                aria-busy={running}
                 onClick={() => {
                   onSubmit(retrySelection);
                 }}
                 variant="primary"
               >
-                {t("app.retry")}
+                {running ? <Spinner /> : t("app.retry")}
               </Button>
             ) : null}
           </div>
@@ -120,14 +119,15 @@ export function TaskSetupRecoveryDialog({
               <Button onClick={close}>{t("app.cancel")}</Button>
               <Button
                 data-testid="setup-recovery-target-submit"
-                disabled={selection === null || running}
+                disabled={selection === null}
+                aria-busy={running}
                 onClick={() => {
                   if (selection !== null)
                     onSubmit(selection, executionTargetBranchName(selection, branchName));
                 }}
                 variant="primary"
               >
-                {t("executionTargetContinuation.continue")}
+                {running ? <Spinner /> : t("executionTargetContinuation.continue")}
               </Button>
             </div>
           </>
@@ -160,6 +160,7 @@ export function TaskInitiatingActionDialogs({
         onClose(): void;
         onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
         recovery: TaskSetupRecovery;
+        running: boolean;
         retrySelection?: WorkflowExecutionTargetSelection;
       }>
     | undefined;
@@ -172,7 +173,6 @@ export function TaskInitiatingActionDialogs({
         recoveryDisposition={setupRecovery.recovery.recoveryDisposition}
         choiceFailure={null}
         open
-        running={continuation.running}
       />
     );
   }
@@ -324,7 +324,7 @@ function ExecutionTargetForm({
   );
   const replacement = pending.requirement.reason === "original_target_unavailable";
   const selectedTarget = executionTargetSelectionFromDraft(pending.selection);
-  const canSubmit = selectedTarget !== null && !continuation.running;
+  const canSubmit = selectedTarget !== null;
   const formShortcut = useTextFieldSubmitShortcut({
     available: canSubmit,
     kind: "form",
@@ -348,7 +348,6 @@ function ExecutionTargetForm({
       }}
     >
       <ExecutionTargetRequirementMessage requirement={pending.requirement} />
-      {continuation.running ? <Spinner size="sm" /> : null}
       <ExecutionTargetChoices
         continuation={continuation}
         pending={pending}
@@ -367,8 +366,14 @@ function ExecutionTargetForm({
       <ExecutionTargetChoiceFailureMessage failure={pending.choiceFailure} />
       <div className="flex justify-end gap-[var(--space-2)]">
         <Button onClick={continuation.close}>{t("app.cancel")}</Button>
-        <Button data-testid="execution-target-submit" disabled={!canSubmit} type="submit" variant="primary">
-          {t("executionTargetContinuation.continue")}
+        <Button
+          data-testid="execution-target-submit"
+          disabled={!canSubmit}
+          aria-busy={continuation.running}
+          type="submit"
+          variant="primary"
+        >
+          {continuation.running ? <Spinner /> : t("executionTargetContinuation.continue")}
         </Button>
       </div>
     </form>

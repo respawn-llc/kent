@@ -1,3 +1,4 @@
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ContractError } from "./errors";
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
@@ -22,7 +23,7 @@ describe("ApiClient Task Activity pagination", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.listTaskActivity("task-1", 0)).resolves.toMatchObject({
       items: [{ id: "activity-1", sessionID: "session-1" }],
@@ -40,6 +41,7 @@ describe("ApiClient Task Activity pagination", () => {
           result: { items: [], next_page_token: "legacy", generated_at_unix_ms: 1 },
         },
       ]),
+      unexpectedProjectOverflow,
     );
     await expect(malformedClient.listTaskActivity("task-1", 0)).rejects.toBeInstanceOf(ContractError);
 
@@ -61,6 +63,7 @@ describe("ApiClient Task Activity pagination", () => {
           },
         },
       ]),
+      unexpectedProjectOverflow,
     );
     await expect(mismatchedClient.listTaskActivity("task-1", 0)).rejects.toBeInstanceOf(ContractError);
   });
@@ -88,7 +91,7 @@ describe("ApiClient Task Comment pagination", () => {
         },
       },
     ]);
-    const client = new ApiClient(transport);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
 
     await expect(client.listTaskComments("task-1", 0)).resolves.toMatchObject({
       items: [{ id: "comment-1", body: "Existing comment", authorKind: "user", authorID: "Nek-12" }],
@@ -104,6 +107,7 @@ describe("ApiClient Task Comment pagination", () => {
   it("rejects zero continuation offsets before feature code receives a page", async () => {
     const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.comment.list", result: { items: [], next_offset: 0 } }]),
+      unexpectedProjectOverflow,
     );
 
     await expect(client.listTaskComments("task-1", 0)).rejects.toBeInstanceOf(ContractError);

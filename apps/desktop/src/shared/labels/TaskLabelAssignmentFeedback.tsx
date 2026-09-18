@@ -2,18 +2,25 @@ import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
 import { Button } from "@/ui";
-import { useTaskLabelAssignmentOptional } from "./taskLabelAssignmentContext";
+import { useTaskLabelAssignment } from "./taskLabelAssignmentContext";
 import type { TaskLabelAssignmentData } from "./taskLabelAssignmentData";
 
 export function TaskLabelAssignmentFeedback({
   assignment: suppliedAssignment,
 }: Readonly<{ assignment?: TaskLabelAssignmentData | undefined }> = {}) {
+  return suppliedAssignment === undefined ? (
+    <ContextualFeedback />
+  ) : (
+    <AssignmentFeedback assignment={suppliedAssignment} />
+  );
+}
+
+function ContextualFeedback() {
+  return <AssignmentFeedback assignment={useTaskLabelAssignment()} />;
+}
+
+function AssignmentFeedback({ assignment }: Readonly<{ assignment: TaskLabelAssignmentData }>) {
   const { t } = useTranslation();
-  const contextualAssignment = useTaskLabelAssignmentOptional();
-  const assignment = suppliedAssignment ?? contextualAssignment;
-  if (assignment === null) {
-    throw new Error("TaskLabelAssignmentProvider is required");
-  }
   return (
     <>
       {assignment.error === null ? null : (
