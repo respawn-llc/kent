@@ -47,7 +47,6 @@ type sessionLaunchPlan struct {
 	EnabledTools               []toolspec.ID
 	ConfiguredModelName        *string
 	SessionTitle               *string
-	PromptHistory              []string
 	ModelContractLocked        bool
 	QuestionsEnabled           bool
 	AutoCompactionEnabled      bool
@@ -258,7 +257,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		EnabledTools:             enabledTools,
 		ConfiguredModelName:      textutil.Pointer(resp.Plan.ConfiguredModelName),
 		SessionTitle:             sessionTitle,
-		PromptHistory:            append([]string(nil), resp.Plan.PromptHistory...),
 		ModelContractLocked:      resp.Plan.ModelContractLocked,
 		QuestionsEnabled:         resp.Plan.QuestionsEnabled,
 		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,

@@ -28,14 +28,9 @@ type authStateReader interface {
 	StoredState(context.Context) (auth.State, error)
 }
 
-type promptHistoryReader interface {
-	ReadPromptHistory(ctx context.Context, sessionID string) ([]string, error)
-}
-
 type Service struct {
-	planner       launch.Planner
-	authStates    authStateReader
-	promptHistory promptHistoryReader
+	planner    launch.Planner
+	authStates authStateReader
 }
 
 type PlanResult struct {
@@ -80,14 +75,6 @@ func (s *Service) WithAuthStateReader(reader authStateReader) *Service {
 		return nil
 	}
 	s.authStates = reader
-	return s
-}
-
-func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
-	if s == nil {
-		return nil
-	}
-	s.promptHistory = reader
 	return s
 }
 
@@ -567,13 +554,6 @@ func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPla
 		return PlanResult{}, err
 	}
 	plan = launch.ApplyContextPolicy(plan, provider.Capabilities)
-	if s.promptHistory != nil {
-		history, err := s.promptHistory.ReadPromptHistory(ctx, plan.Descriptor.SessionID().String())
-		if err != nil {
-			return PlanResult{}, err
-		}
-		plan.PromptHistory = history
-	}
 	return PlanResult{Plan: plan, Warnings: warnings}, nil
 }
 
@@ -640,7 +620,6 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		ActiveSettings:           settings,
 		EnabledToolIds:           enabledToolIDs,
 		SessionName:              textutil.Pointer(result.Plan.SessionName),
-		PromptHistory:            append([]string(nil), result.Plan.PromptHistory...),
 		ModelContractLocked:      result.Plan.ModelContractLocked,
 		QuestionsEnabled:         result.Plan.QuestionsEnabled,
 		AutoCompactionEnabled:    result.Plan.AutoCompactionEnabled,

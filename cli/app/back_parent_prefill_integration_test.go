@@ -118,7 +118,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	sourceServer := boundServer.(*remoteAppServer)
 
 	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Config().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
-	if err := parent.SetInputDraft("target project draft"); err != nil {
+	if err := parent.SetInputDraft("target project draft", nil); err != nil {
 		t.Fatalf("set target parent draft: %v", err)
 	}
 	parentLog, err := parent.MaterializeEventLog()

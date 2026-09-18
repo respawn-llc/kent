@@ -172,7 +172,6 @@ func prepareSharedRuntimeWiring(
 		worktrees:             clients.Worktrees,
 		processControls:       clients.ProcessControls,
 		processViews:          clients.ProcessViews,
-		promptHistory:         append([]string(nil), plan.PromptHistory...),
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

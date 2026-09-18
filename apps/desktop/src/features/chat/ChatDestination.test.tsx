@@ -99,7 +99,7 @@ function setup(commands: readonly ComposerCommand[] = []) {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalog);
   const draft = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const read = vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  const read = vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   const observe = vi.spyOn(services.api.chat, "getMainView");
   const steer = vi.spyOn(services.api.chat, "steer");
   const queue = vi.spyOn(services.api.chat, "queue");
@@ -158,7 +158,7 @@ function sessionWithPrompts() {
       autoCompaction: choice.autoCompaction,
     },
   });
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
@@ -476,6 +476,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
     expect(view.draft).toHaveBeenCalledWith(
       expect.objectContaining({ sessionID: "session-created" }),
       "later typing",
+      null,
     );
   });
   expect(view.read).not.toHaveBeenCalled();
@@ -509,6 +510,7 @@ it("adopts an identified rejection and restores submitted text once without comp
     expect(view.draft).toHaveBeenCalledWith(
       expect.objectContaining({ sessionID: "rejected-session" }),
       "repeat\nrepeat",
+      null,
     );
   });
   expect(view.read).not.toHaveBeenCalled();
@@ -599,11 +601,13 @@ it("applies concurrent results in delivery order while draft writes retain captu
     expect(view.draft).toHaveBeenCalledWith(
       expect.objectContaining({ sessionID: "first" }),
       "during\nsecond\nfirst",
+      null,
     );
   });
   expect(view.draft.mock.calls[0]).toEqual([
     expect.objectContaining({ sessionID: "second" }),
     "during\nsecond",
+    null,
   ]);
 });
 

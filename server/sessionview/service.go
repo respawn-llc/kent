@@ -32,6 +32,10 @@ import (
 
 type PersistedSessionResolver = session.PersistedSessionResolver
 
+type promptHistoryReader interface {
+	ReadPromptHistory(context.Context, string) ([]string, error)
+}
+
 type ExecutionTargetResolver interface {
 	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error)
 }
@@ -59,6 +63,7 @@ type dormantChatProjection struct {
 }
 
 type Service struct {
+	promptHistory     promptHistoryReader
 	persisted         PersistedSessionResolver
 	mainViews         runtimeMainViewSnapshotProvider
 	targets           ExecutionTargetResolver
@@ -69,6 +74,28 @@ type Service struct {
 	contextWorkspaces chatContextWorkspaceResolver
 	contextAuth       chatContextAuthReader
 	workflowSessions  workflowSessionStatusResolver
+}
+
+func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
+	s.promptHistory = reader
+	return s
+}
+
+func (s *Service) GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionId); err != nil {
+		return nil, err
+	}
+	if s.promptHistory == nil {
+		return nil, errors.New("prompt history reader is required")
+	}
+	prompts, err := s.promptHistory.ReadPromptHistory(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionpb.PromptHistorySuccess{Prompts: prompts}, nil
 }
 
 func (s *Service) WithExecutionEnvironmentConfig(app config.App) *Service {

@@ -2540,6 +2540,10 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	if sessionLaunchVisible(snapshot.Meta) {
 		launchVisible = 1
 	}
+	var protectedInputDraft sql.NullString
+	if snapshot.Meta.ProtectedInputDraft != nil {
+		protectedInputDraft = sql.NullString{String: *snapshot.Meta.ProtectedInputDraft, Valid: true}
+	}
 	if err := q.UpsertSession(ctx, sqlitegen.UpsertSessionParams{
 		ID:                       snapshot.Meta.SessionID,
 		ProjectID:                binding.ProjectID,
@@ -2549,6 +2553,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		Name:                     snapshot.Meta.Name,
 		FirstPromptPreview:       snapshot.Meta.FirstPromptPreview,
 		InputDraft:               snapshot.Meta.InputDraft,
+		ProtectedInputDraft:      protectedInputDraft,
 		PreviousSessionID:        nullableSessionID(snapshot.Meta.PreviousSessionID),
 		ParentAgentSessionID:     nullableSessionID(snapshot.Meta.ParentAgentSessionID),
 		Category:                 category,
@@ -2736,6 +2741,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		Name:                            row.Name,
 		FirstPromptPreview:              row.FirstPromptPreview,
 		InputDraft:                      row.InputDraft,
+		ProtectedInputDraft:             OptionalString(row.ProtectedInputDraft),
 		PreviousSessionID:               previousSessionID,
 		ParentAgentSessionID:            parentAgentSessionID,
 		WorkspaceRoot:                   workspaceRoot,
