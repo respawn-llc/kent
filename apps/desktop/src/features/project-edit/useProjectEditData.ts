@@ -44,8 +44,17 @@ export async function invalidateProjectWorkspaceOwners(
   projectID: string,
 ): Promise<void> {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.projectEdit(projectID) }),
+    invalidateProjectWorkspaceMetadata(queryClient, projectID),
+    queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaceCatalog(projectID) }),
+  ]);
+}
+
+export async function invalidateProjectWorkspaceMetadata(
+  queryClient: ReturnType<typeof useQueryClient>,
+  projectID: string,
+): Promise<void> {
+  await Promise.all([
+    invalidateProjectEditQueries(queryClient, projectID),
     invalidateProjectBoardQueries(queryClient, projectID),
   ]);
 }

@@ -593,7 +593,61 @@ func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 	}
 }
 
-func TestMetadataServiceUnlinkWrongProjectIDSelectorFailsBeforeMutationResolution(t *testing.T) {
+func TestMetadataServiceRepeatedWorkspaceDetachSucceeds(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+	for range 2 {
+		response, err := svc.UnlinkWorkspaceFromProject(t.Context(), &projectpb.UnlinkWorkspaceRequest{
+			ProjectId: binding.ProjectID, Workspace: generatedProjectWorkspaceSelector(selector),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.WorkspaceId != attached.WorkspaceID || len(response.Blockers) != 0 {
+			t.Fatalf("detach result = %+v", response)
+		}
+	}
+	if _, err := store.LookupWorkspaceBindingByID(t.Context(), binding.WorkspaceID); err != nil {
+		t.Fatalf("repeat detach damaged remaining workspace: %v", err)
+	}
+}
+
+func TestMetadataServiceConcurrentWorkspaceDetachSucceeds(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			response, err := svc.UnlinkWorkspaceFromProject(t.Context(), &projectpb.UnlinkWorkspaceRequest{
+				ProjectId: binding.ProjectID, Workspace: generatedProjectWorkspaceSelector(selector),
+			})
+			if err == nil && len(response.Blockers) != 0 {
+				err = errors.New("concurrent detach was blocked")
+			}
+			results <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMetadataServiceUnlinkWrongProjectIDSelectorDoesNotMutate(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	other, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other project")
 	if err != nil {
@@ -611,9 +665,8 @@ func TestMetadataServiceUnlinkWrongProjectIDSelectorFailsBeforeMutationResolutio
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("wrong-project error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	var mutationErr *serverapi.WorkspaceMutationError
-	if errors.As(err, &mutationErr) {
-		t.Fatalf("wrong-project error = %+v, must not be post-resolution mutation failure", mutationErr)
+	if _, err := store.LookupWorkspaceBindingByID(t.Context(), binding.WorkspaceID); err != nil {
+		t.Fatalf("wrong-project detach changed workspace: %v", err)
 	}
 }
 

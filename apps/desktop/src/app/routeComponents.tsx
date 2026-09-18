@@ -21,7 +21,6 @@ import {
   writeLastProjectRoute,
 } from "@/app-facade";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
-import { shouldSkipNativeDialogStartupGate } from "./routes";
 import { useWindowChromeTitle } from "@/app-facade";
 
 const LazyWorkflowEditorRoute = lazy(async () => {
@@ -50,9 +49,6 @@ export function RootRoute() {
   const isNativeDialogWindow =
     typeof window !== "undefined" && window.location.pathname.startsWith("/native-dialog/");
   if (isNativeDialogWindow) {
-    if (shouldSkipNativeDialogStartupGate(window.location.pathname)) {
-      return <Outlet />;
-    }
     return (
       <StartupGate>
         <Outlet />

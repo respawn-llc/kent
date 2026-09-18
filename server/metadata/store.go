@@ -971,10 +971,16 @@ func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, p
 	if trimmedWorkspaceID == "" {
 		return nil, errors.New("workspace id is required")
 	}
+	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, serverapi.ErrProjectNotFound
+		}
+		return nil, err
+	}
 	workspace, err := s.GetWorkspaceByID(ctx, trimmedWorkspaceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -1031,12 +1037,12 @@ func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, p
 		return nil, fmt.Errorf("lock workspace unlink: %w", err)
 	}
 	if locked == 0 {
-		return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+		return nil, nil
 	}
 	workspace, err = q.GetWorkspaceByID(ctx, trimmedWorkspaceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+			return nil, nil
 		}
 		return nil, fmt.Errorf("get workspace by id: %w", err)
 	}

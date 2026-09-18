@@ -263,7 +263,6 @@ export const englishResources = {
       projectSaved: "Project saved.",
       defaultWorkspaceSaved: "Default workspace saved.",
       workspaceUnlinkBlocked: "Workspace cannot be unlinked yet.",
-      unlinkWindowError: "Workspace unlink window failed",
       unlinkWorkspace: "Unlink {{path}}",
       unlinkTitle: "Unlink workspace?",
       unlinkBody:

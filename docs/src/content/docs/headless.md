@@ -126,6 +126,8 @@ For a live session, Kent acknowledges the scheduled move and applies it between 
 
 Detach and default-workspace selection require an explicit project ID. Path selectors are converted to absolute server paths before the request. A shared path can be detached from one project without changing its binding in another project.
 
+Repeating detach with `--workspace <workspace-id>` succeeds without changes if that workspace has already been removed and the selected project exists.
+
 Use `--json` for automation. Successful detach returns `status: "ok"` with `project_id` and `workspace_id`; successful default selection returns the updated project at `result.project`. Operational failures return one `status: "error"` object with a stable error code. Detach blockers include bounded guidance; a default-workspace blocker directs you to choose another attached workspace with `kent project default`.
 
 Detach error codes are `project_not_found`, `workspace_not_attached`, `workspace_detach_blocked`, `workspace_detach_conflict`, and `request_failed`. Default-workspace selection uses `project_not_found`, `workspace_not_attached`, and `request_failed`. JSON omits absent results, error identities, blocker counts, and retryability fields.

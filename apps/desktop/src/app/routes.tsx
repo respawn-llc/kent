@@ -4,7 +4,7 @@ import { z } from "zod";
 import { workflowIDSchema } from "@/api";
 import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import { createNativeDialogRoutes, workspaceUnlinkNativeDialogPath } from "./nativeDialogRoutes";
+import { createNativeDialogRoutes } from "./nativeDialogRoutes";
 import {
   HomeShellRoute,
   ChatRoute,
@@ -105,10 +105,6 @@ export function createAppRouter() {
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
-
-export function shouldSkipNativeDialogStartupGate(pathname: string): boolean {
-  return pathname === workspaceUnlinkNativeDialogPath;
-}
 
 declare module "@tanstack/react-router" {
   interface Register {
