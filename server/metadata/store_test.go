@@ -1183,7 +1183,7 @@ func TestResolvePersistedSessionRoundTripsRequiredStructuredMetadata(t *testing.
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if err := sess.SetInputDraft("draft"); err != nil {
+	if err := sess.SetInputDraft("draft", nil); err != nil {
 		t.Fatalf("SetInputDraft: %v", err)
 	}
 	appendMetadataMessage(t, sess, "step-2", session.MessageRoleUser, "establish conversation")

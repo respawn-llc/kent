@@ -559,7 +559,7 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 			wantVisible: true,
 			mutate: func(t *testing.T, _ *Store, _ config.App, _ Binding, sess *session.Store) {
 				t.Helper()
-				if err := sess.SetInputDraft("draft prompt"); err != nil {
+				if err := sess.SetInputDraft("draft prompt", nil); err != nil {
 					t.Fatalf("SetInputDraft: %v", err)
 				}
 			},

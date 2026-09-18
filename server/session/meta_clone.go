@@ -4,6 +4,10 @@ import "core/shared/config"
 
 func cloneMeta(in Meta) Meta {
 	out := in
+	if in.ProtectedInputDraft != nil {
+		text := *in.ProtectedInputDraft
+		out.ProtectedInputDraft = &text
+	}
 	if in.PreviousSessionID != nil {
 		previousSessionID := *in.PreviousSessionID
 		out.PreviousSessionID = &previousSessionID

@@ -16,6 +16,9 @@ func registerSessionViewGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 	sessionService := sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService")
 	transcriptService := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService")
 	return errors.Join(
+		registerSessionViewUnary(bindings, sessionService, "GetPromptHistory",
+			func() *sessionpb.PromptHistoryRequest { return &sessionpb.PromptHistoryRequest{} },
+			apicontract.SessionViewService.GetPromptHistory),
 		registerSessionViewUnary(bindings, sessionService, "GetMainView",
 			func() *sessionpb.MainViewRequest { return &sessionpb.MainViewRequest{} },
 			apicontract.SessionViewService.GetSessionMainView),

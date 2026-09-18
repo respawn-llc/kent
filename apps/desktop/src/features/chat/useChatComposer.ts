@@ -3,7 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { useAppServices, useDebouncedText } from "@/app-facade";
+import { useAppServices } from "@/app-facade";
 import {
   compactCommand,
   composerSuggestions,
@@ -14,6 +14,7 @@ import { useComposerPendingWork } from "./useComposerPendingWork";
 import { chatCompactionFeedback } from "./chatCompactionFeedback";
 import { useComposerDraftActions } from "./ComposerDraftViewModel";
 import { useComposerInputActions } from "./ComposerInputViewModel";
+import { useComposerHistoryActions } from "./ComposerHistoryViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
@@ -45,9 +46,12 @@ export function useChatComposer(options: ChatComposerOptions) {
   const target = useAtomValue(model.target);
   const draftActions = useComposerDraftActions(model.draft);
   const inputActions = useComposerInputActions(model.input);
+  const historyActions = useComposerHistoryActions(model.history);
   const inputPending = useAtomValue(model.input.pending);
   const navigationPending = useAtomValue(model.draft.navigationPending);
   const text = useAtomValue(model.draft.text);
+  const draftValue = useAtomValue(model.draft.value);
+  const historySelection = useAtomValue(model.draft.selection);
   const draftRead = useAtomValue(model.draft.read);
   const draft: DraftState = draftRead.isSuccess
     ? { kind: "ready" }
@@ -73,18 +77,24 @@ export function useChatComposer(options: ChatComposerOptions) {
   const [picker, setPicker] = useState<
     Readonly<{ kind: "dismissed" }> | Readonly<{ kind: "selecting"; token: string | null }>
   >({ kind: "selecting", token: null });
-  const suggestions = picker.kind === "dismissed" ? [] : composerSuggestions(text, commands);
+  const suggestions =
+    picker.kind === "dismissed" || historySelection !== null ? [] : composerSuggestions(text, commands);
   const selectedCommand =
     (picker.kind === "selecting"
       ? suggestions.find((command) => command.token === picker.token)
       : undefined) ??
     suggestions[0] ??
     null;
-  const debounced = useDebouncedText(text, 300);
   const saveDraft = draftActions.save;
   useEffect(() => {
-    if (draft.kind === "ready" && debounced === text) saveDraft(debounced);
-  }, [saveDraft, draft.kind, debounced, text]);
+    if (draft.kind !== "ready") return;
+    const timer = setTimeout(() => {
+      saveDraft(draftValue);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [saveDraft, draft.kind, draftValue]);
   const canSubmit =
     !navigationPending && draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
   function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
@@ -97,8 +107,11 @@ export function useChatComposer(options: ChatComposerOptions) {
       restore: (input) => {
         if (mounted.current) restoreAction(input);
       },
-      accepted: () => {
-        if (mounted.current) pending.refresh();
+      accepted: (_, submittedText) => {
+        if (mounted.current) {
+          pending.refresh();
+          historyActions.append(submittedText);
+        }
       },
       failed: () => {
         if (mounted.current) draftActions.resume(undefined);
@@ -121,6 +134,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     canSubmit,
     inputPending,
     navigationPending,
+    navigateHistory: historyActions.navigate,
     submit,
     compact: () => {
       submit("send", "compact-button");

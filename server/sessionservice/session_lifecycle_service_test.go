@@ -199,7 +199,7 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 
 func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
 	_, containerDir, store := createPersistedSession(t)
-	if err := store.SetInputDraft("draft from store"); err != nil {
+	if err := store.SetInputDraft("draft from store", nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 
@@ -294,6 +294,39 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	}
 	if reopened.Meta().InputDraft != "saved by service" {
 		t.Fatalf("input draft = %q, want %q", reopened.Meta().InputDraft, "saved by service")
+	}
+}
+
+func TestServiceRestoresAndClearsProtectedDraft(t *testing.T) {
+	_, containerDir, store := createPersistedSession(t)
+	service := newTestSessionLifecycleService(containerDir, nil)
+	protected := "draft A"
+	request := &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId:      store.Meta().SessionID,
+		Input:          "draft B",
+		ProtectedInput: &sessionlaunchpb.ProtectedInputDraftUpdate{Text: &protected},
+	}
+	if _, err := service.PersistInputDraft(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := service.GetInitialInput(t.Context(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: &request.SessionId})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.Input != request.Input || initial.ProtectedInput == nil || *initial.ProtectedInput != protected {
+		t.Fatalf("restored pair = %+v", initial)
+	}
+	request.Input = protected
+	request.ProtectedInput = &sessionlaunchpb.ProtectedInputDraftUpdate{}
+	if _, err := service.PersistInputDraft(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	initial, err = service.GetInitialInput(t.Context(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: &request.SessionId})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.Input != protected || initial.ProtectedInput != nil {
+		t.Fatalf("restored pair after clear = %+v", initial)
 	}
 }
 
@@ -771,7 +804,7 @@ func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create foreign session store: %v", err)
 	}
-	if err := store.SetInputDraft("foreign draft"); err != nil {
+	if err := store.SetInputDraft("foreign draft", nil); err != nil {
 		t.Fatalf("set foreign input draft: %v", err)
 	}
 

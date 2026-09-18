@@ -108,7 +108,10 @@ func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req *sess
 	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.SessionInitialInputSuccess{Input: initialSessionInput(meta, req.TransitionInput)}, nil
+	return &sessionlaunchpb.SessionInitialInputSuccess{
+		Input:          initialSessionInput(meta, req.TransitionInput),
+		ProtectedInput: meta.ProtectedInputDraft,
+	}, nil
 }
 
 func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Context, sessionID string) (session.Meta, error) {
@@ -132,7 +135,11 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 
 func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
-		return persistSessionInputDraft(store, req.Input)
+		var protected *session.ProtectedInputDraftUpdate
+		if req.ProtectedInput != nil {
+			protected = &session.ProtectedInputDraftUpdate{Text: req.ProtectedInput.Text}
+		}
+		return store.SetInputDraft(req.Input, protected)
 	})
 	return &emptypb.Empty{}, err
 }
