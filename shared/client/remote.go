@@ -254,14 +254,7 @@ func (c *Remote) GetUpdateStatus(ctx context.Context, req *emptypb.Empty) (*serv
 		req,
 		&serverpb.GetUpdateStatusResult{},
 		func(failure *serverpb.GetUpdateStatusError) error {
-			switch failure.Code {
-			case "auth_required":
-				return serverapi.ErrServerAuthRequired
-			case "server_not_ready":
-				return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
-			default:
-				return generatedOperationFailure(failure.Code)
-			}
+			return generatedOperationFailure(failure.Code)
 		})
 }
 

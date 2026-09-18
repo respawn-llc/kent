@@ -68,9 +68,6 @@ func (c *Remote) DeleteProject(ctx context.Context, request *projectpb.DeletePro
 	response, err := callGeneratedBinary(c, ctx, projectCatalogMethod("Delete"), request,
 		&projectpb.DeleteProjectResult{},
 		func(failure *projectpb.DeleteProjectError) error {
-			if failure.Code == "auth_required" {
-				return serverapi.ErrServerAuthRequired
-			}
 			return projectNotFoundGeneratedError(
 				failure.Code, failure.GetProjectNotFound())
 		})
@@ -109,8 +106,6 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 		&projectpb.RebindWorkspaceResult{},
 		func(failure *projectpb.RebindWorkspaceError) error {
 			switch failure.Code {
-			case "auth_required":
-				return serverapi.ErrServerAuthRequired
 			case "workspace_not_registered":
 				return protoapi.WorkspaceNotRegisteredFromProto(failure.GetWorkspaceNotRegistered())
 			case "workspace_binding_ambiguous":
@@ -129,8 +124,6 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 
 func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_key_conflict":
 		return projectKeyConflictError(failure.GetProjectKeyConflict())
 	case "workspace_already_bound":
@@ -144,8 +137,6 @@ func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 
 func projectUpdateGeneratedError(failure *projectpb.UpdateProjectError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "project_key_conflict":
@@ -157,8 +148,6 @@ func projectUpdateGeneratedError(failure *projectpb.UpdateProjectError) error {
 
 func projectAttachGeneratedError(failure *projectpb.AttachWorkspaceError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "workspace_already_bound":
@@ -179,8 +168,6 @@ func projectWorkspaceMutationGeneratedError(
 	mutation *projectpb.WorkspaceMutationDetails,
 ) error {
 	switch code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(notFound)
 	case "workspace_not_registered":
