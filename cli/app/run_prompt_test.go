@@ -178,7 +178,7 @@ func (h memoryAuthHandler) LookupEnv(key string) string {
 }
 
 var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
-	path, created, err := config.WriteDefaultSettingsFile()
+	_, created, err := config.WriteDefaultSettingsFile()
 	if err != nil {
 		return config.App{}, err
 	}
@@ -187,8 +187,6 @@ var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req
 		return config.App{}, err
 	}
 	reloaded.Source.CreatedDefaultConfig = created
-	reloaded.Source.SettingsPath = path
-	reloaded.Source.SettingsFileExists = true
 	return reloaded, nil
 })
 

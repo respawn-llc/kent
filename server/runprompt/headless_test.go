@@ -610,7 +610,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +737,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		t.Fatalf("EnsureDurable ordinary caller: %v", err)
 	}
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -747,20 +747,44 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	hiddenSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"caller": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 		"hidden": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
+			AgentCallable: true,
 		},
 		"blocked": {
-			Settings:         hiddenSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallableSet: true,
+			Settings: hiddenSettings,
+			Sources: map[string]config.Origin{"thinking_level": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "thinking_level",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 	}
 	worktreeRoot := filepath.Join(root, "worktrees")
@@ -948,7 +972,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -959,15 +983,31 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	workerSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"current": {
-			Settings:         workerSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallableSet: true,
+			Settings: workerSettings,
+			Sources: map[string]config.Origin{"model": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "model",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
 		},
 		"worker": {
-			Settings:         workerSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings: workerSettings,
+			Sources: map[string]config.Origin{"model": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "model",
+				}}, "agent_callable": {Kind: config.SourceInput,
+
+				Property: config.PropertyAddress{
+					Key: "agent_callable",
+				}},
+			},
+			AgentCallable: true,
 		},
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
@@ -1715,7 +1755,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 
 	"core/server/runtime"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/transcriptdiag"
 )
 
@@ -165,11 +166,18 @@ func (l *RunLogger) Logf(format string, args ...any) {
 	}
 }
 
-func FormatConfigSourceLines(sources map[string]string) []string {
+func FormatConfigSourceLines(sources map[string]config.Origin) []string {
 	keys := slices.Sorted(maps.Keys(sources))
 	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
-		lines = append(lines, fmt.Sprintf("%s=%s", key, strings.TrimSpace(sources[key])))
+		origin := sources[key]
+		location := string(origin.Kind)
+		if origin.File != nil {
+			location = fmt.Sprintf("%s:%s", origin.File.Layer, origin.File.Path)
+		} else if origin.Option != nil {
+			location = *origin.Option
+		}
+		lines = append(lines, fmt.Sprintf("%s=%s (%s)", key, location, origin.Property.String()))
 	}
 	return lines
 }

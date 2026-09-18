@@ -77,11 +77,21 @@ func IsSubagentRoleNameShape(raw string) bool {
 }
 
 func SubagentRoleCallable(role SubagentRole) bool {
-	return !role.AgentCallableSet || role.AgentCallable
+	return !role.AgentCallableSet() || role.AgentCallable
 }
 
 func SubagentRoleWorkflowCallable(role SubagentRole) bool {
-	return !role.WorkflowSubagentSet || role.WorkflowSubagent
+	return !role.WorkflowSubagentSet() || role.WorkflowSubagent
+}
+
+func (role SubagentRole) AgentCallableSet() bool {
+	_, present := role.Sources["agent_callable"]
+	return present
+}
+
+func (role SubagentRole) WorkflowSubagentSet() bool {
+	_, present := role.Sources["workflow_subagent"]
+	return present
 }
 
 type SubagentInvocationContext string
@@ -134,28 +144,28 @@ func LookupSubagentRole(settings Settings, rawSelector string) SubagentRoleLooku
 	}
 }
 
-func EffectiveSubagentRoleTools(base map[toolspec.ID]bool, role SubagentRole) map[toolspec.ID]bool {
-	effective := make(map[toolspec.ID]bool, len(base))
-	for id, enabled := range base {
-		effective[id] = enabled
-	}
-	for _, id := range toolspec.CatalogIDs() {
-		if _, explicit := role.Sources["tools."+toolspec.ConfigName(id)]; explicit {
-			effective[id] = role.Settings.EnabledTools[id]
-		}
-	}
-	return effective
-}
-
 func SubagentRoleHasCapabilityOverrides(role SubagentRole) bool {
 	return hasAnyConfiguredSource(role.Sources, modelCapabilityKeys...) ||
 		hasAnyConfiguredSource(role.Sources, providerCapabilityKeys...)
 }
 
-func OverlaySubagentRoleSettings(base Settings, role SubagentRole, allowModelOverride bool) Settings {
-	return overlaySubagentRoleSettings(base, role, func(key string) bool {
+// MaterializeSubagentRoleDeclaration fills the transport's required settings
+// fields while preserving every explicit role value. Filler is not declaration
+// evidence and must never be used as an effective role resolution.
+func MaterializeSubagentRoleDeclaration(base Settings, role SubagentRole) Settings {
+	settings, _ := overlayDeclaredSettings(base, nil, role.Settings, role.Sources, func(string, Origin) bool { return true }, true)
+	settings.Subagents = nil
+	return settings
+}
+
+func OverlaySubagentRoleSettings(base App, role SubagentRole, allowModelOverride bool) (Settings, map[string]Origin, error) {
+	if err := base.ValidateDeclarationEvidence(); err != nil {
+		return Settings{}, nil, err
+	}
+	settings, sources := overlaySubagentRoleSettings(base.Settings, base.Source.Sources, role, func(key string) bool {
 		return subagentRoleSessionSetting(key) && (allowModelOverride || key != "model")
 	}, true)
+	return settings, sources, nil
 }
 
 func subagentRoleSessionSetting(key string) bool {
@@ -164,48 +174,87 @@ func subagentRoleSessionSetting(key string) bool {
 		!strings.HasPrefix(key, "workflow.")
 }
 
-func OverlaySubagentRoleProviderSettings(base Settings, role SubagentRole) Settings {
-	return overlaySubagentRoleSettings(base, role, func(key string) bool {
+func OverlaySubagentRoleProviderSettings(base App, role SubagentRole) (Settings, error) {
+	if err := base.ValidateDeclarationEvidence(); err != nil {
+		return Settings{}, err
+	}
+	settings, _ := overlaySubagentRoleSettings(base.Settings, base.Source.Sources, role, func(key string) bool {
 		return key == "provider_override" ||
 			key == "openai_base_url" ||
 			strings.HasPrefix(key, "provider_capabilities.")
 	}, false)
+	return settings, nil
 }
 
-func overlaySubagentRoleSettings(base Settings, role SubagentRole, include func(string) bool, includeDynamicSettings bool) Settings {
+func overlaySubagentRoleSettings(base Settings, sources map[string]Origin, role SubagentRole, include func(string) bool, includeDynamicSettings bool) (Settings, map[string]Origin) {
+	return overlayDeclaredSettings(base, sources, role.Settings, role.Sources, func(key string, _ Origin) bool {
+		return include(key) && !sources[key].OverridesRole(key)
+	}, includeDynamicSettings)
+}
+
+// OverlayAgentOverrides restores already decoded environment/CLI declarations
+// after role heuristics without treating inherited Supervisor values as declarations.
+func OverlayAgentOverrides(base Settings, sources map[string]Origin, overrides Settings, origins map[string]Origin, allowModelOverride bool) (Settings, map[string]Origin) {
+	return overlayDeclaredSettings(base, sources, overrides, origins, func(key string, origin Origin) bool {
+		return (allowModelOverride || key != "model") && origin.OverridesRole(key)
+	}, true)
+}
+
+// OverlayCLIOverrides projects the decoded request options at the existing
+// model/tool contract boundary.
+func OverlayCLIOverrides(base Settings, sources map[string]Origin, overrides Settings, origins map[string]Origin, allowModelOverride, allowToolOverride bool) (Settings, map[string]Origin) {
+	return overlayDeclaredSettings(base, sources, overrides, origins, func(key string, origin Origin) bool {
+		return origin.Kind == SourceCLI && origin.OverridesRole(key) &&
+			(allowModelOverride || key != "model") && (allowToolOverride || origin.Property.Key != "tools")
+	}, true)
+}
+
+func overlayDeclaredSettings(base Settings, sources map[string]Origin, overlay Settings, declarations map[string]Origin, include func(string, Origin) bool, includeDynamicSettings bool) (Settings, map[string]Origin) {
 	target := settingsState{Settings: base}
-	roleState := settingsState{Settings: role.Settings}
-	for key := range role.Sources {
-		if !include(key) {
+	overlayState := settingsState{Settings: overlay}
+	resultSources := make(map[string]Origin, len(sources)+len(declarations))
+	maps.Copy(resultSources, sources)
+	for key, origin := range declarations {
+		if !include(key, origin) {
 			continue
 		}
 		setting, ok := configRegistry.subagentRoleValues[key]
 		if !ok {
 			continue
 		}
-		setting.applySubagentRoleValue(&target, roleState)
-		if key == "system_prompt_file" {
-			target.Settings.SystemPromptFiles = append(
-				append([]SystemPromptFile(nil), base.SystemPromptFiles...),
-				role.Settings.SystemPromptFiles...,
-			)
-		}
+		setting.applySubagentRoleValue(&target, overlayState)
+		resultSources[key] = origin
 	}
 	if !includeDynamicSettings {
-		return target.Settings
+		return target.Settings, resultSources
 	}
-	target.Settings.EnabledTools = EffectiveSubagentRoleTools(base.EnabledTools, role)
+	target.Settings.EnabledTools = maps.Clone(base.EnabledTools)
+	for _, id := range toolspec.CatalogIDs() {
+		key := toolSourceKey(id)
+		origin, exists := declarations[key]
+		if !exists || !include(key, origin) {
+			continue
+		}
+		if target.Settings.EnabledTools == nil {
+			target.Settings.EnabledTools = map[toolspec.ID]bool{}
+		}
+		target.Settings.EnabledTools[id] = overlay.EnabledTools[id]
+		resultSources[key] = origin
+	}
 	target.Settings.SkillToggles = maps.Clone(base.SkillToggles)
-	for key, enabled := range role.Settings.SkillToggles {
-		if _, ok := role.Sources["skills."+key]; !ok {
+	for key, enabled := range overlay.SkillToggles {
+		sourceKey := skillSourceKey(key)
+		origin, exists := declarations[sourceKey]
+		if !exists || !include(sourceKey, origin) {
 			continue
 		}
 		if target.Settings.SkillToggles == nil {
 			target.Settings.SkillToggles = map[string]bool{}
 		}
 		target.Settings.SkillToggles[key] = enabled
+		resultSources[sourceKey] = origin
 	}
-	return target.Settings
+	return target.Settings, resultSources
 }
 
 func subagentRoleLookupSelector(selector string) *string {

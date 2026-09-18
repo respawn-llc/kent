@@ -32,7 +32,7 @@ func TestShellConcurrencyConfiguration(t *testing.T) {
 		_, workspace, globalPath := newConfigTestFile(t)
 		writeConfigTestFile(t, globalPath, "[shell]\nmax_concurrent = 20\n")
 		writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), "[shell]\nmax_concurrent = 30\n")
-		if _, err := Load(workspace, LoadOptions{}); err == nil {
+		if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 			t.Fatal("workspace shell limit accepted")
 		}
 	})

@@ -6,9 +6,13 @@ import { ChatRuntimeContext } from "./chatRuntimeContext";
 import type { ChatRuntimeOwner, ChatRuntimeOwnerSnapshot } from "./chatRuntime";
 
 export function useChatRuntimeOwner(): ChatRuntimeOwner {
-  const owner = useContext(ChatRuntimeContext);
+  const owner = useOptionalChatRuntimeOwner();
   if (owner === null) throw new Error("Chat Runtime hooks require ChatRuntimeProvider.");
   return owner;
+}
+
+export function useOptionalChatRuntimeOwner(): ChatRuntimeOwner | null {
+  return useContext(ChatRuntimeContext);
 }
 
 export function useChatRuntimeSnapshot(): ChatRuntimeOwnerSnapshot {

@@ -64,6 +64,8 @@ Deleting an ongoing Task's Worktree preserves the Task, its Sessions, and its ma
 
 Use a setup script to prepare new worktrees with local data such as `.env` files, encryption credentials, Gradle wrappers, installed dependencies, local skills, docs, or config.
 
+Setup uses the [configuration layers](../config/#precedence), including the Main Workspace's `.kent/config.local.toml`, and validates the full configuration before running the script. The private file is read from the Main Workspace, not copied into the worktree. Relative `setup_script` paths remain relative to the source workspace.
+
 ```toml
 [worktrees]
 base_dir = "~/.kent/worktrees"

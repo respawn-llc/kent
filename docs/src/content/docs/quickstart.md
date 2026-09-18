@@ -66,6 +66,8 @@ Homebrew installs update through `brew upgrade`, standalone installs self-update
 
 On macOS and Linux, drag local files into Kent Desktop to insert their absolute paths into the focused text input. This inserts text, not attachments. Drops without a focused editable input, and file drops on Windows or in a browser, are ignored.
 
+In Desktop Chat, unmodified Up at the start of the input and Down at its end browse the Session's newest 100 saved prompts. Recall protects your unsent draft. If you edit a recalled prompt, send or clear it before pressing Down to restore the protected draft. Both drafts survive leaving and reopening Chat. Prompts submitted in another client become available when you reopen the Session.
+
 :::note
 The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
 

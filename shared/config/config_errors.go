@@ -3,8 +3,57 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
+
+type ConfigurationFileError struct {
+	Source SourceFile
+	Err    error
+}
+
+func (e *ConfigurationFileError) Error() string {
+	return fmt.Sprintf("%s configuration %s: %v", e.Source.Layer, e.Source.Path, e.Err)
+}
+
+func (e *ConfigurationFileError) Unwrap() error {
+	return e.Err
+}
+
+type ConfigurationValidationError struct {
+	Origins map[string]Origin
+	Err     error
+}
+
+func (e *ConfigurationValidationError) Error() string {
+	var details []string
+	for _, key := range slices.Sorted(maps.Keys(e.Origins)) {
+		origin := e.Origins[key]
+		location := string(origin.Kind)
+		if origin.File != nil {
+			location = fmt.Sprintf("%s %s", origin.File.Layer, origin.File.Path)
+		} else if origin.Option != nil {
+			location = *origin.Option
+		}
+		details = append(details, fmt.Sprintf("%s from %s (%s)", key, location, origin.Property.String()))
+	}
+	return fmt.Sprintf("%v [%s]", e.Err, strings.Join(details, "; "))
+}
+
+func (e *ConfigurationValidationError) Unwrap() error {
+	return e.Err
+}
+
+func configurationValidationError(err error, sources map[string]Origin, keys ...string) error {
+	origins := make(map[string]Origin, len(keys))
+	for _, key := range keys {
+		if origin, present := sources[key]; present {
+			origins[key] = origin
+		}
+	}
+	return &ConfigurationValidationError{Origins: origins, Err: err}
+}
 
 // Sentinel and typed errors for configuration validation and loading. These let
 // callers (and tests) match failures with errors.Is / errors.As instead of

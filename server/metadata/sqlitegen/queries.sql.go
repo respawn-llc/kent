@@ -2035,6 +2035,7 @@ SELECT
     s.name,
     s.first_prompt_preview,
     s.input_draft,
+    s.protected_input_draft,
     s.previous_session_id,
     s.parent_agent_session_id,
     s.category,
@@ -2061,6 +2062,7 @@ type GetSessionRecordByIDRow struct {
 	Name                     string
 	FirstPromptPreview       string
 	InputDraft               string
+	ProtectedInputDraft      sql.NullString
 	PreviousSessionID        sql.NullString
 	ParentAgentSessionID     sql.NullString
 	Category                 sql.NullString
@@ -2086,6 +2088,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 		&i.Name,
 		&i.FirstPromptPreview,
 		&i.InputDraft,
+		&i.ProtectedInputDraft,
 		&i.PreviousSessionID,
 		&i.ParentAgentSessionID,
 		&i.Category,
@@ -9598,6 +9601,7 @@ INSERT INTO sessions (
     name,
     first_prompt_preview,
     input_draft,
+    protected_input_draft,
     previous_session_id,
     parent_agent_session_id,
     category,
@@ -9636,12 +9640,14 @@ INSERT INTO sessions (
     ?20,
     ?21,
     ?22,
-    ?23
+    ?23,
+    ?24
 )
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     first_prompt_preview = excluded.first_prompt_preview,
     input_draft = excluded.input_draft,
+    protected_input_draft = excluded.protected_input_draft,
     previous_session_id = excluded.previous_session_id,
     parent_agent_session_id = excluded.parent_agent_session_id,
     category = excluded.category,
@@ -9667,6 +9673,7 @@ type UpsertSessionParams struct {
 	Name                     string
 	FirstPromptPreview       string
 	InputDraft               string
+	ProtectedInputDraft      sql.NullString
 	PreviousSessionID        sql.NullString
 	ParentAgentSessionID     sql.NullString
 	Category                 sql.NullString
@@ -9694,6 +9701,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.Name,
 		arg.FirstPromptPreview,
 		arg.InputDraft,
+		arg.ProtectedInputDraft,
 		arg.PreviousSessionID,
 		arg.ParentAgentSessionID,
 		arg.Category,
@@ -9710,7 +9718,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.CompletedCompactionCount,
 		arg.ManualCompactEligible,
 	)
-	err = recordQueryError(ctx, err, upsertSession, 23)
+	err = recordQueryError(ctx, err, upsertSession, 24)
 
 	return err
 }

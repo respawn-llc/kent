@@ -484,10 +484,10 @@ func TestMetadataPersistenceRetriesSameValueUntilObserverSucceeds(t *testing.T) 
 		t.Fatalf("NewLazy: %v", err)
 	}
 
-	if err := store.SetInputDraft("draft"); err == nil {
+	if err := store.SetInputDraft("draft", nil); err == nil {
 		t.Fatal("expected first SetInputDraft call to surface observer failure")
 	}
-	if err := store.SetInputDraft("draft"); err != nil {
+	if err := store.SetInputDraft("draft", nil); err != nil {
 		t.Fatalf("second SetInputDraft should retry same value successfully: %v", err)
 	}
 	if observer.callCount != 2 || observer.lastSnapshot.Meta.InputDraft != "draft" {

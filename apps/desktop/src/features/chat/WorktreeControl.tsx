@@ -1,21 +1,20 @@
 import { AlertTriangle, GitBranch } from "lucide-react";
-import { useTranslation } from "react-i18next";
-
-import { errorMessage } from "@/api";
-import { useChatExecutionTarget, useOwnedSidebarRoots } from "@/app-facade";
-import { Button, ErrorState, Spinner } from "@/ui";
-import { useWorktreeList } from "./useWorktreeList";
+import type { ChatExecutionTarget } from "@/api";
+import { useOwnedSidebarRoots } from "@/app-facade";
+import { Button, Spinner } from "@/ui";
+import type { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
 
 export function WorktreeControl({
   sessionID,
+  target,
+  query,
 }: Readonly<{
   sessionID: string;
+  target: ChatExecutionTarget | null;
+  query: ReturnType<typeof useWorktreeList>;
 }>) {
-  const { t } = useTranslation();
   const roots = useOwnedSidebarRoots();
-  const target = useChatExecutionTarget();
-  const query = useWorktreeList(sessionID, target);
   const label = target === null ? null : worktreeTarget(target, query.data);
   return (
     <div className="min-w-0">
@@ -37,15 +36,6 @@ export function WorktreeControl({
         )}
         {label?.title === undefined ? <Spinner size="sm" /> : <span className="truncate">{label.title}</span>}
       </Button>
-      {label?.title === undefined && query.isError ? (
-        <ErrorState
-          body={errorMessage(query.error)}
-          fullPage={false}
-          title={t("states.error")}
-          retryLabel={t("app.retry")}
-          onRetry={query.refresh}
-        />
-      ) : null}
     </div>
   );
 }

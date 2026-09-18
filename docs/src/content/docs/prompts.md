@@ -18,18 +18,20 @@ Instruction and skill reference paths use CWD-relative paths inside the Working 
 
 ## System Prompt
 
-System prompt files replace Kent's built-in default "product engineer" / SWE-focused system prompt. Priority, lowest to highest:
+Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role's `system_prompt_file` replaces the inherited agent selection. Omission inherits; an explicitly empty path is invalid.
+
+The selected file keeps its scope in this priority order, lowest to highest. Only one of the configured-file entries participates:
 
 - Built-in system prompt
 - `~/.kent/SYSTEM.md`
 - `~/.kent/config.toml` `system_prompt_file`
 - `<workspace-root>/.kent/SYSTEM.md`
-- `<workspace-root>/.kent/config.toml` `system_prompt_file`
+- Shared workspace or Main Workspace private `system_prompt_file`
 - Selected `[subagents.<role>]` `system_prompt_file`
 
-`system_prompt_file` paths are resolved relative to the containing `config.toml` directory unless absolute.
+Paths are resolved relative to the configuration file that supplies them unless absolute. Automatic global and workspace `SYSTEM.md` discovery is independent of the configured selection.
 
-Kent snapshots the rendered system prompt on each compaction to prevent cache misses. Edits to system prompt files take effect after a successful compaction and the next model request.
+Kent snapshots the rendered system prompt when it creates the session contract. Edits take effect after successful compaction and the next model request, without rewriting locked history.
 
 ## Goal Continuation
 
@@ -70,5 +72,6 @@ Additionally, if `tool_preambles = true` in the [config](../config/), another bl
 
 - `~/.kent/config.toml`
 - `<workspace-root>/.kent/config.toml`
+- `<main-workspace-root>/.kent/config.local.toml`
 
-The workspace config value takes priority. Kent snapshots the rendered supervisor prompt independently when a supervisor request is built; edits take effect for supervisor requests after successful compaction.
+The same property precedence selects one file, including any explicit nested Supervisor selection in the active role. Paths are relative to their supplying configuration file; omission inherits and an explicitly empty path is invalid. Kent snapshots the rendered Supervisor prompt independently when a Supervisor request is built; edits take effect for Supervisor requests after successful compaction.

@@ -25,6 +25,7 @@ message SessionInitialInputRequest {
 
 message SessionInitialInputSuccess {
   string input = 1;
+  optional string protected_input = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionInitialInputError {
@@ -60,6 +61,11 @@ message SessionPersistInputDraftRequest {
     (buf.validate.field).string.(scoped_session_id) = true
   ];
   string input = 2;
+  ProtectedInputDraftUpdate protected_input = 3;
+}
+
+message ProtectedInputDraftUpdate {
+  optional string text = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionPersistInputDraftError {
@@ -403,6 +409,7 @@ message SessionRuntimeActivateRequest {
   bool thinking_override_explicit = 7;
   SourceReport source = 8 [(buf.validate.field).required = true];
   optional SessionRuntimeAgentSelection agent_selection = 9;
+  ToolSelection explicit_tool_selection = 10;
 }
 
 message SessionRuntimeAttachment {

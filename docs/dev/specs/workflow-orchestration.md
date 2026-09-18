@@ -222,6 +222,7 @@
 - `workflow_subagent` does not restrict Transition-selected Assignees.
 - Unknown roles, roles without explicit `agent_callable = true`, and unavailable roles use one model-facing unavailable-role error category.
 - Workflow execution force-enables Questions for a Transition-selected Assignee even when that role's configuration disables Questions.
+- This Questions exception must also apply when the Session's retained tools list excludes `ask_question`. It must not change the retained list.
 - When no role is explicitly configured with `agent_callable = true`, Assignee selection is unavailable.
 - When exactly one role is explicitly configured with `agent_callable = true`, Kent hides the protected Assignee Parameter on an override-enabled Edge, materializes that role automatically, and ignores any supplied Assignee value.
 - When several roles are available, the protected Assignee Parameter is model-facing as an ordinary required string Parameter.
@@ -451,6 +452,7 @@
 
 - Each Transition Branch supports `new_session`, `continue_session`, or `compact_and_continue_session`.
 - Workflow-created Session copies preserve delegation ancestry and do not reset delegation depth.
+- Parallel compact-and-continue copies are new Sessions and must not inherit the source Session's retained tools list. Each copy must use its own branch launch configuration after compaction. The compaction request must retain the outgoing Session Contract's behavior.
 - Continuation modes may select `immediate_source`, `node:<node_key>`, `previous_target`, or `previous_target_or_new` as context source.
 - `immediate_source` uses the Session bound to the source Current Node during normal completion. During Manual Move, it uses that Session when the source is Current, otherwise the latest retained unscoped Session associated with the selected Transition's source Node.
 - `node:<node_key>` selects the latest retained Session associated with the guaranteed-prior agent Node.

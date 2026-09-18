@@ -23,7 +23,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		}))
 		t.Cleanup(provider.Close)
 		root, workspace, containerDir := t.TempDir(), t.TempDir(), t.TempDir()
-		cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: root})
+		cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +31,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		cfg.Settings.Reviewer.Frequency = "off"
 		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
 			Settings: config.Settings{Model: "gpt-5-mini"},
-			Sources:  map[string]string{"model": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		}
 		cfg.Settings.Subagents["worker"] = config.SubagentRole{}
 		persistence := sessiontest.NewPersistence()

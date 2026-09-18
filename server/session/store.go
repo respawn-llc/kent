@@ -754,12 +754,26 @@ func (s *Store) SetWorkspaceRoot(workspaceRoot string) error {
 	})
 }
 
-func (s *Store) SetInputDraft(inputDraft string) error {
+type ProtectedInputDraftUpdate struct {
+	Text *string
+}
+
+func (s *Store) SetInputDraft(inputDraft string, protectedUpdate *ProtectedInputDraftUpdate) error {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
 
-	if s.meta.InputDraft == inputDraft && (!s.persisted || s.hasDurableMetadataLocked()) {
+	protected := s.meta.ProtectedInputDraft
+	if protectedUpdate != nil {
+		protected = protectedUpdate.Text
+		if protected != nil && *protected == "" {
+			s.mu.Unlock()
+			return errors.New("protected input draft must not be empty")
+		}
+	}
+	protectedUnchanged := protected == nil && s.meta.ProtectedInputDraft == nil ||
+		protected != nil && s.meta.ProtectedInputDraft != nil && *protected == *s.meta.ProtectedInputDraft
+	if s.meta.InputDraft == inputDraft && protectedUnchanged && (!s.persisted || s.hasDurableMetadataLocked()) {
 		s.mu.Unlock()
 		return nil
 	}
@@ -768,8 +782,13 @@ func (s *Store) SetInputDraft(inputDraft string) error {
 		return err
 	}
 	s.meta.InputDraft = inputDraft
+	s.meta.ProtectedInputDraft = nil
+	if protected != nil {
+		text := *protected
+		s.meta.ProtectedInputDraft = &text
+	}
 	s.meta.UpdatedAt = time.Now().UTC()
-	if !s.persisted && inputDraft == "" {
+	if !s.persisted && inputDraft == "" && protected == nil {
 		s.mu.Unlock()
 		return nil
 	}

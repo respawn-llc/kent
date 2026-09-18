@@ -91,6 +91,15 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
     ...createChatDraftApi(transport),
     ...createChatSettingsApi(transport),
     ...createChatGoalApi(transport),
+    async getPromptHistory(target) {
+      const method = SessionReadService.method.getPromptHistory;
+      const result = await transport.callDescriptorAttachedSession(
+        target,
+        method,
+        create(method.input, { sessionId: requireChatSessionID(target) }),
+      );
+      return requireUnarySuccess(method, result).prompts;
+    },
     async getMainView(target) {
       const sessionId = requireChatSessionID(target);
       const method = SessionReadService.method.getMainView;

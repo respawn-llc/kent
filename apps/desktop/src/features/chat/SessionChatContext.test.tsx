@@ -147,7 +147,7 @@ it("retains admitted usage during a later Main View load", async () => {
 
 it("does not mount Session Context before New Chat creation", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   const context = vi.spyOn(services.api.chat, "getContext");
   function Composer() {
     const client = useQueryClient();

@@ -39,6 +39,7 @@ export async function activateRuntime(
           thinkingOverrideExplicit: plan.thinkingOverrideExplicit,
           source: plan.source,
           agentSelection: plan.activationAgentSelection,
+          explicitToolSelection: plan.explicitToolSelection,
         }),
       ),
     );

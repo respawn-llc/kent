@@ -2,18 +2,127 @@ package workflowrunner
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 
 	"core/internal/testharness/workflowfixture"
+	"core/server/llm"
+	agentruntime "core/server/runtime"
 	"core/server/session"
+	"core/server/sessionruntime"
+	"core/server/tools"
 	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/server/workflowstore"
+	"core/shared/clientui"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing.T) {
+	f, input := newMaterializedRoleSelectionStart(t)
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true},
+		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("questions summary")},
+		ScriptedToolBatch("question before", llm.ToolCall{ID: "question-before", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Continue?"}`)}),
+		ScriptedCancellation(),
+		ScriptedToolBatch("question after", llm.ToolCall{ID: "question-after", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Continue?"}`)}),
+		ScriptedFinalAnswer(`{"commentary":"done"}`),
+	)
+	f.client = client
+	unrestricted := f.starter.cfg
+	var err error
+	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "exec_command"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	steer, err := f.starter.SteerCurrentNodeAssignment(t.Context(), input.CurrentNode.Reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := f.starter.StartAgentCurrentNode(t.Context(), input.CurrentNode.Reference, workflowruntime.TaskPromptDeliveryAssignment, steer, nil, f.controller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	association, err := f.store.LatestTaskSessionForNode(t.Context(), input.CurrentNode.Reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := association.SessionID
+	answer := func() {
+		t.Helper()
+		deadline := time.Now().Add(currentNodeRunnerWait)
+		for time.Now().Before(deadline) {
+			pending := f.runtimes.ListPendingPrompts(id.String())
+			if len(pending) != 0 {
+				stepID, err := runtimeids.ParseStepID(pending[0].Request.StepID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				results, err := f.authority.ResolvePromptBatch(t.Context(), id, stepID, []sessionruntime.PromptAnswerCommand{{
+					ToolCallID: clientui.ToolCallID(pending[0].Request.ToolCallID),
+					Payload:    sessionruntime.PromptQuestionAnswerCommand{Answer: tools.AskQuestionAnswer{Freeform: textutil.Value("continue")}},
+				}})
+				if err != nil || len(results) != 1 || results[0].Outcome != sessionruntime.PromptAnswerOutcomeResolved {
+					t.Fatalf("Question was not accepted: %v %v", results, err)
+				}
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("Transition-selected Agent did not expose a pending Question")
+	}
+	answer()
+	_, _ = handle.Wait(t.Context())
+	f.waitForTaskQuiescence(t, input.Task.ID)
+	before, err := f.metadata.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(before.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolExecCommand}) {
+		t.Fatal("execution-required Questions changed the original saved list")
+	}
+	attachment := f.openRetainedRuntime(t, id)
+	if err := f.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *agentruntime.Engine) error {
+		if err := engine.CompactContext(ctx, ""); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(currentNodeRunnerWait)
+		for (engine.CompactionCount() == 0 || engine.ActiveRun() != nil) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if engine.CompactionCount() == 0 || engine.ActiveRun() != nil {
+			t.Fatal("Question Session compaction did not finish")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseClose); err != nil {
+		t.Fatal(err)
+	}
+	f.starter.cfg = unrestricted
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	if _, err := f.controller.ResumeTask(t.Context(), input.Task.ID); err != nil {
+		t.Fatal(err)
+	}
+	answer()
+	f.waitForTaskQuiescence(t, input.Task.ID)
+	after, err := f.metadata.ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Meta.RetainedToolSelection, after.Meta.RetainedToolSelection) {
+		t.Fatal("contract refresh or Questions changed the saved list")
+	}
+}
 
 func TestCurrentNodeStartUsesMaterializedSelectedRoleAndForcesQuestions(t *testing.T) {
 	f, input := newMaterializedRoleSelectionStart(t)

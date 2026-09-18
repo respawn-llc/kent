@@ -131,7 +131,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	if err != nil {
 		t.Fatalf("NewOpenSessionDescriptor: %v", err)
 	}
-	appCfg, err := config.Load(binding.CanonicalRoot, config.LoadOptions{})
+	appCfg, err := config.Load(binding.CanonicalRoot, binding.CanonicalRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -148,7 +148,8 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-		Settings: settings, FilesystemContext: filesystemContext,
+		MainWorkspaceRoot: filesystemContext.Access.ExecutionTargetRoot.LexicalPath,
+		Settings:          settings, FilesystemContext: filesystemContext,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
 		Client: scriptedllm.NewClient(scriptedllm.Script{}),
 	})

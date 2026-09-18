@@ -299,8 +299,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
 	}).
-		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager).
-		WithPromptHistoryReader(s.safeBundles().Persistence.metadataStore)
+		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager)
 }
 
 func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apicontract.RunPromptService {
@@ -461,11 +460,8 @@ func (s configuredCoreOnboardingFinalizeService) Finalize(context.Context, *onbo
 }
 
 func configuredCoreSettingsPath(cfg config.App) string {
-	if path := strings.TrimSpace(cfg.Source.SettingsPath); path != "" {
-		return path
-	}
-	if path := strings.TrimSpace(cfg.Source.HomeSettingsPath); path != "" {
-		return path
+	if file := cfg.Source.File(config.FileGlobal); file != nil {
+		return file.Path
 	}
 	path, err := config.ResolveSettingsFilePathInRoot(cfg.PersistenceRoot)
 	if err != nil {

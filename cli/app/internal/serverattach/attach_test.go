@@ -110,7 +110,13 @@ func testAttachRequest(dialProject remoteattach.DialProjectView) AttachRunPrompt
 
 func requireExplicitRoot(req *AttachRunPromptRequest) string {
 	req.Config.PersistenceRoot = "/tmp/kent-attach-test-root"
-	req.Config.Source = config.SourceReport{Sources: map[string]string{"persistence_root": "flag"}}
+	req.Config.Source = config.SourceReport{Sources: map[string]config.Origin{"persistence_root": {Kind: config.SourceCLI,
+		Property: config.PropertyAddress{Key: "persistence_root"},
+		Option: func() *string {
+			value := "--persistence-root"
+			return &value
+		}()},
+	}}
 	return config.ExplicitPersistenceRootID(req.Config)
 }
 

@@ -1,6 +1,8 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAppServices, useWindowFocus } from "@/app-facade";
+import { showStatusToast, motionDurationFromCSSVar, prefersReducedMotion } from "@/ui";
 import { advanceComposerStop, type ComposerStopEvent } from "./composerStop";
 import type { useChatComposer } from "./useChatComposer";
 
@@ -10,6 +12,17 @@ export function useComposerKeyboard(
   observationError: Error | null,
 ) {
   const { nativeBridge } = useAppServices();
+  const { t } = useTranslation();
+  const surface = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<Readonly<{
+    editor: HTMLTextAreaElement;
+    cursor: "start" | "end";
+  }> | null>(null);
+  useLayoutEffect(() => {
+    if (placement === null) return;
+    const offset = placement.cursor === "start" ? 0 : placement.editor.value.length;
+    placement.editor.setSelectionRange(offset, offset);
+  }, [placement]);
   const platform = nativeBridge.capabilities.platform;
   const stopAvailable = stoppable;
   const focused = useWindowFocus();
@@ -36,6 +49,7 @@ export function useComposerKeyboard(
   );
   return {
     surface: {
+      ref: surface,
       onKeyDownCapture: (event: KeyboardEvent) => {
         if (event.key !== "Escape") advance({ kind: "keyboard" });
       },
@@ -71,12 +85,51 @@ export function useComposerKeyboard(
     },
     onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (handled(event) || handlePickerKey(composer, event)) return;
+      const direction = historyDirection(event);
+      if (direction !== null) {
+        const editor = event.currentTarget;
+        event.preventDefault();
+        void composer.navigateHistory(direction).then((movement) => {
+          if (movement.kind === "replaced" || movement.kind === "restored") {
+            setPlacement({ editor, cursor: movement.cursor });
+          } else if (movement.kind === "blocked") {
+            showStatusToast({
+              id: "chat-composer-history-blocked",
+              tone: "warning",
+              title: t("chatComposer.historyBlocked"),
+            });
+            if (!prefersReducedMotion())
+              surface.current?.animate(
+                [
+                  { transform: "translateX(0)" },
+                  { transform: "translateX(calc(-1 * var(--space-1)))" },
+                  { transform: "translateX(var(--space-1))" },
+                  { transform: "translateX(calc(-1 * var(--space-1)))" },
+                  { transform: "translateX(0)" },
+                ],
+                { duration: motionDurationFromCSSVar("--motion-morph", 180), easing: "ease-in-out" },
+              );
+          }
+        });
+        return;
+      }
       if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey) {
         event.preventDefault();
         composer.submit(event.ctrlKey ? "queue" : "send");
       }
     },
   };
+}
+
+function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | null {
+  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return null;
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return null;
+  const direction = event.key === "ArrowUp" ? -1 : 1;
+  const editor = event.currentTarget;
+  const boundary = direction === -1 ? 0 : editor.value.length;
+  return editor.selectionStart === editor.selectionEnd && editor.selectionStart === boundary
+    ? direction
+    : null;
 }
 
 function handled(event: KeyboardEvent): boolean {

@@ -245,6 +245,7 @@ func newProjectedAuthorityRuntime(
 		settings.ModelContextWindow = cfg.ContextWindowTokens
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     store.Meta().WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),

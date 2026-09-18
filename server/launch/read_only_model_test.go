@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/shared/config"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
@@ -59,12 +60,13 @@ func TestReadOnlyModelUsesCurrentConfigAndContinuationRole(t *testing.T) {
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
 					Settings: config.Settings{Model: "gpt-worker-model"},
-					Sources:  map[string]string{"model": "workspace"},
+					Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				},
 			},
 		},
 	}
 	role := "worker"
+	app = testsetup.ProgrammaticConfig(t, app.Settings)
 	meta := session.Meta{
 		Continuation: &session.ContinuationContext{AgentRole: &role},
 	}
@@ -82,17 +84,15 @@ func TestReadOnlyModelUsesCurrentConfigAndContinuationRole(t *testing.T) {
 
 func TestReadOnlyModelContinuationRoleInheritsBaseModel(t *testing.T) {
 	role := "worker"
-	resolved, err := ResolveReadOnlySessionModel(config.App{
-		Settings: config.Settings{
-			Model: "gpt-base-model",
-			Subagents: map[string]config.SubagentRole{
-				role: {
-					Settings: config.Settings{ThinkingLevel: "high"},
-					Sources:  map[string]string{"thinking_level": "workspace"},
-				},
+	resolved, err := ResolveReadOnlySessionModel(testsetup.ProgrammaticConfig(t, config.Settings{
+		Model: "gpt-base-model",
+		Subagents: map[string]config.SubagentRole{
+			role: {
+				Settings: config.Settings{ThinkingLevel: "high"},
+				Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 			},
 		},
-	}, session.Meta{
+	}), session.Meta{
 		Continuation: &session.ContinuationContext{AgentRole: &role},
 	})
 	if err != nil {
@@ -105,9 +105,7 @@ func TestReadOnlyModelContinuationRoleInheritsBaseModel(t *testing.T) {
 
 func TestReadOnlyModelAppliesFastRoleHeuristics(t *testing.T) {
 	role := config.BuiltInSubagentRoleFast
-	resolved, err := ResolveReadOnlySessionModel(config.App{
-		Settings: config.Settings{Model: "gpt-base-model"},
-	}, session.Meta{
+	resolved, err := ResolveReadOnlySessionModel(testsetup.ProgrammaticConfig(t, config.Settings{Model: "gpt-base-model"}), session.Meta{
 		Continuation: &session.ContinuationContext{AgentRole: &role},
 	})
 	if err != nil {

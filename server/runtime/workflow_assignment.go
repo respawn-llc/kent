@@ -30,14 +30,14 @@ type WorkflowAssignmentSnapshot struct {
 // PersistedWorkflowAssignmentContext supplies the runtime-owned context needed
 // to seed a fresh dormant Session before its first workflow assignment.
 type PersistedWorkflowAssignmentContext struct {
-	Workdir                 string
-	GlobalConfigDir         string
-	Model                   string
-	ThinkingLevel           string
-	ThinkingMutation        workflow.ThinkingMutation
-	SkillPolicy             config.SkillPolicy
-	SubagentCatalogSettings config.Settings
-	EnabledTools            []toolspec.ID
+	Workdir          string
+	GlobalConfigDir  string
+	Model            string
+	ThinkingLevel    string
+	ThinkingMutation workflow.ThinkingMutation
+	SkillPolicy      config.SkillPolicy
+	SubagentCatalog  config.App
+	EnabledTools     []toolspec.ID
 }
 
 type WorkflowAssignmentSteer struct {
@@ -363,7 +363,7 @@ func steerPersistedWorkflowAssignment(
 			deliveryContext.GlobalConfigDir,
 			deliveryContext.SkillPolicy,
 			time.Now(),
-		).withSubagents(deliveryContext.SubagentCatalogSettings, deliveryContext.EnabledTools)
+		).withSubagents(deliveryContext.SubagentCatalog, deliveryContext.EnabledTools)
 		if err := engine.steerDormantBaseMetaContext(builder, config.SubagentInvocationContextWorkflow); err != nil {
 			return WorkflowAssignmentSteer{}, err
 		}

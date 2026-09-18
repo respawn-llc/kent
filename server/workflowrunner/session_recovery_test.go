@@ -166,7 +166,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 		t.Fatalf("parse retained session id: %v", err)
 	}
 	t.Setenv("HOME", t.TempDir())
-	loaded, err := config.Load(workspace, config.LoadOptions{})
+	loaded, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load workflow planning config: %v", err)
 	}
@@ -184,11 +184,11 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	settings.Subagents = map[string]config.SubagentRole{
 		"coder": {
 			Settings: coderSettings,
-			Sources:  map[string]string{"model": "test"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		},
 		"reviewer": {
 			Settings: reviewerSettings,
-			Sources:  map[string]string{"model": "test"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		},
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
@@ -205,6 +205,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 			PersistenceRoot: persistenceRoot,
 			WorkspaceRoot:   workspace,
 			Settings:        settings,
+			Source:          loaded.Source,
 		},
 		metadata:         metadataStore,
 		runtimeAuthority: authority,
@@ -265,6 +266,8 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	}()
 	select {
 	case <-planningPersisted:
+	case result := <-planned:
+		t.Fatalf("retained current-node planning failed before persistence: %v", result.err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("retained current-node planning did not reach persistence gate")
 	}

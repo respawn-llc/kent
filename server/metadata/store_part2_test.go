@@ -559,7 +559,7 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 			wantVisible: true,
 			mutate: func(t *testing.T, _ *Store, _ config.App, _ Binding, sess *session.Store) {
 				t.Helper()
-				if err := sess.SetInputDraft("draft prompt"); err != nil {
+				if err := sess.SetInputDraft("draft prompt", nil); err != nil {
 					t.Fatalf("SetInputDraft: %v", err)
 				}
 			},
@@ -729,7 +729,7 @@ func newMetadataTestStoreForWorkspace(t *testing.T, workspace string) (*Store, c
 
 func loadMetadataTestConfig(t *testing.T, workspace string, persistenceRoot string) config.App {
 	t.Helper()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

@@ -58,16 +58,7 @@ export function createComposerPendingViewModel({
         selected.kind === "session" ? selected.sessionID : null,
       ],
       queryFn:
-        selected.kind === "session"
-          ? async () => {
-              try {
-                return await services.api.chat.listPendingWork(selected);
-              } catch (error) {
-                if (observer.hasListeners() && get.get(scope) === identity) report(error);
-                throw error;
-              }
-            }
-          : skipToken,
+        selected.kind === "session" ? async () => services.api.chat.listPendingWork(selected) : skipToken,
     });
     return { observer, read: queryAtom(observer) };
   });

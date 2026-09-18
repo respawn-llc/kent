@@ -108,7 +108,10 @@ func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req *sess
 	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.SessionInitialInputSuccess{Input: initialSessionInput(meta, req.TransitionInput)}, nil
+	return &sessionlaunchpb.SessionInitialInputSuccess{
+		Input:          initialSessionInput(meta, req.TransitionInput),
+		ProtectedInput: meta.ProtectedInputDraft,
+	}, nil
 }
 
 func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Context, sessionID string) (session.Meta, error) {
@@ -132,7 +135,11 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 
 func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
-		return persistSessionInputDraft(store, req.Input)
+		var protected *session.ProtectedInputDraftUpdate
+		if req.ProtectedInput != nil {
+			protected = &session.ProtectedInputDraftUpdate{Text: req.ProtectedInput.Text}
+		}
+		return store.SetInputDraft(req.Input, protected)
 	})
 	return &emptypb.Empty{}, err
 }
@@ -235,7 +242,15 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
-	app, err := config.Load(store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
+	metadataStore, err := metadata.Open(s.persistenceRoot)
+	if err != nil {
+		return nil, err
+	}
+	target, targetErr := metadataStore.ResolveSessionExecutionTarget(ctx, store.Meta().SessionID)
+	if err := errors.Join(targetErr, metadataStore.Close()); err != nil {
+		return nil, err
+	}
+	app, err := config.Load(store.Meta().WorkspaceRoot, target.WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
 	if err != nil {
 		return nil, err
 	}

@@ -137,15 +137,15 @@ func (r metaContextBuildResult) StablePrefixMessages() []llm.Message {
 }
 
 type metaContextBuilder struct {
-	workspaceRoot    string
-	environmentCWD   string
-	globalConfigDir  string
-	model            string
-	thinkingLevel    string
-	skillPolicy      config.SkillPolicy
-	subagentSettings config.Settings
-	enabledTools     []toolspec.ID
-	now              time.Time
+	workspaceRoot   string
+	environmentCWD  string
+	globalConfigDir string
+	model           string
+	thinkingLevel   string
+	skillPolicy     config.SkillPolicy
+	subagentConfig  config.App
+	enabledTools    []toolspec.ID
+	now             time.Time
 }
 
 func newMetaContextBuilder(workspaceRoot, model, thinkingLevel string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
@@ -186,8 +186,8 @@ func (b metaContextBuilder) withGlobalConfigDir(globalConfigDir string) metaCont
 	return b
 }
 
-func (b metaContextBuilder) withSubagents(settings config.Settings, enabledTools []toolspec.ID) metaContextBuilder {
-	b.subagentSettings = settings
+func (b metaContextBuilder) withSubagents(app config.App, enabledTools []toolspec.ID) metaContextBuilder {
+	b.subagentConfig = app
 	b.enabledTools = append([]toolspec.ID(nil), enabledTools...)
 	return b
 }
@@ -234,7 +234,11 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	}
 
 	if opts.IncludeSubagents {
-		if message, ok := b.subagentsMetaMessage(opts.SubagentInvocationContext); ok {
+		message, ok, err := b.subagentsMetaMessage(opts.SubagentInvocationContext)
+		if err != nil {
+			return metaContextBuildResult{}, err
+		}
+		if ok {
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -391,42 +395,50 @@ func (b metaContextBuilder) discoverAgents(home string, permissive bool) ([]llm.
 	return out, nil
 }
 
-func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocationContext) (llm.Message, bool) {
+func (b metaContextBuilder) subagentsMetaMessage(context config.SubagentInvocationContext) (llm.Message, bool, error) {
 	if !toolEnabled(b.enabledTools, toolspec.ToolExecCommand) {
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
 	}
-	roles := b.renderableSubagentRoles(context)
+	roles, err := b.renderableSubagentRoles(context)
+	if err != nil {
+		return llm.Message{}, false, err
+	}
 	caller := b.subagentCaller(context)
-	defaultAllowed := subagentpolicy.Authorize(b.subagentSettings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase}) == nil
+	defaultAllowed := subagentpolicy.Authorize(b.subagentConfig.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase}) == nil
 	if !defaultAllowed && len(roles) == 0 {
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
 	}
 	lines := make([]string, 0, len(roles)+3)
 	lines = append(lines, "Available subagent roles:")
 	if defaultAllowed {
-		description := strings.TrimSpace(b.subagentSettings.Subagents[config.DefaultSubagentRole].Description)
+		description := strings.TrimSpace(b.subagentConfig.Settings.Subagents[config.DefaultSubagentRole].Description)
 		if description == "" {
 			description = "not specifying any role will invoke the default general-purpose agent"
 		}
 		lines = append(lines, "- `default`: "+description)
 	}
 	for _, role := range roles {
-		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
+		description := role.Description
+		if description == "" {
+			description = fallbackSubagentDescription(role.Settings)
+		}
+		lines = append(lines, "- `"+role.Name+"`: "+description)
 	}
 	lines = append(lines, "---")
 	lines = append(lines, "Invoke with `"+prompts.LaunchCommand()+" run --agent=<role> \"<prompt>\"`.")
-	return llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value(strings.Join(lines, "\n"))}, true
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value(strings.Join(lines, "\n"))}, true, nil
 }
 
 type renderedSubagentRole struct {
 	Name        string
 	Description string
+	Settings    config.Settings
 }
 
-func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvocationContext) []renderedSubagentRole {
-	settings := b.subagentSettings
+func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvocationContext) ([]renderedSubagentRole, error) {
+	settings := b.subagentConfig.Settings
 	if len(settings.Subagents) == 0 {
-		return nil
+		return nil, nil
 	}
 	names := make([]string, 0, len(settings.Subagents))
 	for name := range settings.Subagents {
@@ -444,36 +456,25 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil || !config.SubagentRoleHasMeaningfulDiff(settings, role) {
 			continue
 		}
-		description := strings.TrimSpace(role.Description)
-		if description == "" {
-			description = fallbackSubagentDescription(settings, role)
+		effective, _, err := config.OverlaySubagentRoleSettings(b.subagentConfig, role, true)
+		if err != nil {
+			return nil, err
 		}
-		if description == "" {
-			continue
-		}
-		out = append(out, renderedSubagentRole{Name: name, Description: description})
+		out = append(out, renderedSubagentRole{Name: name, Description: strings.TrimSpace(role.Description), Settings: effective})
 	}
-	return out
+	return out, nil
 }
 
 func (b metaContextBuilder) subagentCaller(context config.SubagentInvocationContext) *subagentpolicy.Caller {
 	return &subagentpolicy.Caller{Workflow: context == config.SubagentInvocationContextWorkflow}
 }
 
-func fallbackSubagentDescription(base config.Settings, role config.SubagentRole) string {
-	model := base.Model
-	if _, ok := role.Sources["model"]; ok {
-		model = role.Settings.Model
-	}
-	thinking := base.ThinkingLevel
-	if _, ok := role.Sources["thinking_level"]; ok {
-		thinking = role.Settings.ThinkingLevel
-	}
-	parts := []string{strings.TrimSpace(model), "thinking " + strings.TrimSpace(thinking)}
-	if role.Sources["priority_request_mode"] == "file" && role.Settings.PriorityRequestMode {
+func fallbackSubagentDescription(effective config.Settings) string {
+	parts := []string{strings.TrimSpace(effective.Model), "thinking " + strings.TrimSpace(effective.ThinkingLevel)}
+	if effective.PriorityRequestMode {
 		parts = append(parts, "fast mode on")
 	}
-	tools := config.EffectiveSubagentRoleTools(base.EnabledTools, role)
+	tools := effective.EnabledTools
 	if tools[toolspec.ToolPatch] || tools[toolspec.ToolEdit] {
 		parts = append(parts, "can edit")
 	}

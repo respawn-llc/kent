@@ -6,7 +6,6 @@ import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui";
 
 export type GoalMarkdownFieldProps = Readonly<{
   editing: boolean;
-  error: string | undefined;
   expanded: boolean;
   floatingAction: Awaited<ReactNode> | undefined;
   onChange: (value: string) => void;
@@ -19,7 +18,6 @@ export type GoalMarkdownFieldProps = Readonly<{
 
 export function GoalMarkdownField({
   editing,
-  error,
   expanded,
   floatingAction,
   onChange,
@@ -37,7 +35,6 @@ export function GoalMarkdownField({
       disabled={false}
       editorMinHeight={220}
       editing={editing}
-      error={error}
       expandLabel={t("app.expand")}
       expanded={expanded}
       floatingAction={floatingAction}

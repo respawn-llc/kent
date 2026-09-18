@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, vi } from "vitest";
@@ -73,30 +74,36 @@ describe("useBoardNodeCards pagination", () => {
     });
     expect(result.current.hasPreviousPage).toBe(false);
 
-    await act(async () => {
-      await result.current.fetchNextPage();
-      await result.current.fetchNextPage();
-      await result.current.fetchNextPage();
-      await result.current.fetchNextPage();
-    });
+    for (const offset of [25, 50, 75, 100]) {
+      act(() => {
+        result.current.fetchNextPage();
+      });
+      await waitFor(() => {
+        expect(result.current.data?.pageParams.at(-1)).toBe(offset);
+      });
+    }
     await waitFor(() => {
       expect(result.current.data?.pageParams).toEqual([50, 75, 100]);
     });
     expect(testState.requests.map((request) => request.offset)).toEqual([0, 25, 50, 75, 100]);
     expect(result.current.hasPreviousPage).toBe(true);
 
-    await act(async () => {
-      await result.current.fetchPreviousPage();
-      await result.current.fetchPreviousPage();
-    });
+    for (const offset of [25, 0]) {
+      act(() => {
+        result.current.fetchPreviousPage();
+      });
+      await waitFor(() => {
+        expect(result.current.data?.pageParams[0]).toBe(offset);
+      });
+    }
     await waitFor(() => {
       expect(result.current.data?.pageParams).toEqual([0, 25, 50]);
     });
     expect(testState.requests.map((request) => request.offset)).toEqual([0, 25, 50, 75, 100, 25, 0]);
     expect(result.current.hasPreviousPage).toBe(false);
 
-    await act(async () => {
-      await result.current.fetchPreviousPage();
+    act(() => {
+      result.current.fetchPreviousPage();
     });
     expect(testState.requests.map((request) => request.offset)).toEqual([0, 25, 50, 75, 100, 25, 0]);
   });
@@ -174,6 +181,10 @@ describe("Board project event refresh", () => {
 
 function queryWrapper(queryClient: QueryClient) {
   return function QueryWrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <RegistryProvider>{children}</RegistryProvider>
+      </QueryClientProvider>
+    );
   };
 }

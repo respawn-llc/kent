@@ -34,8 +34,8 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 
 // ResolveConfiguredSubagentSettings resolves one configured role against the
 // current base settings without creating a session or mutating configuration.
-func ResolveConfiguredSubagentSettings(base config.Settings, roleName string) (config.Settings, error) {
-	resolved, _, _, err := resolveSubagentSettingsWithProviderID(base, config.SourceReport{}, roleName, "", true, false)
+func ResolveConfiguredSubagentSettings(base config.App, roleName string) (config.Settings, error) {
+	resolved, _, _, err := resolveSubagentSettingsWithProviderID(base.Settings, base.Source, roleName, "", true, false)
 	if err != nil {
 		return config.Settings{}, err
 	}
@@ -46,11 +46,24 @@ func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	resolved := cloneSettings(base)
 	_ = applyBuiltInRoleHeuristics(&resolved, selector, providerID, allowModelOverride)
 	originalModel := strings.TrimSpace(resolved.Model)
-	resolved = config.OverlaySubagentRoleSettings(resolved, role, allowModelOverride)
-	applyDerivedModelContextBudgetOverrides(&resolved, role.Sources, originalModel, allowModelOverride)
-	effectiveSource := sourceReportWithSubagentRoleSources(baseSource, role, allowModelOverride)
-	effectiveSources := cloneMapOrEmpty(effectiveSource.Sources)
-	applyReviewerInheritance(&resolved, effectiveSources)
+	resolved, effectiveSources, err := config.OverlaySubagentRoleSettings(config.App{Settings: resolved, Source: baseSource}, role, allowModelOverride)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, nil, err
+	}
+	resolved, effectiveSources = config.OverlayAgentOverrides(resolved, effectiveSources, base, baseSource.Sources, allowModelOverride)
+	explicitSources := make(map[string]config.Origin, len(role.Sources))
+	maps.Copy(explicitSources, role.Sources)
+	for key, origin := range baseSource.Sources {
+		if origin.OverridesRole(key) {
+			explicitSources[key] = origin
+		}
+	}
+	applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride)
+	effectiveSource := baseSource
+	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
+		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
+	}
+	config.InheritReviewerSettings(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
 	if validate {
 		if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
@@ -83,7 +96,7 @@ func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, prov
 	return true
 }
 
-func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool) {
+func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
 	if settings == nil || !allowModelOverride {
 		return
 	}
@@ -106,116 +119,11 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 	}
 }
 
-func applyReviewerInheritance(settings *config.Settings, sources map[string]string) {
-	if settings == nil {
-		return
-	}
-	if strings.TrimSpace(sources["reviewer.model"]) == "default" {
-		settings.Reviewer.Model = settings.Model
-	}
-	if strings.TrimSpace(sources["reviewer.thinking_level"]) == "default" {
-		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
-	}
-	if strings.TrimSpace(sources["reviewer.model_verbosity"]) == "default" {
-		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
-	}
-	reviewerProviderSourceDefault := strings.TrimSpace(sources["reviewer.provider_override"]) == "default"
-	reviewerBaseURLSourceDefault := strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default"
-	if reviewerProviderSourceDefault || reviewerBaseURLSourceDefault {
-		originalProviderOverride := settings.Reviewer.ProviderOverride
-		originalOpenAIBaseURL := settings.Reviewer.OpenAIBaseURL
-		if reviewerProviderSourceDefault {
-			settings.Reviewer.ProviderOverride = ""
-		}
-		if reviewerBaseURLSourceDefault {
-			settings.Reviewer.OpenAIBaseURL = ""
-		}
-		reviewerProvider := config.ResolveReviewerProviderSettings(*settings)
-		if reviewerProviderSourceDefault {
-			settings.Reviewer.ProviderOverride = reviewerProvider.ProviderOverride
-		} else {
-			settings.Reviewer.ProviderOverride = originalProviderOverride
-		}
-		if reviewerBaseURLSourceDefault {
-			settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
-		} else {
-			settings.Reviewer.OpenAIBaseURL = originalOpenAIBaseURL
-		}
-	}
-	if strings.TrimSpace(sources["reviewer.model_context_window"]) == "default" {
-		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
-	}
-	if strings.TrimSpace(sources["reviewer.auth"]) == "default" {
-		settings.Reviewer.Auth = "inherit"
-	}
-	applyReviewerModelCapabilityInheritance(settings, sources)
-	reviewerProviderSelectionExplicit := reviewerProviderSelectionExplicitForInheritance(settings, sources)
-	applyReviewerProviderCapabilityInheritance(settings, sources, reviewerProviderSelectionExplicit)
-}
-
-func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]string) bool {
-	if settings == nil {
-		return false
-	}
-	candidate := *settings
-	if strings.TrimSpace(sources["reviewer.provider_override"]) == "default" {
-		candidate.Reviewer.ProviderOverride = ""
-	}
-	if strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default" {
-		candidate.Reviewer.OpenAIBaseURL = ""
-	}
-	return config.ReviewerUsesIndependentProviderSelection(candidate)
-}
-
-func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]string) {
-	if settings == nil {
-		return
-	}
-	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_reasoning_effort"]) == "default" {
-		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
-	}
-	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_vision_inputs"]) == "default" {
-		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = settings.ModelCapabilities.SupportsVisionInputs
-	}
-}
-
-func applyReviewerProviderCapabilityInheritance(settings *config.Settings, sources map[string]string, reviewerProviderSelectionExplicit bool) {
-	if settings == nil || reviewerProviderSelectionExplicit {
-		return
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.provider_id"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_api"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_compact"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_prompt_cache_key"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_native_web_search"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_reasoning_encrypted"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_server_side_context_edit"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_provider_verbosity"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = settings.ProviderCapabilities.SupportsProviderVerbosity
-	}
-	if strings.TrimSpace(sources["reviewer.provider_capabilities.is_openai_first_party"]) == "default" {
-		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
-	}
-}
-
 func cloneSettings(in config.Settings) config.Settings {
 	out := in
 	out.Shell.PostprocessHook = textutil.Pointer(in.Shell.PostprocessHook)
-	out.SystemPromptFiles = append([]config.SystemPromptFile(nil), in.SystemPromptFiles...)
+	out.SystemPromptFile = textutil.Pointer(in.SystemPromptFile)
+	out.Reviewer.SystemPromptFile = textutil.Pointer(in.Reviewer.SystemPromptFile)
 	out.EnabledTools = cloneMapOrEmpty(in.EnabledTools)
 	out.SkillToggles = cloneMapOrEmpty(in.SkillToggles)
 	out.Subagents = cloneSubagentRoles(in.Subagents)

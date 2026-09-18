@@ -1733,9 +1733,9 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 	settings.ShellOutputMaxChars = 16_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
-		Settings:              settings,
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		Settings:          settings,
+		EnabledTools:      []toolspec.ID{toolspec.ToolExecCommand},
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		Client:                client,
@@ -3292,8 +3292,8 @@ func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, clien
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	options := AgentRuntimePlanOptions{
-		Settings:              settings,
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		Settings:          settings,
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		Client:                client,

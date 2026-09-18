@@ -188,10 +188,11 @@ func TestDialConfiguredRemoteHonorsExplicitTCPTargetOverDerivedLocalSocket(t *te
 
 	cfg := testRemoteConfigFromServerURL(t, t.TempDir(), tcpServer.URL)
 	if cfg.Source.Sources == nil {
-		cfg.Source.Sources = map[string]string{}
+		cfg.Source.Sources = map[string]config.Origin{}
 	}
-	cfg.Source.Sources["server_host"] = "file"
-	cfg.Source.Sources["server_port"] = "file"
+	cfg.Source.Sources["server_host"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "server_host"}}
+
+	cfg.Source.Sources["server_port"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "server_port"}}
 
 	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
 	if err != nil {

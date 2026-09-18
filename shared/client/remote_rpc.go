@@ -128,7 +128,7 @@ func hasExplicitTCPServerTarget(cfg config.App) bool {
 	if len(sources) == 0 {
 		return false
 	}
-	return sources["server_host"] != "default" || sources["server_port"] != "default"
+	return sources["server_host"].Configured() || sources["server_port"].Configured()
 }
 
 func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport rpcwire.ClientTransport, attachIntent *remoteAttachmentIntent) (*Remote, error) {

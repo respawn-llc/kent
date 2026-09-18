@@ -1,4 +1,6 @@
 export const chatComposerEnglish = {
+  historyFailed: "Could not load prompt history",
+  historyBlocked: "Send or clear this draft before browsing history; your previous draft is kept.",
   context: {
     compact: "Compact",
     compacting: "Compacting",

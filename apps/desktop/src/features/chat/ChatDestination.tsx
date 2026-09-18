@@ -10,16 +10,7 @@ import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useChatDestination } from "./useChatDestination";
 import type { ChatSettingsNavigation } from "./useChatSettings";
 import { ChatWorkspaceChip } from "./ChatWorkspaceChip";
-import {
-  Button,
-  ErrorState,
-  LoadingState,
-  Spinner,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/ui";
+import { ErrorState, LoadingState, Spinner } from "@/ui";
 import { GoalAffordance } from "./goal";
 
 export function ChatDestination(
@@ -51,23 +42,12 @@ export function ChatDestination(
   }
   const chips = (
     <div className="flex min-w-0 items-center gap-[var(--space-1)]">
-      {"settingsChip" in settings ? (
-        settings.settingsChip
-      ) : "error" in settings ? (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button onClick={settings.retry}>{t("app.retry")}</Button>
-            </TooltipTrigger>
-            <TooltipContent>{errorMessage(settings.error)}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : (
-        <Spinner size="sm" />
-      )}
+      {"settingsChip" in settings ? settings.settingsChip : <Spinner size="sm" />}
       {destination.workspace !== null && (
         <ChatWorkspaceChip
-          projectID={target.projectID}
+          catalog={destination.workspaceCatalog}
+          open={destination.workspaceOpen}
+          setOpen={destination.setWorkspaceOpen}
           selected={destination.workspace}
           pending={destination.firstActionPending}
           loading={settings.kind === "loading-new-chat"}
@@ -92,18 +72,37 @@ function ChatDestinationShell({
 }>) {
   const { sessionName, goal, mainView } = useChatRuntimePresentation();
   const draft = destination.composer.draft;
+  const settings = destination.settings;
+  const pending = destination.composer.pending;
+  const catalog = destination.workspaceCatalog;
   const state: ChatShellState =
-    draft.kind === "failed"
-      ? { kind: "error", diagnostic: errorMessage(draft.error), onRetry: destination.composer.retryDraft }
-      : mainView.kind === "session" && mainView.status === "error"
-        ? {
-            kind: "error",
-            diagnostic: errorMessage(mainView.error),
-            onRetry: () => {
-              void mainView.retry();
-            },
-          }
-        : { kind: "ready" };
+    "error" in settings
+      ? { kind: "error", diagnostic: errorMessage(settings.error), onRetry: settings.retry }
+      : draft.kind === "failed"
+        ? { kind: "error", diagnostic: errorMessage(draft.error), onRetry: destination.composer.retryDraft }
+        : mainView.kind === "session" && mainView.status === "error"
+          ? {
+              kind: "error",
+              diagnostic: errorMessage(mainView.error),
+              onRetry: () => {
+                void mainView.retry();
+              },
+            }
+          : pending.query.isError
+            ? { kind: "error", diagnostic: errorMessage(pending.query.error), onRetry: pending.refresh }
+            : destination.workspace !== null &&
+                destination.workspaceOpen &&
+                catalog.isError &&
+                !catalog.isFetchNextPageError &&
+                !catalog.isFetchPreviousPageError
+              ? {
+                  kind: "error",
+                  diagnostic: errorMessage(catalog.error),
+                  onRetry: () => {
+                    void catalog.refetch();
+                  },
+                }
+              : { kind: "ready" };
   return (
     <ChatComposerSurface composer={destination.composer}>
       <ChatShell

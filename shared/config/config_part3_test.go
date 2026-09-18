@@ -114,7 +114,7 @@ func TestLoadShellPostprocessingPrecedenceAndValidation(t *testing.T) {
 	assertConfigSource(t, cfg, "shell.postprocess_hook", "env")
 
 	t.Setenv("KENT_SHELL_POSTPROCESSING_MODE", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid shell.postprocessing_mode")
 	}
 }
@@ -144,14 +144,14 @@ func TestLoadOpenAIBaseURLPrecedence(t *testing.T) {
 	writeConfigTestFile(t, configPath, `openai_base_url = "http://file.local/v1"`)
 
 	t.Setenv("KENT_OPENAI_BASE_URL", "http://env.local/v1")
-	cfg, err := Load(workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
+	cfg, err := Load(workspace, workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if cfg.Settings.OpenAIBaseURL != "http://cli.local/v1" {
 		t.Fatalf("expected cli openai base url, got %q", cfg.Settings.OpenAIBaseURL)
 	}
-	if got := cfg.Source.Sources["openai_base_url"]; got != "cli" {
+	if got := cfg.Source.Sources["openai_base_url"].Kind; got != "cli" {
 		t.Fatalf("expected openai_base_url source cli, got %q", got)
 	}
 }
@@ -261,7 +261,7 @@ func TestNormalizeSettingsForPersistenceWithSourcesRejectsModelContextWindowBelo
 	settings.ModelContextWindow = 39999
 	settings.ContextCompactionThresholdTokens = 30000
 	sources := configRegistry.defaultSourceMap()
-	sources["model_context_window"] = "file"
+	sources["model_context_window"] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: "model_context_window"}}
 
 	if _, err := NormalizeSettingsForPersistenceWithSources(settings, sources); err == nil {
 		t.Fatal("expected model_context_window below minimum validation error")
@@ -277,7 +277,7 @@ func TestLoadCanonicalTimeoutEnvAndSourceKeys(t *testing.T) {
 	if cfg.Settings.Timeouts.ModelRequestSeconds != 123 {
 		t.Fatalf("expected canonical env model timeout, got %d", cfg.Settings.Timeouts.ModelRequestSeconds)
 	}
-	if got := cfg.Source.Sources["timeouts.model_request_seconds"]; got != "env" {
+	if got := cfg.Source.Sources["timeouts.model_request_seconds"].Kind; got != "env" {
 		t.Fatalf("expected timeouts.model_request_seconds source env, got %q", got)
 	}
 }
@@ -375,7 +375,7 @@ func TestLoadServerHostPortPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("KENT_SERVER_PORT", "broken")
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid KENT_SERVER_PORT error")
 	}
 }
@@ -433,7 +433,7 @@ func TestLoadModelContextWindowPrecedence(t *testing.T) {
 	if cfg.Settings.ModelContextWindow != 420000 {
 		t.Fatalf("expected env model context window override, got %d", cfg.Settings.ModelContextWindow)
 	}
-	if got := cfg.Source.Sources["model_context_window"]; got != "env" {
+	if got := cfg.Source.Sources["model_context_window"].Kind; got != "env" {
 		t.Fatalf("expected model_context_window source env, got %q", got)
 	}
 }

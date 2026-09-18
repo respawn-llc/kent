@@ -38,7 +38,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	systemPromptFiles, err := systemPromptFilesToProto(settings.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileToProto(settings.SystemPromptFile)
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +102,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 settings.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesToProto(settings.ModelCapabilities),
 		Theme:                            settings.Theme,
 		NotificationMethod:               settings.NotificationMethod,
@@ -191,7 +190,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	systemPromptFiles, err := systemPromptFilesFromProto(message.SystemPromptFiles)
+	systemPromptFile, err := systemPromptFileFromProto(message.SystemPromptFile)
 	if err != nil {
 		return config.Settings{}, err
 	}
@@ -215,8 +214,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 		Model:                            message.Model,
 		ThinkingLevel:                    message.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
-		SystemPromptFile:                 message.SystemPromptFile,
-		SystemPromptFiles:                systemPromptFiles,
+		SystemPromptFile:                 systemPromptFile,
 		ModelCapabilities:                modelCapabilitiesFromProto(message.ModelCapabilities),
 		Theme:                            message.Theme,
 		NotificationMethod:               message.NotificationMethod,
@@ -344,28 +342,26 @@ func providerCapabilitiesFromProto(value *sessionlaunchpb.ProviderCapabilitiesOv
 	}
 }
 
-func systemPromptFilesToProto(values []config.SystemPromptFile) ([]*sessionlaunchpb.SystemPromptFile, error) {
-	result := make([]*sessionlaunchpb.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeToProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileToProto(value *config.SystemPromptFile) (*sessionlaunchpb.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeToProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
-func systemPromptFilesFromProto(values []*sessionlaunchpb.SystemPromptFile) ([]config.SystemPromptFile, error) {
-	result := make([]config.SystemPromptFile, 0, len(values))
-	for _, value := range values {
-		scope, err := systemPromptFileScopeFromProto(value.Scope)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, config.SystemPromptFile{Path: value.Path, Scope: scope})
+func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config.SystemPromptFile, error) {
+	if value == nil {
+		return nil, nil
 	}
-	return result, nil
+	scope, err := systemPromptFileScopeFromProto(value.Scope)
+	if err != nil {
+		return nil, err
+	}
+	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
 func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.ToolEnabledFact, error) {
@@ -420,44 +416,26 @@ func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) (map[string]bo
 	return result, nil
 }
 
-func stringFactsToProto(values map[string]string) []*sessionlaunchpb.StringFact {
-	keys := sortedStringKeys(values)
-	result := make([]*sessionlaunchpb.StringFact, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, &sessionlaunchpb.StringFact{Key: key, Value: values[key]})
-	}
-	return result
-}
-
-func stringFactsFromProto(values []*sessionlaunchpb.StringFact) (map[string]string, error) {
-	result := make(map[string]string, len(values))
-	for _, value := range values {
-		if _, exists := result[value.Key]; exists {
-			return nil, fmt.Errorf("duplicate string fact %q", value.Key)
-		}
-		result[value.Key] = value.Value
-	}
-	return result, nil
-}
-
 func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
 	values := base.Subagents
 	keys := sortedStringKeys(values)
 	result := make([]*sessionlaunchpb.NamedSubagentRole, 0, len(keys))
 	for _, key := range keys {
 		value := values[key]
-		effective := config.OverlaySubagentRoleSettings(base, value, true)
-		effective.Subagents = nil
-		settings, err := SessionSettingsToProto(effective)
+		declaration := config.MaterializeSubagentRoleDeclaration(base, value)
+		settings, err := SessionSettingsToProto(declaration)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", key, err)
+		}
+		sources, err := sourceFactsToProto(value.Sources)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, &sessionlaunchpb.NamedSubagentRole{
 			Name: key,
 			Role: &sessionlaunchpb.SubagentRole{
-				Settings: settings, Sources: stringFactsToProto(value.Sources), Description: value.Description,
-				AgentCallable: value.AgentCallable, AgentCallableSet: value.AgentCallableSet,
-				WorkflowSubagent: value.WorkflowSubagent, WorkflowSubagentSet: value.WorkflowSubagentSet,
+				Settings: settings, Sources: sources, Description: value.Description,
+				AgentCallable: value.AgentCallable, WorkflowSubagent: value.WorkflowSubagent,
 			},
 		})
 	}
@@ -474,27 +452,36 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
 		}
-		sources, err := stringFactsFromProto(value.Role.Sources)
+		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q sources: %w", value.Name, err)
 		}
 		result[value.Name] = config.SubagentRole{
 			Settings: settings, Sources: sources, Description: value.Role.Description,
-			AgentCallable: value.Role.AgentCallable, AgentCallableSet: value.Role.AgentCallableSet,
-			WorkflowSubagent: value.Role.WorkflowSubagent, WorkflowSubagentSet: value.Role.WorkflowSubagentSet,
+			AgentCallable: value.Role.AgentCallable, WorkflowSubagent: value.Role.WorkflowSubagent,
 		}
 	}
 	return result, nil
 }
 
 func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.SourceReport, error) {
+	sources, err := sourceFactsToProto(source.Sources)
+	if err != nil {
+		return nil, err
+	}
 	message := &sessionlaunchpb.SourceReport{
-		SettingsPath: source.SettingsPath, SettingsFileExists: source.SettingsFileExists,
-		CreatedDefaultConfig: source.CreatedDefaultConfig, HomeSettingsPath: source.HomeSettingsPath,
-		HomeSettingsFileExists: source.HomeSettingsFileExists, WorkspaceSettingsPath: source.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   source.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: source.WorkspaceSettingsLayerEnabled,
-		Sources:                       stringFactsToProto(source.Sources),
+		CreatedDefaultConfig: source.CreatedDefaultConfig,
+		Sources:              sources,
+	}
+	for _, file := range source.Files {
+		layer, err := configFileLayerToProto(file.Layer)
+		if err != nil {
+			return nil, err
+		}
+		message.Files = append(message.Files, &sessionlaunchpb.ConfigFileReport{
+			File:   &sessionlaunchpb.ConfigFileSource{Layer: layer, Path: file.Path},
+			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
 	}
 	return message, Validate(message)
 }
@@ -503,17 +490,25 @@ func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config
 	if err := Validate(message); err != nil {
 		return config.SourceReport{}, err
 	}
-	sources, err := stringFactsFromProto(message.Sources)
+	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err
 	}
-	return config.SourceReport{
-		SettingsPath: message.SettingsPath, SettingsFileExists: message.SettingsFileExists,
-		CreatedDefaultConfig: message.CreatedDefaultConfig, HomeSettingsPath: message.HomeSettingsPath,
-		HomeSettingsFileExists: message.HomeSettingsFileExists, WorkspaceSettingsPath: message.WorkspaceSettingsPath,
-		WorkspaceSettingsFileExists:   message.WorkspaceSettingsFileExists,
-		WorkspaceSettingsLayerEnabled: message.WorkspaceSettingsLayerEnabled, Sources: sources,
-	}, nil
+	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
+	for _, file := range message.Files {
+		layer, err := configFileLayerFromProto(file.File.Layer)
+		if err != nil {
+			return config.SourceReport{}, err
+		}
+		if report.File(layer) != nil {
+			return config.SourceReport{}, fmt.Errorf("duplicate configuration file layer %q", layer)
+		}
+		report.Files = append(report.Files, config.ConfigFileReport{
+			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
+			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,
+		})
+	}
+	return report, nil
 }
 
 func sortedStringKeys[V any](values map[string]V) []string {

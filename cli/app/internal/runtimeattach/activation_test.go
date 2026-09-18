@@ -67,7 +67,7 @@ func TestActivateBuildsRequest(t *testing.T) {
 		ActiveSettings:           config.Settings{Model: "gpt-test"},
 		ThinkingOverrideExplicit: true,
 		AgentSelection:           selection,
-		Source:                   config.SourceReport{SettingsPath: "/config.toml"},
+		Source:                   config.SourceReport{Files: []config.ConfigFileReport{{SourceFile: config.SourceFile{Layer: config.FileGlobal, Path: "/config.toml"}, Enabled: true}}},
 	})
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
@@ -82,7 +82,7 @@ func TestActivateBuildsRequest(t *testing.T) {
 	if !reflect.DeepEqual(req.EnabledToolIDs, []string{"shell", "patch"}) {
 		t.Fatalf("enabled tools = %#v, want shell/patch", req.EnabledToolIDs)
 	}
-	if req.ActiveSettings.Model != "gpt-test" || req.Source.SettingsPath != "/config.toml" {
+	if req.ActiveSettings.Model != "gpt-test" || req.Source.SettingsPath() == nil || *req.Source.SettingsPath() != "/config.toml" {
 		t.Fatalf("request config = %+v source = %+v", req.ActiveSettings, req.Source)
 	}
 	if !req.ThinkingOverrideExplicit {

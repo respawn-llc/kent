@@ -80,14 +80,24 @@ export function createWorktreeCreate({
       void submitSwitch(operation);
     },
     onError: (error) => {
-      if (!(error instanceof WorktreeError) || error.detail.kind !== "setup_retained") return;
+      if (
+        creator.hasListeners() &&
+        error instanceof WorktreeError &&
+        error.detail.kind === "create" &&
+        error.detail.owner === "base_ref"
+      )
+        return;
       push({
         id: crypto.randomUUID(),
         tone: "danger",
         title: t("chat.worktree.create"),
-        body: error.detail.details.diagnostic,
+        body: worktreeErrorMessage(error, t),
       });
-      if (navigator.replace({ kind: "worktree", sessionID, page: "list" }) !== "accepted") {
+      if (
+        error instanceof WorktreeError &&
+        error.detail.kind === "setup_retained" &&
+        navigator.replace({ kind: "worktree", sessionID, page: "list" }) !== "accepted"
+      ) {
         refreshOpenWorktreeList(sessionID);
       }
     },
@@ -133,6 +143,15 @@ export function createWorktreeCreate({
       if (get.once(intent) === value) get.set(submit, undefined);
     }).pipe(Effect.ignore);
   });
+  const retryResolution = Atom.fn<undefined>()(
+    (_, get) =>
+      Effect.gen(function* () {
+        get.set(intent, null);
+        const request = get(resolver);
+        if (request !== null) yield* Effect.promise(async () => request.observer.refetch());
+      }),
+    { concurrent: true },
+  );
   const editTarget = Atom.fn<string>()(
     (value, get) =>
       Effect.sync(() => {
@@ -174,22 +193,18 @@ export function createWorktreeCreate({
       pending: created.isPending,
       resolving: value.trim().length > 0 && authority === undefined && !result?.isError,
       ...errors,
-      targetError:
-        errors.targetError ?? (result?.isError ? worktreeErrorMessage(result.error, t) : undefined),
     };
   });
-  return { state, resolution, creation, resolve, submit, editTarget, editBase };
+  return { state, resolution, creation, resolve, retryResolution, submit, editTarget, editBase };
 }
 
 function creationErrors(error: Error | null, targetRequired: boolean, baseRequired: boolean, t: TFunction) {
   const result: Readonly<{
     targetError: string | undefined;
     baseError: string | undefined;
-    formError: string | undefined;
   }> = {
     targetError: targetRequired ? t("chat.worktree.targetRequired") : undefined,
     baseError: baseRequired ? t("chat.worktree.baseRequired") : undefined,
-    formError: undefined,
   };
   if (error === null) return result;
   if (error instanceof WorktreeError) {
@@ -198,7 +213,7 @@ function creationErrors(error: Error | null, targetRequired: boolean, baseRequir
       return { ...result, baseError: error.detail.diagnostic };
     }
   }
-  return { ...result, formError: worktreeErrorMessage(error, t) };
+  return result;
 }
 
 export function useWorktreeCreate(model: ReturnType<typeof createWorktreeCreate>) {
@@ -209,5 +224,6 @@ export function useWorktreeCreate(model: ReturnType<typeof createWorktreeCreate>
     submit: useAtomSet(model.submit, { mode: "value" }),
     editTarget: useAtomSet(model.editTarget, { mode: "value" }),
     editBase: useAtomSet(model.editBase, { mode: "value" }),
+    retryResolution: useAtomSet(model.retryResolution, { mode: "value" }),
   };
 }

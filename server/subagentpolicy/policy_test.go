@@ -12,9 +12,9 @@ func TestAuthorizeCallerTargetMatrix(t *testing.T) {
 	settings := config.Settings{
 		Workflow: config.WorkflowSettings{Subagents: true},
 		Subagents: map[string]config.SubagentRole{
-			"worker":  {AgentCallableSet: true, AgentCallable: true, WorkflowSubagentSet: true, WorkflowSubagent: true},
-			"hidden":  {AgentCallableSet: true, AgentCallable: true, WorkflowSubagentSet: true, WorkflowSubagent: false},
-			"blocked": {AgentCallableSet: true, AgentCallable: false},
+			"worker":  {AgentCallable: true, WorkflowSubagent: true, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}, "workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}}},
+			"hidden":  {AgentCallable: true, WorkflowSubagent: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}, "workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}}},
+			"blocked": {AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}}},
 		},
 	}
 	workflow := &Caller{Workflow: true}
@@ -55,7 +55,7 @@ func TestAuthorizeCallerTargetMatrix(t *testing.T) {
 		t.Fatalf("fast target with workflow delegation disabled: %v, want not-callable denial", err)
 	}
 	blockedFast := config.Settings{Subagents: map[string]config.SubagentRole{
-		config.BuiltInSubagentRoleFast: {AgentCallableSet: true, AgentCallable: false},
+		config.BuiltInSubagentRoleFast: {AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}}},
 	}}
 	workflowBlockedFast := &Caller{Workflow: true}
 	if err := Authorize(blockedFast, workflowBlockedFast, Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}); !isDenialKind(err, serverapi.SubagentLaunchDenialNotCallable) {
@@ -67,7 +67,7 @@ func TestFastRoleObeysWorkflowDelegationFlags(t *testing.T) {
 	settings := config.Settings{
 		Workflow: config.WorkflowSettings{Subagents: true},
 		Subagents: map[string]config.SubagentRole{
-			config.BuiltInSubagentRoleFast: {WorkflowSubagentSet: true, WorkflowSubagent: false},
+			config.BuiltInSubagentRoleFast: {WorkflowSubagent: false, Sources: map[string]config.Origin{"workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}}},
 		},
 	}
 	target := Target{Kind: TargetNamed, Selector: config.BuiltInSubagentRoleFast}
@@ -95,12 +95,12 @@ func TestDefaultRoleDelegationPolicy(t *testing.T) {
 			denied   bool
 		}{
 			{name: "ordinary unconfigured", caller: &Caller{}},
-			{name: "ordinary disabled", caller: &Caller{}, role: config.SubagentRole{AgentCallableSet: true}, denied: true},
-			{name: "human bypass", role: config.SubagentRole{AgentCallableSet: true, WorkflowSubagentSet: true}},
+			{name: "ordinary disabled", caller: &Caller{}, role: config.SubagentRole{Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}}}, denied: true},
+			{name: "human bypass", role: config.SubagentRole{Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}, "workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}}}},
 			{name: "workflow enabled", caller: &Caller{Workflow: true}, workflow: true},
 			{name: "workflow globally disabled", caller: &Caller{Workflow: true}, denied: true},
-			{name: "workflow role disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{WorkflowSubagentSet: true}, denied: true},
-			{name: "workflow agent disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{AgentCallableSet: true}, denied: true},
+			{name: "workflow role disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{Sources: map[string]config.Origin{"workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}}}, denied: true},
+			{name: "workflow agent disabled", caller: &Caller{Workflow: true}, workflow: true, role: config.SubagentRole{Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}}}, denied: true},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				settings := config.Settings{
