@@ -76,13 +76,13 @@
 - Changing the default workspace or attaching or detaching a workspace applies immediately.
 - Workspace catalogs use infinite scroll, contain at most 100 entries per request, retain a bounded page window, show the default first, and then use newest attachment first.
 - A workspace-catalog page-edge failure retains loaded rows and offers Retry at that edge. A first-page failure uses the standard retryable error state.
-- Raw Project Settings catalog pages are not deduplicated or reconciled. Workspace mutations do not refresh retained pages, which may overlap or remain stale.
+- Raw Project Settings catalog pages are not deduplicated or reconciled. Detach must refresh the retained Workspace catalog from the server, including when the Workspace was already detached. Other Workspace mutations do not refresh retained pages, which may overlap or remain stale.
+- Workspace detach confirmation must use an in-window modal over the destination, outside the sidebar layout. Confirm must close the modal and submit the detach through Project Settings. Project Settings must show request progress and success, blocker, or error feedback in the main window.
 - A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the retained pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
 - Project Settings must follow the shared independent-request and local-failure behavior.
-- Project Settings must show workspace-observation failures through an ordinary temporary error notification.
-- While a Workspace-change refresh is in progress, Project Settings may combine further change notifications for that Project into one subsequent refresh. Project Settings must not combine mutation requests or confirmation choices.
+- Project Settings must not combine distinct mutation requests or confirmation choices.
 - Leaving Project Settings must stop its screen observations without canceling accepted server work. While the window remains open, leaving Project Settings must not suppress a started mutation's failure feedback or ordinary content refresh.
 - Project Settings metadata contains no Workspace rows or Workspace pagination. Project Settings and New Task obtain Workspace rows from the same Project Workspace catalog.
 - A Workspace-catalog first-page failure leaves Project name and Project Key editable and saveable, keeps Attach available, and gives the Workspace area its own Retry state.

@@ -203,6 +203,14 @@ const (
 	WorkflowTaskPromptCompactionReminder
 )
 
+type WorktreePromptKind uint8
+
+const (
+	WorktreePromptInitial WorktreePromptKind = iota
+	WorktreePromptPostCompaction
+	WorktreePromptSwitch
+)
+
 type WorkflowOutputField struct {
 	Name        string
 	Description string
@@ -316,8 +324,12 @@ var (
 	WorkflowTaskMutationSelfTargetDeniedPrompt       = mustPrompt("workflow/task_mutation_self_target_denied.md")
 	WorkflowTaskCompleteAgentOwnershipErrorPrompt    = strings.TrimSpace(mustPrompt("workflow/task_complete_agent_ownership_error.md"))
 	WorkflowTaskCompleteHumanSafetyWarningPrompt     = strings.TrimSpace(mustPrompt("workflow/task_complete_human_safety_warning.md"))
-	WorktreeModePrompt                               = mustPrompt("worktree_mode_prompt.md")
-	WorktreeModeExitPrompt                           = mustPrompt("worktree_mode_exit_prompt.md")
+	WorktreeInitialPrompt                            = mustPrompt("worktree_initial_prompt.md")
+	WorktreePostCompactionPrompt                     = mustPrompt("worktree_post_compaction_prompt.md")
+	WorkspaceInitialPrompt                           = mustPrompt("workspace_initial_prompt.md")
+	WorkspacePostCompactionPrompt                    = mustPrompt("workspace_post_compaction_prompt.md")
+	WorktreeModePrompt                               = mustPrompt("worktree_switch_prompt.md")
+	WorktreeModeExitPrompt                           = mustPrompt("worktree_exit_prompt.md")
 	QuestionsDisabledPrompt                          = mustPrompt("questions/disabled.md")
 )
 
@@ -506,17 +518,29 @@ func RenderLiveControlSelfTargetDeniedPrompt(commandText string) string {
 	})
 }
 
-func RenderWorktreeModePrompt(branch, cwd, worktreePath, workspaceRoot string) string {
-	return renderTemplatePlaceholders(WorktreeModePrompt, map[string]string{
-		"{{branch}}":         strings.TrimSpace(branch),
-		"{{cwd}}":            strings.TrimSpace(cwd),
-		"{{worktree_path}}":  strings.TrimSpace(worktreePath),
-		"{{workspace_root}}": strings.TrimSpace(workspaceRoot),
-	})
+func RenderWorktreeModePrompt(kind WorktreePromptKind, branch, cwd, worktreePath, workspaceRoot string) string {
+	return renderWorktreePrompt(worktreePromptForKind(kind, WorktreeInitialPrompt, WorktreePostCompactionPrompt, WorktreeModePrompt), branch, cwd, worktreePath, workspaceRoot)
 }
 
-func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot string) string {
-	return renderTemplatePlaceholders(WorktreeModeExitPrompt, map[string]string{
+func RenderWorktreeModeExitPrompt(kind WorktreePromptKind, branch, cwd, worktreePath, workspaceRoot string) string {
+	return renderWorktreePrompt(worktreePromptForKind(kind, WorkspaceInitialPrompt, WorkspacePostCompactionPrompt, WorktreeModeExitPrompt), branch, cwd, worktreePath, workspaceRoot)
+}
+
+func worktreePromptForKind(kind WorktreePromptKind, initial, postCompaction, switching string) string {
+	switch kind {
+	case WorktreePromptInitial:
+		return initial
+	case WorktreePromptPostCompaction:
+		return postCompaction
+	case WorktreePromptSwitch:
+		return switching
+	default:
+		panic("invalid Worktree prompt kind")
+	}
+}
+
+func renderWorktreePrompt(template, branch, cwd, worktreePath, workspaceRoot string) string {
+	return renderTemplatePlaceholders(template, map[string]string{
 		"{{branch}}":         strings.TrimSpace(branch),
 		"{{cwd}}":            strings.TrimSpace(cwd),
 		"{{worktree_path}}":  strings.TrimSpace(worktreePath),

@@ -837,6 +837,42 @@ func TestRemoteWorkflowProjectSubscriptionRejectsInvalidResourceActionCombinatio
 	}
 }
 
+func TestRemoteDeleteWorktreePreservesPartialProgressAndBlockers(t *testing.T) {
+	blocked := &worktreepb.BlockedDetails{ActiveSessions: &worktreepb.ActiveSessionBlockers{
+		Sessions: []*worktreepb.BlockingSession{{SessionId: "active-session"}},
+	}}
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		acceptRemoteHandshake(t, ws)
+		var request worktreepb.DeleteRequest
+		call := receiveRemoteGeneratedCall(t, ws, "TransitionService", "Delete", &request)
+		sendRemoteGeneratedResult(t, ws, call, &worktreepb.DeleteResult{
+			Outcome: &worktreepb.DeleteResult_Error{Error: &worktreepb.DeleteError{
+				Code: "delete_partial",
+				Detail: &worktreepb.DeleteError_DeletePartial{DeletePartial: &worktreepb.DeletePartialDetails{
+					RetargetedSessions: 50, Diagnostic: "deletion blocked", Blocked: blocked,
+				}},
+			}},
+		})
+	})
+	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.DeleteWorktree(context.Background(), &worktreepb.DeleteRequest{
+		Scope: worktreecontract.SessionManagementScope("session-1"), Selector: "wt-1",
+		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
+	})
+	var progress *worktreecontract.DeletePartialError
+	var blockers *worktreecontract.BlockedError
+	if !errors.As(err, &progress) || progress.RetargetedSessions != 50 {
+		t.Fatalf("partial progress lost: %v", err)
+	}
+	if !errors.As(err, &blockers) || !proto.Equal(blockers.Details, blocked) {
+		t.Fatalf("blocker details lost: %v", err)
+	}
+}
+
 func TestRemoteDeleteWorktreeCarriesTypedCleanupPolicyAndResult(t *testing.T) {
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)

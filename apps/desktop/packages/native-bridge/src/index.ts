@@ -138,12 +138,6 @@ export type NativeBridge = Readonly<{
     notifyDeleted(event: NativeProjectDeleted): Promise<void>;
     onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten>;
   }>;
-  projectWorkspace: Readonly<{
-    requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void>;
-    onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten>;
-    notifyChanged(event: NativeProjectWorkspaceChanged): Promise<void>;
-    onChanged(handler: (event: NativeProjectWorkspaceChanged) => void): Promise<NativeUnlisten>;
-  }>;
 }>;
 
 export type NativeWindowGlassTint = Readonly<{
@@ -191,22 +185,10 @@ export type NativeProjectDeleted = Readonly<{
   projectID: string;
 }>;
 
-export type NativeWorkspaceUnlinkTarget = Readonly<{
-  projectID: string;
-  workspaceID: string;
-  rootPath: string;
-}>;
-
-export type NativeProjectWorkspaceChanged = Readonly<{
-  projectID: string;
-}>;
-
 export type NativeUnlisten = () => void;
 
 export const nativeDialogWindowHorizontalInsetPx = 16;
 const projectDeletedEvent = "app://project-deleted";
-const workspaceUnlinkRequestEvent = "app://workspace-unlink-request";
-const projectWorkspaceChangedEvent = "app://project-workspace-changed";
 
 declare global {
   interface Window {
@@ -323,20 +305,6 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         };
       },
     },
-    projectWorkspace: {
-      async requestUnlink(): Promise<void> {
-        return Promise.resolve();
-      },
-      async onUnlinkRequested(): Promise<NativeUnlisten> {
-        return () => undefined;
-      },
-      async notifyChanged(): Promise<void> {
-        return Promise.resolve();
-      },
-      async onChanged(): Promise<NativeUnlisten> {
-        return () => undefined;
-      },
-    },
   };
 }
 
@@ -443,26 +411,6 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       async onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten> {
         return listen<NativeProjectDeleted>(projectDeletedEvent, (event) => {
-          handler(event.payload);
-        });
-      },
-    },
-    projectWorkspace: {
-      async requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void> {
-        await emitTo("main", workspaceUnlinkRequestEvent, target);
-      },
-      async onUnlinkRequested(
-        handler: (target: NativeWorkspaceUnlinkTarget) => void,
-      ): Promise<NativeUnlisten> {
-        return listen<NativeWorkspaceUnlinkTarget>(workspaceUnlinkRequestEvent, (event) => {
-          handler(event.payload);
-        });
-      },
-      async notifyChanged(event: NativeProjectWorkspaceChanged): Promise<void> {
-        await emitTo("main", projectWorkspaceChangedEvent, event);
-      },
-      async onChanged(handler: (event: NativeProjectWorkspaceChanged) => void): Promise<NativeUnlisten> {
-        return listen<NativeProjectWorkspaceChanged>(projectWorkspaceChangedEvent, (event) => {
           handler(event.payload);
         });
       },

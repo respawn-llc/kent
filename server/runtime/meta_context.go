@@ -18,6 +18,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/pathutil"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -62,6 +63,7 @@ type metaContextBuildOptions struct {
 	IncludeWorkflow           bool
 	WorkflowMessage           *llm.Message
 	WorktreeReminder          *session.WorktreeReminderState
+	WorktreePromptKind        prompts.WorktreePromptKind
 	SessionRebindReminder     *session.SessionRebindReminder
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
@@ -191,6 +193,10 @@ func (b metaContextBuilder) withSubagents(app config.App, enabledTools []toolspe
 }
 
 func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuildResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return metaContextBuildResult{}, fmt.Errorf("resolve home for context paths: %w", err)
+	}
 	ranks, rankErr := b.agentPathRanks()
 	if rankErr != nil && opts.IncludeAgents && !opts.PermissiveAgentsReadError {
 		return metaContextBuildResult{}, rankErr
@@ -199,7 +205,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	collector.addMessages(opts.ExistingMessages)
 
 	if opts.IncludeAgents {
-		agents, err := b.discoverAgents(opts.PermissiveAgentsReadError)
+		agents, err := b.discoverAgents(home, opts.PermissiveAgentsReadError)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -216,13 +222,13 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 			return metaContextBuildResult{}, err
 		}
 		if opts.IncludeSkillWarnings {
-			collector.addWarnings(skillDiscoveryWarningTexts(result.Issues))
+			collector.addWarnings(skillDiscoveryWarningTexts(result.Issues, b.environmentCWD, home))
 		}
 		if len(result.Skills) > 0 {
 			collector.addMessages([]llm.Message{{
 				Role:        llm.RoleDeveloper,
 				MessageType: textutil.Value(llm.MessageTypeSkills),
-				Content:     textutil.Value(renderSkillsContext(result.Skills)),
+				Content:     textutil.Value(renderSkillsContext(result.Skills, b.environmentCWD, home)),
 			}})
 		}
 	}
@@ -277,9 +283,9 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		)
 		switch opts.WorktreeReminder.Mode {
 		case session.WorktreeReminderModeEnter:
-			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder)
+			message, ok = worktreeModeMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		case session.WorktreeReminderModeExit:
-			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder)
+			message, ok = worktreeModeExitMetaMessage(*opts.WorktreeReminder, home, opts.WorktreePromptKind)
 		}
 		if ok {
 			collector.addMessages([]llm.Message{message})
@@ -359,7 +365,7 @@ func (b metaContextBuilder) agentPathRanks() (map[string]int, error) {
 	return ranks, nil
 }
 
-func (b metaContextBuilder) discoverAgents(permissive bool) ([]llm.Message, error) {
+func (b metaContextBuilder) discoverAgents(home string, permissive bool) ([]llm.Message, error) {
 	paths, err := agentsInjectionPaths(b.workspaceRoot, b.globalConfigDir)
 	if err != nil {
 		if permissive {
@@ -380,7 +386,10 @@ func (b metaContextBuilder) discoverAgents(permissive bool) ([]llm.Message, erro
 			Role:        llm.RoleDeveloper,
 			MessageType: textutil.Value(llm.MessageTypeAgentsMD),
 			SourcePath:  textutil.Value(path),
-			Content:     textutil.Value(fmt.Sprintf("%s\nsource: %s\n\n```%s\n%s\n```", agentsInjectedHeader, path, agentsInjectedFenceLabel, string(data))),
+			Content: textutil.Value(fmt.Sprintf(
+				"# Authoritative instructions, rules, and important context from the %s file:\n\n%s",
+				pathutil.Compact(path, b.environmentCWD, home), data,
+			)),
 		})
 	}
 	return out, nil
@@ -654,8 +663,10 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 	return out
 }
 
-func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModePrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd, state.WorktreePath, state.WorkspaceRoot)
+func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
+		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -667,8 +678,10 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, 
 	}, true
 }
 
-func worktreeModeExitMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
-	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd, state.WorktreePath, state.WorkspaceRoot)
+func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
+	content := prompts.RenderWorktreeModeExitPrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
+		pathutil.Compact(state.WorktreePath, state.EffectiveCwd, home),
+		pathutil.Compact(state.WorkspaceRoot, state.EffectiveCwd, home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -717,13 +730,13 @@ func worktreeBranchPromptValue(branch *string) string {
 	return *branch
 }
 
-func skillDiscoveryWarningTexts(issues []skillcatalog.Issue) []string {
+func skillDiscoveryWarningTexts(issues []skillcatalog.Issue, cwd, home string) []string {
 	if len(issues) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		out = append(out, formatSkillDiscoveryWarning(issue))
+		out = append(out, formatSkillDiscoveryWarning(issue, cwd, home))
 	}
 	return out
 }

@@ -105,21 +105,6 @@ func (s *Service) evaluateDeleteCleanliness(ctx context.Context, entry *worktree
 	}, nil
 }
 
-type deleteTargetActivityLease struct {
-	ctx   context.Context
-	close func()
-}
-
-func (l deleteTargetActivityLease) Context() context.Context {
-	return l.ctx
-}
-
-func (l deleteTargetActivityLease) Close() {
-	if l.close != nil {
-		l.close()
-	}
-}
-
 type sessionWorkspaceContext struct {
 	target        *worktreepb.SessionExecutionTarget
 	projectID     string
@@ -1593,7 +1578,9 @@ func sameCreationBaseCommit(creationBaseCommitOID *string, requestedCommitOID st
 	return creationBaseCommitOID != nil && strings.TrimSpace(*creationBaseCommitOID) == strings.TrimSpace(requestedCommitOID)
 }
 
-func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktreeRequest) (DeleteTaskWorktreeResponse, error) {
+func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktreeRequest) (result DeleteTaskWorktreeResponse, resultErr error) {
+	var retargeted uint64
+	defer func() { resultErr = deletionProgressError(retargeted, resultErr) }()
 	if s == nil || s.metadata == nil || s.git == nil {
 		return DeleteTaskWorktreeResponse{}, errors.New("worktree service dependencies are required")
 	}
@@ -1657,12 +1644,9 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 	if _, err := deletionSelector(entry); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	activityLease, err := s.acquireDeleteTargetActivity(ctx, &record, &record.CanonicalRoot)
-	if err != nil {
+	if err := s.checkDeleteTargetActivity(ctx, &record, &record.CanonicalRoot); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	defer activityLease.Close()
-	ctx = activityLease.Context()
 	var target syncedWorktree
 	targetFound := entry.GetRegistered() != nil
 	if targetFound {
@@ -1680,16 +1664,19 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 		}
 		forceRemoval = dirtyState.Kind != worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN
 	}
-	retargetCompensation, err := s.retargetDeleteSessions(ctx, metadata.Binding{
+	retargeted, err = s.retargetDeleteSessions(ctx, metadata.Binding{
 		WorkspaceID:   record.WorkspaceID,
 		CanonicalRoot: workspaceRoot,
 	}, record)
 	if err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
+	if err := s.checkDeleteBackgroundProcesses(&record.CanonicalRoot); err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
 	if targetFound {
 		if err := s.git.Remove(ctx, workspaceRoot, target.record.CanonicalRoot, forceRemoval); err != nil {
-			return DeleteTaskWorktreeResponse{}, errors.Join(err, retargetCompensation.rollback(ctx))
+			return DeleteTaskWorktreeResponse{}, err
 		}
 	}
 	// The worktree itself is already removed by this point, so a branch-cleanup

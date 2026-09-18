@@ -220,7 +220,8 @@
 - The TUI has no standalone per-item discard affordance for operational Pending Work.
 - Pending queues are lost on process exit. The backend overload invariant is owned by the Runtime Steering specification.
 - A mid-turn message becomes durable only when Kent delivers it.
-- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt; otherwise it exits. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally. A later Running lifecycle with a different Run or Step identity sends a new Interrupt. The server revalidates that Interrupt targets an active Agent execution, including one waiting for a Question or Approval. A submission already sent to the server may start or continue after the client detaches.
+- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt; otherwise it exits. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally. A later Running lifecycle with a different Run or Step identity sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
+- If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
 - When a live Runtime projection reports a prompt wait but the corresponding pending prompt is absent, Ongoing Mode requests Scratch Rehydration to recover the authoritative prompt. The execution remains interruptible while that projection is being recovered.
 - Interrupt injects detail-only developer-role control message `User interrupted you`.
 - Post-interrupt state returns idle with input ready.
@@ -251,7 +252,7 @@
 - Kent does not wait for or stop work that blocks deletion.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant and the Worktree is removed.
 - If human input becomes accepted first, deletion fails. If deletion retires and retargets first, later input uses the new target.
-- A rejected deletion leaves Session targets, Kent worktree information, Git state, and branch state unchanged.
+- Deletion failure and partial-progress behavior follow [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - A busy target does not delay create, enter, leave, or delete operations for unrelated worktrees.
 - Worktree list returns one complete result in Git's native order. It does not use pagination.
 - List rows have four exhaustive states: the Main Workspace row contains live Git facts and no Kent Worktree ID; registered rows combine Git and Kent facts; external rows contain only Git facts and carry an `External` marker; missing rows contain only orphaned Kent Worktree facts and carry a `Missing` warning. The Main Workspace, registered, and external rows preserve Git's native order; missing rows follow in Kent metadata creation order. Listing never creates metadata for external rows or deletes missing rows.

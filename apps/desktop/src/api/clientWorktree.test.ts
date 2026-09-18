@@ -113,6 +113,37 @@ const entry = create(ListEntrySchema, {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Desktop Worktree client", () => {
+  it("preserves completed moves and blocking Sessions when deletion stops", async () => {
+    const clean = await resolvePreview(DirtyStateKind.DIRTY_STATE_CLEAN, topology);
+    const result = create(DeleteResultSchema, {
+      outcome: {
+        case: "error",
+        value: {
+          code: "delete_partial",
+          detail: {
+            case: "deletePartial",
+            value: {
+              retargetedSessions: 50n,
+              diagnostic: "deletion blocked",
+              blocked: { activeSessions: { sessions: [{ sessionId: "active-session" }] } },
+            },
+          },
+        },
+      },
+    });
+    const client = new ApiClient(
+      new FakeRpcTransport([{ descriptor: TransitionService.method.delete, result }]),
+      unexpectedProjectOverflow,
+    );
+    await expect(client.deleteWorktree("session-1", clean, "confirm")).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof WorktreeError &&
+        error.detail.kind === "delete_partial" &&
+        error.detail.details.retargetedSessions === 50n &&
+        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId === "active-session",
+    );
+  });
+
   it("preserves the typed missing Workspace failure for a retained Session", async () => {
     const result = create(ListResultSchema, {
       outcome: {

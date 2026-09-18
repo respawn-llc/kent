@@ -6,14 +6,12 @@ import {
 } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import * as Stream from "effect/Stream";
 import type { TFunction } from "i18next";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 
 import { errorMessage, type WorkspaceCatalogRow } from "@/api";
 import {
   completeProjectDeletion,
-  projectWorkspaceChanges,
   queryAtom,
   queryKeys,
   workspaceCatalogInfiniteQueryOptions,
@@ -25,6 +23,7 @@ import { projectKeyErrors, projectNameErrors } from "./ProjectEditUtils";
 import {
   invalidateProjectEditQueries,
   invalidateProjectWorkspaceOwners,
+  invalidateProjectWorkspaceMetadata,
   projectDeleteMutationOptions,
 } from "./useProjectEditData";
 
@@ -50,26 +49,6 @@ export function createProjectEditViewModel({
   push: StatusController["push"];
   navigator?: SidebarPageNavigator | undefined;
 }>) {
-  const workspaceChanges = Atom.make(
-    projectWorkspaceChanges(services.nativeBridge.projectWorkspace, projectID).pipe(
-      Stream.runForEach(() =>
-        Effect.tryPromise({
-          try: async () => invalidateProjectWorkspaceOwners(client, projectID),
-          catch: (cause) => ({ _tag: "WorkspaceRefreshError" as const, cause }),
-        }),
-      ),
-      Effect.catch((error) =>
-        Effect.sync(() => {
-          push({
-            id: "project-edit-workspace-observation-error",
-            tone: "danger",
-            title: t("projectEdit.title"),
-            body: errorMessage(error.cause),
-          });
-        }),
-      ),
-    ),
-  );
   const observer = new QueryObserver(client, {
     queryKey: queryKeys.projectEdit(projectID),
     queryFn: async () => services.api.getProjectEdit(projectID),
@@ -128,7 +107,7 @@ export function createProjectEditViewModel({
     mutationFn: async (workspaceID: string) => services.api.setDefaultWorkspace(projectID, workspaceID),
     ...explicitRequestOptions,
     onSuccess: async () => {
-      await invalidateProjectWorkspaceOwners(client, projectID);
+      await invalidateProjectWorkspaceMetadata(client, projectID);
       push({
         id: "project-edit-default-saved",
         tone: "success",
@@ -150,7 +129,7 @@ export function createProjectEditViewModel({
     mutationFn: async (path: string) => services.api.attachWorkspace(projectID, path),
     ...explicitRequestOptions,
     onSuccess: async (response) => {
-      await invalidateProjectWorkspaceOwners(client, projectID);
+      await invalidateProjectWorkspaceMetadata(client, projectID);
       push({
         id: "project-edit-workspace-attached",
         tone: "success",
@@ -173,13 +152,11 @@ export function createProjectEditViewModel({
   });
   const attaching = queryAtom(attachObserver);
   const unlinkObserver = new MutationObserver(client, {
-    mutationFn: async (input: { workspaceID: string; close(): void }) =>
-      services.api.unlinkWorkspace(projectID, input.workspaceID),
+    mutationFn: async (workspaceID: string) => services.api.unlinkWorkspace(projectID, workspaceID),
     ...explicitRequestOptions,
-    onSuccess: async (response, input) => {
+    onSuccess: async (response) => {
       await invalidateProjectWorkspaceOwners(client, projectID);
       if (response.blockers.length === 0) {
-        input.close();
         push({
           id: "project-edit-workspace-unlinked",
           tone: "success",
@@ -254,7 +231,8 @@ export function createProjectEditViewModel({
     (input, get) =>
       Effect.gen(function* () {
         if (requestPending() || get(picker).waiting) return;
-        yield* Effect.tryPromise(async () => unlinkObserver.mutate(input)).pipe(Effect.ignore);
+        input.close();
+        yield* Effect.tryPromise(async () => unlinkObserver.mutate(input.workspaceID)).pipe(Effect.ignore);
       }),
     { concurrent: true },
   );
@@ -328,6 +306,7 @@ export function createProjectEditViewModel({
     return {
       ...draft,
       pending,
+      unlinkPending: get(unlinking).isPending,
       canSave: draft.dirty && draft.nameErrors.length === 0 && draft.keyErrors.length === 0 && !pending,
     };
   });
@@ -365,7 +344,6 @@ export function createProjectEditViewModel({
   );
   const retryMetadata = Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true });
   return {
-    workspaceChanges,
     metadata,
     catalog,
     workspaces,

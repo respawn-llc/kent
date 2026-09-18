@@ -1,18 +1,14 @@
-import { useState, type CSSProperties, type KeyboardEventHandler } from "react";
+import { type CSSProperties, type KeyboardEventHandler } from "react";
 import { useTranslation } from "react-i18next";
 import { Link2Off, Star, Unlink } from "lucide-react";
 
 import type { WorkspaceCatalogRow } from "@/api";
-import { errorMessage } from "@/api";
 import { formatHomeRelativePath } from "@/app-facade";
-import type { AppServices } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useStatusController } from "@/app-facade";
-import { NativeDialogWindow } from "@/shared/native-dialog";
 import { Button, Dialog, fieldInputClassName, fieldLabelClassName, islandSurfaceClassName } from "@/ui";
 import { cx } from "@/ui";
 
-export const workspaceUnlinkDialogWidth = 400;
+const workspaceUnlinkDialogWidth = 400;
 
 type WorkspaceUnlinkDialogStyle = CSSProperties & Readonly<Record<"--workspace-unlink-dialog-width", string>>;
 
@@ -21,7 +17,6 @@ const workspaceUnlinkDialogStyle: WorkspaceUnlinkDialogStyle = {
 };
 
 export type WorkspaceUnlinkTarget = Readonly<{
-  projectID: string;
   workspaceID: string;
   rootPath: string;
 }>;
@@ -189,7 +184,7 @@ export function WorkspaceRow({
   );
 }
 
-export function WorkspaceUnlinkFallbackDialog({
+export function WorkspaceUnlinkDialog({
   disabled,
   onClose,
   onConfirm,
@@ -219,53 +214,6 @@ export function WorkspaceUnlinkFallbackDialog({
         rootPath={target.rootPath}
       />
     </Dialog>
-  );
-}
-
-export function WorkspaceUnlinkWindowRoute({ projectID, workspaceID, rootPath }: WorkspaceUnlinkTarget) {
-  const [submitting, setSubmitting] = useState(false);
-  const { t } = useTranslation();
-  const { api, nativeBridge } = useAppServices();
-  const { push } = useStatusController();
-  const target = { projectID, rootPath, workspaceID };
-  return (
-    <NativeDialogWindow title={t("projectEdit.unlinkTitle")}>
-      <WorkspaceUnlinkContent
-        className="w-[calc(var(--workspace-unlink-dialog-width)-(var(--space-2)*2)-(var(--space-4)*2))]"
-        disabled={submitting}
-        onCancel={() => {
-          void nativeBridge.window.closeCurrent();
-        }}
-        onConfirm={() => {
-          if (submitting) {
-            return;
-          }
-          setSubmitting(true);
-          void confirmNativeWorkspaceUnlink(api, nativeBridge, target, {
-            onBlocked: (message) => {
-              push({
-                body: message.length > 0 ? message : t("projectEdit.workspaceUnlinkBlocked"),
-                id: "workspace-unlink-blocked",
-                title: t("projectEdit.workspaceUnlinkBlocked"),
-                tone: "danger",
-              });
-              setSubmitting(false);
-            },
-            onError: (message) => {
-              push({
-                body: message,
-                id: "workspace-unlink-confirm-error",
-                title: t("projectEdit.unlinkWindowError"),
-                tone: "danger",
-              });
-              setSubmitting(false);
-            },
-          });
-        }}
-        rootPath={rootPath}
-        style={workspaceUnlinkDialogStyle}
-      />
-    </NativeDialogWindow>
   );
 }
 
@@ -309,26 +257,4 @@ function WorkspaceUnlinkContent({
       </div>
     </div>
   );
-}
-
-async function confirmNativeWorkspaceUnlink(
-  api: ReturnType<typeof useAppServices>["api"],
-  nativeBridge: AppServices["nativeBridge"],
-  target: WorkspaceUnlinkTarget,
-  callbacks: Readonly<{
-    onBlocked: (message: string) => void;
-    onError: (message: string) => void;
-  }>,
-): Promise<void> {
-  try {
-    const response = await api.unlinkWorkspace(target.projectID, target.workspaceID);
-    if (response.blockers.length > 0) {
-      callbacks.onBlocked(response.blockers.map((blocker) => blocker.message).join("\n"));
-      return;
-    }
-    await nativeBridge.projectWorkspace.notifyChanged({ projectID: target.projectID });
-    await nativeBridge.window.closeCurrent();
-  } catch (error) {
-    callbacks.onError(errorMessage(error));
-  }
 }

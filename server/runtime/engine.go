@@ -33,8 +33,6 @@ const (
 	agentsFileName                     = "AGENTS.md"
 	agentsGlobalDirName                = config.ConfigDirName
 	systemPromptFileName               = "SYSTEM.md"
-	agentsInjectedHeader               = "# Project context and authoritative instructions from the ./AGENTS.md file:"
-	agentsInjectedFenceLabel           = "md"
 	environmentInjectedHeader          = "# Info about environment:"
 	missingAssistantPhaseWarning       = "You sent a message without specifying a channel/phase. It was treated as commentary. If you finished your work and intended to end your turn, use the final channel explicitly. Otherwise continue and use the commentary channel for progress updates with tool calls."
 	commentaryWithoutToolCallsWarning  = "You sent a commentary-channel message without tool calls. This is wrong. If you intend to keep working, include tool calls with commentary updates. If you are done, send a final-channel message with no tool calls."

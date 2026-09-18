@@ -162,10 +162,10 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 	if messages[0].MessageType == nil || *messages[0].MessageType != llm.MessageTypeSkills {
 		t.Fatalf("expected skills stable context first, got %+v", messages[0])
 	}
-	if messages[1].MessageType == nil || *messages[1].MessageType != llm.MessageTypeAgentsMD || !strings.Contains(messageContent(messages[1]), "source: "+globalPath) {
+	if messages[1].MessageType == nil || *messages[1].MessageType != llm.MessageTypeAgentsMD || messages[1].SourcePath == nil || *messages[1].SourcePath != globalPath {
 		t.Fatalf("expected global AGENTS after skills, got %+v", messages[1])
 	}
-	if messages[2].MessageType == nil || *messages[2].MessageType != llm.MessageTypeAgentsMD || !strings.Contains(messageContent(messages[2]), "source: "+workspacePath) {
+	if messages[2].MessageType == nil || *messages[2].MessageType != llm.MessageTypeAgentsMD || messages[2].SourcePath == nil || *messages[2].SourcePath != workspacePath {
 		t.Fatalf("expected workspace AGENTS after global AGENTS, got %+v", messages[2])
 	}
 	if messages[3].MessageType == nil || *messages[3].MessageType != llm.MessageTypeCompactionSummary {

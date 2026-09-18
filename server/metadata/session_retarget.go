@@ -269,17 +269,9 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 		}
 		reminderJSON = sql.NullString{String: string(encoded), Valid: true}
 	}
-	var worktreeReminderJSON sql.NullString
-	if plan.WorktreeReminder != nil {
-		normalized, err := session.NormalizeWorktreeReminderState(*plan.WorktreeReminder)
-		if err != nil {
-			return SessionWorkspaceRetargetResult{}, fmt.Errorf("validate worktree reminder: %w", err)
-		}
-		encoded, err := json.Marshal(normalized)
-		if err != nil {
-			return SessionWorkspaceRetargetResult{}, fmt.Errorf("marshal worktree reminder: %w", err)
-		}
-		worktreeReminderJSON = sql.NullString{String: string(encoded), Valid: true}
+	worktreeReminderJSON, err := encodeWorktreeReminder(plan.WorktreeReminder)
+	if err != nil {
+		return SessionWorkspaceRetargetResult{}, err
 	}
 	rows, err := q.RetargetSessionWorkspaceProject(ctx, sqlitegen.RetargetSessionWorkspaceProjectParams{
 		TargetProjectID:          plan.TargetProject.ID,
@@ -305,6 +297,21 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 		return SessionWorkspaceRetargetResult{}, fmt.Errorf("commit session retarget tx: %w", err)
 	}
 	return SessionWorkspaceRetargetResult{Binding: binding, WorkspaceBindingCreated: created, UpdatedAt: updatedAt}, nil
+}
+
+func encodeWorktreeReminder(reminder *session.WorktreeReminderState) (sql.NullString, error) {
+	if reminder == nil {
+		return sql.NullString{}, nil
+	}
+	normalized, err := session.NormalizeWorktreeReminderState(*reminder)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("validate worktree reminder: %w", err)
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("marshal worktree reminder: %w", err)
+	}
+	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
 func validateSessionWorkspaceRetargetWorkflowOwnership(

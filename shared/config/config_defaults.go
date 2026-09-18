@@ -11,6 +11,8 @@ import (
 	"core/shared/toolspec"
 )
 
+const DefaultMaxConcurrentShells = 100
+
 const (
 	defaultModel                         = "gpt-5.6-sol"
 	defaultThinkingLevel                 = "medium"

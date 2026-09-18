@@ -488,11 +488,18 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		m.clearRuntimeControlPending(msg.operation)
+		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
 			m.setPendingInterrupt(false)
+			request := runtimeReadModelResetMainViewRefreshRequest()
+			if m.hasLocalDispatchPending() {
+				request.interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
+			}
+			recovery = m.startRuntimeMainViewRefreshRequest(request).cmd
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
+			recovery,
 			m.appendLocalEntryWithNoticeID("error", errText, ""),
 			m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
 		)

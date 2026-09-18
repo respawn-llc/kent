@@ -28,6 +28,8 @@ kent run wait <session-id> # wait for the model's turn to end
 kent run watch <session-id> # report the next question or terminal outcome
 ```
 
+Stop interrupts Agent work, compaction, and foreground shells. An already-idle Session succeeds without restarting work. Running worktree operations continue to completion. If Kent detects inconsistent running state, it interrupts that activity and records a transcript error.
+
 When a human invokes `kent run steer`, the running Session receives a user message. When another Kent Session invokes it, the running Session receives a developer-role agent steer that identifies the source Session and includes the command form for replying.
 
 Headless `kent run` Sessions cannot create Questions. To inspect or answer a pending Question from an interactive or Workflow Session:
@@ -123,6 +125,8 @@ This is needed to enable functionality related to project management and allows 
 For a live session, Kent acknowledges the scheduled move and applies it between agent steps, preserving the running agent and queued input even across projects. Existing background commands continue in their original directories; new commands use the destination. Dormant session moves complete synchronously and reject running session-owned background commands.
 
 Detach and default-workspace selection require an explicit project ID. Path selectors are converted to absolute server paths before the request. A shared path can be detached from one project without changing its binding in another project.
+
+Repeating detach with `--workspace <workspace-id>` succeeds without changes if that workspace has already been removed and the selected project exists.
 
 Use `--json` for automation. Successful detach returns `status: "ok"` with `project_id` and `workspace_id`; successful default selection returns the updated project at `result.project`. Operational failures return one `status: "error"` object with a stable error code. Detach blockers include bounded guidance; a default-workspace blocker directs you to choose another attached workspace with `kent project default`.
 

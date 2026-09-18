@@ -1,108 +1,25 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { useLayoutEffect, useState, type ReactNode } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import type {
-  ChatInputMutationResult,
-  ChatTranscriptHandler,
-  InitialChatSettings,
-  ChatSettingsTarget,
-} from "@/api";
-import { ChatRuntimeProvider, useAppServices, queryKeys } from "@/app-facade";
-import { createChatComposerViewModel } from "./ChatComposerViewModel";
+import type { ReactNode } from "react";
+import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
+import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
 import { parseCompactionRequestID, parsePendingWorkItemID } from "@/api";
 
-import {
-  createTestServices,
-  TestAppProviders as AppProviders,
-  type TestAppServices,
-} from "@/test-support/app-services";
+import { createTestServices } from "@/test-support/app-services";
 import { createWorktreeCommand } from "./worktreeCommand";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import { appI18n } from "@/i18n";
-import {
-  useChatComposer as useComposer,
-  type ChatComposerOptions,
-  type ComposerSubmission,
-} from "./useChatComposer";
+import { type ComposerSubmission } from "./useChatComposer";
+import { useChatComposer, target } from "./chatComposerTestFixture";
+import { TestAppProviders, composerWrapper } from "@/test-support/composer";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { createChatStorageFixture } from "./chatStorageFixture";
 import * as ui from "@/ui";
 
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
-
-function useChatComposer(
-  options: ChatSettingsTarget & Omit<ChatComposerOptions, "model"> & { submission?: ComposerSubmission },
-) {
-  const services = useAppServices();
-  const client = useQueryClient();
-  const { t } = useTranslation();
-  const [target] = useState(() =>
-    Atom.make<ChatSettingsTarget>(
-      options.kind === "session"
-        ? { kind: "session", projectID: options.projectID, sessionID: options.sessionID }
-        : { kind: "new_chat", projectID: options.projectID, workspace: options.workspace },
-    ),
-  );
-  const [submission] = useState(() =>
-    Atom.make<ComposerSubmission>(options.submission ?? { kind: "loading" }),
-  );
-  const setSubmission = useAtomSet(submission);
-  const state = options.submission?.kind ?? "loading";
-  const settings =
-    options.submission?.kind === "ready" && "initialSettings" in options.submission
-      ? options.submission.initialSettings
-      : null;
-  const error = options.submission?.kind === "failed" ? options.submission.error : null;
-  useLayoutEffect(() => {
-    setSubmission(
-      state === "ready"
-        ? settings === null
-          ? { kind: "ready" }
-          : { kind: "ready", initialSettings: settings }
-        : state === "failed"
-          ? { kind: "failed", error }
-          : { kind: "loading" },
-    );
-  }, [state, settings, error, setSubmission]);
-  const [model] = useState(() =>
-    createChatComposerViewModel({ services, client, t, target, submission, opening: options }),
-  );
-  return {
-    ...useComposer({ ...options, model }),
-    navigateDraft: useAtomSet(model.draft.navigate, { mode: "promise" }),
-    replaceHistory: useAtomSet(model.draft.reindexHistory),
-    draftPair: useAtomValue(model.draft.value),
-  };
-}
-
-function TestAppProviders({
-  children,
-  services,
-}: Readonly<{ children: ReactNode; services: TestAppServices }>) {
-  return (
-    <RegistryProvider>
-      <AppProviders services={services}>{children}</AppProviders>
-    </RegistryProvider>
-  );
-}
-
-function composerWrapper(services: TestAppServices) {
-  return function Wrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return <TestAppProviders services={services}>{children}</TestAppProviders>;
-  };
-}
-
-const target = {
-  kind: "session",
-  projectID: "project-1",
-  sessionID: "session-1",
-} as const;
 
 it.each([
   ["older", "prompt B"],
@@ -662,6 +579,80 @@ it.each([
   expect(editor).toHaveValue("");
 });
 
+it.each(["idle", "stopped", "failed"] as const)(
+  "resynchronizes activity only after a successful Stop: %s",
+  async (result) => {
+    const report = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+    const services = createTestServices([], undefined, { platform: "linux" });
+    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: () => undefined });
+    const idle = mainViewRead();
+    const read = vi.spyOn(services.api.chat, "getMainView").mockResolvedValue({
+      ...idle,
+      mainView: {
+        ...idle.mainView,
+        activity: {
+          ...idle.mainView.activity,
+          state: "running",
+          activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+        },
+      },
+    });
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
+    const stop = vi.spyOn(services.api.chat, "stop").mockImplementation(async () => {
+      if (result === "failed") throw new Error("Stop request failed");
+      read.mockResolvedValue(mainViewRead(2));
+      return result;
+    });
+    function Probe() {
+      const { composer, stoppable } = useComposerSurface();
+      return (
+        <button
+          disabled={!stoppable}
+          onClick={() => {
+            composer.pending.stop();
+          }}
+        >
+          Stop probe
+        </button>
+      );
+    }
+    function Composer() {
+      const composer = useChatComposer(target);
+      return (
+        <ChatComposerSurface composer={composer}>
+          <Probe />
+        </ChatComposerSurface>
+      );
+    }
+    render(
+      <TestAppProviders services={services}>
+        <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
+          <Composer />
+        </ChatRuntimeProvider>
+      </TestAppProviders>,
+    );
+    const button = screen.getByRole("button", { name: "Stop probe" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledOnce();
+    });
+    if (result === "failed") {
+      await waitFor(() => {
+        expect(report).toHaveBeenCalled();
+      });
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(button).not.toBeDisabled();
+      return;
+    }
+    await waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => expect(button).toBeDisabled());
+  },
+);
+
 it("clears an armed Stop on transcript loss while allowing a subsequent independent Stop", async () => {
   const services = createTestServices([], undefined, { platform: "linux" });
   const mainView = mainViewRead();
@@ -1024,62 +1015,6 @@ it.each([true, false])(
     expect(result.current.text).toBe("");
   },
 );
-
-it("places a late saved draft before typing without losing exact whitespace", async () => {
-  const services = createTestServices([]);
-  let deliver!: (text: string) => void;
-  vi.spyOn(services.api.chat, "getDraft").mockReturnValue(
-    new Promise<Awaited<ReturnType<typeof services.api.chat.getDraft>>>((resolve) => {
-      deliver = (input) => {
-        resolve({ input, protectedInput: null });
-      };
-    }),
-  );
-  const save = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  act(() => {
-    result.current.edit(" new\ntext ");
-  });
-  expect(result.current.draft.kind).toBe("loading");
-  expect(save).not.toHaveBeenCalled();
-  await act(async () => {
-    deliver(" saved\n ");
-  });
-  await waitFor(() => {
-    expect(result.current.text).toBe(" saved\n \n new\ntext ");
-  });
-  expect(result.current.draft.kind).toBe("ready");
-});
-
-it("restores exact text in either direction and does not add separators for empty input", async () => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
-  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
-  act(() => {
-    result.current.restore(" \nfirst ", "append");
-  });
-  expect(result.current.text).toBe(" \nfirst ");
-  act(() => {
-    result.current.restore("", "prepend");
-  });
-  expect(result.current.text).toBe(" \nfirst ");
-  act(() => {
-    result.current.restore("last\n ", "append");
-  });
-  expect(result.current.text).toBe(" \nfirst \nlast\n ");
-  act(() => {
-    result.current.restore("before", "prepend");
-  });
-  expect(result.current.text).toBe("before\n \nfirst \nlast\n ");
-});
 
 it("prepends live interrupted messages in event order and restores Discard only after success", async () => {
   const services = createTestServices([]);
