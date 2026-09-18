@@ -80,18 +80,6 @@ func SupportsVisionInputsModel(model string, provider ProviderCapabilities) bool
 	return provider.IsOpenAIFirstParty && strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
 }
 
-// SupportsVerbosityModel reports whether Responses API text verbosity should be
-// sent for the given model identifier. Unknown models default to false because
-// unsupported verbosity fields can hard-fail requests.
-func SupportsVerbosityModel(model string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(model))
-	if normalized == "" {
-		return false
-	}
-	contract, ok := LookupModelCapabilityContract(normalized)
-	return ok && contract.SupportsVerbosity
-}
-
 func VerbositySupportForModelAndProvider(model string, providerCaps ProviderCapabilities) ModelVerbositySupport {
 	contract, ok := LookupModelCapabilityContract(model)
 	if ok {

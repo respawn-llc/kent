@@ -412,7 +412,7 @@ func supportsNativeCompaction(settings config.Settings, model string) bool {
 func supportsVerbosity(settings config.Settings, model string) bool {
 	caps, err := llm.ResolveRuntimeProviderCapabilities(auth.EmptyState(), settings)
 	if err != nil {
-		return llm.SupportsVerbosityModel(model)
+		return llm.VerbositySupportForModelAndProvider(model, llm.ProviderCapabilities{}).Supported
 	}
 	return llm.VerbositySupportForModelAndProvider(model, caps).Supported
 }
