@@ -454,7 +454,7 @@ func createCoreSettingsSession(
 	return store
 }
 
-func TestSessionChatSettingsPreparationUsesAuthoritativePersistenceRoot(t *testing.T) {
+func TestChatSettingsReadUsesAuthoritativePersistenceRoot(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	t.Setenv(brand.PersistenceRootEnvName, t.TempDir())
@@ -478,17 +478,19 @@ func TestSessionChatSettingsPreparationUsesAuthoritativePersistenceRoot(t *testi
 	}
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
-
-	prepared, err := (sessionChatSettingsPreparationResolver{
-		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
-		persistenceRoot: persistenceRoot,
-	}).PrepareSessionChatSettings(t.Context(), store, "worker")
-	if err != nil {
-		t.Fatalf("PrepareSessionChatSettings: %v", err)
+	if err := store.SetContinuationContext(session.ContinuationContext{
+		AgentRole: textutil.Value("worker"),
+	}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
 	}
-	if prepared.Baseline.Thinking != "high" {
-		t.Fatalf("worker Thinking = %q, want custom-root value high", prepared.Baseline.Thinking)
+	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+	})
+	if err != nil {
+		t.Fatalf("ReadChatSettings: %v", err)
+	}
+	if response.GetSession().Settings.SelectedAgent.Thinking != "high" {
+		t.Fatalf("worker Thinking = %q, want custom-root value high", response.GetSession().Settings.SelectedAgent.Thinking)
 	}
 }
 
@@ -554,9 +556,14 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	}
 }
 
-func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *testing.T) {
+func TestChatSettingsUsesPersistedPromptFacingEndpoint(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(persistenceRoot, "config.toml"), []byte(
+		"model = \"gpt-5.6-sol\"\nopenai_base_url = \"https://api.openai.com/v1\"\npriority_request_mode = true\n[subagents.worker]\nthinking_level = \"high\"\n",
+	), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
 		WorkspaceRoot: workspace,
 		LoadOptions:   brand.LoadOptions{ConfigRoot: persistenceRoot},
@@ -564,9 +571,6 @@ func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *test
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	resolved.Config.Settings.Model = "gpt-5.6-sol"
-	resolved.Config.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
-	resolved.Config.Settings.PriorityRequestMode = true
 	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
@@ -579,20 +583,44 @@ func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *test
 		t.Fatalf("SetContinuationContext: %v", err)
 	}
 
-	prepared, err := (sessionChatSettingsPreparationResolver{
-		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
-		persistenceRoot: persistenceRoot,
-	}).PrepareSessionChatSettings(t.Context(), store, brand.DefaultSubagentRole)
+	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+	})
 	if err != nil {
-		t.Fatalf("PrepareSessionChatSettings: %v", err)
+		t.Fatalf("ReadChatSettings: %v", err)
 	}
-	if prepared.FastAvailable || prepared.Baseline.Fast {
-		t.Fatalf("prepared Fast = available:%t enabled:%t, want unavailable and disabled for compatible endpoint", prepared.FastAvailable, prepared.Baseline.Fast)
+	if response.GetSession().Settings.Fast != nil {
+		t.Fatalf("Fast = %+v, want unavailable for compatible endpoint", response.GetSession().Settings.Fast)
+	}
+	mutated, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Operation: &chatsettingspb.MutationOperation{
+			Operation: &chatsettingspb.MutationOperation_FastEnabled{FastEnabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("MutateChatSettings: %v", err)
+	}
+	if mutated.Result.GetRejected().GetReason() != chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE ||
+		mutated.Settings.Fast != nil {
+		t.Fatalf("Fast mutation = %+v, want unavailable rejection", mutated)
+	}
+	switched, err := appCore.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+		Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID},
+		Operation: &chatsettingspb.MutationOperation{
+			Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("switch Agent: %v", err)
+	}
+	if switched.Result.GetApplied() == nil || switched.Settings.SelectedAgent.Role != "worker" ||
+		switched.Settings.Fast == nil || !switched.Settings.Fast.Value {
+		t.Fatalf("Agent switch = %+v, want configured worker with Fast enabled", switched)
 	}
 }
 
-func TestSessionChatSettingsPreparationUsesLockedPromptFacingModelCapabilities(t *testing.T) {
+func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
@@ -609,20 +637,24 @@ func TestSessionChatSettingsPreparationUsesLockedPromptFacingModelCapabilities(t
 	}
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
-	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
+	if err := store.MarkModelDispatchLocked(session.LockedContract{
+		Model: "gpt-5",
+		ProviderContract: session.LockedProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+		},
+	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
 
-	prepared, err := (sessionChatSettingsPreparationResolver{
-		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
-		persistenceRoot: persistenceRoot,
-	}).PrepareSessionChatSettings(t.Context(), store, brand.DefaultSubagentRole)
+	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: store.Meta().SessionID}},
+	})
 	if err != nil {
-		t.Fatalf("PrepareSessionChatSettings: %v", err)
+		t.Fatalf("ReadChatSettings: %v", err)
 	}
-	if slices.Contains(prepared.SupportedThinkingValues, "ultra") {
-		t.Fatalf("locked gpt-5 Thinking values = %v, want no ultra", prepared.SupportedThinkingValues)
+	settings := response.GetSession().Settings
+	if settings.SelectedAgent.Model != "gpt-5" || settings.Thinking == nil || slices.Contains(settings.Thinking.Values, "ultra") {
+		t.Fatalf("locked gpt-5 settings = %+v, want locked model Thinking values without ultra", settings)
 	}
 }
 
