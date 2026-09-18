@@ -1,11 +1,10 @@
 import { DragDropSurface } from "@app/ui-kit";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { hasSelectedWorkflow, type BoardColumn, type SelectedWorkflowBoard } from "@/api";
 import { errorMessage } from "@/api";
-import { useAppNavigation } from "@/app-facade";
-import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
+import { SidebarRootOwner } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useNativeDialogFallback } from "@/app-facade";
 import { reportNonCancelledError, useStatusController } from "@/app-facade";
@@ -18,7 +17,8 @@ import {
   moveTaskInitiatingAction,
 } from "@/shared/execution-target";
 import { ProjectLabelsProvider, useProjectLabelFilter } from "@/shared/labels";
-import { TaskDeleteConfirmationDialog } from "@/shared/task-delete";
+import { BoardTaskDeleteDialog } from "./BoardTaskDeleteDialog";
+import { useBoardTaskDeletions } from "./BoardTaskDeletion";
 import { WorkflowValidationIssues } from "@/shared/workflow-validation";
 import { ErrorState, FloatingNoticeIsland, LoadingState } from "@/ui";
 import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
@@ -34,7 +34,7 @@ import { useBoardInitiatingActionController } from "./useBoardInitiatingActionCo
 import "./board.css";
 import { BoardFilterRow } from "./BoardFilterRow";
 import { BoardQueryProvider } from "./BoardQueryContext";
-import { completeBoardWorkflowLink } from "./boardWorkflowLinkCompletion";
+import { useBoardNavigation, useCloseBoardTask } from "./BoardNavigation";
 import { useBoard, useBoardTaskActions, useProjectBoardSubscription } from "./useBoardData";
 import { useBoardLoadErrorReporter } from "./useBoardLoadErrorReporter";
 
@@ -120,7 +120,6 @@ function BoardRouteData({
   }>) {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const navigation = useAppNavigation();
   const reportBoardNavigationError = useCallback(
     (error: unknown) => {
       push({
@@ -136,12 +135,11 @@ function BoardRouteData({
   const boardQuery = useBoard(projectId, workflowId);
   const board = boardQuery.data;
   const selectedWorkflowID = board?.selectedWorkflow?.id;
-  const handleSelectedTaskDeleted = useCallback(() => {
-    // The task detail sidebar is opened independently of the route, so closing
-    // the route task alone would leave it mounted and refetching the now-deleted
-    // task into an error state. Close it too when it targets the deleted task.
-    void navigation.closeProjectTask(projectId, workflowId).catch(reportBoardNavigationError);
-  }, [navigation, projectId, reportBoardNavigationError, workflowId]);
+  const { close: handleSelectedTaskDeleted } = useCloseBoardTask(
+    projectId,
+    workflowId,
+    reportBoardNavigationError,
+  );
   const observation = useProjectBoardSubscription(projectId, workflowId, {
     onBackgroundError: reportBoardLoadError,
     onSelectedTaskDeleted: handleSelectedTaskDeleted,
@@ -157,7 +155,7 @@ function BoardRouteData({
       <ErrorState
         body={errorMessage(boardQuery.error)}
         chromePadding
-        onRetry={() => void boardQuery.refetch().catch(reportBoardLoadError)}
+        onRetry={boardQuery.refetch}
         reveal={false}
         retryLabel={t("app.retry")}
         title={t("states.error")}
@@ -182,7 +180,7 @@ function BoardRouteData({
         boardQueryWorkflowID={workflowId}
         boardRefreshError={boardQuery.isError ? boardQuery.error : null}
         onBoardRefreshRetry={() => {
-          void boardQuery.refetch().catch(reportBoardLoadError);
+          boardQuery.refetch();
         }}
         selectedTaskId={selectedTaskId}
       />
@@ -212,10 +210,9 @@ function BoardContent({
   >(() => ({ ids: new Set(), scope: "" }));
   const { push } = useStatusController();
   const { api, nativeBridge, logger } = useAppServices();
-  const navigation = useAppNavigation();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
-  const { open } = useOwnedSidebarRoots();
   const actions = useBoardTaskActions(board.projectID);
+  const deletions = useBoardTaskDeletions();
   const reportActionError = useCallback(
     (id: string, title: string, error: unknown) => {
       reportNonCancelledError(error, (failure) => {
@@ -268,6 +265,12 @@ function BoardContent({
     pendingTaskIDs: initiatingAction.pendingStartMoveTaskIDs,
     confirmationTaskID: initiatingAction.confirmationTaskID,
   });
+  const reportNavigationError = useCallback(
+    (error: unknown) => {
+      reportActionError("board-navigation-error", t("board.navigationFailed"), error);
+    },
+    [reportActionError, t],
+  );
   const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
     errorNoticeID: "task-delete-window-error",
     errorTitle: t("board.deleteTaskWindowError"),
@@ -276,12 +279,16 @@ function BoardContent({
       await nativeBridge.dialogs.openWindow(taskDeleteWindowOptions(target, t("board.deleteTaskTitle")));
     },
     renderFallback: (target, close) => (
-      <TaskDeleteConfirmationDialog
-        disabled={actions.delete.isPending}
+      <BoardTaskDeleteDialog
+        key={target.taskID}
+        taskID={target.taskID}
+        deletions={deletions}
+        projectID={board.projectID}
+        workflowID={board.selectedWorkflow.id}
+        selectedTaskID={selectedTaskId}
         onClose={close}
-        onConfirm={() => {
-          void confirmDeleteTask(target, close);
-        }}
+        onError={reportDeleteError}
+        onNavigationError={reportNavigationError}
       />
     ),
   });
@@ -297,36 +304,18 @@ function BoardContent({
       ? expandedEmptyColumns.ids
       : emptyExpandedEmptyColumnIDs;
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
-  const reportNavigationError = useCallback(
-    (error: unknown) => {
-      reportActionError("board-navigation-error", t("board.navigationFailed"), error);
-    },
-    [reportActionError, t],
-  );
-
-  useEffect(() => {
-    if (selectedTaskId.length === 0) {
-      return;
-    }
-    let active = true;
-    const root = open({
-      kind: "taskDetail",
-      mode: "overlay",
-      onMutated: undefined,
-      taskID: selectedTaskId,
-    });
-    void root.lifecycle.then((outcome) => {
-      if (active && outcome === "closed") {
-        void navigation
-          .closeProjectTask(board.projectID, board.selectedWorkflow.id)
-          .catch(reportNavigationError);
-      }
-    });
-    return () => {
-      active = false;
-      root.release();
-    };
-  }, [board.projectID, board.selectedWorkflow.id, navigation, open, reportNavigationError, selectedTaskId]);
+  const {
+    openTask,
+    openDependencies: openTaskDependencies,
+    selectWorkflow,
+    openTasks: openProjectTasks,
+    openNewTask,
+    openLinkWorkflow,
+  } = useBoardNavigation(board.projectID, board.selectedWorkflow.id, {
+    selectedTaskID: selectedTaskId,
+    boardQueryWorkflowID,
+    report: reportNavigationError,
+  });
 
   function dropTask(targetID: string | number | null, rect: DOMRectReadOnly): void {
     const column = board.columns.find((item) => item.id === targetID);
@@ -366,25 +355,11 @@ function BoardContent({
   }
 
   function resumeTask(taskID: string): void {
-    initiatingAction.run(resumeTaskInitiatingAction(taskID));
+    runCardAction(resumeTaskInitiatingAction(taskID));
   }
 
   function deleteTask(taskID: string): void {
     void taskDeleteDialog.open({ taskID });
-  }
-
-  async function confirmDeleteTask(target: TaskDeleteTarget, close: () => void): Promise<void> {
-    try {
-      await actions.delete.mutateAsync(target.taskID);
-      if (target.taskID === selectedTaskId) {
-        await navigation
-          .closeProjectTask(board.projectID, board.selectedWorkflow.id)
-          .catch(reportNavigationError);
-      }
-      close();
-    } catch (error) {
-      reportDeleteError(error);
-    }
   }
 
   function reportInterruptError(error: unknown): void {
@@ -436,52 +411,6 @@ function BoardContent({
       return;
     }
     runCardAction(result.action, result.selection);
-  }
-
-  function openTask(taskID: string): void {
-    void navigation
-      .openProjectTask(board.projectID, board.selectedWorkflow.id, taskID)
-      .catch(reportNavigationError);
-  }
-
-  function openTaskDependencies(taskID: string): void {
-    const destination = {
-      kind: "taskDetail" as const,
-      initialFocus: { kind: "dependencies" as const },
-      mode: "overlay" as const,
-      taskID,
-    };
-    open(destination);
-  }
-
-  function selectWorkflow(workflowID: string): void {
-    void navigation.openProject(board.projectID, workflowID).catch(reportNavigationError);
-  }
-
-  function openProjectTasks(): void {
-    void navigation.openProjectTasks(board.projectID).catch(reportNavigationError);
-  }
-
-  function openNewTask(): void {
-    open({
-      boardQueryWorkflowID,
-      kind: "newTask",
-      mode: "overlay",
-      projectID: board.projectID,
-      workflowID: board.selectedWorkflow.id,
-    });
-  }
-
-  function openLinkWorkflow(): void {
-    open({
-      kind: "linkWorkflow",
-      mode: "overlay",
-      onCompleted: async (completion) => {
-        await completeBoardWorkflowLink(navigation, board.projectID, completion);
-      },
-      projectID: board.projectID,
-      selectedWorkflowID: board.selectedWorkflow.id,
-    });
   }
 
   return (
