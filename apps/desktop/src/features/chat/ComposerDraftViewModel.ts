@@ -166,13 +166,15 @@ export function createComposerDraftViewModel({
     }),
   );
   const reindexHistory = Atom.fn<
-    Readonly<{ kind: "replace"; entries: readonly string[] }> | Readonly<{ kind: "trim"; removed: number }>
+    | Readonly<{ kind: "replace"; entries: readonly string[]; previous: readonly string[] }>
+    | Readonly<{ kind: "trim"; removed: number }>
   >()(
     (change, get) =>
       Effect.sync(() => {
         const selected = get(selection);
         if (change.kind === "replace") {
-          if (selected !== null && change.entries[selected] !== get(text)) get.set(selection, null);
+          if (selected !== null)
+            get.set(selection, replacementHistoryIndex(change.previous, change.entries, selected, get(text)));
           return;
         }
         get.set(selection, selected === null || selected < change.removed ? null : selected - change.removed);
@@ -295,6 +297,23 @@ function nextHistoryEntry(entries: readonly string[], selected: number | null, d
   const index = selected === null ? entries.length - 1 : selected + direction;
   const text = entries[index];
   return text === undefined ? null : { index, text };
+}
+
+function replacementHistoryIndex(
+  previous: readonly string[],
+  entries: readonly string[],
+  selected: number,
+  text: string,
+): number | null {
+  // Count equal prompts from the newest end so an older prefix does not
+  // move browsing to an older duplicate of the locally recalled prompt.
+  let occurrence = previous.slice(selected).filter((entry) => entry === text).length;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    if (entries[index] !== text) continue;
+    occurrence--;
+    if (occurrence === 0) return index;
+  }
+  return null;
 }
 
 export function useComposerDraftActions(model: ComposerDraftViewModel) {

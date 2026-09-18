@@ -44,7 +44,12 @@ export function createComposerHistoryViewModel({
           ? async () => {
               try {
                 const entries = await services.api.chat.getPromptHistory(selected);
-                if (observer.hasListeners()) get.set(draft.reindexHistory, { kind: "replace", entries });
+                if (observer.hasListeners())
+                  get.set(draft.reindexHistory, {
+                    kind: "replace",
+                    entries,
+                    previous: observer.getCurrentResult().data ?? [],
+                  });
                 return entries;
               } catch (error) {
                 if (observer.hasListeners())
