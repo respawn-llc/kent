@@ -49,7 +49,10 @@ type Translate = ReturnType<typeof useTranslation>["t"];
 function noticeProse(notice: TranscriptNotice, t: Translate): TranscriptNoticeProse {
   return {
     expanded: structuredNoticeText(notice, t, true),
-    compact: structuredNoticeText(notice, t, false),
+    compact:
+      notice.MessageType === "agent_steer"
+        ? t("chatTranscript.notice.agentSteer")
+        : structuredNoticeText(notice, t, false),
   };
 }
 

@@ -103,6 +103,7 @@ export const englishResources = {
         worktreeExitCwd: "Switched worktree to main workspace: {{cwd}}",
         worktree: "worktree",
         sessionRebind: "Session rebound",
+        agentSteer: "Message from another agent",
       },
     },
     labels: {

@@ -5,6 +5,23 @@ import type { ChatTranscriptCommittedRow } from "@/api";
 import { projectNotice } from "./transcriptNoticePolicy";
 
 describe("Chat notice policy", () => {
+  it("uses client prose for agent steer summaries and preserves the message body", () => {
+    const detail = "message from the sending Session";
+    const policy = projectNotice(
+      noticeRow({
+        MessageType: "agent_steer",
+        CompactLabel: "server label",
+        Diagnostic: { Code: "agent_steer", Detail: detail },
+      }),
+      prose,
+    );
+    expect(policy?.kind).toBe("disclosure");
+    if (policy?.kind !== "disclosure") throw new Error("Expected agent steer disclosure.");
+    expect(policy.summary).toBe(prose.compact);
+    expect(policy.body).toEqual({ kind: "markdown", text: detail });
+    expect(policy.copyText).toBe(detail);
+  });
+
   it("keeps notice inclusion, source, and expansion decisions typed", () => {
     const cases: readonly {
       name: string;
