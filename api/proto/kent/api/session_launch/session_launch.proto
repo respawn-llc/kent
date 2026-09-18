@@ -154,10 +154,12 @@ message ModelCapabilitiesOverride {
 }
 
 message ProviderCapabilitiesOverride {
+  reserved 4;
+  reserved "supports_request_input_token_count";
+
   string provider_id = 1;
   bool supports_responses_api = 2;
   bool supports_responses_compact = 3;
-  bool supports_request_input_token_count = 4;
   bool supports_prompt_cache_key = 5;
   bool supports_native_web_search = 6;
   bool supports_reasoning_encrypted = 7;

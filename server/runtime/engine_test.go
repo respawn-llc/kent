@@ -70,15 +70,14 @@ func (f *fakeClient) ProviderCapabilities(context.Context) (llm.ProviderCapabili
 		return f.caps, nil
 	}
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}, nil
 }
 
@@ -111,15 +110,14 @@ func (c *hookClient) ProviderCapabilities(context.Context) (llm.ProviderCapabili
 		return c.caps, nil
 	}
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}, nil
 }
 
@@ -129,10 +127,6 @@ type fakeCompactionClient struct {
 	responses []llm.Response
 	errors    []error
 	calls     []llm.Request
-
-	inputTokenCount      int
-	inputTokenCountFn    func(req llm.Request) int
-	countInputTokenCalls int
 
 	compactionResponses []llm.CompactionResponse
 	compactionErr       error
@@ -173,68 +167,6 @@ func (c *contextWindowClient) ProviderCapabilities(context.Context) (llm.Provide
 	}, nil
 }
 
-type preciseCompactionClient struct {
-	inputTokenCount int
-	contextWindow   int
-	countErr        error
-	countSupported  *bool
-	supportErr      error
-
-	countCalls   int
-	resolveCalls int
-}
-
-func (c *preciseCompactionClient) Generate(_ context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
-	return llm.Response{}, nil
-}
-
-func (c *preciseCompactionClient) CountRequestInputTokens(_ context.Context, _ llm.Request) (int, error) {
-	c.countCalls++
-	if c.countErr != nil {
-		return 0, c.countErr
-	}
-	if c.inputTokenCount < 0 {
-		return 0, nil
-	}
-	return c.inputTokenCount, nil
-}
-
-func (c *preciseCompactionClient) SupportsRequestInputTokenCount(_ context.Context) (bool, error) {
-	if c.supportErr != nil {
-		return false, c.supportErr
-	}
-	if c.countSupported != nil {
-		return *c.countSupported, nil
-	}
-	return true, nil
-}
-
-func (c *preciseCompactionClient) ResolveModelContextWindow(_ context.Context, _ string) (int, error) {
-	c.resolveCalls++
-	if c.contextWindow <= 0 {
-		return 0, nil
-	}
-	return c.contextWindow, nil
-}
-
-func (c *preciseCompactionClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	supportsExactCount := true
-	if c.countSupported != nil {
-		supportsExactCount = *c.countSupported
-	}
-	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: supportsExactCount,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
-	}, nil
-}
-
 func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -252,23 +184,6 @@ func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ ll
 	resp := f.responses[0]
 	f.responses = f.responses[1:]
 	return resp, nil
-}
-
-func (f *fakeCompactionClient) CountRequestInputTokens(_ context.Context, req llm.Request) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.countInputTokenCalls++
-	if f.inputTokenCountFn != nil {
-		count := f.inputTokenCountFn(req)
-		if count < 0 {
-			return 0, nil
-		}
-		return count, nil
-	}
-	if f.inputTokenCount < 0 {
-		return 0, nil
-	}
-	return f.inputTokenCount, nil
 }
 
 func (f *fakeCompactionClient) Compact(_ context.Context, req llm.CompactionRequest) (llm.CompactionResponse, error) {
@@ -296,15 +211,14 @@ func (f *fakeCompactionClient) Compact(_ context.Context, req llm.CompactionRequ
 func (f *fakeCompactionClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	if strings.TrimSpace(f.caps.ProviderID) == "" {
 		return llm.ProviderCapabilities{
-			ProviderID:                     "openai",
-			SupportsResponsesAPI:           true,
-			SupportsResponsesCompact:       true,
-			SupportsRequestInputTokenCount: true,
-			SupportsPromptCacheKey:         true,
-			SupportsNativeWebSearch:        true,
-			SupportsReasoningEncrypted:     true,
-			SupportsServerSideContextEdit:  true,
-			IsOpenAIFirstParty:             true,
+			ProviderID:                    "openai",
+			SupportsResponsesAPI:          true,
+			SupportsResponsesCompact:      true,
+			SupportsPromptCacheKey:        true,
+			SupportsNativeWebSearch:       true,
+			SupportsReasoningEncrypted:    true,
+			SupportsServerSideContextEdit: true,
+			IsOpenAIFirstParty:            true,
 		}, nil
 	}
 	return f.caps, nil
@@ -385,15 +299,14 @@ type fakeReasoningStreamClient struct{}
 
 func defaultTestProviderCapabilities() llm.ProviderCapabilities {
 	return llm.ProviderCapabilities{
-		ProviderID:                     "openai",
-		SupportsResponsesAPI:           true,
-		SupportsResponsesCompact:       true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-		SupportsNativeWebSearch:        true,
-		SupportsReasoningEncrypted:     true,
-		SupportsServerSideContextEdit:  true,
-		IsOpenAIFirstParty:             true,
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsPromptCacheKey:        true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
 	}
 }
 
