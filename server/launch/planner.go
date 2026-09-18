@@ -648,7 +648,7 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	if err != nil {
 		return SessionPlan{}, nil, err
 	}
-	capabilities, err := llm.ProviderCapabilitiesForSettings(authState, next.ActiveSettings)
+	capabilities, err := llm.ResolveRuntimeProviderCapabilities(authState, next.ActiveSettings)
 	if err != nil {
 		return SessionPlan{}, nil, err
 	}
@@ -821,7 +821,7 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 			prepared.BaseTarget = &target
 		}
 		if !preparation.SkipProviderReadinessValidation && prepared.BaseTarget != nil {
-			capabilities, capabilityErr := llm.ProviderCapabilitiesForSettings(authState, prepared.BaseTarget.Settings)
+			capabilities, capabilityErr := llm.ResolveRuntimeProviderCapabilities(authState, prepared.BaseTarget.Settings)
 			if capabilityErr != nil {
 				return PreparedRunPromptOverrides{}, capabilityErr
 			}
@@ -844,7 +844,7 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 	providerID := persistedRoleProviderID(providerSettings)
 	var providerCapabilities *llm.ProviderCapabilities
 	if !preparation.SkipProviderReadinessValidation {
-		providerCaps, err := llm.ProviderCapabilitiesForSettings(authState, providerSettings)
+		providerCaps, err := llm.ResolveRuntimeProviderCapabilities(authState, providerSettings)
 		if err != nil {
 			return PreparedRunPromptOverrides{}, err
 		}

@@ -38,8 +38,7 @@ func TestResolveEffectiveProviderCapabilitiesOwnsPrecedenceAndAuthLoading(t *tes
 		if err != nil {
 			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
 		}
-		if reader.calls != 1 || got.AuthState.Method.Type != auth.MethodOAuth ||
-			got.Capabilities.ProviderID != "chatgpt-codex" {
+		if reader.calls != 1 || got.ProviderID != "chatgpt-codex" {
 			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
 		}
 	})
@@ -57,8 +56,7 @@ func TestResolveEffectiveProviderCapabilitiesOwnsPrecedenceAndAuthLoading(t *tes
 		if err != nil {
 			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
 		}
-		if reader.calls != 0 || got.AuthState.Method.Type != auth.MethodNone ||
-			got.Capabilities.ProviderID != "custom" {
+		if reader.calls != 0 || got.ProviderID != "custom" {
 			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
 		}
 	})
@@ -78,7 +76,7 @@ func TestResolveEffectiveProviderCapabilitiesOwnsPrecedenceAndAuthLoading(t *tes
 		if err != nil {
 			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
 		}
-		if reader.calls != 0 || got.Capabilities.ProviderID != "locked" {
+		if reader.calls != 0 || got.ProviderID != "locked" {
 			t.Fatalf("resolution = %+v, auth calls = %d", got, reader.calls)
 		}
 	})
@@ -93,7 +91,7 @@ func TestResolveEffectiveProviderCapabilitiesOwnsPrecedenceAndAuthLoading(t *tes
 		if err != nil {
 			t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
 		}
-		if got.AuthState.Method.Type != auth.MethodNone || got.Capabilities.ProviderID != "openai" {
+		if got.ProviderID != "openai" {
 			t.Fatalf("resolution = %+v, want no-auth OpenAI", got)
 		}
 	})
@@ -286,8 +284,8 @@ func TestResolveRuntimeProviderCapabilities(t *testing.T) {
 	}
 }
 
-func TestProviderCapabilitiesForSettingsRejectsUnsupportedProviderOverride(t *testing.T) {
-	_, err := ProviderCapabilitiesForSettings(auth.EmptyState(), config.Settings{ProviderOverride: "custom-provider"})
+func TestResolveRuntimeProviderCapabilitiesRejectsUnsupportedProviderOverride(t *testing.T) {
+	_, err := ResolveRuntimeProviderCapabilities(auth.EmptyState(), config.Settings{ProviderOverride: "custom-provider"})
 	if !errors.Is(err, ErrUnsupportedProvider) {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}

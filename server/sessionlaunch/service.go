@@ -557,7 +557,7 @@ func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPla
 	if err != nil {
 		return PlanResult{}, err
 	}
-	provider, err := llm.ResolveEffectiveProviderCapabilities(
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(
 		ctx,
 		plan.Locked,
 		plan.ActiveSettings,
@@ -566,7 +566,7 @@ func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPla
 	if err != nil {
 		return PlanResult{}, err
 	}
-	plan = launch.ApplyContextPolicy(plan, provider.Capabilities)
+	plan = launch.ApplyContextPolicy(plan, capabilities)
 	if s.promptHistory != nil {
 		history, err := s.promptHistory.ReadPromptHistory(ctx, plan.Descriptor.SessionID().String())
 		if err != nil {

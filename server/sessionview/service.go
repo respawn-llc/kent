@@ -161,7 +161,7 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 	if err != nil {
 		return dormantChatProjection{}, err
 	}
-	provider, err := llm.ResolveEffectiveProviderCapabilities(
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(
 		ctx,
 		snapshot.Meta.Locked,
 		current.Settings,
@@ -170,7 +170,7 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 	if err != nil {
 		return dormantChatProjection{}, err
 	}
-	policy := chatcontext.ResolvePolicy(current.Settings, provider.Capabilities, snapshot.Meta.Locked)
+	policy := chatcontext.ResolvePolicy(current.Settings, capabilities, snapshot.Meta.Locked)
 	usedTokens := int64(0)
 	if snapshot.Meta.UsageState != nil {
 		usedTokens = int64(snapshot.Meta.UsageState.InputTokens)
@@ -199,7 +199,7 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 		settings:              chatcontext.ApplyPolicy(current.Settings, policy),
 		autoCompactionEnabled: current.AutoCompactionEnabled,
 		questionsEnabled:      current.QuestionsEnabled,
-		fastModeAvailable:     llm.SupportsFastModeProvider(provider.Capabilities),
+		fastModeAvailable:     llm.SupportsFastModeProvider(capabilities),
 		context:               contextView,
 		workflow:              workflowSession,
 	}, nil

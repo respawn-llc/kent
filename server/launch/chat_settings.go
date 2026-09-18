@@ -247,7 +247,7 @@ func prepareChatSettingsTargetForAgent(
 }
 
 func PrepareChatSettingsForTarget(authState auth.State, target PreparedBaseTarget) (PreparedChatSettings, error) {
-	capabilities, err := llm.ProviderCapabilitiesForSettings(authState, target.Settings)
+	capabilities, err := llm.ResolveRuntimeProviderCapabilities(authState, target.Settings)
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
