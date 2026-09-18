@@ -57,6 +57,7 @@ describe("New Chat Goal binding", () => {
     };
     expect(delivery).toHaveBeenCalledExactlyOnceWith({
       target: expectedTarget,
+      origin: target,
       goal: committedResult.outcome.kind === "mutation" ? committedResult.outcome.mutation.fact.goal : null,
     });
     expect(result.current.state).toEqual({
@@ -90,6 +91,7 @@ describe("New Chat Goal binding", () => {
         sessionID,
       },
       goal: null,
+      origin: target,
     });
     expect(result.current.state.kind).toBe("resolved_session");
   });

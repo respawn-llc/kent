@@ -12,6 +12,7 @@ import (
 
 	"core/server/llm"
 	"core/server/metadata"
+	"core/server/promptcommands"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -126,7 +127,7 @@ type runtimeControlPromptCommandResolver struct {
 	resolved chan struct{}
 }
 
-func (r *runtimeControlPromptCommandResolver) ResolvePromptCommand(context.Context, string, string, string) (string, error) {
+func (r *runtimeControlPromptCommandResolver) ResolvePromptCommand(context.Context, string, string, string) (promptcommands.ResolvedCommand, error) {
 	r.calls.Add(1)
 	if r.resolved != nil {
 		select {
@@ -135,9 +136,9 @@ func (r *runtimeControlPromptCommandResolver) ResolvePromptCommand(context.Conte
 		}
 	}
 	if r.err != nil {
-		return "", r.err
+		return promptcommands.ResolvedCommand{}, r.err
 	}
-	return r.content, nil
+	return promptcommands.ResolvedCommand{Text: r.content, Placement: promptcommands.PlacementCurrent}, nil
 }
 
 func (missingMetadataPersistedSessionResolver) ResolvePersistedSession(context.Context, string) (session.PersistedSessionRecord, error) {
@@ -2785,7 +2786,15 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 	request := runtimeControlUserTurnRequest(store, "chat-queue-command", "unused")
 	request.Input = &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src"}}}
 
-	result, err := service.AdmitChatQueuedUserInput(t.Context(), request)
+	input, err := protoapi.UserTurnInputFromProto(request.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.PrepareUserTurn(t.Context(), request.SessionId, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.AdmitChatQueuedUserInput(t.Context(), request.SessionId, prepared)
 	if err != nil {
 		t.Fatalf("AdmitChatQueuedUserInput: %v", err)
 	}
@@ -2823,7 +2832,7 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 func TestServiceChatAdmissionsPreservePromptHistoryFailureAfterAcceptance(t *testing.T) {
 	tests := []struct {
 		name string
-		run  func(*Service, context.Context, *runtimepb.SubmitUserTurnRequest) (serverapi.ChatInputAdmissionResult, error)
+		run  func(*Service, context.Context, string, PreparedUserTurn) (serverapi.ChatInputAdmissionResult, error)
 	}{
 		{name: "Steer", run: (*Service).AdmitChatUserTurn},
 		{name: "Queue", run: (*Service).AdmitChatQueuedUserInput},
@@ -2834,10 +2843,15 @@ func TestServiceChatAdmissionsPreservePromptHistoryFailureAfterAcceptance(t *tes
 			historyErr := errors.New("prompt history unavailable")
 			runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID).SetRecordError(historyErr)
 
+			prepared, err := service.PrepareUserTurn(t.Context(), store.Meta().SessionID, runtimeinput.Text("accepted despite history failure"))
+			if err != nil {
+				t.Fatal(err)
+			}
 			result, err := test.run(
 				service,
 				t.Context(),
-				runtimeControlUserTurnRequest(store, "chat-history-failure", "accepted despite history failure"),
+				store.Meta().SessionID,
+				prepared,
 			)
 			if err != nil {
 				t.Fatalf("%s admission: %v", test.name, err)

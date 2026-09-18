@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"core/server/metadata"
+	"core/server/promptcommands"
 	"core/server/promptcontrol"
 	"core/server/runtime"
 	"core/server/runtimeactivity"
@@ -38,7 +39,7 @@ type PromptHistoryStore interface {
 }
 
 type PromptCommandResolver interface {
-	ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (string, error)
+	ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (promptcommands.ResolvedCommand, error)
 }
 
 type WorkflowTaskSessionResolver interface {

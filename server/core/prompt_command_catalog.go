@@ -63,18 +63,18 @@ type promptCommandEffectiveWorkspaceResolver struct {
 	persistenceRoot string
 }
 
-func (r promptCommandEffectiveWorkspaceResolver) ResolvePromptCommandForWorkspace(ctx context.Context, workspaceRoot, name, arguments string) (string, error) {
+func (r promptCommandEffectiveWorkspaceResolver) ResolvePromptCommandForWorkspace(ctx context.Context, workspaceRoot, name, arguments string) (promptcommands.ResolvedCommand, error) {
 	content, err := promptcommands.New(r.persistenceRoot, workspaceRoot).Resolve(name, arguments)
 	if err != nil {
-		return "", publicPromptCommandError(err)
+		return promptcommands.ResolvedCommand{}, publicPromptCommandError(err)
 	}
 	return content, nil
 }
 
-func (r promptCommandRuntimeResolver) ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (string, error) {
+func (r promptCommandRuntimeResolver) ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (promptcommands.ResolvedCommand, error) {
 	_, workspaceRoot, err := resolvePromptCommandSessionWorkspace(ctx, r.metadataStore, sessionID)
 	if err != nil {
-		return "", err
+		return promptcommands.ResolvedCommand{}, err
 	}
 	return r.effectiveWorkspace.ResolvePromptCommandForWorkspace(ctx, workspaceRoot, name, arguments)
 }

@@ -94,10 +94,28 @@ const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
 const navigation = { openTask: vi.fn(), openParentSession: vi.fn() };
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
-function setup(commands: readonly ComposerCommand[] = []) {
+function setup(commands: readonly ComposerCommand[] = [], selected: ChatDestinationOpening = opening) {
   writeBrowserStorage("local", "desktop.newChatDraft", "");
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalog);
+  const commandsRead = vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
+  const settingsRead = vi.spyOn(services.api.chat, "getSettings").mockImplementation(async (target) => {
+    if (target.kind === "new_chat") return catalog;
+    const choice = catalog.catalog.choices[0];
+    if (choice === undefined) throw new Error("Missing default Agent");
+    return {
+      kind: "session",
+      settings: {
+        ...choice,
+        selectedAgent: choice.agent,
+        agentChoices: [choice.agent],
+        agentEditability: { kind: "editable" },
+        agentLocked: false,
+        workflowLocked: false,
+        cachingLocked: false,
+      },
+      session: { sessionID: target.sessionID, previousSessionID: null, task: null },
+    };
+  });
   const draft = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const read = vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   const observe = vi.spyOn(services.api.chat, "getMainView");
@@ -106,7 +124,7 @@ function setup(commands: readonly ComposerCommand[] = []) {
   const goal = vi.spyOn(services.api.chat, "setGoal");
   const compact = vi.spyOn(services.api.chat, "compact");
   vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items: [] });
-  const view = renderHook(() => useChatDestination({ opening, navigation, commands }), {
+  const view = renderHook(() => useChatDestination({ opening: selected, navigation, commands }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <RegistryProvider>
         <TestAppProviders services={services}>
@@ -117,8 +135,330 @@ function setup(commands: readonly ComposerCommand[] = []) {
       </RegistryProvider>
     ),
   });
-  return { ...view, services, draft, read, observe, steer, queue, goal, compact };
+  return { ...view, services, draft, read, observe, steer, queue, goal, compact, commandsRead, settingsRead };
 }
+
+it("loads the selected command snapshot without blocking built-ins or ordinary editing", async () => {
+  const view = setup();
+  const loading = deferred<readonly { name: string; preview: string }[]>();
+  view.commandsRead.mockReturnValue(loading.promise);
+  act(() => {
+    view.result.current.selectWorkspace({ ...opening.workspace, id: "workspace-2" });
+  });
+  await waitFor(() => {
+    expect(view.commandsRead).toHaveBeenLastCalledWith({
+      ...newChatTarget,
+      workspace: { workspaceID: "workspace-2" },
+    });
+  });
+  act(() => {
+    view.result.current.composer.edit("/");
+  });
+  expect(view.result.current.composer.suggestions.map((command) => command.token)).toContain(
+    "/prompt:review",
+  );
+  expect(view.result.current.composer.catalog?.isFetching).toBe(true);
+  await act(async () => {
+    loading.resolve([{ name: "prompt:workspace2", preview: "workspace two" }]);
+  });
+  await waitFor(() => {
+    expect(view.result.current.composer.suggestions.map((command) => command.token)).toContain(
+      "/prompt:workspace2",
+    );
+  });
+});
+
+it("keeps scope replacement isolated and retries a failed catalog without replaying input", async () => {
+  const view = setup();
+  const oldRead = deferred<readonly { name: string; preview: string }[]>();
+  view.commandsRead
+    .mockReturnValueOnce(oldRead.promise)
+    .mockRejectedValueOnce(new Error("catalog unavailable"));
+  act(() => {
+    view.result.current.selectWorkspace({ ...opening.workspace, id: "workspace-old" });
+  });
+  await waitFor(() => {
+    expect(view.commandsRead).toHaveBeenCalledTimes(2);
+  });
+  act(() => {
+    view.result.current.selectWorkspace({ ...opening.workspace, id: "workspace-current" });
+  });
+  await waitFor(() => {
+    expect(view.result.current.composer.catalog?.isError).toBe(true);
+  });
+  await act(async () => {
+    oldRead.resolve([{ name: "prompt:obsolete", preview: "old scope" }]);
+  });
+  act(() => {
+    view.result.current.composer.edit("/");
+  });
+  expect(view.result.current.composer.suggestions.map((command) => command.token)).not.toContain(
+    "/prompt:obsolete",
+  );
+  expect(view.result.current.composer.suggestions.map((command) => command.token)).toContain("/prompt:init");
+  view.commandsRead.mockResolvedValue([{ name: "prompt:current", preview: "current scope" }]);
+  await act(async () => view.result.current.composer.retryCatalog?.());
+  await waitFor(() => {
+    expect(view.result.current.composer.suggestions.map((command) => command.token)).toContain(
+      "/prompt:current",
+    );
+  });
+  expect(view.commandsRead).toHaveBeenCalledTimes(4);
+  expect(view.steer).not.toHaveBeenCalled();
+  expect(view.queue).not.toHaveBeenCalled();
+});
+
+it("refreshes a missing command once, retains its snapshot on failed refresh and preserves ready settings", async () => {
+  const selected = { kind: "session", projectID: "project-1", sessionID: "source-session" } as const;
+  const view = setup([], selected);
+  const commands = [{ name: "prompt:file", preview: "file command" }];
+  await waitFor(() => {
+    expect(view.result.current.composer.catalog?.isSuccess).toBe(true);
+  });
+  view.commandsRead.mockResolvedValue(commands);
+  await act(async () => view.result.current.composer.retryCatalog?.());
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-session");
+  });
+  const beforeRead = view.commandsRead.mock.calls.length;
+  const beforeSettings = view.settingsRead.mock.calls.length;
+  view.steer.mockResolvedValue({
+    sessionID: selected.sessionID,
+    outcome: { kind: "not_accepted", reason: { kind: "prompt_command_not_found", command: "prompt:file" } },
+  });
+  view.commandsRead.mockRejectedValue(new Error("refresh failed"));
+  act(() => {
+    view.result.current.composer.edit("/prompt:file args");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  await waitFor(() => {
+    expect(view.commandsRead).toHaveBeenCalledTimes(beforeRead + 1);
+  });
+  expect(view.result.current.composer.catalog?.isError).toBe(true);
+  expect(view.result.current.composer.catalog?.data).toEqual(commands);
+  expect(view.result.current.composer.text).toBe("/prompt:file args");
+  expect(view.result.current.settings.kind).toBe("ready-session");
+  expect(view.settingsRead).toHaveBeenCalledTimes(beforeSettings);
+  expect(view.steer).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the current catalog and ready settings on same-Session prompt success", async () => {
+  const selected = { kind: "session", projectID: "project-1", sessionID: "same-session" } as const;
+  const view = setup([], selected);
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-session");
+  });
+  const reads = view.commandsRead.mock.calls.length;
+  const settingsReads = view.settingsRead.mock.calls.length;
+  view.steer.mockResolvedValue({
+    sessionID: selected.sessionID,
+    outcome: {
+      kind: "accepted",
+      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      diagnostic: null,
+    },
+  });
+  act(() => {
+    view.result.current.composer.edit("/review args");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  await waitFor(() => {
+    expect(view.steer).toHaveBeenCalledTimes(1);
+  });
+  expect(view.result.current.settings.kind).toBe("ready-session");
+  expect(view.commandsRead).toHaveBeenCalledTimes(reads);
+  expect(view.settingsRead).toHaveBeenCalledTimes(settingsReads);
+});
+
+it("uses only the opening catalog read when missing-command delivery materializes New Chat", async () => {
+  const view = setup();
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-new-chat");
+  });
+  view.steer.mockResolvedValue({
+    sessionID: "created-session",
+    outcome: { kind: "not_accepted", reason: { kind: "prompt_command_not_found", command: "prompt:review" } },
+  });
+  act(() => {
+    view.result.current.composer.edit("/review args");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  await waitFor(() => {
+    expect(view.commandsRead).toHaveBeenCalledTimes(2);
+  });
+  expect(view.commandsRead).toHaveBeenLastCalledWith({
+    kind: "session",
+    projectID: "project-1",
+    sessionID: "created-session",
+  });
+  expect(view.steer).toHaveBeenCalledTimes(1);
+});
+
+it("opens an accepted child with new typing and preserves an independently saved New Chat draft", async () => {
+  const selected = { kind: "session", projectID: "project-1", sessionID: "parent-session" } as const;
+  const view = setup([], selected);
+  writeBrowserStorage("local", "desktop.newChatDraft", "independent New Chat");
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-session");
+  });
+  const request = deferred<ChatInputMutationResult>();
+  view.steer.mockReturnValue(request.promise);
+  act(() => {
+    view.result.current.composer.edit("/review args");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  act(() => {
+    view.result.current.composer.edit("new typing");
+  });
+  await act(async () => {
+    request.resolve({
+      sessionID: "child-session",
+      outcome: {
+        kind: "accepted",
+        queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+        diagnostic: null,
+      },
+    });
+  });
+  await waitFor(() => {
+    expect(view.result.current.target).toMatchObject({ kind: "session", sessionID: "child-session" });
+  });
+  expect(view.result.current.composer.text).toBe("new typing");
+  expect(view.draft).toHaveBeenCalledWith(
+    expect.objectContaining({ sessionID: "child-session" }),
+    "new typing",
+    null,
+  );
+  expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({
+    ok: true,
+    value: "independent New Chat",
+  });
+});
+
+it("opens a rejected child after restoring exact command text and preserves the independent New Chat draft", async () => {
+  const selected = { kind: "session", projectID: "project-1", sessionID: "parent-session" } as const;
+  const view = setup([], selected);
+  writeBrowserStorage("local", "desktop.newChatDraft", "independent New Chat");
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-session");
+  });
+  const request = deferred<ChatInputMutationResult>();
+  view.queue.mockReturnValue(request.promise);
+  const command = "/init\t  exact args ";
+  act(() => {
+    view.result.current.composer.edit(command);
+  });
+  await act(async () => {
+    view.result.current.composer.submit("queue");
+  });
+  act(() => {
+    view.result.current.composer.edit("new typing");
+  });
+  await act(async () => {
+    request.resolve({
+      sessionID: "rejected-child",
+      outcome: { kind: "not_accepted", reason: { kind: "runtime_unavailable" } },
+    });
+  });
+  await waitFor(() => {
+    expect(view.result.current.target).toMatchObject({ sessionID: "rejected-child" });
+  });
+  expect(view.result.current.composer.text).toBe(`new typing\n${command}`);
+  expect(view.draft).toHaveBeenCalledWith(
+    expect.objectContaining({ sessionID: "rejected-child" }),
+    `new typing\n${command}`,
+    null,
+  );
+  expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({
+    ok: true,
+    value: "independent New Chat",
+  });
+});
+
+it.each(["creation", "transport"])(
+  "keeps the initiating Chat and restores input after %s failure without child delivery",
+  async (failure) => {
+    const selected = { kind: "session", projectID: "project-1", sessionID: "parent-session" } as const;
+    const view = setup([], selected);
+    writeBrowserStorage("local", "desktop.newChatDraft", "independent New Chat");
+    await waitFor(() => {
+      expect(view.result.current.settings.kind).toBe("ready-session");
+    });
+    if (failure === "creation")
+      view.steer.mockResolvedValue({
+        sessionID: selected.sessionID,
+        outcome: {
+          kind: "not_accepted",
+          reason: { kind: "internal_failure", operation: "chat_steer", cause: "child creation failed" },
+        },
+      });
+    else view.steer.mockRejectedValue(new Error("response lost"));
+    act(() => {
+      view.result.current.composer.edit("/review args");
+    });
+    await act(async () => {
+      view.result.current.composer.submit("send");
+    });
+    await waitFor(() => {
+      expect(view.result.current.composer.text).toBe("/review args");
+    });
+    expect(view.result.current.target).toEqual(selected);
+    expect(view.steer).toHaveBeenCalledTimes(1);
+    expect(view.commandsRead).toHaveBeenCalledTimes(1);
+    expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({
+      ok: true,
+      value: "independent New Chat",
+    });
+  },
+);
+
+it("applies an existing-Session command's late result against the currently displayed Session", async () => {
+  const selected = { kind: "session", projectID: "project-1", sessionID: "parent-session" } as const;
+  const view = setup([], selected);
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-session");
+  });
+  const first = deferred<ChatInputMutationResult>();
+  const second = deferred<ChatInputMutationResult>();
+  view.steer.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  for (const command of ["/review first", "/init second"]) {
+    act(() => {
+      view.result.current.composer.edit(command);
+    });
+    await act(async () => {
+      view.result.current.composer.submit("send");
+    });
+  }
+  const accepted = (sessionID: string): ChatInputMutationResult => ({
+    sessionID,
+    outcome: {
+      kind: "accepted",
+      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      diagnostic: null,
+    },
+  });
+  await act(async () => {
+    first.resolve(accepted("child-session"));
+  });
+  await waitFor(() => {
+    expect(view.result.current.target).toMatchObject({ sessionID: "child-session" });
+  });
+  await act(async () => {
+    second.resolve(accepted(selected.sessionID));
+  });
+  await waitFor(() => {
+    expect(view.result.current.target).toEqual(selected);
+  });
+  expect(view.commandsRead).toHaveBeenCalledTimes(3);
+});
 
 function renderDestination(services: TestAppServices, client: QueryClient, opening: ChatDestinationOpening) {
   const router = createRouter({ history: createMemoryHistory(), routeTree: createRootRoute() });
@@ -393,7 +733,7 @@ it("keeps opening, text, settings edits and abandonment entirely client-only", a
 it.each(["registered", "compact"])("adopts the identified rejection of a %s command", async (kind) => {
   const view = setup([
     {
-      token: "/review",
+      token: "/custom-review",
       aliases: [],
       description: null,
       preview: null,
@@ -409,7 +749,7 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
   await waitFor(() => {
     expect(view.result.current.settings.kind).toBe("ready-new-chat");
   });
-  const text = kind === "registered" ? "/review\tchanges" : "/compact keep decisions";
+  const text = kind === "registered" ? "/custom-review\tchanges" : "/compact keep decisions";
   act(() => {
     view.result.current.composer.edit(text);
   });
@@ -424,7 +764,7 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
     expect(view.steer).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
       kind: "command",
       catalogIdentity: "test:review",
-      token: "/review",
+      token: "/custom-review",
       separatorWhitespace: "\t",
       arguments: "changes",
     });

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"core/server/promptcommands"
 	"core/server/sessionruntime"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -193,6 +194,10 @@ func committedGoalSetCommit(objective string) serverapi.ResolvedGoalSetCommit {
 type goalSetTestResolver struct {
 	target  ResolvedTarget
 	request TargetResolutionRequest
+}
+
+func (*goalSetTestResolver) SelectPlacement(_ context.Context, target ResolvedTarget, _ promptcommands.Placement) (ResolvedTarget, error) {
+	return target, nil
 }
 
 func (r *goalSetTestResolver) Resolve(_ context.Context, request TargetResolutionRequest) (ResolvedTarget, error) {

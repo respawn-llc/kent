@@ -167,7 +167,7 @@ func TestPromptCommandEffectiveWorkspaceResolverUsesSuppliedWorkspace(t *testing
 	if err != nil {
 		t.Fatalf("ResolvePromptCommandForWorkspace: %v", err)
 	}
-	if got != "effective workspace body" {
+	if got.Text != "effective workspace body" {
 		t.Fatalf("resolved body = %q, want effective workspace body", got)
 	}
 }

@@ -3,8 +3,9 @@ import * as Effect from "effect/Effect";
 import type { QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import type { AppServices } from "@/app-facade";
-import type { ChatSettingsTarget, WorkspaceCatalogRow } from "@/api";
+import type { ChatNotAcceptedReason, ChatSettingsTarget, WorkspaceCatalogRow } from "@/api";
 import { createChatSettingsViewModel } from "./ChatSettingsViewModel";
+import { createChatCommandCatalogViewModel } from "./ChatCommandCatalogViewModel";
 import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import type { ComposerSubmission } from "./ComposerInputViewModel";
 import { createNewChatGoalBinding } from "./goal/goalBinding";
@@ -36,6 +37,7 @@ export function createChatDestinationViewModel({
         };
   });
   const settings = createChatSettingsViewModel({ services, client, t, target });
+  const catalog = createChatCommandCatalogViewModel({ services, client, target });
   const submission = Atom.make((get): ComposerSubmission => {
     const value = get(settings.state);
     if (value.kind === "ready-new-chat") return { kind: "ready", initialSettings: value.initialSettings };
@@ -59,9 +61,22 @@ export function createChatDestinationViewModel({
     draft: composer.draft,
   });
   const firstActionPending = Atom.make((get) => get(composer.input.pending) || get(goal.pending));
-  const adopt = Atom.fn<Readonly<{ sessionID: string; delivered?(sessionID: string): void }>>()(
+  const adopt = Atom.fn<
+    Readonly<{
+      sessionID: string;
+      origin: Pick<ChatSettingsTarget, "kind">;
+      rejection: ChatNotAcceptedReason | null;
+      delivered?(sessionID: string): void;
+    }>
+  >()(
     (input, get) =>
       Effect.sync(() => {
+        if (input.origin.kind === "new_chat") get.set(composer.draft.consumeNewChat, undefined);
+        const current = get(selection);
+        if (current.kind === "session" && current.sessionID === input.sessionID) {
+          if (input.rejection?.kind === "prompt_command_not_found") get.set(catalog.retry, undefined);
+          return;
+        }
         const session = {
           kind: "session" as const,
           projectID: opening.projectID,
@@ -88,6 +103,7 @@ export function createChatDestinationViewModel({
     target,
     settings,
     composer,
+    catalog,
     goal,
     firstActionPending,
     adopt,

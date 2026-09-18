@@ -1,4 +1,9 @@
 export const chatComposerEnglish = {
+  commands: {
+    loading: "Loading commands",
+    review: "Review changes in a fresh conversation",
+    init: "Initialize project guidance in a fresh conversation",
+  },
   historyFailed: "Could not load prompt history",
   historyBlocked: "Send or clear this draft before browsing history; your previous draft is kept.",
   context: {

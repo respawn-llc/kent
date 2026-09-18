@@ -65,18 +65,30 @@ func New(persistenceRoot, workspaceRoot string) Service {
 	}
 }
 
-func (s Service) Resolve(command, arguments string) (string, error) {
+type Placement uint8
+
+const (
+	PlacementCurrent Placement = iota
+	PlacementFresh
+)
+
+type ResolvedCommand struct {
+	Text      string
+	Placement Placement
+}
+
+func (s Service) Resolve(command, arguments string) (ResolvedCommand, error) {
 	if err := s.validateRoots(ErrorKindCommandRead); err != nil {
-		return "", err
+		return ResolvedCommand{}, err
 	}
 	if name, parseErr := runtimeinput.ParsePromptCommandName(command); parseErr == nil {
 		if kind, ok := runtimeinput.BuiltinPromptCommandForName(name); ok {
-			return textutil.ExpandPromptTemplate(builtinPromptContent(*kind), arguments), nil
+			return ResolvedCommand{Text: textutil.ExpandPromptTemplate(builtinPromptContent(*kind), arguments), Placement: PlacementFresh}, nil
 		}
 	}
 	candidate, found, err := s.findCandidate(command)
 	if err != nil {
-		return "", err
+		return ResolvedCommand{}, err
 	}
 	if !found {
 		parsed, parseErr := runtimeinput.ParsePromptCommandName(command)
@@ -84,9 +96,9 @@ func (s Service) Resolve(command, arguments string) (string, error) {
 		if parseErr == nil {
 			name = parsed.String()
 		}
-		return "", &Error{Kind: ErrorKindCommandNotFound, Command: &name}
+		return ResolvedCommand{}, &Error{Kind: ErrorKindCommandNotFound, Command: &name}
 	}
-	return textutil.ExpandPromptTemplate(candidate.content, arguments), nil
+	return ResolvedCommand{Text: textutil.ExpandPromptTemplate(candidate.content, arguments), Placement: PlacementCurrent}, nil
 }
 
 type builtinPromptCommand struct {

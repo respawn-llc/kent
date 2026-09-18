@@ -201,6 +201,9 @@ export type ChatGoalObservationHandler = Readonly<{
 export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
 export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
 export type ChatApi = Readonly<{
+  getCommandCatalog(
+    target: ChatSettingsTarget,
+  ): Promise<readonly Readonly<{ name: string; preview: string }>[]>;
   getDraft(target: ChatSessionTarget): Promise<Readonly<{ input: string; protectedInput: string | null }>>;
   getPromptHistory(target: ChatSessionTarget): Promise<readonly string[]>;
   persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;

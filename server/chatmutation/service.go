@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/promptcommands"
+	"core/server/runtimecontrol"
 	"core/server/sessionruntime"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -22,6 +24,7 @@ import (
 
 type TargetResolutionService interface {
 	Resolve(context.Context, TargetResolutionRequest) (ResolvedTarget, error)
+	SelectPlacement(context.Context, ResolvedTarget, promptcommands.Placement) (ResolvedTarget, error)
 }
 
 type RuntimeOpeningService interface {
@@ -29,13 +32,16 @@ type RuntimeOpeningService interface {
 }
 
 type RuntimeAdmissionService interface {
+	PrepareUserTurn(context.Context, string, runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error)
 	AdmitChatUserTurn(
 		context.Context,
-		*runtimepb.SubmitUserTurnRequest,
+		string,
+		runtimecontrol.PreparedUserTurn,
 	) (serverapi.ChatInputAdmissionResult, error)
 	AdmitChatQueuedUserInput(
 		context.Context,
-		*runtimepb.SubmitUserTurnRequest,
+		string,
+		runtimecontrol.PreparedUserTurn,
 	) (serverapi.ChatInputAdmissionResult, error)
 	AdmitManualCompaction(
 		context.Context,
@@ -419,11 +425,7 @@ func (s *Service) mutateInput(
 	if err != nil {
 		return nil, err
 	}
-	generatedInput, err := protoapi.UserTurnInputToProto(input)
-	if err != nil {
-		return nil, err
-	}
-	target, attachment, err := s.prepareRuntime(scope, targetRequest, draft)
+	target, err := s.resolveTarget(scope, targetRequest, &draft)
 	if err != nil {
 		if target.SessionID.IsZero() {
 			return nil, err
@@ -431,19 +433,24 @@ func (s *Service) mutateInput(
 		return inputNotAccepted(target.SessionID, operation, err), nil
 	}
 	if s.admissions == nil {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return inputNotAccepted(
-			target.SessionID,
-			operation,
-			errors.Join(errors.New("user-turn admission service is required"), releaseErr),
-		), nil
+		return inputNotAccepted(target.SessionID, operation, errors.New("user-turn admission service is required")), nil
 	}
-	admissionResult, admissionErr := s.admitInput(ctx, operation, &runtimepb.SubmitUserTurnRequest{
-		SessionId: target.SessionID.String(),
-		Input:     generatedInput,
-	})
+	prepared, err := s.admissions.PrepareUserTurn(ctx, target.SessionID.String(), input)
+	if err != nil {
+		return inputNotAccepted(target.SessionID, operation, err), nil
+	}
+	target, err = s.targets.SelectPlacement(ctx, target, prepared.Placement)
+	if err != nil {
+		return inputNotAccepted(target.SessionID, operation, err), nil
+	}
+	if prepared.Placement == promptcommands.PlacementFresh {
+		operation = inputMutationSteer
+	}
+	target, attachment, err := s.openRuntime(scope, target)
+	if err != nil {
+		return inputNotAccepted(target.SessionID, operation, err), nil
+	}
+	admissionResult, admissionErr := s.admitInput(ctx, operation, target.SessionID.String(), prepared)
 	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
 	if admissionResult.Accepted {
 		releasePolicy = sessionruntime.RuntimeReleaseDetach
@@ -525,13 +532,14 @@ func (s *Service) prepareRuntime(
 func (s *Service) admitInput(
 	ctx context.Context,
 	operation inputMutationOperation,
-	request *runtimepb.SubmitUserTurnRequest,
+	sessionID string,
+	prepared runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	switch operation {
 	case inputMutationSteer:
-		return s.admissions.AdmitChatUserTurn(ctx, request)
+		return s.admissions.AdmitChatUserTurn(ctx, sessionID, prepared)
 	case inputMutationQueue:
-		return s.admissions.AdmitChatQueuedUserInput(ctx, request)
+		return s.admissions.AdmitChatQueuedUserInput(ctx, sessionID, prepared)
 	default:
 		return serverapi.ChatInputAdmissionResult{}, fmt.Errorf(
 			"unsupported Chat input mutation %q",

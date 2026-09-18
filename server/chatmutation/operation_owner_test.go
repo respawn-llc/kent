@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionruntime"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -13,6 +14,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
@@ -184,9 +186,14 @@ type lifecycleAdmission struct {
 	err      error
 }
 
+func (lifecycleAdmission) PrepareUserTurn(ctx context.Context, sessionID string, input runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error) {
+	return (*runtimecontrol.Service)(nil).PrepareUserTurn(ctx, sessionID, input)
+}
+
 func (a lifecycleAdmission) AdmitChatUserTurn(
 	ctx context.Context,
-	_ *runtimepb.SubmitUserTurnRequest,
+	_ string,
+	_ runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	a.recorder.operationStage("admission", ctx)
 	return a.result, a.err
@@ -194,7 +201,8 @@ func (a lifecycleAdmission) AdmitChatUserTurn(
 
 func (lifecycleAdmission) AdmitChatQueuedUserInput(
 	context.Context,
-	*runtimepb.SubmitUserTurnRequest,
+	string,
+	runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	panic("unexpected Queue admission")
 }
@@ -298,6 +306,8 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 						expectedDraft:    "continue",
 					}, nil
 				},
+				nil,
+				nil,
 			)
 			attachment := &lifecycleAttachment{recorder: recorder, sessionID: sessionID}
 			service := NewService(
