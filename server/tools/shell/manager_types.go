@@ -21,6 +21,14 @@ import (
 // ErrResultUnavailable means a shell ID is unknown or its completed result was evicted.
 var ErrResultUnavailable = errors.New("shell result no longer available")
 
+type ConcurrentShellLimitError struct {
+	Limit int
+}
+
+func (e *ConcurrentShellLimitError) Error() string {
+	return fmt.Sprintf("Concurrent shell limit of %d reached. You can: a) help the user investigate why so many shells are running; b) wait for system load to decrease; c) clean up only shells you own; or d) raise the limit with the user's approval.", e.Limit)
+}
+
 const (
 	defaultMinimumExecToBgTime     = 15 * time.Second
 	defaultWriteYieldTime          = 250 * time.Millisecond

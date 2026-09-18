@@ -488,11 +488,18 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		m.clearRuntimeControlPending(msg.operation)
+		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
 			m.setPendingInterrupt(false)
+			var interruptedSubmitToken *uint64
+			if m.hasLocalDispatchPending() {
+				interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
+			}
+			recovery = m.startRuntimeMainViewRefresh(interruptedSubmitToken)
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
+			recovery,
 			m.appendLocalEntryWithNoticeID("error", errText, ""),
 			m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
 		)
@@ -520,7 +527,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			}
 		}
 		if merge.decision == runtimeTupleRefresh {
-			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh())
+			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
 		}
 		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {

@@ -30,6 +30,12 @@ Successful compaction clears the session contract's model capabilities, tool dec
 `kent serve` starts without a workspace root, so it doesn't matter where you run the server.
 :::
 
+## Concurrent shells
+
+Set `shell.max_concurrent` in the global configuration to limit running agent-tool shells across the server. The default is `100`; the value must be a positive integer. Restart the server to apply changes. Workspace and subagent overrides are not supported.
+
+Foreground and background commands share the limit. A start at capacity returns a recoverable tool error with the configured limit; existing commands continue, and capacity becomes available when a process exits. Completed shells, Workflow Scripts, hooks, and internal Git commands do not count toward this limit.
+
 ## Locations
 
 ### Persistence root

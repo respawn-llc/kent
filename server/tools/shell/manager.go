@@ -13,6 +13,7 @@ import (
 
 	"core/server/tools"
 	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	"core/shared/textutil"
 
 	"github.com/google/uuid"
@@ -29,9 +30,16 @@ type Manager struct {
 	closeGracePeriod    time.Duration
 	closeWaitTimeout    time.Duration
 	closed              bool
+	maxConcurrent       int
+	// Includes starts in progress until they fail or their process exits.
+	occupiedSlots int
 }
 
 type ManagerOption func(*Manager)
+
+func WithMaxConcurrent(value int) ManagerOption {
+	return func(m *Manager) { m.maxConcurrent = value }
+}
 
 func WithMinimumExecToBgTime(value time.Duration) ManagerOption {
 	return func(m *Manager) {
@@ -63,11 +71,16 @@ func NewManager(opts ...ManagerOption) (*Manager, error) {
 		minimumExecToBgTime: defaultMinimumExecToBgTime,
 		closeGracePeriod:    closeGracePeriod,
 		closeWaitTimeout:    closeWaitTimeout,
+		maxConcurrent:       config.DefaultMaxConcurrentShells,
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(mgr)
 		}
+	}
+	if mgr.maxConcurrent <= 0 {
+		_ = os.RemoveAll(tempDir)
+		return nil, errors.New("maximum concurrent shells must be positive")
 	}
 	if mgr.minimumExecToBgTime <= 0 {
 		mgr.minimumExecToBgTime = defaultMinimumExecToBgTime
@@ -124,6 +137,12 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	if err != nil {
 		return ExecResult{}, err
 	}
+	started := false
+	defer func() {
+		if !started {
+			m.releaseProcessSlot()
+		}
+	}()
 	cmd := exec.CommandContext(context.Background(), req.Command[0], req.Command[1:]...)
 	cmd.Dir = workdir
 	ownerSessionID := strings.TrimSpace(req.OwnerSessionID)
@@ -231,6 +250,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	m.entries.Store(id, entry)
 	m.mu.Unlock()
 
+	started = true
 	go m.waitForExit(entry)
 
 	start := time.Now()

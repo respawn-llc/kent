@@ -2559,8 +2559,17 @@ UPDATE sessions
 SET
     workspace_id = sqlc.arg(workspace_id),
     worktree_id = sqlc.narg(worktree_id),
-    cwd_relpath = sqlc.arg(cwd_relpath)
-WHERE id = sqlc.arg(session_id);
+    cwd_relpath = sqlc.arg(cwd_relpath),
+    metadata_json = CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+        THEN metadata_json
+        ELSE json_set(metadata_json, '$.worktree_reminder', json(CAST(sqlc.narg(worktree_reminder_json) AS TEXT)))
+    END,
+    updated_at_unix_ms = CASE WHEN CAST(sqlc.narg(worktree_reminder_json) AS TEXT) IS NULL
+        THEN updated_at_unix_ms
+        ELSE sqlc.arg(updated_at_unix_ms)
+    END
+WHERE id = sqlc.arg(session_id)
+    AND (sqlc.narg(expected_worktree_id) IS NULL OR worktree_id = sqlc.narg(expected_worktree_id));
 
 -- name: GetSessionDeletionState :one
 SELECT

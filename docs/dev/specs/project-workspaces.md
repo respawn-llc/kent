@@ -17,7 +17,8 @@
 
 - Detach requires an explicit Project and one workspace selected by path or workspace ID.
 - Path selection is scoped only to the selected Project.
-- If the selected workspace is not attached to the selected Project, detach fails without revealing its relationships to other Projects.
+- If a selected Workspace ID no longer exists, detach must succeed without mutation when the selected Project exists. Concurrent repeated detach of that ID must also succeed.
+- If a selected Workspace belongs to a different Project, detach must fail without revealing its relationships to other Projects. An unresolved path selector must fail without detaching anything.
 - A saved workspace path may be detached while its directory is missing or inaccessible.
 - When path identity cannot be recovered, the operator can select the workspace by ID.
 - Detach is blocked for a default workspace, including a Project's sole workspace, non-terminal dependent Tasks, live Session execution, worktree dependencies, or missing retained Session location information.

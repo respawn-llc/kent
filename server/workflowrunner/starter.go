@@ -28,6 +28,7 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
+	"core/server/worktree"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -1348,11 +1349,42 @@ func (s *Starter) applyCurrentNodeSessionMetadata(ctx context.Context, input wor
 	if err != nil {
 		return err
 	}
-	if err := s.withSessionStore(ctx, plan.Descriptor, func(_ context.Context, store *session.Store) error { return store.SetListingMetadata(name, preview) }); err != nil {
+	reminder, err := s.currentNodeWorktreeReminder(ctx, input)
+	if err != nil {
+		return err
+	}
+	if err := s.withSessionStore(ctx, plan.Descriptor, func(_ context.Context, store *session.Store) error {
+		if err := store.SetListingMetadata(name, preview); err != nil {
+			return err
+		}
+		return store.SetWorktreeReminderState(reminder)
+	}); err != nil {
 		return err
 	}
 	plan.SessionName, plan.FirstPromptPreview = &name, preview
 	return nil
+}
+
+func (s *Starter) currentNodeWorktreeReminder(ctx context.Context, input workflowstore.CurrentNodeStartContext) (*session.WorktreeReminderState, error) {
+	root, err := requireCurrentNodeExecutionRoot(input)
+	if err != nil {
+		return nil, err
+	}
+	if root.Managed == nil {
+		return nil, nil
+	}
+	record, err := s.metadata.GetWorktreeRecordByID(ctx, root.Managed.WorktreeID)
+	if err != nil {
+		return nil, err
+	}
+	worktreeContext, err := worktree.ContextFromRecord(record, root.SourceWorkspaceRoot, root.EffectiveRoot())
+	if err != nil {
+		return nil, err
+	}
+	return &session.WorktreeReminderState{
+		Mode:            session.WorktreeReminderModeEnter,
+		WorktreeContext: worktreeContext,
+	}, nil
 }
 
 func (s *Starter) applyCurrentNodeSessionExecutionTarget(ctx context.Context, input workflowstore.CurrentNodeStartContext, descriptor session.SessionDescriptor) error {
@@ -1364,6 +1396,10 @@ func (s *Starter) applyCurrentNodeSessionExecutionTarget(ctx context.Context, in
 	if root.Managed != nil {
 		update.Worktree = &metadata.SessionExecutionTargetUpdateWorktree{ID: root.Managed.WorktreeID}
 	}
+	update.WorktreeReminder, err = s.currentNodeWorktreeReminder(ctx, input)
+	if err != nil {
+		return err
+	}
 	if err := s.metadata.UpdateSessionExecutionTarget(ctx, update); err != nil {
 		return err
 	}
@@ -1371,7 +1407,7 @@ func (s *Starter) applyCurrentNodeSessionExecutionTarget(ctx context.Context, in
 	if err != nil {
 		return err
 	}
-	return s.runtimeAuthority.SyncExecutionTarget(ctx, descriptor.SessionID().String(), target, nil)
+	return s.runtimeAuthority.SyncExecutionTarget(ctx, descriptor.SessionID().String(), target, update.WorktreeReminder)
 }
 
 func (s *Starter) currentNodeManagedWorktreePathContext(plan launch.SessionPlan, root workflowstore.ExecutionRoot) (*askquestion.ManagedWorktreePathContext, error) {

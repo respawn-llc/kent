@@ -106,9 +106,12 @@ func newBackgroundTestManager(t *testing.T) *Manager {
 	return newShellTestManager(t, 250*time.Millisecond)
 }
 
-func newShellTestManager(t *testing.T, minimumExecToBackground time.Duration) *Manager {
+func newShellTestManager(t *testing.T, minimumExecToBackground time.Duration, options ...ManagerOption) *Manager {
 	t.Helper()
-	manager, err := NewManager(WithMinimumExecToBgTime(minimumExecToBackground), WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond))
+	manager, err := NewManager(append([]ManagerOption{
+		WithMinimumExecToBgTime(minimumExecToBackground),
+		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
+	}, options...)...)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

@@ -2,10 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"core/server/auth"
+	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
@@ -38,9 +41,11 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 
 func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
 	background, err := BuildShellManager(config.App{Settings: config.Settings{
-		ShellOutputMaxChars: 321,
-		BGShellsOutput:      config.BGShellsOutputVerbose,
+		ShellOutputMaxChars:    321,
+		BGShellsOutput:         config.BGShellsOutputVerbose,
+		MinimumExecToBgSeconds: 1,
 		Shell: config.ShellSettings{
+			MaxConcurrent:      1,
 			PostprocessingMode: config.ShellPostprocessingModeBuiltin,
 		},
 	}})
@@ -52,6 +57,23 @@ func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
 	})
 	if background == nil {
 		t.Fatal("expected background manager")
+	}
+	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := shelltool.ExecRequest{
+		Command: []string{"/bin/sh", "-c", "read value"},
+		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		Postprocessor: runner,
+	}
+	if _, err := background.Start(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	_, err = background.Start(context.Background(), request)
+	var limit *shelltool.ConcurrentShellLimitError
+	if !errors.As(err, &limit) || limit.Limit != 1 {
+		t.Fatalf("configured shell limit not enforced: %v", err)
 	}
 }
 

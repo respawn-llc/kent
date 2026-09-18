@@ -211,7 +211,7 @@ func (m *uiModel) matchesMissingPromptRecoveryScope(scope missingPromptRecoveryS
 func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMergeResult) tea.Cmd {
 	switch admission.decision {
 	case runtimeTupleRefresh:
-		return m.startRuntimeMainViewRefresh()
+		return m.startRuntimeMainViewRefresh(nil)
 	}
 	if !admission.project {
 		return nil

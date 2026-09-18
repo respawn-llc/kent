@@ -1012,12 +1012,22 @@ message DeleteSuccess {
   optional string leftover_root = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
+message DeletePartialDetails {
+  uint64 retargeted_sessions = 1 [(buf.validate.field).uint64.gt = 0];
+  string diagnostic = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional BlockedDetails blocked = 3;
+}
+
 message DeleteError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    DeletePartialDetails delete_partial = 12 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "delete_partial"
+    }];
     kent.api.project.ProjectNotFoundDetails project_not_found = 10 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "project_not_found"

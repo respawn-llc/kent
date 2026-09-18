@@ -275,7 +275,7 @@ func waitForRuntimeControlAssistantFinal(t *testing.T, engine *runtime.Engine, t
 func waitForRuntimeControlIdle(t *testing.T, engine *runtime.Engine) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	for engine.HasActiveLiveRunGroup() {
+	for engine.ActiveRun() != nil || engine.HasActiveLiveRunGroup() {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for Runtime execution to finish")
 		}
@@ -414,8 +414,9 @@ func (c *blockingRuntimeControlClient) Generate(ctx context.Context, req llm.Req
 
 type blockingCompactionRuntimeControlClient struct {
 	runtimeControlFakeClient
-	started chan struct{}
-	release chan struct{}
+	started  chan struct{}
+	release  chan struct{}
+	canceled chan struct{}
 }
 
 func (c *blockingCompactionRuntimeControlClient) Compact(ctx context.Context, req llm.CompactionRequest) (llm.CompactionResponse, error) {
@@ -427,6 +428,9 @@ func (c *blockingCompactionRuntimeControlClient) Compact(ctx context.Context, re
 	select {
 	case <-c.release:
 	case <-ctx.Done():
+		if c.canceled != nil {
+			close(c.canceled)
+		}
 		return llm.CompactionResponse{}, context.Cause(ctx)
 	}
 	return c.runtimeControlFakeClient.Compact(ctx, req)
@@ -1162,13 +1166,16 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	}
 }
 
-func TestServiceInterruptWithoutEngineIsNotAccepted(t *testing.T) {
+func TestServiceInterruptWithoutEngineRequestsResynchronization(t *testing.T) {
 	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}))
-	_, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
+	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
 		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
 	})
-	if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		t.Fatalf("Interrupt without engine error = %v, want not accepted", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.Activity.DiagnosticRecovery {
+		t.Fatal("missing activity must request resynchronization")
 	}
 }
 
@@ -1463,7 +1470,7 @@ func runtimeControlPromptHistoryStoresLoad(t *testing.T, sessionID string) *runt
 	return store
 }
 
-func TestServiceInterruptIdleIsNotAccepted(t *testing.T) {
+func TestServiceInterruptIdleReturnsAuthoritativeIdle(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 	service.WithRuntimeActivityResolver(&sequenceRuntimeActivityResolver{
 		snapshots: []*runtimepb.ReadModelUpdate{{
@@ -1475,11 +1482,14 @@ func TestServiceInterruptIdleIsNotAccepted(t *testing.T) {
 			},
 		}},
 	})
-	_, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
+	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
 		SessionId: store.Meta().SessionID,
 	})
-	if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		t.Fatalf("Interrupt idle error = %v, want runtime command not accepted", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
+		t.Fatalf("Interrupt idle activity = %v", response.Activity)
 	}
 }
 
@@ -2921,6 +2931,48 @@ func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t
 	waitForRuntimeControlIdle(t, engine)
 }
 
+func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
+	started := make(chan struct{})
+	markStarted := sync.OnceFunc(func() { close(started) })
+	client := &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("next turn completed"), Phase: textutil.Value(llm.MessagePhaseFinal)},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	store, engine, service := newRuntimeControlTestService(t, client,
+		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{
+			OnEvent: func(event runtime.Event) {
+				if event.Kind == runtime.EventToolCallStarted {
+					markStarted()
+				}
+			},
+		})
+	shellDone := make(chan error, 1)
+	go func() {
+		shellDone <- service.SubmitUserShellCommand(t.Context(), runtimeControlShellCommandRequest(store, "shell", "sleep 120"))
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("foreground shell did not start")
+	}
+	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: store.Meta().SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-shellDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("interrupted foreground shell did not finish")
+	}
+	waitForRuntimeControlIdle(t, engine)
+	if _, err := service.SubmitUserTurn(t.Context(), runtimeControlUserTurnRequest(store, "after-shell", "continue")); err != nil {
+		t.Fatal(err)
+	}
+	waitForRuntimeControlAssistantFinal(t, engine, "next turn completed")
+}
+
 func TestServiceSubmitUserShellCommandDoesNotRecordPromptHistory(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{})
 	req := runtimeControlShellCommandRequest(store, "req-1", "pwd")
@@ -3176,7 +3228,7 @@ func TestServiceSubmitUserTurnPromptResolutionFailureDuringActiveRunReturnsWitho
 	}
 }
 
-func TestServiceSubmitUserTurnQueuesWhileCompactionOwnsSessionExecution(t *testing.T) {
+func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 	client := &blockingCompactionRuntimeControlClient{
 		runtimeControlFakeClient: runtimeControlFakeClient{
 			responses: []llm.Response{
@@ -3197,8 +3249,9 @@ func TestServiceSubmitUserTurnQueuesWhileCompactionOwnsSessionExecution(t *testi
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 		},
-		started: make(chan struct{}),
-		release: make(chan struct{}),
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+		canceled: make(chan struct{}),
 	}
 	var releaseOnce sync.Once
 	releaseCompaction := func() {
@@ -3228,9 +3281,15 @@ func TestServiceSubmitUserTurnQueuesWhileCompactionOwnsSessionExecution(t *testi
 
 	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
 		SessionId: store.Meta().SessionID,
-	}); !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		t.Fatalf("targeted Interrupt while compacting error = %v, want Runtime Command not accepted", err)
+	}); err != nil {
+		t.Fatalf("Interrupt while compacting: %v", err)
 	}
+	select {
+	case <-client.canceled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("interrupt did not cancel compaction")
+	}
+	waitForRuntimeControlIdle(t, engine)
 
 	queuedText := "queue after compaction"
 	response, err := service.SubmitUserTurn(
@@ -3240,14 +3299,10 @@ func TestServiceSubmitUserTurnQueuesWhileCompactionOwnsSessionExecution(t *testi
 	if err != nil {
 		t.Fatalf("SubmitUserTurn while compacting: %v", err)
 	}
-	if response.GetQueued() == nil || !response.GetQueued().GetSteered() || response.GetQueued().GetQueueItemId() == "" {
-		t.Fatalf("SubmitUserTurn while compacting = %+v, want queued acceptance", response)
-	}
-	if !engine.HasQueuedUserWork() {
-		t.Fatal("human Steering was not retained while compaction was active")
+	if response == nil {
+		t.Fatal("next turn was not accepted")
 	}
 
-	releaseCompaction()
 	waitForRuntimeControlAssistantFinal(t, engine, "queued message handled")
 	if got := countUserMessagesWithContent(t, store, queuedText); got != 1 {
 		t.Fatalf("steered user message count = %d, want 1", got)

@@ -31,12 +31,12 @@ Repository rules in `apps/AGENTS.md` govern adoption boundaries, validation, exe
 - Express sequential local work with the installed Effect generator APIs. Convert Promise failures into typed Effect errors at the external boundary; keep diagnostics available to the existing status surface.
 - Check action admission against actual Query observer state synchronously. Read the reference's concurrent Atom actions together with `requests` and `requestPending`; the action option alone does not establish request ownership.
 - Put mutation feedback, invalidation and completion that must survive navigation in Query callbacks. Pass invocation-specific navigation callbacks with the action input when their identity can change during the destination lifetime.
-- Follow `apps/desktop/src/app-facade/projectWorkspaceChanges.ts` for native registration: a cold `Stream.callback`, scoped acquisition/release, and explicit failure of the supplied queue when registration fails. Consider delayed registration as well as normal unlisten.
+- Use a cold `Stream.callback` for native registration, with scoped acquisition/release and explicit failure of the supplied queue when registration fails. Consider delayed registration as well as normal unlisten.
 - Filter relevant native changes before a bounded buffer. Coalesce only notifications whose contents can be reconstructed from authoritative reads; preserve explicit actions and confirmation choices.
 - Handle errors at the owner that can present them. Query read failures remain observable Query results. Distinguish a failed read from a failed stream registration before choosing where an Effect catch belongs.
 - Preserve library-owned disposal and mutation completion. Consult `apps/AGENTS.md` before adding execution roots, subscription contracts, retry behavior or lifecycle machinery.
 
 ## Verify the feature boundary
-Use the approved task testing approach and repository Just commands. Follow `ProjectEditViewModel.test.tsx`, `ProjectEditRoute.test.tsx`, `ProjectWorkspaceObservation.test.tsx` and `ProjectDeleteButton.test.tsx` in `apps/desktop/src/features/project-edit` for product-boundary coverage with real Query and Atom ownership.
+Use the approved task testing approach and repository Just commands. Follow `ProjectEditViewModel.test.tsx`, `ProjectEditRoute.test.tsx` and `ProjectDeleteButton.test.tsx` in `apps/desktop/src/features/project-edit` for product-boundary coverage with real Query and Atom ownership.
 
 Select cases affected by the change: duplicate admission, invalid input, draft preservation, explicit retry, bounded pagination, multiple readers, final disposal, delayed registration, and accepted mutation completion after navigation. Use dedicated lint fixtures for policy changes. Report what ran and any unverified native behavior; examples in this skill do not expand the task's testing scope.

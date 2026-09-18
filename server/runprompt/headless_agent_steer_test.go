@@ -120,7 +120,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	cfg.Settings.OpenAIBaseURL = provider.URL
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{}
 	cfg.Settings.MaxSubagentDepth = 2
-	cfg.Settings.Shell = config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin}
+	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{

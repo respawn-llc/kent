@@ -101,7 +101,8 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func(
 
 func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
 	return shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds) * time.Second),
+		shelltool.WithMaxConcurrent(cfg.Settings.Shell.MaxConcurrent),
+		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
 	)
 }
 

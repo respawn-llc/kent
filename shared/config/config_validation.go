@@ -9,6 +9,13 @@ import (
 
 const MaxSupportedSubagentDepth = 30
 
+func validateShellMaxConcurrent(state settingsState, _ map[string]Origin) error {
+	if state.Settings.Shell.MaxConcurrent <= 0 {
+		return errors.New("shell.max_concurrent must be > 0")
+	}
+	return nil
+}
+
 func validateModelNotEmpty(state settingsState, _ map[string]Origin) error {
 	if strings.TrimSpace(state.Settings.Model) == "" {
 		return errors.New("settings model must not be empty")

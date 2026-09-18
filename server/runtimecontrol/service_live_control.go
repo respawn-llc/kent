@@ -101,7 +101,7 @@ func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) 
 		return nil, errors.New("session runtime authority is required")
 	}
 	resp := &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
-	stopped, err := s.authority.InterruptCurrentLiveRun(ctx, sessionID)
+	stopped, err := s.authority.InterruptSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}

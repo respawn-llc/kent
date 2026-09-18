@@ -162,6 +162,7 @@ function noticeRawText(notice: TranscriptNotice): string | undefined {
 }
 
 function noticeCompactText(notice: TranscriptNotice, compactText: string): string {
+  if (notice.MessageType === "agent_steer") return compactText;
   const typedText = firstPresent(
     notice.CompactLabel,
     notice.CondensedText,

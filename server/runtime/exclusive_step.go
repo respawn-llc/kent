@@ -335,6 +335,18 @@ func (s *defaultExclusiveStepLifecycle) InterruptCurrent(beforeCancel func(*RunS
 	active := s.active
 	suspended := s.suspended
 	if active == nil && suspended == nil {
+		// Terminal publication temporarily has no active Step while its Live Run
+		// is still being finalized. Only settled idle state can be reconciled.
+		if s.publicationDepth == 0 && beforeCancel != nil {
+			beforeCancel(nil)
+		}
+		s.mu.Unlock()
+		return nil, nil
+	}
+	if active != nil && (!activeKindInterruptibleByLiveStop(active.activeKind) || active.closing) {
+		if !active.closing && beforeCancel != nil {
+			beforeCancel(cloneRunSnapshot(s.snapshotLocked()))
+		}
 		s.mu.Unlock()
 		return nil, nil
 	}
@@ -369,52 +381,11 @@ func (s *defaultExclusiveStepLifecycle) InterruptCurrent(beforeCancel func(*RunS
 	s.mu.Unlock()
 	err := s.persistInterruption()
 	s.mu.Lock()
-	if err != nil {
-		s.clearCurrentInterruptedLocked(active)
-		s.clearCurrentInterruptedLocked(suspended)
-	}
 	s.finishPublicationLocked()
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return snapshot, nil
-}
-
-func (s *defaultExclusiveStepLifecycle) InterruptCurrentAgentTurn(afterPersist func(*RunSnapshot)) (*RunSnapshot, error) {
-	s.mu.Lock()
-	active := s.active
-	if active == nil || !isInterruptibleAgentTurn(active.activeKind) || active.closing || active.interrupted {
-		s.mu.Unlock()
-		return nil, nil
-	}
-	snapshot := cloneRunSnapshot(s.snapshotLocked())
-	active.interrupted = true
-	s.beginPublicationLocked()
-	s.mu.Unlock()
-	err := s.persistInterruption()
-	s.mu.Lock()
-	if err != nil {
-		s.clearCurrentInterruptedLocked(active)
-		s.finishPublicationLocked()
-		s.mu.Unlock()
-		return nil, err
-	}
-	if !s.runCurrentLocked(active) {
-		s.finishPublicationLocked()
-		s.mu.Unlock()
-		return nil, nil
-	}
-	s.mu.Unlock()
-	if afterPersist != nil {
-		afterPersist(cloneRunSnapshot(snapshot))
-	}
-	if active.cancel != nil {
-		active.cancel()
-	}
-	s.mu.Lock()
-	s.finishPublicationLocked()
-	s.mu.Unlock()
 	return snapshot, nil
 }
 
@@ -428,18 +399,6 @@ func (s *defaultExclusiveStepLifecycle) runCurrentLocked(run *exclusiveRunState)
 	}
 	return (s.active != nil && s.active.sequence == run.sequence) ||
 		(s.suspended != nil && s.suspended.sequence == run.sequence)
-}
-
-func (s *defaultExclusiveStepLifecycle) clearCurrentInterruptedLocked(run *exclusiveRunState) {
-	if run == nil {
-		return
-	}
-	if s.active != nil && s.active.sequence == run.sequence {
-		s.active.interrupted = false
-	}
-	if s.suspended != nil && s.suspended.sequence == run.sequence {
-		s.suspended.interrupted = false
-	}
 }
 
 func (s *defaultExclusiveStepLifecycle) IsBusy() bool {

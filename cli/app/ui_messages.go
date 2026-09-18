@@ -197,6 +197,7 @@ type runtimeReconnectWarningMsg struct {
 
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
+	interruptedSubmitToken   *uint64
 	metadataBaselineRevision *uint64
 	view                     *runtimepb.MainView
 	err                      error

@@ -46,20 +46,24 @@ func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req *projectpb
 	if err != nil {
 		return nil, err
 	}
-	binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, req.ProjectId, selector)
-	if err != nil {
-		return nil, err
+	workspaceID := selector.WorkspaceIDValue()
+	if workspaceID == nil {
+		binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, req.ProjectId, selector)
+		if err != nil {
+			return nil, err
+		}
+		workspaceID = &binding.WorkspaceID
 	}
 	runtimeBlocker := func(ctx context.Context, sessionIDs []string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, func(), error) {
 		return withRuntimeBlockers(ctx, sessionIDs, s.workspaceActiveSessionBlockers, s.blockSessionStarts)
 	}
-	blockers, err := s.metadata.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, req.ProjectId, binding.WorkspaceID, nil, runtimeBlocker)
+	blockers, err := s.metadata.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, req.ProjectId, *workspaceID, nil, runtimeBlocker)
 	if err != nil {
-		return nil, wrapWorkspaceMutationError(req.ProjectId, binding.WorkspaceID, err)
+		return nil, wrapWorkspaceMutationError(req.ProjectId, *workspaceID, err)
 	}
 	resp := &projectpb.UnlinkWorkspaceSuccess{
 		ProjectId:   strings.TrimSpace(req.ProjectId),
-		WorkspaceId: binding.WorkspaceID,
+		WorkspaceId: *workspaceID,
 		Blockers:    make([]*projectpb.WorkspaceUnlinkBlocker, 0, len(blockers)),
 	}
 	for _, blocker := range blockers {

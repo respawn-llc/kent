@@ -16,6 +16,8 @@ kent worktree delete <selector>
 
 Every command supports `--json`. Session-scoped commands automatically use the current Session inside a Kent shell or accept `--session <id>` explicitly.
 
+Agents receive their Worktree context when a conversation starts, including workflow Sessions, and retain it after compaction. Context reminders distinguish starting or continuing in a Worktree from switching into one.
+
 ## Select a Project or Workspace
 
 `list`, `create`, and `delete` work without a Session. Use `--project <project-id>` for that Project's default Workspace, or add `--workspace <workspace-id>` to choose another Workspace within it.
@@ -51,6 +53,8 @@ Select a worktree by its exact ID, branch, display name, or path. IDs take prece
 The Main Workspace and Git main worktree cannot be deleted. Deletion blocks while a Session has active work in the worktree or a background process uses it. Active-Session failures list up to 50 Session names and IDs and indicate when more exist. Ask those Sessions to leave or finish, then retry. Idle Sessions using the worktree move to the main workspace before removal.
 
 Dirty worktrees, or worktrees whose state cannot be determined, require `--force`. This flag applies only to the worktree folder. Agent and human CLI callers retain branches by default. `--delete-branch` deletes a branch without confirmation only when Git considers it safe. Supplying both `--delete-branch` and `--force-delete-branch` authorizes deletion even when the branch is unmerged.
+
+Deletion moves idle Sessions back to Main Workspace in bounded batches. If a later step fails, completed moves are kept and the error reports their count. Resolve the reported blocker or failure and retry to finish cleanup.
 
 If Git retains the branch, deletion succeeds and the CLI prints `Kept branch <name>: <diagnostic>`.
 

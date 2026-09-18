@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/shared/invariant"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
@@ -157,58 +158,37 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 		return false, nil
 	}
 	e.ensureOrchestrationCollaborators()
-	snapshot := e.stepLifecycle.Snapshot()
-	if (snapshot == nil || !activeKindInterruptibleByLiveStop(snapshot.ActiveKind)) && !e.liveRun.hasPendingStopTarget() {
-		return false, nil
-	}
-	interrupted, taggedQueueItems, goalLoop := e.liveRun.interrupt()
-	if !interrupted {
-		if snapshot == nil || !activeKindInterruptibleByLiveStop(snapshot.ActiveKind) {
-			return false, nil
-		}
-		tracker := goalLoopInterruptTracker{engine: e, match: true}
-		interruptedSnapshot, err := e.stepLifecycle.InterruptCurrent(tracker.onSnapshot)
-		tracker.resolve(err, interruptedSnapshot)
-		if err != nil {
-			return interruptedSnapshot != nil, err
-		}
-		return interruptedSnapshot != nil, err
-	}
-	e.failStoppedLiveRunQueueItems(taggedQueueItems)
-	if snapshot == nil || !activeKindInterruptibleByLiveStop(snapshot.ActiveKind) {
-		return true, nil
-	}
-	tracker := goalLoopInterruptTracker{engine: e, match: goalLoop}
-	interruptedSnapshot, err := e.stepLifecycle.InterruptCurrent(tracker.onSnapshot)
-	tracker.resolve(err, interruptedSnapshot)
-	if err != nil {
-		return true, err
-	}
-	if goalLoop && !tracker.pending && e.goalActive() {
-		e.goalLoopState().Suspend()
-	}
-	return true, nil
-}
-
-func (e *Engine) TryInterruptActiveAgentTurn() (bool, error) {
-	if e == nil {
-		return false, nil
-	}
-	e.ensureOrchestrationCollaborators()
 	var (
 		liveRunInterrupted bool
 		taggedQueueItems   map[runtimeids.QueueItemID]struct{}
 		goalLoop           bool
+		orphaned           bool
 	)
 	tracker := goalLoopInterruptTracker{engine: e}
-	interruptedSnapshot, err := e.stepLifecycle.InterruptCurrentAgentTurn(func(snapshot *RunSnapshot) {
-		liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptMatchingStep(snapshot)
+	interruptedSnapshot, err := e.stepLifecycle.InterruptCurrent(func(snapshot *RunSnapshot) {
+		if snapshot == nil {
+			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptWhere(func(group *liveRunGroup) bool {
+				orphaned = group.status == RunStatusRunning && !group.hasPendingContinuation()
+				return true
+			})
+		} else if !activeKindUsesLiveRun(snapshot.ActiveKind) {
+			// These Steps do not replace the retained Agent Step's Live Run.
+			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interrupt()
+		} else {
+			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptMatchingStep(snapshot)
+		}
 		tracker.match = !liveRunInterrupted || goalLoop
 		tracker.onSnapshot(snapshot)
 	})
 	tracker.resolve(err, interruptedSnapshot)
 	if liveRunInterrupted {
 		e.failStoppedLiveRunQueueItems(taggedQueueItems)
+	}
+	if orphaned {
+		diagnostic := invariant.OperationalError(nil, e.cfg.Debug, "interrupt Runtime",
+			errors.New("running Live Run has no active Step or pending continuation"))
+		_, feedback := runtimeErrorFeedback(diagnostic)
+		err = errors.Join(err, e.steerInterruption(feedback))
 	}
 	if interruptedSnapshot == nil {
 		return liveRunInterrupted, err
@@ -424,16 +404,6 @@ func (c *liveRunCoordinator) hasActive() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.current != nil
-}
-
-func (c *liveRunCoordinator) hasPendingStopTarget() bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	group := c.current
-	return group != nil && (len(group.taggedQueueItems) > 0 || len(group.publishingItems) > 0 || group.reservations > 0 || group.goalLoopHolding)
 }
 
 func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {

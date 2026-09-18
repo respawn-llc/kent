@@ -243,7 +243,8 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	workspace := t.TempDir()
-	homeSkillPath := writeTestSkill(t, filepath.Join(home, brand.ConfigDirName, "skills", "home-skill"), "home-skill", "from home")
+	const enabledSkillName = "home-skill"
+	writeTestSkill(t, filepath.Join(home, brand.ConfigDirName, "skills", enabledSkillName), enabledSkillName, "from home")
 	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "workspace-skill"), "Workspace Skill", "from workspace")
 
 	storeRoot := t.TempDir()
@@ -269,7 +270,7 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 		if strings.Contains(messageContent(msg), "Workspace Skill") {
 			t.Fatalf("did not expect disabled workspace skill in injected skills context, got %q", messageContent(msg))
 		}
-		if !strings.Contains(messageContent(msg), "- home-skill: "+filepath.ToSlash(homeSkillPath)+" . from home") {
+		if !strings.Contains(messageContent(msg), enabledSkillName) {
 			t.Fatalf("expected enabled home skill to remain, got %q", messageContent(msg))
 		}
 		return

@@ -729,7 +729,7 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		if mode == ModeDetailExpanded && row.Diagnostic != nil {
 			return StyleRoleUser, row.Diagnostic.Detail
 		}
-		return StyleRoleUser, firstNonEmpty(optionalString(row.CompactLabel), "agent steer")
+		return StyleRoleUser, "Message from another agent"
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION && row.Compaction != nil {
 		text := compactionNoticeText(row.Compaction.Count)

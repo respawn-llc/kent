@@ -487,8 +487,58 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	if updated.hasPendingInterrupt() {
 		t.Fatal("not-accepted interrupt remained pending")
 	}
+	if !updated.runtimeMainViewBusy {
+		t.Fatal("failed interrupt did not request authoritative state")
+	}
 	if updated.activeSubmit.token != 1 || updated.activeSubmit.text != "keep me" {
 		t.Fatalf("not-accepted interrupt changed active submit: %+v", updated.activeSubmit)
+	}
+	updated.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
+		token:                  updated.runtimeMainViewToken,
+		interruptedSubmitToken: textutil.Value(uint64(1)),
+		view: &runtimepb.MainView{
+			Status:  &runtimepb.Status{},
+			Session: &runtimepb.SessionView{SessionId: "session-1"},
+			Activity: &runtimepb.Activity{
+				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+				QueueAccepting: true,
+			},
+		},
+	})
+	if updated.isBusy() || updated.runtimeMainViewBusy {
+		t.Fatal("authoritative idle refresh left the TUI busy")
+	}
+}
+
+func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
+	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
+	m.sessionID = "session-1"
+	m.setRuntimeActivityBusyForTest(true)
+	m.activeSubmit = activeSubmitState{token: 1, text: "old"}
+	m.setPendingInterrupt(true)
+	m.applyRuntimeControlDone(runtimeControlDoneMsg{
+		operation: runtimeControlInterrupt,
+		token:     m.runtimeControlTokenFor(runtimeControlInterrupt),
+		sessionID: m.sessionID,
+		err:       errors.New("interruption response lost"),
+	})
+	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
+	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
+		token:                  m.runtimeMainViewToken,
+		interruptedSubmitToken: textutil.Value(uint64(1)),
+		view: &runtimepb.MainView{
+			Status:  &runtimepb.Status{},
+			Session: &runtimepb.SessionView{SessionId: m.sessionID},
+			Activity: &runtimepb.Activity{
+				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+				QueueAccepting: true,
+			},
+		},
+	})
+	if m.activeSubmit.token != 2 {
+		t.Fatal("old interrupt recovery cleared a newer submission")
 	}
 }
 
