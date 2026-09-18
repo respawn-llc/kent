@@ -26,6 +26,51 @@ func TestResolveWorkspaceRootUsesCWDWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestFreshStartupDiscoversConnectionWithoutMetadataOrPrivateSettings(t *testing.T) {
+	for _, headless := range []bool{false, true} {
+		t.Run(map[bool]string{false: "tui", true: "headless"}[headless], func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for path, body := range map[string]string{
+				filepath.Join(root, "config.toml"):                                  "server_host = \"server.example\"\nserver_port = 53000\n",
+				filepath.Join(root, "db"):                                           "metadata access must not be needed",
+				filepath.Join(workspace, config.ConfigDirName, "config.toml"):       "server_port = 53001\n",
+				filepath.Join(workspace, config.ConfigDirName, "config.local.toml"): "malformed = [",
+			} {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := Request{WorkspaceRoot: workspace, LoadOptions: config.LoadOptions{ConfigRoot: root}}
+			resolve := func() config.App {
+				t.Helper()
+				if headless {
+					result, err := ResolveRunPromptConfig(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return result.Config
+				}
+				result, err := ResolveSessionConfig(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return result.Config
+			}
+			app := resolve()
+			if app.Settings.ServerHost != "server.example" || app.Settings.ServerPort != 53001 {
+				t.Fatalf("connection settings = %s:%d", app.Settings.ServerHost, app.Settings.ServerPort)
+			}
+			t.Setenv("KENT_SERVER_PORT", "53002")
+			if app := resolve(); app.Settings.ServerPort != 53002 {
+				t.Fatalf("environment port = %d", app.Settings.ServerPort)
+			}
+		})
+	}
+}
+
 func TestResolveRunPromptConfigWrapsMissingImplicitWorkspaceContextSession(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

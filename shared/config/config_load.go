@@ -23,8 +23,15 @@ func Load(sharedRoot, mainWorkspaceRoot string, opts LoadOptions) (App, error) {
 // LoadConnectionDiscovery reads the existing global/shared/environment inputs
 // used before RPC. Main Workspace private ownership is resolved by the server.
 func LoadConnectionDiscovery(sharedRoot string) (App, error) {
-	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot}, LoadOptions{})
-	return loaded.App, err
+	app, _, err := LoadInteractiveConnectionDiscovery(sharedRoot, LoadOptions{})
+	return app, err
+}
+
+// LoadInteractiveConnectionDiscovery includes client preferences and launch
+// overrides, without resolving or reading the server-owned private layer.
+func LoadInteractiveConnectionDiscovery(sharedRoot string, opts LoadOptions) (App, ClientSettings, error) {
+	loaded, err := loadAll(&workspaceConfigRoots{Shared: sharedRoot}, opts)
+	return loaded.App, loaded.Client, err
 }
 
 func LoadGlobal(opts LoadOptions) (App, error) {

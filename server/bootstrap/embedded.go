@@ -49,6 +49,19 @@ type RuntimeSupport struct {
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
+	return resolveConfig(req, loadConfig)
+}
+
+// ResolveConnectionConfig preserves continuation discovery without resolving
+// Main Workspace private ownership before server attachment.
+func ResolveConnectionConfig(req Request) (ConfigPlan, error) {
+	return resolveConfig(req, func(opts config.LoadOptions, _ string, plan launch.BootstrapPlan) (ConfigPlan, error) {
+		app, client, err := config.LoadInteractiveConnectionDiscovery(plan.WorkspaceRoot, opts)
+		return ConfigPlan{Config: app, Client: client}, err
+	})
+}
+
+func resolveConfig(req Request, load func(config.LoadOptions, string, launch.BootstrapPlan) (ConfigPlan, error)) (ConfigPlan, error) {
 	persistenceRoot, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
 	if err != nil {
 		return ConfigPlan{}, err
@@ -63,7 +76,13 @@ func ResolveConfig(req Request) (ConfigPlan, error) {
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
+	opts := req.LoadOptions
+	if bootstrapPlan.UseOpenAIBaseURL {
+		opts.OpenAIBaseURL = bootstrapPlan.OpenAIBaseURL
+	} else {
+		opts.OpenAIBaseURL = ""
+	}
+	return load(opts, persistenceRoot, bootstrapPlan)
 }
 
 func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func() time.Time) (AuthSupport, error) {
@@ -118,11 +137,6 @@ func BuildGeneratedSupport(ctx context.Context, persistenceRoot string) (prompts
 }
 
 func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {
-	if plan.UseOpenAIBaseURL {
-		loadOpts.OpenAIBaseURL = plan.OpenAIBaseURL
-	} else {
-		loadOpts.OpenAIBaseURL = ""
-	}
 	if strings.TrimSpace(plan.WorkspaceRoot) == "" {
 		app, err := config.LoadGlobal(loadOpts)
 		return ConfigPlan{Config: app}, err

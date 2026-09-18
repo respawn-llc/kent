@@ -54,7 +54,7 @@ func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
 	if err != nil {
 		return SessionConfigResult{}, err
 	}
-	plan, err := bootstrap.ResolveConfig(bootstrap.Request{
+	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
@@ -78,7 +78,7 @@ func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
 	if sessionID == "" && !req.WorkspaceRootExplicit {
 		sessionID = contextSessionID
 	}
-	plan, err := bootstrap.ResolveConfig(bootstrap.Request{
+	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             sessionID,
