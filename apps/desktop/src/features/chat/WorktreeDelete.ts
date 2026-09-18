@@ -6,7 +6,6 @@ import type { TFunction } from "i18next";
 
 import {
   BranchCleanupOutcomeKind,
-  WorktreeError,
   type ApiService,
   type WorktreeDeleteConfirmationChoice,
   type WorktreeDeletePreview,
@@ -64,13 +63,7 @@ export function createWorktreeDelete({
     refreshOpenWorktreeList,
     push,
     t,
-    feedback: {
-      kind: "inline",
-      close,
-      reload: async () => {
-        await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);
-      },
-    },
+    close,
   });
   const confirm = Atom.fn<WorktreeDeleteConfirmationChoice>()(
     (choice, get) =>
@@ -81,7 +74,14 @@ export function createWorktreeDelete({
       }),
     { concurrent: true },
   );
-  return { preview, deletion: mutation.deletion, load, confirm };
+  const retry = Atom.fn<undefined>()(
+    () =>
+      Effect.tryPromise(async () => freshFetchWorktreeDeletePreview(client, api, request)).pipe(
+        Effect.ignore,
+      ),
+    { concurrent: true },
+  );
+  return { preview, deletion: mutation.deletion, load, confirm, retry };
 }
 
 type DeleteRequest = Readonly<{ preview: WorktreeDeletePreview; choice: WorktreeDeleteConfirmationChoice }>;
@@ -93,11 +93,10 @@ export function createWorktreeDeletion({
   refreshOpenWorktreeList,
   push,
   t,
-  feedback,
+  close,
 }: Omit<Parameters<typeof createWorktreeDelete>[0], "selector" | "close"> &
   Readonly<{
-    feedback:
-      Readonly<{ kind: "command" }> | Readonly<{ kind: "inline"; close(): void; reload(): Promise<void> }>;
+    close?(): void;
   }>) {
   const mutationKey = ["worktree-delete", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
@@ -106,7 +105,7 @@ export function createWorktreeDeletion({
     retry: false,
     networkMode: "always",
     onSuccess: (result) => {
-      if (feedback.kind === "inline" && observer.hasListeners()) feedback.close();
+      if (observer.hasListeners()) close?.();
       refreshOpenWorktreeList(sessionID);
       const warnings: string[] = [];
       if (result.cleanup?.kind === BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED) {
@@ -127,17 +126,13 @@ export function createWorktreeDeletion({
           body: warnings.join("\n"),
         });
     },
-    onError: async (error) => {
-      if (feedback.kind === "command" || !observer.hasListeners()) {
-        push({
-          id: crypto.randomUUID(),
-          tone: "danger",
-          title: t("chat.worktree.delete"),
-          body: worktreeErrorMessage(error, t),
-        });
-      } else if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") {
-        await feedback.reload();
-      }
+    onError: (error) => {
+      push({
+        id: crypto.randomUUID(),
+        tone: "danger",
+        title: t("chat.worktree.delete"),
+        body: worktreeErrorMessage(error, t),
+      });
     },
   });
   const deletion = queryAtom(observer);
@@ -155,5 +150,8 @@ export function useWorktreeDelete(model: ReturnType<typeof createWorktreeDelete>
   useAtomMount(model.preview);
   useAtomMount(model.deletion);
   useAtomMount(model.load);
-  return { confirm: useAtomSet(model.confirm, { mode: "value" }) };
+  return {
+    confirm: useAtomSet(model.confirm, { mode: "value" }),
+    retry: useAtomSet(model.retry, { mode: "value" }),
+  };
 }

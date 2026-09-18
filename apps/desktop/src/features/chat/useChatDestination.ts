@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAppServices } from "@/app-facade";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useAppServices, workspaceCatalogInfiniteQueryOptions } from "@/app-facade";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
@@ -35,6 +35,12 @@ export function useChatDestination({
   const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t }));
   const target = useAtomValue(model.target);
   const selection = useAtomValue(model.selection);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const workspaceCatalog = useInfiniteQuery({
+    ...workspaceCatalogInfiniteQueryOptions(services.api, target.projectID),
+    enabled: selection.kind === "new_chat" && workspaceOpen,
+    retry: false,
+  });
   const adoptAction = useAtomSet(model.adopt);
   const selectWorkspace = useAtomSet(model.selectWorkspace);
   const firstActionPending = useAtomValue(model.firstActionPending);
@@ -75,5 +81,8 @@ export function useChatDestination({
     openGoal,
     firstActionPending,
     workspace: selection.kind === "new_chat" ? selection.workspace : null,
+    workspaceOpen,
+    setWorkspaceOpen,
+    workspaceCatalog,
   } as const;
 }

@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { errorMessage } from "@/api";
 import { Spinner } from "@/ui";
 import type { ChatSettingsFeature, ReadyChatSettings } from "./useChatSettings";
 import {
@@ -13,8 +12,7 @@ export function ChatAutoCompactionSwitch({
   feature,
 }: Readonly<{ feature: ChatSettingsFeature | ReadyChatSettings }>) {
   const { t } = useTranslation();
-  if (feature.kind === "failed-session" || feature.kind === "failed-new-chat")
-    return <span>{errorMessage(feature.error)}</span>;
+  if (feature.kind === "failed-session" || feature.kind === "failed-new-chat") return null;
   if (feature.kind !== "ready-session" && feature.kind !== "ready-new-chat")
     return (
       <span className="flex items-center gap-[var(--space-1)]">

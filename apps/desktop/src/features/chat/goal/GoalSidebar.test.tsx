@@ -108,10 +108,16 @@ describe("Goal sidebar", () => {
     });
     act(() => {
       handlers[0]?.onEvent(hydration({ objective: "saved objective", status: "active" }));
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsaved objective");
+    act(() => {
       handlers[0]?.onError(new Error("Goal connection lost."));
     });
 
-    expect(await screen.findByTestId("loading-state")).toBeInTheDocument();
+    expect(await screen.findByTestId("error-state")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(handlers).toHaveLength(1);
     expect(closes[0]).toHaveBeenCalledOnce();
@@ -125,7 +131,7 @@ describe("Goal sidebar", () => {
     act(() => {
       handlers[1]?.onEvent(hydration({ objective: "recovered objective", status: "paused" }));
     });
-    expect(await screen.findByText("recovered objective")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("unsaved objective")).toBeInTheDocument();
   });
 
   it("uses subscription-only saved state after a successful action", async () => {

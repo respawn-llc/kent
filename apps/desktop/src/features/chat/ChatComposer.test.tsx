@@ -31,6 +31,7 @@ import {
 } from "./useChatComposer";
 
 import { createChatStorageFixture } from "./chatStorageFixture";
+import * as ui from "@/ui";
 
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
@@ -222,6 +223,42 @@ const accepted: ChatInputMutationResult = {
     diagnostic: null,
   },
 };
+
+it("exposes Pending Work read failure and recovers without replaying input or losing draft", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getPromptHistory").mockResolvedValue([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "unsent", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const read = vi
+    .spyOn(services.api.chat, "listPendingWork")
+    .mockRejectedValueOnce(new Error("unavailable"))
+    .mockResolvedValue({ items: [] });
+  const send = vi.spyOn(services.api.chat, "steer");
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(read).toHaveBeenCalledOnce();
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  expect(notice).not.toHaveBeenCalled();
+  expect(result.current.pending.query.isError).toBe(true);
+  act(() => {
+    result.current.pending.refresh();
+  });
+  await waitFor(() => {
+    expect(result.current.pending.query.isSuccess).toBe(true);
+  });
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(result.current.text).toBe("unsent");
+  expect(send).not.toHaveBeenCalled();
+  notice.mockRestore();
+});
 
 it.each([false, true])(
   "retains the protected draft after sending recalled text (edited: %s)",
