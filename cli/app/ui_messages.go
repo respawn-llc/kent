@@ -197,18 +197,10 @@ type runtimeReconnectWarningMsg struct {
 
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
-	req                      runtimeMainViewRefreshRequest
 	metadataBaselineRevision *uint64
 	view                     *runtimepb.MainView
 	err                      error
 }
-
-type runtimeMainViewRefreshCause string
-
-const (
-	runtimeMainViewRefreshCauseWorktreeMutation runtimeMainViewRefreshCause = "worktree_mutation"
-	runtimeMainViewRefreshCauseManual           runtimeMainViewRefreshCause = "manual"
-)
 
 type detailTranscriptLoadMsg struct {
 	requestID uuid.UUID

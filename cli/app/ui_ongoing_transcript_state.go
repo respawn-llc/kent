@@ -211,7 +211,7 @@ func (m *uiModel) matchesMissingPromptRecoveryScope(scope missingPromptRecoveryS
 func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMergeResult) tea.Cmd {
 	switch admission.decision {
 	case runtimeTupleRefresh:
-		return m.startRuntimeMainViewRefreshRequest(runtimeReadModelResetMainViewRefreshRequest()).cmd
+		return m.startRuntimeMainViewRefresh()
 	}
 	if !admission.project {
 		return nil
@@ -234,7 +234,7 @@ func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMe
 	if m.hasPendingInterrupt() {
 		cmd = m.acknowledgePendingInterrupt()
 	}
-	return tea.Batch(cmd, m.releaseDeferredRuntimeSyncs())
+	return tea.Batch(cmd, m.drainPendingRuntimeMainViewRefresh())
 }
 
 func (m *uiModel) applyTranscriptStepState(state *transcriptpb.StepState) {

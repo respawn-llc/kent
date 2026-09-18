@@ -520,8 +520,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			}
 		}
 		if merge.decision == runtimeTupleRefresh {
-			decision := m.startRuntimeMainViewRefreshRequest(runtimeReadModelResetMainViewRefreshRequest())
-			return tea.Batch(followUpCmd, decision.cmd)
+			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh())
 		}
 		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
