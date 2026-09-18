@@ -95,7 +95,7 @@ function ChatDestinationShell({
   const { push } = useStatusController();
   const target = destination.target?.kind === "session" ? destination.target : null;
   const executionTarget = mainView.kind === "session" ? (mainView.data?.executionTarget ?? null) : null;
-  const worktrees = useWorktreeList(target?.sessionID ?? null, executionTarget);
+  const worktrees = useWorktreeList(target?.sessionID ?? null, executionTarget, "chat-label");
   const newGoal = destination.goalState;
   const shownGoal =
     target !== null

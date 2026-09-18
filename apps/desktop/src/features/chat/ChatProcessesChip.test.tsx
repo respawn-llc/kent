@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ChatProcessesChip } from "./ChatProcessesChip";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
 import { SidebarRootContext, SidebarRootOwner } from "@/app-facade";
@@ -10,12 +10,14 @@ it("reveals only after sustained active processes and hides at zero without poll
   try {
     const services = createTestServices([]);
     const list = vi.spyOn(services.api, "listProcesses");
-    const sidebar = createTestSidebarController();
+    const open = vi.fn();
+    const sidebar = createTestSidebarController(open);
+    const selected = { kind: "session" as const, ...target };
     const renderChip = (count: number) => (
       <TestAppProviders services={services}>
         <SidebarRootContext.Provider value={sidebar}>
           <SidebarRootOwner>
-            <ChatProcessesChip target={target} count={count} />
+            <ChatProcessesChip target={selected} count={count} />
           </SidebarRootOwner>
         </SidebarRootContext.Provider>
       </TestAppProviders>
@@ -27,6 +29,8 @@ it("reveals only after sustained active processes and hides at zero without poll
     view.rerender(renderChip(3));
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(screen.getByRole("button")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button"));
+    expect(open).toHaveBeenCalledExactlyOnceWith({ kind: "processes", ...target });
     view.rerender(renderChip(0));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     view.rerender(renderChip(1));

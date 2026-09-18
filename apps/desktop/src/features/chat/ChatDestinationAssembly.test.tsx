@@ -2,10 +2,20 @@ import { createChatStorageFixture } from "./chatStorageFixture";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
+import { createTestSidebarNavigator } from "@/test-support/sidebar";
+import { WorktreeBrowser } from "./WorktreeBrowser";
 
 import { parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
-import { deferred, hydration, target as sessionTarget, transcriptPage } from "@/test-support/chat-runtime";
+import {
+  changedIdentity,
+  deferred,
+  hydration,
+  target as sessionTarget,
+  transcriptPage,
+} from "@/test-support/chat-runtime";
 import { question, approval } from "@/test-support/chat-prompts";
 import { approvalDecisionLabel } from "@/shared/prompt-presentation";
 import { row } from "@/test-support/transcript-window";
@@ -20,6 +30,100 @@ import {
 } from "@/test-support/chat-destination";
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
+
+function ContextualWorktrees() {
+  const [open, setOpen] = useState(false);
+  const [navigator] = useState(() => createTestSidebarNavigator());
+  return (
+    <>
+      <button
+        onClick={() => {
+          setOpen(!open);
+        }}
+      >
+        Toggle contextual Worktrees
+      </button>
+      {open && (
+        <SidebarHeaderActionProvider>
+          <SidebarHeaderActionSlot />
+          <WorktreeBrowser
+            sessionID={sessionTarget.sessionID}
+            navigator={navigator}
+            onCreate={vi.fn()}
+            onSwitch={vi.fn()}
+            refreshOpenWorktreeList={vi.fn()}
+          />
+        </SidebarHeaderActionProvider>
+      )}
+    </>
+  );
+}
+
+it("keeps transcript and composer usable through a sidebar-owned Worktree refresh failure", async () => {
+  const view = sessionWithPrompts(undefined, { kind: "session", ...sessionTarget }, <ContextualWorktrees />);
+  const list = vi.spyOn(view.services.api, "listWorktrees");
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("textbox"), "retained input");
+  await waitFor(() => {
+    expect(view.client.isFetching()).toBe(0);
+  });
+  await act(async () =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [row(1)] },
+      },
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
+  await waitFor(() => {
+    expect(view.client.isFetching()).toBe(0);
+  });
+  list.mockRejectedValueOnce(new Error("sidebar read unavailable"));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
+  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  expect(screen.getByRole("textbox")).toHaveValue("retained input");
+  expect(screen.getByText("Message 1")).toBeInTheDocument();
+  const calls = list.mock.calls.length;
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await waitFor(() => expect(screen.queryByTestId("error-state")).not.toBeInTheDocument());
+  expect(list).toHaveBeenCalledTimes(calls + 1);
+  list.mockRejectedValueOnce(new Error("sidebar failed again"));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
+  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
+  expect(screen.getByRole("textbox")).toHaveValue("retained input");
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+});
+
+it("keeps a failed Chat Worktree-label read owned by Chat through targeted Retry", async () => {
+  const view = sessionWithPrompts();
+  const list = vi.spyOn(view.services.api, "listWorktrees");
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("textbox"), "preserved label draft");
+  await waitFor(() => {
+    expect(view.client.isFetching()).toBe(0);
+  });
+  list.mockRejectedValueOnce(new Error("label read unavailable"));
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), SessionIdentity: changedIdentity() },
+    });
+  });
+  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  const reads = list.mock.calls.length;
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  expect(await screen.findByRole("textbox")).toHaveValue("preserved label draft");
+  expect(list).toHaveBeenCalledTimes(reads + 1);
+  expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
+  expect(view.settings).toHaveBeenCalledOnce();
+});
+
 it("keeps the opening editor usable and delays its one control indicator", async () => {
   vi.useFakeTimers();
   try {

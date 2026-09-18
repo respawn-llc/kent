@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -73,7 +74,12 @@ const navigation = {
   openTask: vi.fn<(taskID: string) => void>(),
   openParentSession: vi.fn<(sessionID: string) => void | Promise<void>>(),
 };
-function renderDestination(services: TestAppServices, client: QueryClient, opening: ChatDestinationOpening) {
+function renderDestination(
+  services: TestAppServices,
+  client: QueryClient,
+  opening: ChatDestinationOpening,
+  contextualContent?: ReactNode,
+) {
   const root = createRootRoute();
   const session = createRoute({
     getParentRoute: () => root,
@@ -88,6 +94,7 @@ function renderDestination(services: TestAppServices, client: QueryClient, openi
             <SidebarRootOwner>
               <ChatPromptPresenceProvider>
                 <ChatDestination opening={opening} navigation={navigation} />
+                {contextualContent}
               </ChatPromptPresenceProvider>
             </SidebarRootOwner>
           </SidebarShellContext.Provider>
@@ -101,6 +108,7 @@ function renderDestination(services: TestAppServices, client: QueryClient, openi
 function sessionWithPrompts(
   configure?: (services: TestAppServices) => void,
   selected: ChatDestinationOpening = { kind: "session", ...sessionTarget },
+  contextualContent?: ReactNode,
 ) {
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
   const choice = catalog.catalog.choices[0];
@@ -136,7 +144,7 @@ function sessionWithPrompts(
   const answer = vi.spyOn(services.api.chat, "answerPromptBatch").mockReturnValue(response.promise);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   configure?.(services);
-  const view = renderDestination(services, client, selected);
+  const view = renderDestination(services, client, selected, contextualContent);
   return { ...view, services, handlers, settings, pending, answer, client, response };
 }
 

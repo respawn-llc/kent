@@ -17,9 +17,11 @@ function ActiveProcessesChip({ target, count }: Readonly<{ target: ChatSessionTa
       size="default"
       onClick={(event) => {
         const origin = event.currentTarget;
-        void roots.open({ kind: "processes", ...target }).lifecycle.then((outcome) => {
-          if (outcome === "closed" && origin.isConnected) origin.focus();
-        });
+        void roots
+          .open({ kind: "processes", projectID: target.projectID, sessionID: target.sessionID })
+          .lifecycle.then((outcome) => {
+            if (outcome === "closed" && origin.isConnected) origin.focus();
+          });
       }}
     >
       {t("processes.activeCount", { count })}

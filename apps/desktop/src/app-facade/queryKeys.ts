@@ -9,6 +9,7 @@ import {
 } from "@/api";
 
 const attentionKey = ["attention"] as const;
+export type WorktreeListReadOwner = "sidebar" | "chat-label";
 
 function boardFilterKey(filter: BoardFilterInput): readonly string[] {
   const canonical = canonicalBoardFilter(filter);
@@ -187,7 +188,8 @@ export const queryKeys = {
   pendingAsks: (sessionID: string | null) => ["pending-asks", sessionID],
   processes: (projectID: string, sessionID: string) => ["processes", projectID, sessionID],
   worktreeStatus: (sessionID: string) => ["worktree", worktreeFact(sessionID), "status"] as const,
-  worktreeList: (sessionID: string) => ["worktree", worktreeFact(sessionID), "list"] as const,
+  worktreeList: (sessionID: string, owner: WorktreeListReadOwner = "sidebar") =>
+    ["worktree", worktreeFact(sessionID), "list", owner] as const,
   worktreeCreateTargetResolution: (sessionID: string, target: string) =>
     worktreeOperationKey(sessionID, "create-target-resolution", target, true),
   worktreeSelectorResolution: (sessionID: string, selector: string) =>
