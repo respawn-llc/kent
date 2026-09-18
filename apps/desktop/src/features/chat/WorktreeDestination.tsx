@@ -13,7 +13,6 @@ import {
 } from "@/app-facade";
 import { createWorktreeActions, useWorktreeActions } from "./WorktreeActions";
 import { WorktreeBrowser } from "./WorktreeBrowser";
-import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 import { WorktreeCreateForm } from "./WorktreeCreateForm";
 
 export function WorktreeDestination({
@@ -59,13 +58,7 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
       sessionID={destination.sessionID}
       navigator={navigator}
       switchPending={switching}
-      renderDelete={(operation) => (
-        <WorktreeDeleteButton
-          sessionID={destination.sessionID}
-          selector={operation.selector}
-          refreshOpenWorktreeList={model.refreshOpenWorktreeList}
-        />
-      )}
+      refreshOpenWorktreeList={model.refreshOpenWorktreeList}
       onSwitch={actions.switchWorktree}
       onCreate={() => {
         navigator.replace({ ...destination, page: "create" });

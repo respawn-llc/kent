@@ -365,7 +365,7 @@
 - The sidebar shows the Goal status in one compact colored metadata island and a small secondary line `Set at <date and time> (<period> ago)` derived from the server's Goal creation timestamp. It omits Goal ID and updated time.
 - Goal status uses a primary-colored circle-dot icon and label for Active, a warning-colored pause-in-circle icon and label for Paused, and a success-colored checkmark icon and label for Complete.
 - The relative period shows `0 min` below one minute, `N min` below one hour, `HhMm` below one day, and `DdHhMm` from one day onward. It omits zero-value units, keeps days unbounded, and refreshes once per minute.
-- If an already-hydrated Goal observation fails, the mounted destination closes that observation, replaces the page with compact Loading and an explicit Retry action, retains its destination-owned draft, and becomes idle. It does not automatically replace or retry the observation, and it does not show the previous Goal page while waiting for explicit Retry. Retry starts a fresh destination observation with sequence-1 hydration; it does not depend on transcript recovery or replay a prior result.
+- If an already-hydrated Goal observation fails, the mounted destination must close that observation, replace its own page with Error and an explicit Retry action, retain its destination-owned draft, and become idle. It must not replace Chat, automatically replace or retry the observation, or show the previous Goal page while waiting for explicit Retry. Retry starts a fresh destination observation with sequence-1 hydration; it does not depend on transcript recovery or replay a prior result.
 - The under-composer Goal affordance reads only the current Chat projection. Destination hydration, updates, unresolved or accepted optimism, mutation responses, close, and reopen never update that affordance directly.
 - Goal objective drafting copies Task Description reconciliation and destination lifetime. A clean draft follows that destination's Goal observation. A dirty draft remains unchanged while the destination stays alive. Save submits the draft, and the Goal subscription remains the saved-state authority. Closing or navigating away from the sidebar or relaunching Desktop discards an unsaved Goal draft; Desktop adds no server-owned Goal-editor draft.
 - Workflow-controlled Sessions use the same Goal affordance and sidebar as every other Session. Goal mutation admission follows the retained-Workflow rule in [Core Runtime Tools](core-runtime-tools.md).
@@ -424,7 +424,7 @@
 - The sidebar header has a primary icon-only `+` action for creating a worktree.
 - The sidebar header has a secondary icon-only Refresh action beside `+`.
 - Opening the Worktree sidebar performs one server-owned list read. The response may race with Worktree mutations or out-of-band Git changes. Initial loading uses the standard compact Loading state, and failure uses the matching compact Error state with Retry.
-- During manual or automatic list refresh, Desktop must retain the previous rows and show pending feedback on Refresh. If the read fails, Desktop must retain those rows and show compact Error with Retry. A successful read must replace the list in server order.
+- During manual or automatic list refresh, Desktop must retain the previous rows and show pending feedback on Refresh. If the read fails, Desktop must retain those rows internally and present the Worktrees page's Error state with Retry. A successful read must replace the list in server order.
 - Successful Worktree creation, switching, and deletion refresh the list. Manual Refresh discovers out-of-band Git topology changes.
 - Desktop adds no Worktree-list polling loop or timer-based refresh.
 - Desktop does not reconstruct, retain, or retry a pending Worktree target change that the server lost during shutdown or restart.
@@ -466,8 +466,8 @@
 - A Missing row places a `Missing` error-colored chip after its title.
 - Every deletable row has an icon-only trash action. Activating it opens the delete popup in a loading state and requests an authoritative typed deletion preview for that target.
 - The deletion preview reports Clean, Dirty with the modified-or-untracked file count, or Unknown with an authoritative diagnostic.
-- If the deletion preview request fails, the popup stays open and replaces loading with the authoritative error in error-colored plain text.
-- A preview-request failure must offer Close and Retry for that preview read, without a deletion action or Sonner.
+- If the deletion preview request fails, the Worktrees page must show Error with Retry for that read and preserve the popup context. The popup must not render a local server error or offer deletion without a successful preview.
+- The Worktrees page must own deletion-preview and deletion behavior. The popup must only present the supplied state and controls.
 - Closing and reopening the delete popup starts a fresh preview request.
 - A Missing target previews as Clean because deleting it preserves any leftover recorded directory.
 - The popup shows a Dirty or Unknown warning before its action items. Worktree List and Worktree Status remain lightweight and do not add dirty state.
@@ -478,13 +478,13 @@
 - Confirming after a Dirty or Unknown preview authorizes force folder removal in the same click. Confirming after a Clean preview does not authorize force folder removal.
 - Deletion rechecks current state. The preview does not reserve the target, lock its state, or guarantee later deletion.
 - If a Clean preview races with the target becoming Dirty or Unknown, the server rejects that deletion. Desktop must not automatically refresh the preview or infer permission for force removal. Closing and reopening the popup obtains an independent preview; force removal still requires informed confirmation of Dirty or Unknown state.
-- If deletion fails before returning Completed or Scheduled for another reason, the popup stays open and shows the authoritative diagnostic in error-colored plain text.
+- If deletion fails before returning Completed or Scheduled, the popup must stay open and Desktop must show the authoritative diagnostic through Sonner, including precondition rejections.
 - After an immediate deletion failure, the confirmation actions become available again. Repeating Confirm is the retry after the operator addresses the failure.
-- Immediate deletion failure shows no separate Retry action and no Sonner while the popup remains open.
+- Immediate deletion failure must show no separate Retry action or inline error.
 - The delete popup remains dismissible while a Delete request is pending.
 - Dismissing the popup does not cancel the Delete request.
 - If a Delete request fails after its popup's observation lifetime ends, Desktop must show the authoritative diagnostic through Sonner and must not reopen the popup.
-- Popup dismissal must release observation through the ordinary destination lifecycle. The popup must retain inline failure ownership until that disposal completes.
+- Popup dismissal must release observation through the ordinary destination lifecycle. Failure notification must not depend on whether the popup remains open.
 - A clean-to-dirty rejection received after observation disposal must also use Sonner. Reopening the delete flow starts a new preview.
 - Delete copies the TUI's two typed outcomes. The delete popup shows its ordinary request-scoped loading state only until the server returns Completed or Scheduled.
 - A Completed result closes the popup and refreshes the list.
@@ -505,27 +505,25 @@
 - Changing `Branch or ref` clears its prior classification and related resolver error. Desktop discards stale responses.
 - A plain-text classification line sits beneath the `Branch or ref` label. While a nonempty value is resolving, the line shows only a spinner with no loading copy.
 - Successful resolution replaces the spinner with bold `New branch`, `Existing branch`, or `Detached ref` text. Desktop uses no chip, badge, or card for this classification.
-- Resolution failure replaces the spinner or classification with the authoritative diagnostic in error-colored plain text on the same line. Desktop preserves the field value and shows no Sonner for this failure.
+- A target-resolution or branch-suggestion read failure must use the Create page's Error state with Retry, preserving entered fields. It must not show a field-local server-read error or Sonner.
 - Submitting a nonempty value before its latest resolution finishes waits for that resolution and then creates only if it succeeds. Editing the field again cancels that pending submit intent.
 - Submitting an empty value sends no resolution or creation request and shows the inline validation error `Branch or ref is required`.
 - `Base ref` defaults to `HEAD` and is shown and enabled only when the target resolves as a new branch.
 - Before creating a new branch, the server must resolve `Base ref` once to an immutable commit. The server must use that commit for creation.
 - Blank, invalid, and unresolved Base refs must be owned by the `Base ref` field.
-- A failure after successful Base-ref resolution must be owned by the creation form, including a race in which the resolved commit disappears before creation.
-- Desktop must use typed ownership to place creation failures. Desktop must never inspect diagnostic text to choose between the `Base ref` field and the creation form.
-- Every Base-ref validation or operational error appears beneath the `Base ref` field in error-colored plain text.
-- Desktop uses typed error ownership to distinguish a Base-ref error from another creation failure. It never parses diagnostic text to choose error placement.
+- Typed Base-ref validation for invalid, unresolved, or non-commit references must appear beneath the `Base ref` field in error-colored plain text.
+- Operational creation failures must use Sonner, including a race in which the resolved commit disappears before creation.
+- Desktop must use typed error ownership to distinguish Base-ref validation from operational failure. It must never parse diagnostic text to choose error placement.
 - An empty Base ref sends no creation request and shows `Base ref is required`.
 - The creation state has no custom filesystem-path field. Kent uses the configured worktree base directory.
 - The primary creation action is `Create`. Back returns to the Worktree list without creating anything.
 - Leaving the creation state must discard its draft. Opening creation again must initialize Branch or ref from the sanitized Session title and Base ref from `HEAD`. Creation draft state must remain local to the destination without persistence.
 - While creation and optional setup run, the creation child state shows one simple spinner for the complete operation.
 - Desktop does not expose setup phases, phase labels, percentage progress, or a progress bar.
-- If creation fails before a worktree exists, Desktop must stop the spinner. Desktop must preserve every entered value. Desktop must show the authoritative diagnostic inline at its typed owner.
+- If creation fails before a worktree exists, Desktop must stop the spinner and preserve every entered value. Only typed field validation may appear inline; operational failure must use Sonner.
 - If optional setup fails, Desktop returns immediately to the refreshed Worktree list and shows the authoritative diagnostic through Sonner.
 - If creation fails before Kent retains a worktree, Desktop keeps the creation state open with every entered value preserved.
-- A pre-retention creation failure not owned by one field shows the authoritative diagnostic as error-colored form-level plain text below the fields. It shows no Sonner.
-- If the creation form has closed before a pre-retention failure arrives, Desktop must not present that failure or reopen the form. This does not change automatic Switch or setup, Switch, and Delete failure notifications after dismissal.
+- If the creation page has closed before a failure arrives, Desktop should show Sonner without reopening the page, including for field-validation rejections whose field is no longer visible. Notification delivery is best-effort during the navigation lifecycle window; Desktop need not retain or coordinate the closed page to guarantee delivery. This does not change automatic Switch or setup, Switch, and Delete failure notifications after dismissal.
 - The Worktree sidebar remains dismissible while creation and optional setup run.
 - Dismissing the Worktree sidebar does not cancel the submitted creation operation. The operation continues without its spinner after the destination closes.
 - Reopening Worktree while that creation operation remains in flight opens the ordinary list and performs its ordinary server-owned read.
@@ -596,6 +594,12 @@
 
 ## Failure And Recovery
 
+- Send must remain icon-only. It must not show an ordinary enabled-action tooltip or an error-diagnostic tooltip. Disabled-state tooltips must remain.
+- Each page must own its server-read failures and show its Error state with Retry. A sidebar destination is an independent page; its failures must not replace Chat or another page. Pages must not signal errors outside themselves through callbacks, navigation events, or event buses.
+- Chat Settings, saved draft, Pending Work, and under-composer Worktree-label read failures must use whole-Chat Error with Retry. This includes failed refreshes with retained data. Workspace-selector initial and refresh failures must use Chat's Error state; virtualized Workspace pagination failures must retain their boundary Retry.
+- Widget-local server-error presentations must not be added. Virtualized pagination failures must use the list's small boundary Retry control. Transcript hydration and observation retain their transcript-local recovery behavior below.
+- Failed server-changing actions must use Sonner without inline, popup, or form-level server-error presentation, except the typed field validation specified in Worktree creation. Validation performed before a request must remain at its field or control.
+- Reads performed within a write command must follow that command's write-error handling. A command deletion-preview failure must use Sonner and must not replace Chat.
 - Unavailable or denied native notification permission must not produce a warning toast. Desktop must keep attention notifications available inside the app.
 - Chat must follow the independent-operation and local-failure contract in [Desktop GUI](desktop-gui.md#authority-connection-and-shared-behavior). Connection loss must not disable unrelated actions or trigger owner reads or replacement observations. Composer and form text must remain present.
 - Settings reads and mutations apply complete results as delivered without a freshness barrier, so a later-delivered read may temporarily replace a newer mutation result.
@@ -610,7 +614,7 @@
 - When opening reports that the Session is unavailable, Chat must use the generic whole-Chat Error state without issuing a catalog repair read.
 - A failed Session Main View read uses the full-page Error state. Chrome Back remains available.
 - Initial Retry repeats only its failed load and adds no target-repair behavior.
-- A failed refresh after Chat is already hydrated must preserve the last server-owned visible projections and surface the failure through the owning operation's Error state with Retry. Desktop must never fabricate empty state.
+- A failed refresh after a page is hydrated must retain its last server-owned projections and local input while presenting that page's Error state with Retry. Retry must repeat only the failed read, preserve the initiating form or popup context, and must not replay a mutation. Desktop must never fabricate empty state.
 - Older/newer transcript page failure affects only that boundary row. Loaded content remains usable and Retry repeats the same opaque cursor request.
 - A failed Session mutation keeps its initiating text, draft, Pending Work item, picker, Goal, Worktree, or settings state according to the owning operation contract and uses the shared status-notice/Sonner owner. Desktop creates no optimistic transcript fallback row.
 - Every mutation control shows its proper request-scoped loading state while its request is pending.

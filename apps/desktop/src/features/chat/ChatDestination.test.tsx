@@ -1,5 +1,13 @@
 import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterContextProvider,
+} from "@tanstack/react-router";
 import { RegistryProvider } from "@effect/atom-react";
 import type { ReactNode } from "react";
 
@@ -11,9 +19,17 @@ import {
 } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
-import { readBrowserStorage, writeBrowserStorage, SidebarRootContext, SidebarRootOwner } from "@/app-facade";
+import {
+  queryKeys,
+  readBrowserStorage,
+  writeBrowserStorage,
+  SidebarRootContext,
+  SidebarRootOwner,
+} from "@/app-facade";
 import { createTestSidebarController } from "@/test-support/sidebar";
 import { useChatDestination } from "./useChatDestination";
+import { ChatDestination } from "./ChatDestination";
+import { appI18n } from "@/i18n";
 import type { ComposerCommand } from "./composerCommands";
 
 const opening = {
@@ -92,6 +108,124 @@ function setup(commands: readonly ComposerCommand[] = []) {
   });
   return { ...view, services, draft, read, observe, steer, queue, goal, compact };
 }
+
+it.each(["settings", "workspace"] as const)(
+  "replaces mounted Chat on cached %s failure and restores its unsent input after Retry",
+  async (source) => {
+    const services = createTestServices([]);
+    const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalog);
+    const workspaces = vi.spyOn(services.api, "listWorkspaces").mockResolvedValue({
+      projectID: opening.projectID,
+      offset: 0,
+      workspaces: [opening.workspace],
+      nextOffset: null,
+    });
+    const read = source === "settings" ? settings : workspaces;
+    const send = vi.spyOn(services.api.chat, "steer");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({ history: createMemoryHistory(), routeTree: createRootRoute() });
+    render(
+      <RouterContextProvider router={router}>
+        <TestAppProviders services={services} queryClient={client}>
+          <SidebarRootContext.Provider value={createTestSidebarController()}>
+            <SidebarRootOwner>
+              <ChatDestination opening={opening} navigation={navigation} />
+            </SidebarRootOwner>
+          </SidebarRootContext.Provider>
+        </TestAppProviders>
+      </RouterContextProvider>,
+    );
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox"), "unsent input");
+    if (source === "workspace") {
+      await user.click(screen.getByRole("button", { name: opening.workspace.name }));
+      await waitFor(() => {
+        expect(workspaces).toHaveBeenCalledOnce();
+      });
+    }
+    read.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      await client.refetchQueries({
+        queryKey:
+          source === "settings" ? ["chat-settings"] : queryKeys.projectWorkspaceCatalog(opening.projectID),
+      });
+    });
+    expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+    expect(await screen.findByDisplayValue("unsent input")).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(send).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps Workspace opening failure owned by Chat and retries with selection and input retained", async () => {
+  const view = setup();
+  const read = vi
+    .spyOn(view.services.api, "listWorkspaces")
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue({
+      projectID: opening.projectID,
+      offset: 0,
+      workspaces: [opening.workspace],
+      nextOffset: null,
+    });
+  expect(read).not.toHaveBeenCalled();
+  act(() => {
+    view.result.current.composer.edit("keep");
+    view.result.current.setWorkspaceOpen(true);
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaceCatalog.isError).toBe(true);
+  });
+  await act(async () => {
+    await view.result.current.workspaceCatalog.refetch();
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaceCatalog.isSuccess).toBe(true);
+  });
+  expect(view.result.current.workspaceOpen).toBe(true);
+  expect(view.result.current.workspace).toEqual(opening.workspace);
+  expect(view.result.current.composer.text).toBe("keep");
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(view.steer).not.toHaveBeenCalled();
+});
+
+it("retains Workspace rows on directional failure and retries only that page", async () => {
+  const view = setup();
+  const first = { projectID: opening.projectID, offset: 0, workspaces: [opening.workspace], nextOffset: 100 };
+  const read = vi
+    .spyOn(view.services.api, "listWorkspaces")
+    .mockResolvedValueOnce(first)
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue({ projectID: opening.projectID, offset: 100, workspaces: [], nextOffset: null });
+  act(() => {
+    view.result.current.setWorkspaceOpen(true);
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaceCatalog.isSuccess).toBe(true);
+  });
+  await act(async () => {
+    await view.result.current.workspaceCatalog.fetchNextPage();
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaceCatalog.isFetchNextPageError).toBe(true);
+  });
+  expect(view.result.current.workspaceCatalog.data?.pages).toEqual([first]);
+  await act(async () => {
+    await view.result.current.workspaceCatalog.fetchNextPage();
+  });
+  await waitFor(() => {
+    expect(view.result.current.workspaceCatalog.isSuccess).toBe(true);
+  });
+  expect(read.mock.calls).toEqual([
+    [opening.projectID, 0],
+    [opening.projectID, 100],
+    [opening.projectID, 100],
+  ]);
+  expect(view.steer).not.toHaveBeenCalled();
+});
+
 it("keeps opening, text, settings edits and abandonment entirely client-only", async () => {
   const view = setup();
   await waitFor(() => {
