@@ -38,22 +38,34 @@ it("rejects duplicate and disabled Board Retry without replacing the accepted re
       </TestAppProviders>
     ),
   });
-  await waitFor(() => { expect(result.current.data).toEqual(board); });
+  await waitFor(() => {
+    expect(result.current.data).toEqual(board);
+  });
   act(() => {
     result.current.refetch();
     result.current.refetch();
   });
   expect(read).toHaveBeenCalledTimes(2);
-  await act(async () => { pending.reject(new Error("Refresh failed")); });
-  await waitFor(() => { expect(result.current.isError).toBe(true); });
+  await act(async () => {
+    pending.reject(new Error("Refresh failed"));
+  });
+  await waitFor(() => {
+    expect(result.current.isError).toBe(true);
+  });
   read.mockResolvedValue(board);
-  act(() => { result.current.refetch(); });
-  await waitFor(() => { expect(result.current.isFetching).toBe(false); });
+  act(() => {
+    result.current.refetch();
+  });
+  await waitFor(() => {
+    expect(result.current.isFetching).toBe(false);
+  });
   expect(result.current.isError).toBe(false);
   expect(read).toHaveBeenCalledTimes(3);
   enabled = false;
   rerender();
-  act(() => { result.current.refetch(); });
+  act(() => {
+    result.current.refetch();
+  });
   expect(read).toHaveBeenCalledTimes(3);
 });
 
@@ -86,28 +98,44 @@ it("rejects duplicate and disabled column Retry and permits a later valid retry"
       ),
     },
   );
-  await waitFor(() => { expect(result.current.data?.pages).toEqual([page]); });
+  await waitFor(() => {
+    expect(result.current.data?.pages).toEqual([page]);
+  });
   act(() => {
     result.current.refetch();
     result.current.refetch();
   });
   expect(read).toHaveBeenCalledTimes(2);
-  await act(async () => { pending.reject(new Error("Refresh failed")); });
-  await waitFor(() => { expect(result.current.isError).toBe(true); });
+  await act(async () => {
+    pending.reject(new Error("Refresh failed"));
+  });
+  await waitFor(() => {
+    expect(result.current.isError).toBe(true);
+  });
   queriesEnabled = false;
   rerender({ active: true });
-  act(() => { result.current.refetch(); });
+  act(() => {
+    result.current.refetch();
+  });
   expect(read).toHaveBeenCalledTimes(2);
   queriesEnabled = true;
   rerender({ active: false });
-  act(() => { result.current.refetch(); });
+  act(() => {
+    result.current.refetch();
+  });
   expect(read).toHaveBeenCalledTimes(2);
   read.mockResolvedValue(page);
   rerender({ active: true });
-  await waitFor(() => { expect(result.current.isFetching).toBe(false); });
+  await waitFor(() => {
+    expect(result.current.isFetching).toBe(false);
+  });
   const completedReads = read.mock.calls.length;
-  act(() => { result.current.refetch(); });
-  await waitFor(() => { expect(result.current.isFetching).toBe(false); });
+  act(() => {
+    result.current.refetch();
+  });
+  await waitFor(() => {
+    expect(result.current.isFetching).toBe(false);
+  });
   expect(read).toHaveBeenCalledTimes(completedReads + 1);
   expect(result.current.isError).toBe(false);
 });
@@ -138,18 +166,26 @@ it.each(["next", "previous"] as const)(
         </TestAppProviders>
       ),
     });
-    await waitFor(() => { expect(result.current.data?.pageParams).toEqual([0]); });
+    await waitFor(() => {
+      expect(result.current.data?.pageParams).toEqual([0]);
+    });
     if (direction === "previous") {
       for (const offset of [25, 50, 75]) {
-        act(() => { result.current.fetchNextPage(); });
-        await waitFor(() => { expect(result.current.data?.pageParams.at(-1)).toBe(offset); });
+        act(() => {
+          result.current.fetchNextPage();
+        });
+        await waitFor(() => {
+          expect(result.current.data?.pageParams.at(-1)).toBe(offset);
+        });
       }
     }
     read.mockReturnValueOnce(refresh.promise).mockReturnValueOnce(directional.promise);
     act(() => {
       void client.invalidateQueries();
     });
-    await waitFor(() => { expect(result.current.isFetching).toBe(true); });
+    await waitFor(() => {
+      expect(result.current.isFetching).toBe(true);
+    });
     expect(result.current.isFetchingNextPage).toBe(false);
     expect(result.current.isFetchingPreviousPage).toBe(false);
     const beforePaging = read.mock.calls.length;
@@ -157,7 +193,9 @@ it.each(["next", "previous"] as const)(
       if (direction === "next") result.current.fetchNextPage();
       else result.current.fetchPreviousPage();
     });
-    await waitFor(() => { expect(read).toHaveBeenCalledTimes(beforePaging + 1); });
+    await waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(beforePaging + 1);
+    });
     expect(read.mock.calls.at(-1)?.[0].offset).toBe(direction === "next" ? 25 : 0);
     expect(
       direction === "next" ? result.current.isFetchingNextPage : result.current.isFetchingPreviousPage,
@@ -171,7 +209,9 @@ it.each(["next", "previous"] as const)(
       directional.resolve({ ...page, nextOffset: direction === "next" ? 50 : 25 });
       refresh.resolve(page);
     });
-    await waitFor(() => { expect(result.current.isFetching).toBe(false); });
+    await waitFor(() => {
+      expect(result.current.isFetching).toBe(false);
+    });
     expect(result.current.data?.pageParams).toEqual(direction === "next" ? [0, 25] : [0, 25, 50]);
   },
 );

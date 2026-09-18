@@ -60,13 +60,27 @@ it("keeps deletion admission when its confirmation is closed and reopened", asyn
   const completion = { onDeleted: vi.fn(), onError: vi.fn() };
   function Confirmation({ owner }: { owner: ReturnType<typeof useBoardTaskDeletions> }) {
     const deletion = useBoardTaskDeletion(owner, "a");
-    return <button onClick={() => { deletion.submit(completion); }}>confirm</button>;
+    return (
+      <button
+        onClick={() => {
+          deletion.submit(completion);
+        }}
+      >
+        confirm
+      </button>
+    );
   }
   function Board({ confirmation }: { confirmation: boolean }) {
     const owner = useBoardTaskDeletions();
     return (
       <>
-        <button onClick={() => { owner.submit({ taskID: "b", ...completion }); }}>delete B</button>
+        <button
+          onClick={() => {
+            owner.submit({ taskID: "b", ...completion });
+          }}
+        >
+          delete B
+        </button>
         {confirmation ? <Confirmation owner={owner} /> : null}
       </>
     );
@@ -77,21 +91,27 @@ it("keeps deletion admission when its confirmation is closed and reopened", asyn
     </TestAppProviders>,
   );
   fireEvent.click(screen.getByRole("button", { name: "confirm" }));
-  await waitFor(() => { expect(remove).toHaveBeenCalledOnce(); });
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledOnce();
+  });
   view.rerender(
     <TestAppProviders services={services}>
       <Board confirmation={false} />
     </TestAppProviders>,
   );
   fireEvent.click(screen.getByRole("button", { name: "delete B" }));
-  await waitFor(() => { expect(remove).toHaveBeenCalledTimes(2); });
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
   view.rerender(
     <TestAppProviders services={services}>
       <Board confirmation />
     </TestAppProviders>,
   );
   fireEvent.click(screen.getByRole("button", { name: "confirm" }));
-  await act(async () => { pending.resolve(undefined); });
+  await act(async () => {
+    pending.resolve(undefined);
+  });
   expect(remove.mock.calls).toEqual([["a"], ["b"]]);
   expect(completion.onDeleted).toHaveBeenCalledTimes(2);
 });
