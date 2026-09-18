@@ -299,8 +299,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
 	}).
-		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager).
-		WithPromptHistoryReader(s.safeBundles().Persistence.metadataStore)
+		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager)
 }
 
 func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apicontract.RunPromptService {

@@ -54,13 +54,6 @@ func initialSessionInput(meta session.Meta, transitionInput string) string {
 	return transitionInput
 }
 
-func persistSessionInputDraft(store *session.Store, input string) error {
-	if store == nil {
-		return nil
-	}
-	return store.SetInputDraft(input)
-}
-
 func resolveSessionTransition(_ context.Context, req sessionTransitionResolveRequest) (*sessionlaunchpb.SessionDirective, error) {
 	switch req.Transition.Action {
 	case sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION:

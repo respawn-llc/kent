@@ -75,6 +75,15 @@ func (m *uiModel) reduceNoticeMessage(msg tea.Msg) uiFeatureUpdateResult {
 
 func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
+	case promptHistoryLoadedMsg:
+		m.promptHistoryLoading = false
+		m.observeRuntimeRequestResult(msg.err)
+		if msg.err != nil {
+			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID("prompt history could not be loaded: "+msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
+		}
+		m.loadInitialPromptHistory(msg.prompts, len(msg.prompts))
+		m.promptHistorySelection = nil
+		return handledUIFeatureUpdate(m, nil)
 	case latestFinalAnswerDoneMsg:
 		cmd := m.handleLatestFinalAnswerDone(msg)
 		m.layout().syncViewport()

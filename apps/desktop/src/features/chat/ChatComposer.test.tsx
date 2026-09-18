@@ -1,7 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type {
@@ -72,7 +72,12 @@ function useChatComposer(
   const [model] = useState(() =>
     createChatComposerViewModel({ services, client, t, target, submission, opening: options }),
   );
-  return useComposer({ ...options, model });
+  return {
+    ...useComposer({ ...options, model }),
+    navigateDraft: useAtomSet(model.draft.navigate, { mode: "promise" }),
+    replaceHistory: useAtomSet(model.draft.reindexHistory),
+    draftPair: useAtomValue(model.draft.value),
+  };
 }
 
 function TestAppProviders({
@@ -86,11 +91,129 @@ function TestAppProviders({
   );
 }
 
+function composerWrapper(services: TestAppServices) {
+  return function Wrapper({ children }: Readonly<{ children: ReactNode }>) {
+    return <TestAppProviders services={services}>{children}</TestAppProviders>;
+  };
+}
+
 const target = {
   kind: "session",
   projectID: "project-1",
   sessionID: "session-1",
 } as const;
+
+it.each([
+  ["older", "prompt B"],
+  ["prompt B", "prompt B"],
+])("keeps browsing and draft restoration when replacement adds older prompts: %j", async (...entries) => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  const previous = ["prompt B"];
+  await act(async () => {
+    await result.current.navigateDraft({ direction: -1, entries: previous });
+  });
+  act(() => {
+    result.current.replaceHistory({ kind: "replace", entries, previous });
+  });
+  expect(result.current.draftPair).toEqual({ text: "prompt B", protectedInput: "draft A" });
+  await act(async () => {
+    await result.current.navigateDraft({ direction: 1, entries });
+  });
+  expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
+});
+
+it("keeps the original draft when a recalled prompt is edited and restores it after clearing", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  await act(async () => {
+    await result.current.navigateDraft({ direction: -1, entries: ["prompt B"] });
+  });
+  expect(result.current.text).toBe("prompt B");
+  act(() => {
+    result.current.edit("edited B");
+  });
+  await act(async () => {
+    expect(await result.current.navigateDraft({ direction: -1, entries: ["prompt B"] })).toEqual({
+      kind: "blocked",
+    });
+  });
+  expect(result.current.draftPair).toEqual({ text: "edited B", protectedInput: "draft A" });
+  act(() => {
+    result.current.edit("");
+  });
+  await act(async () => {
+    expect(await result.current.navigateDraft({ direction: 1, entries: ["prompt B"] })).toEqual({
+      kind: "restored",
+      cursor: "start",
+    });
+  });
+  expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
+});
+
+it.each(["", "unsent draft"])("restores the draft after browsing: %j", async (input) => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input, protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  const entries = ["old", "new"];
+  await act(async () => {
+    await result.current.navigateDraft({ direction: -1, entries });
+    await result.current.navigateDraft({ direction: -1, entries });
+  });
+  expect(result.current.text).toBe("old");
+  await act(async () => {
+    await result.current.navigateDraft({ direction: 1, entries });
+    await result.current.navigateDraft({ direction: 1, entries });
+  });
+  expect(result.current.draftPair).toEqual({ text: input, protectedInput: null });
+});
+
+it("reopens both drafts without browsing and saves restoring the protected draft", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "edited B", protectedInput: "draft A" });
+  const save = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  await act(async () => {
+    expect(await result.current.navigateDraft({ direction: 1, entries: ["edited B"] })).toEqual({
+      kind: "blocked",
+    });
+    await result.current.flushDraft();
+  });
+  expect(save).toHaveBeenLastCalledWith(target, "edited B", "draft A");
+  act(() => {
+    result.current.edit("");
+  });
+  await act(async () => {
+    await result.current.navigateDraft({ direction: 1, entries: ["edited B"] });
+    await result.current.flushDraft();
+  });
+  expect(save).toHaveBeenLastCalledWith(target, "draft A", null);
+});
 const accepted: ChatInputMutationResult = {
   sessionID: target.sessionID,
   outcome: {
@@ -100,17 +223,155 @@ const accepted: ChatInputMutationResult = {
   },
 };
 
+it.each([false, true])(
+  "retains the protected draft after sending recalled text (edited: %s)",
+  async (edited) => {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
+    vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+    vi.spyOn(services.api.chat, "steer").mockResolvedValue(accepted);
+    const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
+      wrapper: composerWrapper(services),
+    });
+    await waitFor(() => {
+      expect(result.current.draft.kind).toBe("ready");
+    });
+    await act(async () => {
+      await result.current.navigateDraft({ direction: -1, entries: ["prompt B"] });
+    });
+    act(() => {
+      if (edited) result.current.edit("edited B");
+      result.current.submit("send");
+    });
+    await waitFor(() => {
+      expect(result.current.inputPending).toBe(false);
+    });
+    await act(async () => {
+      await result.current.navigateDraft({ direction: 1, entries: ["prompt B"] });
+    });
+    expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
+  },
+);
+
+it("loads recall independently and appends accepted trimmed input without rereading", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const read = vi.spyOn(services.api.chat, "getPromptHistory").mockResolvedValue(["older", "newer"]);
+  vi.spyOn(services.api.chat, "steer").mockResolvedValue(accepted);
+  const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  await act(async () => {
+    await result.current.navigateHistory(-1);
+  });
+  expect(result.current.text).toBe("newer");
+  act(() => {
+    result.current.edit("  local prompt \n");
+  });
+  act(() => {
+    result.current.submit("send");
+  });
+  await waitFor(() => {
+    expect(result.current.inputPending).toBe(false);
+  });
+  await act(async () => {
+    await result.current.navigateHistory(-1);
+  });
+  expect(result.current.text).toBe("local prompt");
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it("detaches edited recall without a protected draft so the edit can be recalled back", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  vi.spyOn(services.api.chat, "getPromptHistory").mockResolvedValue(["old", "new"]);
+  const { result } = renderHook(() => useChatComposer(target), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  await act(async () => {
+    await result.current.navigateHistory(-1);
+  });
+  act(() => {
+    result.current.edit("edited");
+  });
+  await act(async () => {
+    await result.current.navigateHistory(-1);
+  });
+  expect(result.current.text).toBe("new");
+  await act(async () => {
+    await result.current.navigateHistory(1);
+  });
+  expect(result.current.draftPair).toEqual({ text: "edited", protectedInput: null });
+});
+
+it("recalls only at absolute unmodified collapsed boundaries and places the cursor", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "first\nsecond", protectedInput: null });
+  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  vi.spyOn(services.api.chat, "getPromptHistory").mockResolvedValue(["older\nprompt", "/compact saved"]);
+  function Probe() {
+    const composer = useChatComposer(target);
+    const keyboard = useComposerKeyboard(composer, false, null);
+    return (
+      <textarea
+        data-testid="history-editor"
+        value={composer.text}
+        onChange={(event) => {
+          composer.edit(event.target.value);
+        }}
+        onKeyDown={keyboard.onEditorKeyDown}
+      />
+    );
+  }
+  render(
+    <TestAppProviders services={services}>
+      <Probe />
+    </TestAppProviders>,
+  );
+  const editor = screen.getByTestId<HTMLTextAreaElement>("history-editor");
+  await waitFor(() => expect(editor).toHaveValue("first\nsecond"));
+  editor.setSelectionRange(6, 6);
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  expect(editor).toHaveValue("first\nsecond");
+  editor.setSelectionRange(0, 1);
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  editor.setSelectionRange(0, 0);
+  fireEvent.keyDown(editor, { key: "ArrowUp", ctrlKey: true });
+  expect(editor).toHaveValue("first\nsecond");
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  await waitFor(() => expect(editor).toHaveValue("/compact saved"));
+  expect(editor.selectionStart).toBe(0);
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  await waitFor(() => expect(editor).toHaveValue("older\nprompt"));
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+  fireEvent.keyDown(editor, { key: "ArrowDown" });
+  await waitFor(() => expect(editor).toHaveValue("/compact saved"));
+  expect(editor.selectionStart).toBe(editor.value.length);
+  fireEvent.keyDown(editor, { key: "ArrowDown" });
+  await waitFor(() => expect(editor).toHaveValue("first\nsecond"));
+  expect(editor.selectionStart).toBe(0);
+});
+
 it("dispatches the built-in compact command with its exact guidance", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact \n preserve decisions");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+    input: "/compact \n preserve decisions",
+    protectedInput: null,
+  });
   const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue({
     sessionID: target.sessionID,
     outcome: { kind: "not_accepted", reason: { kind: "too_soon" } },
   });
   const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.canSubmit).toBe(true);
@@ -128,14 +389,15 @@ it("dispatches the built-in compact command with its exact guidance", async () =
 
 it("dispatches independent button compactions without changing the editor draft", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("ordinary draft");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+    input: "ordinary draft",
+    protectedInput: null,
+  });
   const compact = vi
     .spyOn(services.api.chat, "compact")
     .mockImplementation(async () => new Promise(() => undefined));
   const { result } = renderHook(() => useChatComposer(target), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -157,7 +419,10 @@ it("dispatches independent button compactions without changing the editor draft"
 
 it("guards both compact activations against admitted active compaction", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact guidance");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+    input: "/compact guidance",
+    protectedInput: null,
+  });
   const compact = vi.spyOn(services.api.chat, "compact");
   const { result } = renderHook(
     () => ({
@@ -165,9 +430,7 @@ it("guards both compact activations against admitted active compaction", async (
       client: useQueryClient(),
     }),
     {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: composerWrapper(services),
     },
   );
   await waitFor(() => {
@@ -194,15 +457,16 @@ it.each(["active", "disabled", "too_soon"] as const)(
   "preserves each source's draft after a typed %s compaction rejection",
   async (kind) => {
     const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/compact keep decisions");
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+      input: "/compact keep decisions",
+      protectedInput: null,
+    });
     const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue({
       sessionID: target.sessionID,
       outcome: { kind: "not_accepted", reason: { kind } },
     });
     const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: composerWrapper(services),
     });
     await waitFor(() => {
       expect(result.current.canSubmit).toBe(true);
@@ -249,9 +513,7 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
         onDeliveredSession,
       }),
     {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: composerWrapper(services),
     },
   );
   await waitFor(() => {
@@ -286,7 +548,7 @@ it.each([
   { newChat: true, ctrlKey: true, text: "/worktree delete a b" },
 ])("consumes Worktree commands locally: %j", async ({ newChat, ctrlKey, text }) => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const steer = vi.spyOn(services.api.chat, "steer");
   const queue = vi.spyOn(services.api.chat, "queue");
@@ -378,7 +640,7 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
     },
   });
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   const handlers: ChatTranscriptHandler[] = [];
   vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
     handlers.push(handler);
@@ -427,12 +689,10 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
 
 it("persists subsequent Session edits through their ordinary independent request", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("saved");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "saved", protectedInput: null });
   const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -458,7 +718,7 @@ it("persists subsequent Session edits through their ordinary independent request
 
 it("clears on activation and preserves later typing after acceptance", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("submitted");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "submitted", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   let deliver!: (value: ChatInputMutationResult) => void;
   const steer = vi.spyOn(services.api.chat, "steer").mockReturnValue(
@@ -474,9 +734,7 @@ it("clears on activation and preserves later typing after acceptance", async () 
         submission: { kind: "ready" },
       }),
     {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: composerWrapper(services),
     },
   );
   await waitFor(() => {
@@ -501,16 +759,14 @@ it("clears on activation and preserves later typing after acceptance", async () 
 
 it("appends independently rejected Queue inputs after text typed during delivery", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("first\n ");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "first\n ", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const deliveries: ((value: ChatInputMutationResult) => void)[] = [];
   vi.spyOn(services.api.chat, "queue").mockImplementation(
     async () => new Promise((resolve) => deliveries.push(resolve)),
   );
   const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -542,7 +798,7 @@ it("appends independently rejected Queue inputs after text typed during delivery
 
 it("restores a failed request but does not restore an accepted input with a diagnostic", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("input");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "input", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   vi.spyOn(services.api.chat, "steer")
     .mockRejectedValueOnce(new Error("delivery failed"))
@@ -556,9 +812,7 @@ it("restores a failed request but does not restore an accepted input with a diag
       },
     });
   const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -603,9 +857,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
       }),
     {
       initialProps: { submission: { kind: "loading" } },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: composerWrapper(services),
     },
   );
   act(() => {
@@ -650,7 +902,7 @@ it.each(["send", "queue"] as const)(
   "completes a selected prompt command and dispatches it through %s",
   async (intent) => {
     const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/rev");
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "/rev", protectedInput: null });
     vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
     const queue = vi
       .spyOn(services.api.chat, intent === "send" ? "steer" : "queue")
@@ -671,9 +923,7 @@ it.each(["send", "queue"] as const)(
           ],
         }),
       {
-        wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-          <TestAppProviders services={services}>{children}</TestAppProviders>
-        ),
+        wrapper: composerWrapper(services),
       },
     );
     await waitFor(() => {
@@ -696,7 +946,10 @@ it.each([true, false])(
   "dispatches a direct command with Queue support %s without a frontend queue",
   async (supportsQueue) => {
     const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("/hidden\t raw\n ");
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({
+      input: "/hidden\t raw\n ",
+      protectedInput: null,
+    });
     vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
     const send = vi.fn().mockResolvedValue({ kind: "local" });
     const queue = vi.fn().mockResolvedValue({ kind: "local" });
@@ -716,9 +969,7 @@ it.each([true, false])(
           ],
         }),
       {
-        wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-          <TestAppProviders services={services}>{children}</TestAppProviders>
-        ),
+        wrapper: composerWrapper(services),
       },
     );
     await waitFor(() => {
@@ -741,15 +992,15 @@ it("places a late saved draft before typing without losing exact whitespace", as
   const services = createTestServices([]);
   let deliver!: (text: string) => void;
   vi.spyOn(services.api.chat, "getDraft").mockReturnValue(
-    new Promise<string>((resolve) => {
-      deliver = resolve;
+    new Promise<Awaited<ReturnType<typeof services.api.chat.getDraft>>>((resolve) => {
+      deliver = (input) => {
+        resolve({ input, protectedInput: null });
+      };
     }),
   );
   const save = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   act(() => {
     result.current.edit(" new\ntext ");
@@ -767,12 +1018,10 @@ it("places a late saved draft before typing without losing exact whitespace", as
 
 it("restores exact text in either direction and does not add separators for empty input", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -797,7 +1046,7 @@ it("restores exact text in either direction and does not add separators for empt
 
 it("prepends live interrupted messages in event order and restores Discard only after success", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("draft");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items: [] });
   const removal = vi
@@ -808,9 +1057,7 @@ it("prepends live interrupted messages in event order and restores Discard only 
       canonicalInput: "/compact guidance",
     });
   const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -846,7 +1093,7 @@ it("prepends live interrupted messages in event order and restores Discard only 
 
 it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
   const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("draft");
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
   const first = parseCompactionRequestID("79f762c8-0998-402a-bc80-6b42f3e241ed");
   const second = parseCompactionRequestID("99f762c8-0998-402a-bc80-6b42f3e241ed");
   const items = [first, second].map((id) => ({
@@ -864,9 +1111,7 @@ it("keeps repeated compactions distinct and restores only the discarded canonica
     return { kind: "manual_compaction", canonicalInput: "/compact" };
   });
   const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: composerWrapper(services),
   });
   await waitFor(() => {
     expect(result.current.pending.items).toHaveLength(2);

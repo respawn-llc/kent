@@ -90,7 +90,6 @@ type SessionPlan struct {
 	WorktreeReminder                    *session.WorktreeReminderState
 	Continuation                        *session.ContinuationContext
 	Locked                              *session.LockedContract
-	PromptHistory                       []string
 	ModelContractLocked                 bool
 	SkipContinuationAgentRoleValidation bool
 	WorkspaceRoot                       string

@@ -21,7 +21,7 @@ type fixedUIProcessClient struct {
 const uiProcessTestProjectID = "project-1"
 
 func withUIBackgroundManagerForTest(manager *shelltool.Manager) UIOption {
-	return func(m *uiModelConstruction) {
+	return func(m *uiModel) {
 		if manager == nil || m.processClientExplicit {
 			return
 		}

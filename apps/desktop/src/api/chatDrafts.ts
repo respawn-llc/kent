@@ -17,14 +17,19 @@ export function createChatDraftApi(
         method,
         create(method.input, { sessionId: requireChatSessionID(target) }),
       );
-      return requireChatSuccess(method, result).input;
+      const draft = requireChatSuccess(method, result);
+      return { input: draft.input, protectedInput: draft.protectedInput ?? null };
     },
-    async persistDraft(target, input) {
+    async persistDraft(target, input, protectedInput) {
       const method = SessionLifecycleService.method.persistInputDraft;
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requireChatSessionID(target), input }),
+        create(method.input, {
+          sessionId: requireChatSessionID(target),
+          input,
+          protectedInput: protectedInput === undefined ? undefined : { text: protectedInput ?? undefined },
+        }),
       );
       requireChatSuccess(method, result);
     },

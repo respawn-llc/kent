@@ -64,6 +64,7 @@ type uiInputFeatureState struct {
 	mainEditor             tuiinput.Editor
 	mainInputDraftToken    uint64
 	promptHistory          []string
+	promptHistoryLoading   bool
 	promptHistorySelection *int
 	promptHistoryDraft     *tuiinput.EditorSnapshot
 	activity               uiActivity
