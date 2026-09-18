@@ -147,7 +147,6 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
         <ErrorState
           fullPage={false}
           title={t("chatComposer.rejections.prompt_catalog_read")}
-          body={errorMessage(composer.catalog.error)}
           {...(composer.retryCatalog === undefined ? {} : { onRetry: composer.retryCatalog })}
           retryLabel={t("app.retry")}
         />
