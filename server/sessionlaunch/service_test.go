@@ -73,7 +73,7 @@ func (failingAuthStateReader) StoredState(context.Context) (auth.State, error) {
 
 func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -90,10 +90,12 @@ func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *t
 				settings.Subagents = nil
 				return settings
 			}(),
-			Sources: map[string]string{
-				"model":           "file",
-				"openai_base_url": "file",
-				"thinking_level":  "file",
+			Sources: map[string]config.Origin{
+				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+
+				"openai_base_url": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}},
+
+				"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
 			},
 		},
 	}
@@ -123,7 +125,7 @@ func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *t
 
 func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -158,7 +160,7 @@ func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t
 
 func TestPlanLaunchSessionSkipsEffectiveAuthForExplicitProviderCapabilities(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -209,68 +211,6 @@ func (r sessionLaunchBoundaryResolver) ResolveSessionProjectWorkspaceBoundary(co
 
 func (r sessionLaunchBoundaryResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
 	return nil, nil
-}
-
-func TestPlanLaunchSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(config.PersistenceRootEnvName, home)
-	ctx := context.Background()
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	meta, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
-	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	eventLog, err := store.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("materialize event log: %v", err)
-	}
-	eventLogText := "event-log history must not become prompt history"
-	if _, receipt, err := eventLog.AppendRecord(nil, session.LocalEntryRecord{
-		Visibility: session.EntryVisibilityHidden,
-		Role:       "system",
-		Text:       &eventLogText,
-	}); err != nil || !receipt.Committed {
-		t.Fatalf("append event-log entry: receipt=%+v error=%v", receipt, err)
-	}
-	if _, err := meta.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
-		SessionID: store.Meta().SessionID,
-		Text:      "db-history",
-	}); err != nil {
-		t.Fatalf("record metadata prompt history: %v", err)
-	}
-	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
-	}).WithPromptHistoryReader(meta)
-
-	resp, err := service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if !reflect.DeepEqual(resp.Plan.PromptHistory, []string{"db-history"}) {
-		t.Fatalf("prompt history = %+v, want metadata only", resp.Plan.PromptHistory)
-	}
 }
 
 func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
@@ -516,9 +456,8 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 	workerSettings.ThinkingLevel = "high"
 	stale.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			Settings:         workerSettings,
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      workerSettings,
+			AgentCallable: true, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 		},
 	}
 	current := stale
@@ -619,10 +558,9 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	roleSettings.Model = "gpt-5.3-codex-spark"
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"model": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	reloads := 0
@@ -678,13 +616,14 @@ func TestPlanLaunchSessionRejectsInvalidPreparedNamedTargetBeforeCreatingSession
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
 		"invalid": {
 			Settings: roleSettings,
-			Sources: map[string]string{
-				"model":                               "file",
-				"model_context_window":                "file",
-				"context_compaction_threshold_tokens": "file",
+			Sources: map[string]config.Origin{
+				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+
+				"model_context_window": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_context_window"}},
+
+				"context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}},
 			},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			AgentCallable: true,
 		},
 	}
 	containerDir := t.TempDir()
@@ -757,10 +696,9 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 	roleSettings.ThinkingLevel = "high"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := NewService(launch.Planner{
@@ -804,7 +742,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		}
 		cfg.Settings.Workflow.Subagents = workflowEnabled
 		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-			WorkflowSubagentSet: true, WorkflowSubagent: false,
+			WorkflowSubagent: false, Sources: map[string]config.Origin{"workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}},
 		}
 		service := NewService(launch.Planner{
 			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
@@ -843,10 +781,9 @@ func TestPlanLaunchSessionPreservesLockedAgentRoleAndTools(t *testing.T) {
 	persistedSettings.ThinkingLevel = "low"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		persistedRole: {
-			Settings:         persistedSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      persistedSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -892,10 +829,9 @@ func TestPlanLaunchSessionPreparesOmittedSelectedRoleBeforeMaterialization(t *te
 	roleSettings.ThinkingLevel = "high"
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		role: {
-			Settings:         roleSettings,
-			Sources:          map[string]string{"thinking_level": "file"},
-			AgentCallable:    true,
-			AgentCallableSet: true,
+			Settings:      roleSettings,
+			Sources:       map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+			AgentCallable: true,
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -923,8 +859,10 @@ func TestPlanLaunchSessionRejectsOmittedTargetBeforeMaterializingSession(t *test
 	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	cfg.Settings.Model = "claude-sonnet-4.5"
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
-	cfg.Source.Sources["tools.patch"] = "default"
-	cfg.Source.Sources["tools.edit"] = "default"
+	cfg.Source.Sources["tools.patch"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "tools.patch"}}
+
+	cfg.Source.Sources["tools.edit"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "tools.edit"}}
+
 	service := newSessionLaunchTestService(cfg, containerDir)
 
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -948,7 +886,7 @@ func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -990,7 +928,7 @@ func TestPlanLaunchSessionCanProjectDefaultRoleBeforeValidation(t *testing.T) {
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -1065,11 +1003,14 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: workerSettings,
-			Sources: map[string]string{
-				"reviewer.frequency":    "file",
-				"thinking_level":        "file",
-				"priority_request_mode": "file",
-				"tools.ask_question":    "file",
+			Sources: map[string]config.Origin{
+				"reviewer.frequency": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.frequency"}},
+
+				"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+				"priority_request_mode": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "priority_request_mode"}},
+
+				"tools.ask_question": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.ask_question"}},
 			},
 		},
 	}
@@ -1258,7 +1199,7 @@ func TestPlanLaunchSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValid
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -1286,8 +1227,8 @@ func TestPlanLaunchSessionHeadlessSelectedSessionAllowsHumanContinuationOfNonCal
 	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
-			AgentCallableSet: true,
-			AgentCallable:    false,
+
+			AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
@@ -1361,7 +1302,7 @@ func TestPlanLaunchSessionInvalidRoleOverridePrecedesPersistedRoleValidation(t *
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)

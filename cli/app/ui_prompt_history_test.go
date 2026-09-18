@@ -1,12 +1,45 @@
 package app
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
 	"core/cli/tui/ongoing"
+	"core/shared/apicontract"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 )
+
+type loadingPromptHistoryClient struct {
+	apicontract.SessionViewService
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c loadingPromptHistoryClient) GetPromptHistory(context.Context, *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
+	close(c.started)
+	<-c.release
+	return &sessionpb.PromptHistorySuccess{Prompts: []string{"saved prompt"}}, nil
+}
+
+func TestPromptHistoryLoadsWithoutBlockingEditing(t *testing.T) {
+	client := loadingPromptHistoryClient{started: make(chan struct{}), release: make(chan struct{})}
+	m := newProjectedStaticUIModel(WithUISessionID("session"), WithUIStatusConfig(uiStatusConfig{SessionViews: client}))
+	cmd := m.loadPromptHistoryCmd()
+	done := make(chan promptHistoryLoadedMsg, 1)
+	go func() { done <- cmd().(promptHistoryLoadedMsg) }()
+	<-client.started
+	m.replaceMainInputAtEnd("draft")
+	if m.shouldAttemptPromptHistoryNavigation(-1) {
+		t.Fatal("history navigation allowed during loading")
+	}
+	close(client.release)
+	m.Update(<-done)
+	if m.mainEditor.Text() != "draft" || len(m.promptHistory) != 1 || m.promptHistoryLoading {
+		t.Fatalf("loaded history changed input or remained pending")
+	}
+}
 
 func TestLoadPromptHistoryKeepsOnlyNewestContractTailInRelease(t *testing.T) {
 	history := make([]string, 0, serverapi.SessionPromptHistoryMaxEntries+25)
@@ -14,7 +47,8 @@ func TestLoadPromptHistoryKeepsOnlyNewestContractTailInRelease(t *testing.T) {
 		history = append(history, promptHistoryEntry(i))
 	}
 
-	m := newProjectedStaticUIModel(WithUIDebug(false), WithUIPromptHistory(history))
+	m := newProjectedStaticUIModel(WithUIDebug(false))
+	m.Update(promptHistoryLoadedMsg{prompts: history})
 
 	if got, want := len(m.promptHistory), serverapi.SessionPromptHistoryMaxEntries; got != want {
 		t.Fatalf("prompt history length = %d, want %d", got, want)
@@ -27,77 +61,37 @@ func TestLoadPromptHistoryKeepsOnlyNewestContractTailInRelease(t *testing.T) {
 	}
 }
 
-func TestManyPromptHistoryOptionsComposeBeforeRetainingNewestContractTail(t *testing.T) {
-	total := serverapi.SessionPromptHistoryMaxEntries + 50
-	options := make([]UIOption, 0, total+1)
-	options = append(options, WithUIDebug(false))
-	for i := range total {
-		options = append(options, WithUIPromptHistory([]string{promptHistoryEntry(i)}))
-	}
-
-	m := newProjectedStaticUIModel(options...)
-
-	if got, want := len(m.promptHistory), serverapi.SessionPromptHistoryMaxEntries; got != want {
-		t.Fatalf("prompt history length = %d, want %d", got, want)
-	}
-	if got, want := m.promptHistory[0], promptHistoryEntry(50); got != want {
-		t.Fatalf("oldest retained prompt = %q, want %q", got, want)
-	}
-	if got, want := m.promptHistory[len(m.promptHistory)-1], promptHistoryEntry(total-1); got != want {
-		t.Fatalf("newest retained prompt = %q, want %q", got, want)
-	}
-}
-
 func TestLoadPromptHistoryPanicsWithDeveloperDiagnosticWhenServerExceedsContractInDebug(t *testing.T) {
 	history := make([]string, 0, serverapi.SessionPromptHistoryMaxEntries+1)
 	for i := range serverapi.SessionPromptHistoryMaxEntries + 1 {
 		history = append(history, promptHistoryEntry(i))
 	}
 
-	for _, test := range []struct {
-		name    string
-		options []UIOption
-	}{
-		{
-			name: "debug before history",
-			options: []UIOption{
-				WithUIDebug(true),
-				WithUIPromptHistory(history),
-			},
-		},
-		{
-			name: "history before debug",
-			options: []UIOption{
-				WithUIPromptHistory(history),
-				WithUIDebug(true),
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			recovered := capturePanic(func() {
-				_ = newProjectedStaticUIModel(test.options...)
-			})
-			developerErr, ok := recovered.(ongoing.DeveloperError)
-			if !ok {
-				t.Fatalf("panic = %T, want ongoing.DeveloperError", recovered)
-			}
-			if developerErr.Operation != "load_prompt_history" {
-				t.Fatalf("developer-error operation = %q", developerErr.Operation)
-			}
-			if developerErr.Reason == "" {
-				t.Fatal("developer error omitted reason")
-			}
-			if got := developerErr.Facts["actual_count"]; got != serverapi.SessionPromptHistoryMaxEntries+1 {
-				t.Fatalf("actual-count diagnostic = %#v", got)
-			}
-			if got := developerErr.Facts["maximum_count"]; got != serverapi.SessionPromptHistoryMaxEntries {
-				t.Fatalf("maximum-count diagnostic = %#v", got)
-			}
-			if developerErr.Stack == "" {
-				t.Fatal("developer error omitted stack trace")
-			}
+	t.Run("debug", func(t *testing.T) {
+		recovered := capturePanic(func() {
+			m := newProjectedStaticUIModel(WithUIDebug(true))
+			m.Update(promptHistoryLoadedMsg{prompts: history})
 		})
-	}
+		developerErr, ok := recovered.(ongoing.DeveloperError)
+		if !ok {
+			t.Fatalf("panic = %T, want ongoing.DeveloperError", recovered)
+		}
+		if developerErr.Operation != "load_prompt_history" {
+			t.Fatalf("developer-error operation = %q", developerErr.Operation)
+		}
+		if developerErr.Reason == "" {
+			t.Fatal("developer error omitted reason")
+		}
+		if got := developerErr.Facts["actual_count"]; got != serverapi.SessionPromptHistoryMaxEntries+1 {
+			t.Fatalf("actual-count diagnostic = %#v", got)
+		}
+		if got := developerErr.Facts["maximum_count"]; got != serverapi.SessionPromptHistoryMaxEntries {
+			t.Fatalf("maximum-count diagnostic = %#v", got)
+		}
+		if developerErr.Stack == "" {
+			t.Fatal("developer error omitted stack trace")
+		}
+	})
 }
 
 func TestRememberPromptHistoryLocallyDiscardsOldestPastHundred(t *testing.T) {
@@ -105,7 +99,8 @@ func TestRememberPromptHistoryLocallyDiscardsOldestPastHundred(t *testing.T) {
 	for i := range serverapi.SessionPromptHistoryMaxEntries {
 		history = append(history, promptHistoryEntry(i))
 	}
-	m := newProjectedStaticUIModel(WithUIDebug(true), WithUIPromptHistory(history))
+	m := newProjectedStaticUIModel(WithUIDebug(true))
+	m.Update(promptHistoryLoadedMsg{prompts: history})
 
 	if !m.rememberPromptHistoryLocally(promptHistoryEntry(serverapi.SessionPromptHistoryMaxEntries)) {
 		t.Fatal("remember prompt history returned false")
@@ -123,7 +118,8 @@ func TestRememberPromptHistoryLocallyDiscardsOldestPastHundred(t *testing.T) {
 }
 
 func TestPromptHistoryRestoresAnEmptyDraft(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUIPromptHistory([]string{"previous prompt"}))
+	m := newProjectedStaticUIModel()
+	m.Update(promptHistoryLoadedMsg{prompts: []string{"previous prompt"}})
 	testSetMainInputAtRuneCursor(m, "", 0)
 
 	if !m.navigatePromptHistoryUp() {

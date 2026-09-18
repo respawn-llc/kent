@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 
 import type { BoardColumn, SelectedWorkflowBoard } from "@/api";
 import { chromeContentPaddingClassName } from "@/ui";
@@ -7,7 +8,7 @@ import { type BoardColumnQueryDataSnapshot, type BoardColumnQuerySnapshot } from
 import { BoardColumnMotionBoundary } from "./BoardColumnMotionBoundary";
 import { runBoardCardMotionTransition } from "./BoardCardMotionAnimator";
 import { BoardCardMotionContext, type BoardCardMotionContextValue } from "./BoardCardMotionContext";
-import { BoardCardVisibilityContext, BoardCardVisibilityStore } from "./BoardCardVisibilityRegistry";
+import { BoardCardVisibilityContext, createBoardCardVisibility } from "./BoardCardVisibilityRegistry";
 import { KanbanGroup } from "./BoardColumns";
 import {
   boardCardColumnCountSnapshot,
@@ -126,7 +127,9 @@ export function BoardRailMotionController({
   const displayedColumnCountsRef = useRef(displayedColumnCounts);
   const boardColumnCountsRef = useRef(boardColumnCounts);
   const columnElementsRef = useRef<ReadonlyMap<string, HTMLElement>>(new Map());
-  const [cardVisibilityStore] = useState(() => new BoardCardVisibilityStore());
+  const [cardVisibility] = useState(createBoardCardVisibility);
+  const cardVisibilityStore = useAtomValue(cardVisibility.resources);
+  const registerVisibility = useAtomSet(cardVisibility.register, { mode: "value" });
   const phaseRef = useRef<BoardMotionPhase>("idle");
   const followUpPendingRef = useRef(false);
   const attemptIDRef = useRef(0);
@@ -271,9 +274,8 @@ export function BoardRailMotionController({
       clearStaleSnapshotTimer(timeoutRef);
       clearRevealTimers(revealTimeoutsRef);
       staleTimeoutDueRef.current = false;
-      cardVisibilityStore.destroy();
     };
-  }, [cardVisibilityStore]);
+  }, []);
 
   const reportColumnSnapshot = useCallback(
     (columnID: string, snapshot: BoardColumnQuerySnapshot): void => {
@@ -391,9 +393,9 @@ export function BoardRailMotionController({
 
   const registerCard = useCallback(
     (instance: Readonly<{ columnID: string; taskID: string }>, element: HTMLElement | null) => {
-      cardVisibilityStore.register(instance, element);
+      registerVisibility({ instance, element });
     },
-    [cardVisibilityStore],
+    [registerVisibility],
   );
 
   const registerColumn = useCallback((columnID: string, element: HTMLElement | null) => {
@@ -430,7 +432,7 @@ export function BoardRailMotionController({
   }
 
   return (
-    <BoardCardVisibilityContext.Provider value={cardVisibilityStore}>
+    <BoardCardVisibilityContext.Provider value={cardVisibility}>
       <BoardCardMotionContext.Provider value={motionContext}>
         <div
           className={`flex h-full min-h-0 w-max min-w-full gap-[var(--space-2)] ${chromeContentPaddingClassName}`}

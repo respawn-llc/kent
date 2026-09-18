@@ -6,6 +6,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -19,7 +20,7 @@ import (
 func reviewerPromptConfig(path string) Config {
 	return Config{Reviewer: ReviewerConfig{
 		Model:            "gpt-5",
-		SystemPromptFile: path,
+		SystemPromptFile: textutil.Value(path),
 	}}
 }
 
@@ -117,9 +118,15 @@ func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 	t.Setenv("HOME", home)
 	reviewerPromptPath := filepath.Join(home, "reviewer-prompt.md")
 	writeTestFile(t, reviewerPromptPath, "tilde reviewer prompt")
+	configRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(configRoot, "config.toml"), "[reviewer]\nsystem_prompt_file = \"~/reviewer-prompt.md\"\n")
+	app, err := config.Load(dir, dir, config.LoadOptions{ConfigRoot: configRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	store := mustCreateTestSessionAt(t, dir)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), reviewerPromptConfig("~/reviewer-prompt.md"))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Reviewer: ReviewerConfig{Model: "gpt-5", SystemPromptFile: app.Settings.Reviewer.SystemPromptFile}})
 	if got := runReviewerPrompt(t, eng).SystemPrompt; got != "tilde reviewer prompt" {
 		t.Fatalf("reviewer system prompt = %q, want tilde reviewer prompt", got)
 	}

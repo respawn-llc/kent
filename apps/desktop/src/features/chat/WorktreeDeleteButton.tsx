@@ -1,12 +1,11 @@
-import { useAtomValue } from "@effect/atom-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 
-import { hasDeletableWorktreeBranch, WorktreeError } from "@/api";
-import { useAppServices, useStatusController } from "@/app-facade";
+import {
+  hasDeletableWorktreeBranch,
+  type WorktreeDeletePreview,
+  type WorktreeDeleteConfirmationChoice,
+} from "@/api";
 import {
   Button,
   Popover,
@@ -18,24 +17,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/ui";
-import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
-import { worktreeErrorMessage } from "./worktreeErrorMessage";
 import { WorktreeCleanliness } from "./WorktreeCleanliness";
 
 type Props = Readonly<{
-  sessionID: string;
-  selector: string;
-  refreshOpenWorktreeList(sessionID: string): void;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  preview: WorktreeDeletePreview | undefined;
+  pending: boolean;
+  confirm(choice: WorktreeDeleteConfirmationChoice): void;
 }>;
 
 export function WorktreeDeleteButton(props: Props) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => {
-    setOpen(false);
-  }, []);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -53,42 +48,26 @@ export function WorktreeDeleteButton(props: Props) {
           event.stopPropagation();
         }}
       >
-        {open ? <WorktreeDeleteContent {...props} close={close} /> : null}
+        {props.open ? <WorktreeDeleteContent {...props} /> : null}
       </PopoverContent>
     </Popover>
   );
 }
 
-function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): void }>) {
-  const { api } = useAppServices();
-  const client = useQueryClient();
-  const { push } = useStatusController();
+function WorktreeDeleteContent({ preview, pending, confirm, onOpenChange }: Props) {
   const { t } = useTranslation();
-  const [model] = useState(() => createWorktreeDelete({ ...props, client, api, close, push, t }));
-  const { confirm } = useWorktreeDelete(model);
-  const preview = useAtomValue(model.preview);
-  const deletion = useAtomValue(model.deletion);
-  const cleanliness = preview.data?.cleanliness;
-  const inlineError = immediateDeleteError(deletion.error, t);
+  const cleanliness = preview?.cleanliness;
   return (
     <>
-      {preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
-      {preview.isError ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">
-          {worktreeErrorMessage(preview.error, t)}
-        </p>
-      ) : null}
+      {preview === undefined || pending ? <Spinner size="sm" /> : null}
       {cleanliness === undefined ? null : <WorktreeCleanliness value={cleanliness} />}
-      {inlineError !== undefined ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">{inlineError}</p>
-      ) : null}
-      {preview.isSuccess ? (
+      {preview !== undefined ? (
         <TooltipProvider>
-          <Tooltip {...(deletion.isPending ? {} : { open: false })}>
+          <Tooltip {...(pending ? {} : { open: false })}>
             <TooltipTrigger asChild>
               <div className="flex flex-wrap gap-[var(--space-2)]">
                 <Button
-                  disabled={deletion.isPending}
+                  disabled={pending}
                   variant="danger"
                   onClick={() => {
                     confirm("confirm");
@@ -96,9 +75,9 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
                 >
                   {t("chat.worktree.confirm")}
                 </Button>
-                {hasDeletableWorktreeBranch(preview.data) ? (
+                {hasDeletableWorktreeBranch(preview) ? (
                   <Button
-                    disabled={deletion.isPending}
+                    disabled={pending}
                     variant="danger"
                     onClick={() => {
                       confirm("confirm_and_branch");
@@ -113,13 +92,13 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
           </Tooltip>
         </TooltipProvider>
       ) : null}
-      <Button onClick={close}>{t("app.close")}</Button>
+      <Button
+        onClick={() => {
+          onOpenChange(false);
+        }}
+      >
+        {t("app.close")}
+      </Button>
     </>
   );
-}
-
-function immediateDeleteError(error: Error | null, t: TFunction) {
-  if (error === null) return undefined;
-  if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") return undefined;
-  return worktreeErrorMessage(error, t);
 }

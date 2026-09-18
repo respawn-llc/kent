@@ -1,13 +1,10 @@
-import { useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Folder } from "lucide-react";
 import { errorMessage, type WorkspaceCatalogRow } from "@/api";
-import { useAppServices, workspaceCatalogInfiniteQueryOptions } from "@/app-facade";
+import type { useChatDestination } from "./useChatDestination";
 import { projectWorkspaceSelectorProjection } from "@/shared/workspaces";
 import {
   Button,
-  ErrorState,
   InteractiveChip,
   LoadingState,
   Popover,
@@ -23,26 +20,23 @@ import {
 } from "@/ui";
 
 export function ChatWorkspaceChip({
-  projectID,
+  catalog,
+  open,
+  setOpen,
   selected,
   pending,
   loading,
   select,
 }: Readonly<{
-  projectID: string;
+  catalog: ReturnType<typeof useChatDestination>["workspaceCatalog"];
+  open: boolean;
+  setOpen(open: boolean): void;
   selected: WorkspaceCatalogRow;
   pending: boolean;
   loading: boolean;
   select(row: WorkspaceCatalogRow): void;
 }>) {
-  const [open, setOpen] = useState(false);
-  const { api } = useAppServices();
   const { t } = useTranslation();
-  const catalog = useInfiniteQuery({
-    ...workspaceCatalogInfiniteQueryOptions(api, projectID),
-    enabled: open,
-    retry: false,
-  });
   const rows = projectWorkspaceSelectorProjection({
     catalogPages: catalog.data?.pages ?? [],
     initiatingRow: undefined,
@@ -83,15 +77,6 @@ export function ChatWorkspaceChip({
       >
         {catalog.isPending ? (
           <LoadingState title={t("states.loading")} />
-        ) : catalog.isError && catalog.data === undefined ? (
-          <ErrorState
-            title={t("states.error")}
-            body={errorMessage(catalog.error)}
-            onRetry={() => {
-              void catalog.refetch();
-            }}
-            retryLabel={t("app.retry")}
-          />
         ) : (
           <VirtualizedInfiniteList
             items={rows}

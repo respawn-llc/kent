@@ -23,19 +23,18 @@ func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
 			Subagents: map[string]config.SubagentRole{
 				"coder": {
 					Settings: config.Settings{Model: "coder-model"},
-					Sources:  map[string]string{"model": "test"},
+					Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				},
 				"blocked": {
-					AgentCallable:    false,
-					AgentCallableSet: true,
-					Settings:         config.Settings{Model: "blocked-model"},
-					Sources:          map[string]string{"model": "test"},
+					AgentCallable: false,
+
+					Settings: config.Settings{Model: "blocked-model"},
+					Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 				},
 				"workflow_hidden": {
-					Settings:            config.Settings{Model: "workflow-hidden-model"},
-					Sources:             map[string]string{"model": "test"},
-					WorkflowSubagent:    false,
-					WorkflowSubagentSet: true,
+					Settings:         config.Settings{Model: "workflow-hidden-model"},
+					Sources:          map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "workflow_subagent": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}},
+					WorkflowSubagent: false,
 				},
 			},
 		},

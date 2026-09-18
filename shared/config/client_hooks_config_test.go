@@ -12,14 +12,14 @@ import (
 func TestLoadInteractiveClientLifecycleHookIsAbsentByDefault(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 
-	app, client, err := LoadInteractive(workspace, LoadOptions{})
+	app, client, err := LoadInteractive(workspace, workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load interactive config: %v", err)
 	}
 	if command := client.Hooks.LifecycleCommand(); command != nil {
 		t.Fatalf("lifecycle command = %#v, want absent", command)
 	}
-	if got := app.Source.Sources["hooks.client.lifecycle"]; got != "default" {
+	if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "default" {
 		t.Fatalf("lifecycle source = %q, want default", got)
 	}
 	rendered := settingsTOMLWithRenderingOptions(app.Settings, true, nil, nil)
@@ -33,7 +33,7 @@ func TestClientLifecycleHookCannotBeSetByEnvironmentOrRequestOverlay(t *testing.
 	writeConfigTestFile(t, configPath, "[hooks.client]\nlifecycle = [\"notify\", \"fixed\"]\n")
 	t.Setenv("KENT_HOOKS_CLIENT_LIFECYCLE", "replacement")
 
-	app, client, err := LoadInteractive(workspace, LoadOptions{Model: "cli-model"})
+	app, client, err := LoadInteractive(workspace, workspace, LoadOptions{Model: "cli-model"})
 	if err != nil {
 		t.Fatalf("load interactive config: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestLoadInteractiveClientLifecycleHookFromGlobalFilePreservesAndCopiesArgv(
 	_, workspace, configPath := newConfigTestFile(t)
 	writeConfigTestFile(t, configPath, "[hooks.client]\nlifecycle = [\"notify\", \"  fixed arg  \"]\n")
 
-	app, client, err := LoadInteractive(workspace, LoadOptions{})
+	app, client, err := LoadInteractive(workspace, workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load interactive config: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestLoadInteractiveClientLifecycleHookFromGlobalFilePreservesAndCopiesArgv(
 	if got := client.Hooks.LifecycleCommand(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("mutating returned argv changed settings: %#v", got)
 	}
-	if got := app.Source.Sources["hooks.client.lifecycle"]; got != "file" {
+	if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "file" {
 		t.Fatalf("lifecycle source = %q, want file", got)
 	}
 }
@@ -114,22 +114,23 @@ func TestLoadInteractiveSharedSettingsFileIsGlobalOnly(t *testing.T) {
 				}
 			}
 
-			app, client, err := LoadInteractive(workspaceRoot, LoadOptions{})
+			app, client, err := LoadInteractive(workspaceRoot, workspaceRoot, LoadOptions{})
 			if err != nil {
 				t.Fatalf("load interactive config: %v", err)
 			}
 			if got := client.Hooks.LifecycleCommand(); !reflect.DeepEqual(got, []string{"notify"}) {
 				t.Fatalf("lifecycle command = %#v, want global command", got)
 			}
-			if got := app.Source.Sources["hooks.client.lifecycle"]; got != "file" {
+			if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "file" {
 				t.Fatalf("lifecycle source = %q, want global file", got)
 			}
-			if got := app.Settings.SystemPromptFiles; !reflect.DeepEqual(got, []SystemPromptFile{{Path: filepath.Join(home, ConfigDirName, "system.md"), Scope: SystemPromptFileScopeHomeConfig}}) {
+			if got := app.Settings.SystemPromptFile; !reflect.DeepEqual(got, &SystemPromptFile{Path: filepath.Join(home, ConfigDirName, "system.md"), Scope: SystemPromptFileScopeHomeConfig}) {
 				t.Fatalf("system prompt files = %#v, want one global prompt", got)
 			}
-			if app.Source.HomeSettingsPath != homeSettingsPath || app.Source.WorkspaceSettingsPath != workspaceSettingsPath ||
-				!app.Source.HomeSettingsFileExists || !app.Source.WorkspaceSettingsFileExists || app.Source.WorkspaceSettingsLayerEnabled ||
-				app.Source.SettingsPath != homeSettingsPath {
+			global, shared := app.Source.File(FileGlobal), app.Source.File(FileWorkspace)
+			if global == nil || shared == nil || global.Path != homeSettingsPath || shared.Path != workspaceSettingsPath ||
+				!global.Exists || !shared.Exists || shared.Enabled ||
+				app.Source.SettingsPath() == nil || *app.Source.SettingsPath() != homeSettingsPath {
 				t.Fatalf("source report = %+v, want retained paths with global effective settings", app.Source)
 			}
 		})
@@ -153,7 +154,7 @@ func TestLoadInteractiveRejectsClientLifecycleHookInWorkspaceConfig(t *testing.T
 		t.Fatal("global and workspace settings files unexpectedly share one physical file")
 	}
 
-	_, _, err = LoadInteractive(workspace, LoadOptions{})
+	_, _, err = LoadInteractive(workspace, workspace, LoadOptions{})
 	if err == nil {
 		t.Fatal("workspace lifecycle hook succeeded")
 	}
@@ -177,7 +178,7 @@ func TestLoadInteractiveRejectsInvalidClientLifecycleHookArgv(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, workspace, configPath := newConfigTestFile(t)
 			writeConfigTestFile(t, configPath, contents)
-			if _, _, err := LoadInteractive(workspace, LoadOptions{}); err == nil {
+			if _, _, err := LoadInteractive(workspace, workspace, LoadOptions{}); err == nil {
 				t.Fatal("invalid lifecycle argv succeeded")
 			}
 		})

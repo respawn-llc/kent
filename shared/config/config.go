@@ -107,13 +107,11 @@ func (h ClientHooks) LifecycleCommand() []string {
 }
 
 type SubagentRole struct {
-	Settings            Settings
-	Sources             map[string]string
-	Description         string
-	AgentCallable       bool
-	AgentCallableSet    bool
-	WorkflowSubagent    bool
-	WorkflowSubagentSet bool
+	Settings         Settings
+	Sources          map[string]Origin
+	Description      string
+	AgentCallable    bool
+	WorkflowSubagent bool
 }
 
 type SystemPromptFileScope string
@@ -187,8 +185,7 @@ type Settings struct {
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
-	SystemPromptFile                 string
-	SystemPromptFiles                []SystemPromptFile
+	SystemPromptFile                 *SystemPromptFile
 	ModelCapabilities                ModelCapabilitiesOverride
 	Theme                            string
 	NotificationMethod               string
@@ -253,7 +250,7 @@ type ReviewerSettings struct {
 	ProviderCapabilities ProviderCapabilitiesOverride
 	ModelContextWindow   int
 	Auth                 string
-	SystemPromptFile     string
+	SystemPromptFile     *string
 	TimeoutSeconds       int
 	VerboseOutput        bool
 }
@@ -264,15 +261,16 @@ type ReviewerProviderSettings struct {
 }
 
 type SourceReport struct {
-	SettingsPath                  string
-	SettingsFileExists            bool
-	CreatedDefaultConfig          bool
-	HomeSettingsPath              string
-	HomeSettingsFileExists        bool
-	WorkspaceSettingsPath         string
-	WorkspaceSettingsFileExists   bool
-	WorkspaceSettingsLayerEnabled bool
-	Sources                       map[string]string
+	Files                []ConfigFileReport
+	CreatedDefaultConfig bool
+	Sources              map[string]Origin
+}
+
+type ConfigFileReport struct {
+	SourceFile
+	Exists  bool
+	Enabled bool
+	Applied bool
 }
 
 type App struct {

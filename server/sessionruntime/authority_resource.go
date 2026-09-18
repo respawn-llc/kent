@@ -1446,6 +1446,13 @@ func (a *Authority) openResource(
 	resource := a.resources[sessionID]
 	a.mu.Unlock()
 	created := false
+	if resource != nil && plan != nil {
+		if err := resource.withStoreUnderAdmission(ctx, func(_ context.Context, store *session.Store) error {
+			return store.AdoptToolSelection(plan.options.ExplicitToolSelection)
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if resource == nil {
 		if plan == nil {
 			return nil, ErrAgentRuntimePlanRequired

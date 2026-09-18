@@ -106,7 +106,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	home := t.TempDir()
 	workspaceRoot := t.TempDir()
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "kent-root"))
-	cfg, err := config.Load(workspaceRoot, config.LoadOptions{})
+	cfg, err := config.Load(workspaceRoot, workspaceRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -507,6 +507,7 @@ func (f currentNodeViewFixture) newAgentRuntimePlan(t *testing.T) sessionruntime
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     f.cfg.WorkspaceRoot,
 		Settings:              settings,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),

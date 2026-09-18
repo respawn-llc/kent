@@ -20,7 +20,9 @@
 - `Up` and `Down` recall prompt history only at whole-buffer boundaries. Failed navigation emits terminal BEL and no transient notice.
 - Recall replaces the whole buffer. Navigating below the newest entry restores the in-progress draft the user was typing before navigation began.
 - Editing a recalled entry detaches it from history navigation: it becomes the live draft, and further `Up` starts from the newest entry again.
-- Opening a Session supplies its 100 most recent recorded prompts. The TUI keeps only that bounded history.
+- On every Session open and reopen, the TUI must request its 100 most recent recorded prompts through the same independent, read-only history request as Desktop, concurrently with other opening work. The history request must not activate Runtime work.
+- While history loads, the TUI must disable history navigation without a loading indication and keep editing and sending usable. A failed read must use the existing terminal error notice and retain any loaded history; reopening the Session must retry the read. Reads must not replace editor text or disturb an ongoing browse.
+- The TUI must retain only the bounded history and append locally accepted recorded prompts under the [bounded-state rules](ongoing-scrollback-buffer.md#bounded-tui-state). It must not add polling, live cross-client history synchronization, or a separate refresh control.
 
 ## Path Autocomplete
 

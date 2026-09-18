@@ -34,7 +34,7 @@ func (r sessionChatSettingsPreparationResolver) PrepareSessionChatSettings(
 	if err != nil {
 		return launch.PreparedChatSettings{}, err
 	}
-	cfg, err := config.Load(target.WorkspaceRoot, config.LoadOptions{ConfigRoot: r.persistenceRoot})
+	cfg, err := config.Load(target.WorkspaceRoot, target.WorkspaceRoot, config.LoadOptions{ConfigRoot: r.persistenceRoot})
 	if err != nil {
 		return launch.PreparedChatSettings{}, err
 	}

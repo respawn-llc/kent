@@ -5,6 +5,11 @@ description: Kent GUI design guide for desktop/web UI work. Use when designing o
 
 ## Product Principles
 
+- Pages own their read-error presentation. Sidebar content is an independent page. A page must never use callbacks, navigation events, event buses, or reach outside itself to signal errors to another page.
+- Do not render widget-local server-error UI. Local validation errors may remain at their field or control. Pagination errors are the exception: virtualized read failures keep the small Retry control inside `VirtualizedInfiniteList`. Initial and refresh read failures use the owning page's Error state with Retry.
+- Failed server-changing actions use Sonner only, preserving the initiating input and presentation, except explicitly specified typed field-validation errors. Worktree Create retains its typed Base ref validation beneath that field; operational failures are not field validation.
+- Classify reads performed inside a write command under that command's write-error handling, not as independent page reads.
+
 - 3 Big Principles: **Clean, elegant, effective.** . Everything reachable, everything dynamic.
 - GUI is a remote-control surface. Server owns workflow/runtime truth; UI presents read models and sends explicit actions. Never try to circumvent server communication in GUI clients. Assume server api expansion as needed is part of feature work.
 - Every visible state must explain what the operator can do next or why they cannot continue. Example: errors include "Try again" or "Go back" CTAs. Terminal states include "Return" or "Close" (for modals). Empty states include "Create project"/"Create task" etc. Error or empty state without at least one button is a failure.

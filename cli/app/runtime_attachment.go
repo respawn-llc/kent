@@ -92,6 +92,7 @@ func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients
 		AutoCompactionEnabled:    plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           plan.ActivationAgentSelection,
+		ExplicitToolSelection:    plan.ExplicitToolSelection,
 		Source:                   plan.Source,
 	})
 	if err != nil {
@@ -171,7 +172,6 @@ func prepareSharedRuntimeWiring(
 		worktrees:             clients.Worktrees,
 		processControls:       clients.ProcessControls,
 		processViews:          clients.ProcessViews,
-		promptHistory:         append([]string(nil), plan.PromptHistory...),
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

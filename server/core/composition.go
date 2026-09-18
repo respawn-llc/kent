@@ -204,6 +204,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
 	serverStatusService := serverstatus.NewServerStatusService(authSupport.AuthManager, cfg, updateStatusService)
 	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
+		WithPromptHistoryReader(metadataStore).
 		WithExecutionEnvironmentConfig(cfg).
 		WithExecutionEnvironmentAuth(authStatusService).
 		WithExecutionEnvironmentGit(gitInspector).
@@ -247,7 +248,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			_ = runtimeSupport.Background.Close()
 		}
 	}
-	workflowRoleResolver := configRoleResolver{settings: cfg.Settings}
+	workflowRoleResolver := configRoleResolver{app: cfg}
 	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
 	if err != nil {
 		cleanupNewFailure()

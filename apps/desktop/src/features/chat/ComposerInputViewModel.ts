@@ -35,7 +35,7 @@ export type ComposerSubmission<Kind extends ChatSettingsTarget["kind"] = ChatSet
 type CompletedInput = Exclude<ComposerCommandResult, { kind: "local" }>;
 type SubmissionCallbacks = Readonly<{
   restore(input: ComposerTextRestoration): void;
-  accepted(sessionID: string): void;
+  accepted(sessionID: string, submittedText: string): void;
   failed(): void;
   delivered?(result: CompletedInput, target: ChatMutationTarget): void;
 }>;
@@ -43,6 +43,7 @@ type Request = SubmissionCallbacks &
   Readonly<{
     target: ChatMutationTarget;
     original: string | null;
+    submittedText: string;
     intent: "send" | "queue";
     command: Exclude<ComposerCommandResolution, { kind: "unknown-prompt" | "unavailable" }>;
   }>;
@@ -119,7 +120,7 @@ export function createComposerInputViewModel({
         }
         if (original !== null) yield* get.setResult(draft.submit, undefined);
         yield* Effect.tryPromise(async () =>
-          observer.mutate({ ...input, target: requestTarget, original, command }),
+          observer.mutate({ ...input, target: requestTarget, original, submittedText: text, command }),
         ).pipe(Effect.ignore);
       }),
     { concurrent: true },
@@ -150,7 +151,7 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
     (input.command.kind === "input" && input.command.activation.kind === "command");
   if (result.outcome.kind === "accepted") {
     if (delivers) input.delivered?.(result, input.target);
-    input.accepted(result.sessionID);
+    input.accepted(result.sessionID, input.submittedText);
     const diagnostic = result.outcome.diagnostic;
     if (diagnostic !== null)
       showStatusToast({

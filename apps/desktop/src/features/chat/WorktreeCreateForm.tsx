@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -67,7 +67,8 @@ export function WorktreeCreateForm(props: Props) {
       document.removeEventListener("keydown", back);
     };
   }, [props.navigator, props.sessionID]);
-  if (query.data !== undefined) return <CreateFields {...props} suggestion={query.data.branchSuggestion} />;
+  if (query.data !== undefined)
+    return <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />;
   if (query.isError)
     return (
       <ErrorState
@@ -88,7 +89,12 @@ function CreateFields({
   navigator,
   actions,
   suggestion,
-}: Props & Readonly<{ suggestion: string | undefined }>) {
+  query,
+}: Props &
+  Readonly<{
+    suggestion: string | undefined;
+    query: UseQueryResult<Awaited<ReturnType<ReturnType<typeof useAppServices>["api"]["listWorktrees"]>>>;
+  }>) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { push } = useStatusController();
@@ -107,13 +113,26 @@ function CreateFields({
       submitSwitch: actions.submitSwitch,
     }),
   );
-  const { editTarget, editBase, submit } = useWorktreeCreate(model);
+  const { editTarget, editBase, submit, retryResolution } = useWorktreeCreate(model);
   const state = useAtomValue(model.state);
+  const resolution = useAtomValue(model.resolution);
   const switching = useAtomValue(actions.requestPending);
   const pending = state.pending || switching;
   const submitShortcut = useTextFieldSubmitShortcut({ kind: "form", available: !pending });
   const isNew =
     state.classification === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
+  if (query.isError || resolution?.isError)
+    return (
+      <ErrorState
+        title={t("states.error")}
+        body={errorMessage(query.isError ? query.error : resolution?.error)}
+        retryLabel={t("app.retry")}
+        onRetry={() => {
+          if (query.isError) void replaceWorktreeListRead(client, api, sessionID);
+          else retryResolution(undefined);
+        }}
+      />
+    );
   return (
     <TooltipProvider>
       <Tooltip {...(pending ? {} : { open: false })}>
@@ -159,9 +178,6 @@ function CreateFields({
                 }}
               />
             ) : null}
-            {state.formError === undefined ? null : (
-              <p className="break-words text-sm text-[var(--color-error)]">{state.formError}</p>
-            )}
             <Button type="submit" variant="primary" disabled={pending}>
               {pending ? <Spinner size="sm" /> : t("chat.worktree.createSubmit")}
             </Button>

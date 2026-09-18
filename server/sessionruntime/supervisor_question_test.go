@@ -83,8 +83,8 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 	settings.Reviewer.Frequency = "all"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
 		Settings: settings, Client: mainModel,
-		EnabledTools:          []toolspec.ID{toolspec.ToolAskQuestion},
-		FilesystemContext:     runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		EnabledTools:      []toolspec.ID{toolspec.ToolAskQuestion},
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ReviewerClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {

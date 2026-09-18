@@ -813,7 +813,7 @@ func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionC
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(configRoot, config.LoadOptions{})
+	cfg, err := config.LoadConnectionDiscovery(configRoot)
 	if err != nil {
 		return nil, err
 	}

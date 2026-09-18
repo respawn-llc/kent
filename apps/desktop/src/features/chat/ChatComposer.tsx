@@ -2,8 +2,8 @@ import { ArrowUp, Square } from "lucide-react";
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
 import {
+  Button,
   ErrorState,
   IconTooltipButton,
   Island,
@@ -11,6 +11,10 @@ import {
   Spinner,
   cx,
   fieldInputClassName,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@/ui";
 import { ComposerPendingSheet } from "./ComposerPendingSheet";
 import { ChatPromptPicker } from "./ChatPromptPicker";
@@ -36,7 +40,7 @@ export function ChatComposer({
   editorRef,
 }: ChatComposerProps) {
   const { t } = useTranslation();
-  const { composer, activity, stoppable, onEditorKeyDown } = useComposerSurface();
+  const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
@@ -77,17 +81,6 @@ export function ChatComposer({
       observer.disconnect();
     };
   }, [onHeightChange, composer.draft.kind]);
-  if (composer.draft.kind === "failed")
-    return (
-      <div className="chat-composer" ref={root}>
-        <ErrorState
-          title={t("states.error")}
-          body={errorMessage(composer.draft.error)}
-          onRetry={composer.retryDraft}
-          retryLabel={t("app.retry")}
-        />
-      </div>
-    );
   const editorRegion = (
     <textarea
       ref={editor}
@@ -115,8 +108,8 @@ export function ChatComposer({
         </PeekingSurface>
       )}
       <Island className="chat-composer-input" style={heightStyle} unpadded>
-        {composer.target.kind === "session" ? (
-          <ChatPromptPicker target={composer.target}>{editorRegion}</ChatPromptPicker>
+        {promptPicker !== null ? (
+          <ChatPromptPicker picker={promptPicker}>{editorRegion}</ChatPromptPicker>
         ) : (
           editorRegion
         )}
@@ -184,13 +177,9 @@ function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslati
     ? t("chat.savingDraft")
     : composer.draft.kind === "loading"
       ? t("chatComposer.loadingDraft")
-      : composer.submission.kind === "loading"
+      : composer.submission.kind !== "ready"
         ? t("chatComposer.loadingSettings")
-        : composer.submission.kind === "failed"
-          ? errorMessage(composer.submission.error)
-          : !composer.canSubmit
-            ? t("chatComposer.empty")
-            : t("chatComposer.send");
+        : t("chatComposer.empty");
 }
 
 function ComposerControls({
@@ -205,6 +194,23 @@ function ComposerControls({
   stoppable: boolean;
 }>) {
   const { t } = useTranslation();
+  const send = (
+    <Button
+      size="icon"
+      aria-label={t("chatComposer.send")}
+      disabled={!composer.canSubmit}
+      variant="primary"
+      onClick={() => {
+        composer.submit("send");
+      }}
+    >
+      {composer.inputPending || composer.navigationPending || composer.draft.kind === "loading" ? (
+        <Spinner size="sm" className="text-[var(--color-on-primary)]" />
+      ) : (
+        <ArrowUp size={18} />
+      )}
+    </Button>
+  );
   return (
     <div className="chat-composer-controls">
       <div className="min-w-0 flex-1">
@@ -224,20 +230,18 @@ function ComposerControls({
           {composer.pending.stopPending ? <Spinner size="sm" /> : <Square size={15} />}
         </IconTooltipButton>
       )}
-      <IconTooltipButton
-        label={composerSendLabel(composer, t)}
-        disabled={!composer.canSubmit}
-        variant="primary"
-        onClick={() => {
-          composer.submit("send");
-        }}
-      >
-        {composer.inputPending || composer.navigationPending || composer.draft.kind === "loading" ? (
-          <Spinner size="sm" className="text-[var(--color-on-primary)]" />
-        ) : (
-          <ArrowUp size={18} />
-        )}
-      </IconTooltipButton>
+      {composer.canSubmit ? (
+        send
+      ) : (
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">{send}</span>
+            </TooltipTrigger>
+            <TooltipContent>{composerSendLabel(composer, t)}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }

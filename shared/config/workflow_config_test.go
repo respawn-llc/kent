@@ -59,7 +59,7 @@ pre_compaction_tokens = 90000
 	if cfg.Settings.Workflow.PreCompactionTokens == nil || *cfg.Settings.Workflow.PreCompactionTokens != 90000 {
 		t.Fatalf("pre-compaction tokens = %v, want 90000", cfg.Settings.Workflow.PreCompactionTokens)
 	}
-	if got := cfg.Source.Sources["workflow.pre_compaction_tokens"]; got != "file" {
+	if got := cfg.Source.Sources["workflow.pre_compaction_tokens"].Kind; got != "file" {
 		t.Fatalf("pre-compaction tokens source = %q, want file", got)
 	}
 	if got := ResolveWorkflowPreCompactionTokens(cfg.Settings); got != 90000 {
@@ -98,7 +98,7 @@ func TestWorkflowPreCompactionTokensIsRootOnlyAndHasNoEnvironmentSource(t *testi
 	if cfg.Settings.Workflow.PreCompactionTokens != nil {
 		t.Fatalf("environment configured pre-compaction tokens = %v, want authored absence", cfg.Settings.Workflow.PreCompactionTokens)
 	}
-	if got := cfg.Source.Sources["workflow.pre_compaction_tokens"]; got != "default" {
+	if got := cfg.Source.Sources["workflow.pre_compaction_tokens"].Kind; got != "default" {
 		t.Fatalf("pre-compaction tokens source = %q, want default", got)
 	}
 
@@ -159,7 +159,7 @@ func TestLoadWorkflowSubagentsIsTOMLOnly(t *testing.T) {
 	if defaults.Settings.Workflow.Subagents {
 		t.Fatal("environment should not enable workflow subagents")
 	}
-	if got := defaults.Source.Sources["workflow.subagents"]; got != "default" {
+	if got := defaults.Source.Sources["workflow.subagents"].Kind; got != "default" {
 		t.Fatalf("workflow.subagents source = %q, want default", got)
 	}
 
@@ -167,7 +167,7 @@ func TestLoadWorkflowSubagentsIsTOMLOnly(t *testing.T) {
 	if !configured.Settings.Workflow.Subagents {
 		t.Fatal("workflow subagents = false, want TOML true")
 	}
-	if got := configured.Source.Sources["workflow.subagents"]; got != "file" {
+	if got := configured.Source.Sources["workflow.subagents"].Kind; got != "file" {
 		t.Fatalf("workflow.subagents source = %q, want file", got)
 	}
 }
@@ -187,10 +187,10 @@ subagents = true
 		!cfg.Settings.Workflow.Subagents {
 		t.Fatalf("workflow settings = %+v", cfg.Settings.Workflow)
 	}
-	if got := cfg.Source.Sources["workflow.completion_mode"]; got != "file" {
+	if got := cfg.Source.Sources["workflow.completion_mode"].Kind; got != "file" {
 		t.Fatalf("workflow.completion_mode source = %q, want file", got)
 	}
-	if got := cfg.Source.Sources["workflow.use_required_tool_calls"]; got != "file" {
+	if got := cfg.Source.Sources["workflow.use_required_tool_calls"].Kind; got != "file" {
 		t.Fatalf("workflow.use_required_tool_calls source = %q, want file", got)
 	}
 }

@@ -57,15 +57,8 @@ export function useBoardInitiatingActionController({
       );
     },
   });
-  const { run } = initiatingAction;
-  const runCardAction = useCallback(
-    (action: TaskInitiatingAction, selection?: WorkflowExecutionTargetSelection): void => {
-      run(action, selection);
-    },
-    [moveErrorTitle, onActionError, run, startErrorTitle],
-  );
   return {
     initiatingAction,
-    runCardAction,
+    runCardAction: initiatingAction.run,
   };
 }

@@ -23,6 +23,10 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit,
 		AgentSelection:           SessionRuntimeAgentSelectionToProto(request.AgentSelection),
 	}
+	result.ExplicitToolSelection, err = ToolSelectionToProto(request.ExplicitToolSelection)
+	if err != nil {
+		return nil, err
+	}
 	for _, id := range request.EnabledToolIDs {
 		tool, err := SessionToolIDToProto(toolspec.ID(id))
 		if err != nil {
@@ -50,6 +54,10 @@ func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActi
 		SessionID: request.SessionId, ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit, AgentSelection: selection,
+	}
+	result.ExplicitToolSelection, err = ToolSelectionFromProto(request.ExplicitToolSelection)
+	if err != nil {
+		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	for _, id := range request.EnabledToolIds {
 		tool, err := SessionToolIDFromProto(id)

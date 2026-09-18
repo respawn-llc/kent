@@ -6,6 +6,7 @@ import type { AppServices } from "@/app-facade";
 import { createComposerDraftViewModel } from "./ComposerDraftViewModel";
 import { createComposerInputViewModel, type ComposerSubmission } from "./ComposerInputViewModel";
 import { createComposerPendingViewModel } from "./ComposerPendingViewModel";
+import { createComposerHistoryViewModel } from "./ComposerHistoryViewModel";
 
 export function createChatComposerViewModel(
   options: Readonly<{
@@ -20,6 +21,7 @@ export function createChatComposerViewModel(
   const draft = createComposerDraftViewModel(options);
   const input = createComposerInputViewModel({ ...options, draft });
   const pending = createComposerPendingViewModel(options);
-  return { target: options.target, submission: options.submission, draft, input, pending } as const;
+  const history = createComposerHistoryViewModel({ ...options, draft, pending: input.pending });
+  return { target: options.target, submission: options.submission, draft, input, pending, history } as const;
 }
 export type ChatComposerViewModel = ReturnType<typeof createChatComposerViewModel>;

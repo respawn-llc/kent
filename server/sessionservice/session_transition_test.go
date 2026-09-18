@@ -19,17 +19,11 @@ func TestInitialInputPrefersPersistedDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
 	}
-	if err := store.SetInputDraft("persisted"); err != nil {
+	if err := store.SetInputDraft("persisted", nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 	if got := initialSessionInput(store.Meta(), "fallback"); got != "persisted" {
 		t.Fatalf("initial input = %q, want persisted", got)
-	}
-}
-
-func TestPersistInputDraftNoOpForNilStore(t *testing.T) {
-	if err := persistSessionInputDraft(nil, "draft"); err != nil {
-		t.Fatalf("persist input draft with nil store: %v", err)
 	}
 }
 

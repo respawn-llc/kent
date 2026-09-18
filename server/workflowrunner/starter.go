@@ -275,13 +275,13 @@ func (s *Starter) workflowAssignmentPersistenceContext(
 	prepared preparedCurrentNodeAgentSession,
 ) runtime.PersistedWorkflowAssignmentContext {
 	return runtime.PersistedWorkflowAssignmentContext{
-		Workdir:                 prepared.root.EffectiveRoot(),
-		GlobalConfigDir:         s.cfg.PersistenceRoot,
-		Model:                   prepared.plan.ActiveSettings.Model,
-		ThinkingLevel:           prepared.plan.ActiveSettings.ThinkingLevel,
-		SkillPolicy:             config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
-		SubagentCatalogSettings: prepared.plan.ActiveSettings,
-		EnabledTools:            workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		Workdir:         prepared.root.EffectiveRoot(),
+		GlobalConfigDir: s.cfg.PersistenceRoot,
+		Model:           prepared.plan.ActiveSettings.Model,
+		ThinkingLevel:   prepared.plan.ActiveSettings.ThinkingLevel,
+		SkillPolicy:     config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
+		SubagentCatalog: config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
+		EnabledTools:    workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 	}
 }
 
@@ -966,7 +966,10 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
-		Settings: prepared.plan.ActiveSettings, EnabledTools: workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
+		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
+		RequiredTools:         prepared.plan.RequiredTools,
+		Settings:              prepared.plan.ActiveSettings, EnabledTools: workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 		FilesystemContext: askquestion.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: pathContext}, Sources: prepared.plan.Source.Sources, Headless: true, Client: prepared.client,
 		QuestionsEnabled:      textutil.Value(prepared.plan.QuestionsEnabled),
 		AutoCompactionEnabled: textutil.Value(prepared.plan.AutoCompactionEnabled),
@@ -1158,11 +1161,17 @@ func (s *Starter) planCurrentNodeSession(
 			return launch.SessionPlan{}, disposable, err
 		}
 	}
-	if sessionPrepared {
-		selection, err := currentNodeAgentExecutionSelection(input)
+	selection, err := currentNodeAgentExecutionSelection(input)
+	if err != nil {
+		return launch.SessionPlan{}, disposable, err
+	}
+	if selection.Origin == workflow.AssigneeOriginTransitionSelected {
+		plan, err = launch.WithRequiredRunPromptTools(plan, []toolspec.ID{toolspec.ToolAskQuestion})
 		if err != nil {
 			return launch.SessionPlan{}, disposable, err
 		}
+	}
+	if sessionPrepared {
 		thinkingMutation := workflowThinkingMutationFor(input, selection)
 		if thinkingMutation.Kind() != workflow.ThinkingMutationUnchanged {
 			if err := s.withSessionStore(ctx, plan.Descriptor, func(_ context.Context, store *session.Store) error {
@@ -1172,7 +1181,7 @@ func (s *Starter) planCurrentNodeSession(
 					store,
 					serverapi.RunPromptOverrides{},
 					auth.EmptyState(),
-					launch.RunPromptOverrideOptions{WorkflowThinking: thinkingMutation},
+					launch.RunPromptOverrideOptions{WorkflowThinking: thinkingMutation, RequiredTools: plan.RequiredTools},
 				)
 				return applyErr
 			}); err != nil {
@@ -1181,19 +1190,12 @@ func (s *Starter) planCurrentNodeSession(
 		}
 		return plan, disposable, nil
 	}
-	selection, err := currentNodeAgentExecutionSelection(input)
-	if err != nil {
-		return launch.SessionPlan{}, disposable, err
-	}
 	thinkingMutation := workflowThinkingMutationFor(input, selection)
 	if policy.assignee != currentNodeSessionAssigneeEstablishTarget &&
 		thinkingMutation.Kind() == workflow.ThinkingMutationUnchanged {
 		return plan, disposable, nil
 	}
-	options := launch.RunPromptOverrideOptions{}
-	if selection.Origin == workflow.AssigneeOriginTransitionSelected {
-		options.RequiredTools = []toolspec.ID{toolspec.ToolAskQuestion}
-	}
+	options := launch.RunPromptOverrideOptions{RequiredTools: plan.RequiredTools}
 	options.WorkflowThinking = thinkingMutation
 	overrides := serverapi.RunPromptOverrides{}
 	if policy.assignee == currentNodeSessionAssigneeEstablishTarget {
@@ -1214,6 +1216,7 @@ func (s *Starter) planCurrentNodeSession(
 }
 
 func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input workflowstore.CurrentNodeStartContext, root workflowstore.ExecutionRoot, plan launch.SessionPlan) (resultErr error) {
+	plan.ExplicitToolSelection = nil
 	required := true
 	err := s.runtimeAuthority.WithCurrentRuntime(ctx, plan.Descriptor.SessionID(), func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()

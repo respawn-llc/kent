@@ -50,13 +50,13 @@ func loadConfigTestFileError(t *testing.T, contents string, opts LoadOptions) er
 	t.Helper()
 	_, workspace, configPath := newConfigTestFile(t)
 	writeConfigTestFile(t, configPath, contents)
-	_, err := Load(workspace, opts)
+	_, err := Load(workspace, workspace, opts)
 	return err
 }
 
 func loadConfigTestApp(t *testing.T, workspace string, opts LoadOptions) App {
 	t.Helper()
-	cfg, err := Load(workspace, opts)
+	cfg, err := Load(workspace, workspace, opts)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -73,9 +73,9 @@ func unknownSettingsKeyReported(err error, key string) bool {
 	return slices.Contains(unknownErr.Keys, key)
 }
 
-func assertConfigSource(t *testing.T, cfg App, key string, want string) {
+func assertConfigSource(t *testing.T, cfg App, key string, want SourceKind) {
 	t.Helper()
-	if got := cfg.Source.Sources[key]; got != want {
+	if got := cfg.Source.Sources[key].Kind; got != want {
 		t.Fatalf("expected %s source %s, got %q", key, want, got)
 	}
 }
@@ -110,7 +110,7 @@ func assertConfigPrecedence[T comparable](t *testing.T, tc configPrecedenceCase[
 func assertConfigEnvRejected(t *testing.T, workspace string, envName string, envValue string) {
 	t.Helper()
 	t.Setenv(envName, envValue)
-	if _, err := Load(workspace, LoadOptions{}); err == nil {
+	if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
 		t.Fatalf("expected invalid %s=%q to be rejected", envName, envValue)
 	}
 }

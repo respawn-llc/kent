@@ -115,7 +115,7 @@ func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 	settings.Subagents = map[string]config.SubagentRole{
 		"smart_reviewer": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"thinking_level": "file", "tools.patch": "file"},
+			Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}},
 		},
 	}
 	planner := newPersistenceBackedTestPlanner(config.App{
@@ -135,7 +135,7 @@ func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 	if plan.ActiveSettings.EnabledTools[toolspec.ToolPatch] {
 		t.Fatalf("patch tool should be disabled by persisted role: %+v", plan.ActiveSettings.EnabledTools)
 	}
-	if plan.Source.Sources["thinking_level"] != "subagent" || plan.Source.Sources["tools.patch"] != "subagent" {
+	if plan.Source.Sources["thinking_level"].Kind != config.SourceInput || plan.Source.Sources["tools.patch"].Kind != config.SourceInput {
 		t.Fatalf("source report did not mark role overrides as subagent: %+v", plan.Source.Sources)
 	}
 	if got := plan.Continuation; got == nil || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("smart_reviewer")) {
@@ -259,17 +259,19 @@ func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: workerSettings,
-			Sources:  map[string]string{"openai_base_url": "file"},
+			Sources:  map[string]config.Origin{"openai_base_url": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}}},
 		},
 		"research": {
 			Settings: researchSettings,
-			Sources:  map[string]string{"thinking_level": "file"},
+			Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 	}
 	source := loaded.Source
 	source.Sources = cloneMapOrEmpty(loaded.Source.Sources)
-	source.Sources["openai_base_url"] = "file"
-	source.Sources["thinking_level"] = "file"
+	source.Sources["openai_base_url"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}}
+
+	source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 	planner := newPersistenceBackedTestPlanner(config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
@@ -432,11 +434,14 @@ func TestApplyRunPromptOverridesWithOptionsPreservesAgentRoleForLockedSession(t 
 	loaded.Settings.ProviderOverride = "openai"
 	workerRole := loaded.Settings.Subagents["worker"]
 	workerRole.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolEdit: true}
-	workerRole.Sources = map[string]string{
-		"model":       "file",
-		"tools.shell": "file",
-		"tools.patch": "file",
-		"tools.edit":  "file",
+	workerRole.Sources = map[string]config.Origin{
+		"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+
+		"tools.shell": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.shell"}},
+
+		"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+		"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 	}
 	loaded.Settings.Subagents["worker"] = workerRole
 	plan := newLockedRoleOverridePlan(t, workspace, loaded.Settings, loaded.Source, sessiontest.AgentRole("old_role"), session.LockedContract{
@@ -476,13 +481,15 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 	baseSettings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: workerSettings,
-			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 	}
 	baseSource := loaded.Source
 	baseSource.Sources = cloneMapOrEmpty(loaded.Source.Sources)
-	baseSource.Sources["model"] = "file"
-	baseSource.Sources["thinking_level"] = "file"
+	baseSource.Sources["model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}
+
+	baseSource.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 	plan := newLockedRoleOverridePlan(t, workspace, baseSettings, baseSource, sessiontest.AgentRole("worker"), session.LockedContract{
 		Model:        "locked-model",
 		EnabledTools: []string{"shell"},
@@ -491,11 +498,11 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 	if updated.ActiveSettings.Model != "locked-model" {
 		t.Fatalf("model = %q, want locked-model", updated.ActiveSettings.Model)
 	}
-	if updated.Source.Sources["model"] != "file" {
-		t.Fatalf("model source = %q, want original file source under lock", updated.Source.Sources["model"])
+	if updated.Source.Sources["model"].Kind != config.SourceInput {
+		t.Fatalf("model source = %+v, want original file source under lock", updated.Source.Sources["model"])
 	}
-	if updated.Source.Sources["thinking_level"] != "file" {
-		t.Fatalf("thinking source = %q, want original file source under lock", updated.Source.Sources["thinking_level"])
+	if updated.Source.Sources["thinking_level"].Kind != config.SourceInput {
+		t.Fatalf("thinking source = %+v, want original file source under lock", updated.Source.Sources["thinking_level"])
 	}
 }
 
@@ -692,20 +699,22 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"code_review": {
 			Settings: config.Settings{
-				Model:             "gpt-5.4-mini",
-				SystemPromptFile:  rolePrompt,
-				SystemPromptFiles: []config.SystemPromptFile{{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent}},
+				Model:            "gpt-5.4-mini",
+				SystemPromptFile: &config.SystemPromptFile{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 				EnabledTools: map[toolspec.ID]bool{
 					toolspec.ToolExecCommand: true,
 					toolspec.ToolPatch:       false,
 					toolspec.ToolEdit:        true,
 				},
 			},
-			Sources: map[string]string{
-				"model":              "file",
-				"system_prompt_file": "file",
-				"tools.patch":        "file",
-				"tools.edit":         "file",
+			Sources: map[string]config.Origin{
+				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+
+				"system_prompt_file": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "system_prompt_file"}},
+
+				"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+				"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 			},
 		},
 	}
@@ -761,8 +770,8 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
 		t.Fatalf("enabled tools = %+v, want role tools", updated.EnabledTools)
 	}
-	if len(updated.ActiveSettings.SystemPromptFiles) != 1 || updated.ActiveSettings.SystemPromptFiles[0].Path != rolePrompt {
-		t.Fatalf("active system prompt files = %+v, want role prompt %q", updated.ActiveSettings.SystemPromptFiles, rolePrompt)
+	if updated.ActiveSettings.SystemPromptFile == nil || updated.ActiveSettings.SystemPromptFile.Path != rolePrompt {
+		t.Fatalf("active system prompt file = %+v, want role prompt %q", updated.ActiveSettings.SystemPromptFile, rolePrompt)
 	}
 	if got := updated.Continuation; got == nil || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("code_review")) {
 		t.Fatalf("child continuation = %+v, want only selected role persisted", got)
@@ -1356,9 +1365,16 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 	settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
 	source := loaded.Source
 	source.Sources = cloneMapOrEmpty(loaded.Source.Sources)
-	source.Sources["tools.shell"] = "cli"
-	source.Sources["tools.patch"] = "file"
-	source.Sources["tools.edit"] = "file"
+	source.Sources["tools.shell"] = config.Origin{Kind: config.SourceCLI,
+		Property: config.PropertyAddress{Key: "tools.shell"}, Option: func() *string {
+			value := "--tools.shell"
+			return &value
+		}()}
+
+	source.Sources["tools.patch"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}
+
+	source.Sources["tools.edit"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}}
+
 	plan := newSettingsPlanWithSource(t, workspace, settings, source)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"}, auth.EmptyState())
@@ -1368,8 +1384,8 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
 		t.Fatalf("enabled tools = %+v, want shell only", updated.EnabledTools)
 	}
-	if updated.Source.Sources["tools.shell"] != "cli" {
-		t.Fatalf("tool source = %q, want cli", updated.Source.Sources["tools.shell"])
+	if updated.Source.Sources["tools.shell"].Kind != config.SourceCLI {
+		t.Fatalf("tool source = %+v, want cli", updated.Source.Sources["tools.shell"])
 	}
 }
 
@@ -1634,8 +1650,8 @@ func TestPlannerResumeLockedDefaultModelTreatsSessionModelAsExplicitForRoleProvi
 	if plan.ActiveSettings.ProviderOverride != "openai" {
 		t.Fatalf("provider override = %q, want openai", plan.ActiveSettings.ProviderOverride)
 	}
-	if plan.Source.Sources["model"] != "session" {
-		t.Fatalf("model source = %q, want session", plan.Source.Sources["model"])
+	if plan.Source.Sources["model"].Kind != config.SourceSession {
+		t.Fatalf("model source = %+v, want session", plan.Source.Sources["model"])
 	}
 }
 
@@ -1649,7 +1665,7 @@ func TestPlannerResumePersistedRoleRejectsContextWindowBelowMinimum(t *testing.T
 	loaded.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
-			Sources:  map[string]string{"model_context_window": "file", "context_compaction_threshold_tokens": "file"},
+			Sources:  map[string]config.Origin{"model_context_window": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_context_window"}}, "context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}}},
 		},
 	}
 	containerDir := filepath.Join(root, "projects", "project-a", "sessions")

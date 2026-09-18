@@ -23,7 +23,7 @@ func TestDefaultHeadlessAgentSettingsAndInteractiveIsolation(t *testing.T) {
 			Model: "gpt-5-mini", ThinkingLevel: "low",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: false},
 		},
-		Sources: map[string]string{"model": "file", "thinking_level": "file", "tools.shell": "file"},
+		Sources: map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "tools.shell": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.shell"}}},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
 	for _, explicit := range []bool{false, true} {
@@ -72,10 +72,10 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.ThinkingLevel = "high"
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-		Settings:         config.Settings{Model: "gpt-5-mini", ThinkingLevel: "low"},
-		Sources:          map[string]string{"model": "file", "thinking_level": "file"},
-		AgentCallableSet: true,
-		AgentCallable:    false,
+		Settings: config.Settings{Model: "gpt-5-mini", ThinkingLevel: "low"},
+		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+
+		AgentCallable: false,
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
 	store := createLaunchTestSession(t, service.planner.ContainerDir, "default", cfg.WorkspaceRoot)
@@ -116,7 +116,7 @@ func TestExplicitDefaultSelectionPersistsLaunchMode(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
 		Settings: config.Settings{Model: "gpt-5-mini"},
-		Sources:  map[string]string{"model": "file"},
+		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
 	for _, mode := range []launch.Mode{launch.ModeHeadless, launch.ModeInteractive} {
@@ -148,8 +148,8 @@ func TestExplicitDefaultSelectionPersistsLaunchMode(t *testing.T) {
 func TestDefaultAgentLaunchAndContinuationEnforceCallability(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-		AgentCallableSet: true,
-		AgentCallable:    false,
+
+		AgentCallable: false, Sources: map[string]config.Origin{"agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 	}
 	db, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {

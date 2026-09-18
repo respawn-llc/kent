@@ -204,8 +204,9 @@ export type ChatApi = Readonly<{
   getCommandCatalog(
     target: ChatSettingsTarget,
   ): Promise<readonly Readonly<{ name: string; preview: string }>[]>;
-  getDraft(target: ChatSessionTarget): Promise<string>;
-  persistDraft(target: ChatSessionTarget, input: string): Promise<void>;
+  getDraft(target: ChatSessionTarget): Promise<Readonly<{ input: string; protectedInput: string | null }>>;
+  getPromptHistory(target: ChatSessionTarget): Promise<readonly string[]>;
+  persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;
   listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
   steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;

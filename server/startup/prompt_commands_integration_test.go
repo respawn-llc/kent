@@ -31,7 +31,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	configureServeTestServerPort(t)
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	cfg, err := config.Load(workspaceA, config.LoadOptions{})
+	cfg, err := config.Load(workspaceA, workspaceA, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal("Claude Code provider UUID is missing")
 	}
 	providerUUID := providers[providerIndex].UUID.String()
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.HomeSettingsPath})
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}

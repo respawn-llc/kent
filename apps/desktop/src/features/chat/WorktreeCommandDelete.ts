@@ -8,12 +8,12 @@ import { worktreeErrorMessage } from "./worktreeErrorMessage";
 export function createWorktreeCommandDelete({
   present,
   ...dependencies
-}: Omit<Parameters<typeof createWorktreeDeletion>[0], "feedback"> &
+}: Omit<Parameters<typeof createWorktreeDeletion>[0], "close"> &
   Readonly<{
     present(preview: WorktreeDeletePreview): void;
   }>) {
   const { client, api, sessionID, push, t } = dependencies;
-  const deletion = createWorktreeDeletion({ ...dependencies, feedback: { kind: "command" } });
+  const deletion = createWorktreeDeletion(dependencies);
   const mutationKey = ["worktree-command-preview", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
     mutationKey,

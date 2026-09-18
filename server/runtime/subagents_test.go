@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/skillcatalog"
@@ -17,6 +19,32 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
+
+func TestRuntimeRoleProjectionUsesEnvironmentModelAboveDeclaration(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("[subagents.worker]\nmodel = \"file-model\"\nthinking_level = \"high\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KENT_MODEL", "environment-model")
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := newMetaContextBuilder(workspace, app.Settings.Model, app.Settings.ThinkingLevel, config.SkillPolicy{}, time.Now()).
+		withSubagents(app, []toolspec.ID{toolspec.ToolExecCommand})
+	roles, err := builder.renderableSubagentRoles(config.SubagentInvocationContextOrdinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roles) != 1 || roles[0].Settings.Model != "environment-model" || roles[0].Settings.ThinkingLevel != "high" {
+		t.Fatalf("runtime effective role projection = %+v", roles)
+	}
+	app.Source = config.SourceReport{}
+	_, err = builder.withSubagents(app, []toolspec.ID{toolspec.ToolExecCommand}).Build(metaContextBuildOptions{IncludeSubagents: true})
+	if err == nil {
+		t.Fatal("runtime accepted missing declaration evidence")
+	}
+}
 
 func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 	t.Parallel()
@@ -37,19 +65,18 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 						toolspec.ToolPatch:       false,
 					},
 				},
-				Sources:     map[string]string{"model": "file", "thinking_level": "file", "tools.patch": "file"},
+				Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}},
 				Description: "Repo research specialist.",
 			},
 			"placebo": {
 				Settings:    config.Settings{Model: "gpt-5.6-sol"},
-				Sources:     map[string]string{"model": "file"},
+				Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				Description: "Sounds useful, but no behavior differs.",
 			},
 			"blocked": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			config.BuiltInSubagentRoleFast: {
 				Description: "ignored for now",
@@ -57,7 +84,7 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 		},
 	}
 	builder := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
-		withSubagents(settings, []toolspec.ID{toolspec.ToolExecCommand})
+		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
 	result, err := builder.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
 		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
@@ -108,12 +135,12 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 						toolspec.ToolPatch:       true,
 					},
 				},
-				Sources: map[string]string{"model": "file", "thinking_level": "file", "priority_request_mode": "file", "tools.patch": "file"},
+				Sources: map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "priority_request_mode": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "priority_request_mode"}}, "tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}}},
 			},
 		},
 	}
 	withShell := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
-		withSubagents(settings, []toolspec.ID{toolspec.ToolExecCommand})
+		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
 	result, err := withShell.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
 		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
@@ -126,7 +153,7 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 	}
 
 	withoutShell := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
-		withSubagents(settings, []toolspec.ID{toolspec.ToolPatch})
+		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolPatch})
 	result, err = withoutShell.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
 		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
@@ -149,20 +176,19 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
 	}
 	builder := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
-		withSubagents(settings, []toolspec.ID{toolspec.ToolExecCommand})
+		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
 	result, err := builder.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
 		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
@@ -173,7 +199,10 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 	if len(result.Subagents) != 1 {
 		t.Fatalf("subagent messages = %d, want 1", len(result.Subagents))
 	}
-	roles := builder.renderableSubagentRoles(config.SubagentInvocationContextOrdinary)
+	roles, err := builder.renderableSubagentRoles(config.SubagentInvocationContextOrdinary)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !renderableSubagentRolesContain(roles, "worker") {
 		t.Fatalf("renderable roles = %+v, want worker", roles)
 	}
@@ -185,23 +214,25 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 	t.Parallel()
 	baseSettings := func(globalEnabled bool, roleDisabled bool) config.Settings {
+		sources := map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}}
+		if roleDisabled {
+			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
+		}
 		return config.Settings{
 			Model:         "gpt-5.5",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
-					Settings:            config.Settings{ThinkingLevel: "high"},
-					Sources:             map[string]string{"thinking_level": "file"},
-					Description:         "Worker.",
-					WorkflowSubagent:    !roleDisabled,
-					WorkflowSubagentSet: roleDisabled,
+					Settings:         config.Settings{ThinkingLevel: "high"},
+					Sources:          sources,
+					Description:      "Worker.",
+					WorkflowSubagent: !roleDisabled,
 				},
 				"blocked": {
-					Settings:         config.Settings{ThinkingLevel: "high"},
-					Sources:          map[string]string{"thinking_level": "file"},
-					Description:      "Blocked.",
-					AgentCallableSet: true,
+					Settings:    config.Settings{ThinkingLevel: "high"},
+					Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+					Description: "Blocked.",
 				},
 				config.BuiltInSubagentRoleFast: {Description: "Fast."},
 			},
@@ -221,7 +252,7 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			builder := newMetaContextBuilder("/tmp/work", "gpt-5.5", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
-				withSubagents(tt.settings, []toolspec.ID{toolspec.ToolExecCommand})
+				withSubagents(testsetup.ProgrammaticConfig(t, tt.settings), []toolspec.ID{toolspec.ToolExecCommand})
 			result, err := builder.Build(metaContextBuildOptions{
 				IncludeSubagents:          true,
 				SubagentInvocationContext: tt.context,
@@ -229,13 +260,17 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
-			if got := renderableSubagentRolesContain(builder.renderableSubagentRoles(tt.context), "worker"); got != tt.workerVisible {
+			roles, err := builder.renderableSubagentRoles(tt.context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := renderableSubagentRolesContain(roles, "worker"); got != tt.workerVisible {
 				t.Fatalf("worker visibility = %t, want %t; messages=%+v", got, tt.workerVisible, result.Subagents)
 			}
-			if renderableSubagentRolesContain(builder.renderableSubagentRoles(tt.context), "blocked") {
+			if renderableSubagentRolesContain(roles, "blocked") {
 				t.Fatalf("agent_callable=false role was rendered")
 			}
-			if renderableSubagentRolesContain(builder.renderableSubagentRoles(tt.context), config.BuiltInSubagentRoleFast) {
+			if renderableSubagentRolesContain(roles, config.BuiltInSubagentRoleFast) {
 				t.Fatalf("fast should remain absent from the custom role catalog")
 			}
 		})
@@ -245,17 +280,20 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T) {
 	t.Parallel()
 	settings := func(globalEnabled bool, roleDisabled bool) config.Settings {
+		sources := map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}}
+		if roleDisabled {
+			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
+		}
 		return config.Settings{
 			Model:         "gpt-5.5",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
 				"worker": {
-					Settings:            config.Settings{ThinkingLevel: "high"},
-					Sources:             map[string]string{"thinking_level": "file"},
-					Description:         "Worker.",
-					WorkflowSubagent:    !roleDisabled,
-					WorkflowSubagentSet: roleDisabled,
+					Settings:         config.Settings{ThinkingLevel: "high"},
+					Sources:          sources,
+					Description:      "Worker.",
+					WorkflowSubagent: !roleDisabled,
 				},
 			},
 		}
@@ -275,10 +313,10 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			cfg := Config{
-				Model:                   "gpt-5.5",
-				ThinkingLevel:           "medium",
-				EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-				SubagentCatalogSettings: tt.settings,
+				Model:           "gpt-5.5",
+				ThinkingLevel:   "medium",
+				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+				SubagentCatalog: testsetup.ProgrammaticConfig(t, tt.settings),
 			}
 			eng := mustNewExecTestEngine(t, store, &fakeClient{}, cfg)
 			if tt.workflow {
@@ -317,7 +355,7 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Worker.",
 			},
 		},
@@ -334,10 +372,10 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 			t.Parallel()
 			store := runtimeCatalogStoreForPath(t, path)
 			eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-				Model:                   "gpt-5.5",
-				ThinkingLevel:           "medium",
-				EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-				SubagentCatalogSettings: settings,
+				Model:           "gpt-5.5",
+				ThinkingLevel:   "medium",
+				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+				SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 			})
 			stepID := runtimeTestStepID("base")
 			if err := runTestActiveStep(eng, stepID, func() error {
@@ -374,22 +412,21 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:         config.Settings{Model: "gpt-5.4-mini"},
-				Sources:          map[string]string{"model": "file"},
-				AgentCallable:    false,
-				AgentCallableSet: true,
+				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
+				AgentCallable: false,
 			},
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
 	}
 	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-		Model:                   "gpt-5.5",
-		EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-		SubagentCatalogSettings: settings,
+		Model:           "gpt-5.5",
+		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	})
 	stepID := runtimeTestStepID("base")
 	if err := runTestActiveStep(eng, stepID, func() error {
@@ -483,16 +520,16 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
 	}
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                   "gpt-5.6-sol",
-		ThinkingLevel:           "medium",
-		EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-		SubagentCatalogSettings: settings,
+		Model:           "gpt-5.6-sol",
+		ThinkingLevel:   "medium",
+		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	})
 
 	projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
@@ -574,17 +611,17 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings:    config.Settings{ThinkingLevel: "high"},
-				Sources:     map[string]string{"thinking_level": "file"},
+				Sources:     map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 				Description: "Callable helper.",
 			},
 		},
 	}
 	cfg := Config{
-		Model:                   "gpt-5.6-sol",
-		ThinkingLevel:           "medium",
-		CompactionMode:          "local",
-		EnabledTools:            []toolspec.ID{toolspec.ToolExecCommand},
-		SubagentCatalogSettings: settings,
+		Model:           "gpt-5.6-sol",
+		ThinkingLevel:   "medium",
+		CompactionMode:  "local",
+		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
+		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	}
 	client := &fakeCompactionClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},

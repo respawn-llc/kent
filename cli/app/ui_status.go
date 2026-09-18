@@ -100,7 +100,7 @@ type statusEnvironmentRefreshDoneMsg struct {
 }
 
 func WithUIStatusConfig(statusConfig uiStatusConfig) UIOption {
-	return func(m *uiModelConstruction) {
+	return func(m *uiModel) {
 		m.statusConfig = statusConfig
 		if statusConfig.Settings.Debug {
 			m.debugMode = true
@@ -112,7 +112,7 @@ func WithUIStatusConfig(statusConfig uiStatusConfig) UIOption {
 }
 
 func WithUIStatusCollector(collector uiStatusCollector) UIOption {
-	return func(m *uiModelConstruction) {
+	return func(m *uiModel) {
 		if collector != nil {
 			m.statusCollector = collector
 		}
@@ -120,7 +120,7 @@ func WithUIStatusCollector(collector uiStatusCollector) UIOption {
 }
 
 func WithUIStatusRepository(repository uiStatusRepository) UIOption {
-	return func(m *uiModelConstruction) {
+	return func(m *uiModel) {
 		if repository != nil {
 			m.statusRepository = repository
 		}

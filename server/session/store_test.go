@@ -193,7 +193,7 @@ func TestAppendTypedRecordMonotonicSequence(t *testing.T) {
 func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 	store := newSessionTestLazyStore(t)
 	want := "draft line one\nline two"
-	if err := store.SetInputDraft(want); err != nil {
+	if err := store.SetInputDraft(want, nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 	reopened := mustOpenSessionTestStore(t, store)
@@ -201,7 +201,7 @@ func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 		t.Fatalf("expected persisted draft %q, got %q", want, reopened.Meta().InputDraft)
 	}
 
-	if err := reopened.SetInputDraft(""); err != nil {
+	if err := reopened.SetInputDraft("", nil); err != nil {
 		t.Fatalf("clear input draft: %v", err)
 	}
 	cleared := mustOpenSessionTestStore(t, store)
@@ -301,9 +301,16 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 }
 
 func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
-	store := newSessionTestStore(t)
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	parent := newSessionTestStore(t)
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
+	}
+	store := newSessionTestLazyStore(t)
+	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritContractWithoutTools}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatal(err)
 	}
 	result, err := store.BackfillLockedRequestShape(LockedRequestShapeBackfill{
 		EnabledTools:    []string{"shell", "patch"},
@@ -1008,8 +1015,8 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}
 
 	if err := InitializeCreationContext(child, parent, SessionCreationSourcePreviousSession, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
+		LockedContract:      InheritFullContract,
+		InheritContinuation: true,
 	}); err != nil {
 		t.Fatalf("InitializeCreationContext: %v", err)
 	}

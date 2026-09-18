@@ -172,7 +172,6 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUITurnQueueHook(request.wiring.turnQueueHook),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
 		WithUIWorktreeClient(request.wiring.worktrees),
-		WithUIPromptHistory(request.wiring.promptHistory),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
