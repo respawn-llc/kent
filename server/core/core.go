@@ -461,11 +461,8 @@ func (s configuredCoreOnboardingFinalizeService) Finalize(context.Context, *onbo
 }
 
 func configuredCoreSettingsPath(cfg config.App) string {
-	if path := strings.TrimSpace(cfg.Source.SettingsPath); path != "" {
-		return path
-	}
-	if path := strings.TrimSpace(cfg.Source.HomeSettingsPath); path != "" {
-		return path
+	if file := cfg.Source.File(config.FileGlobal); file != nil {
+		return file.Path
 	}
 	path, err := config.ResolveSettingsFilePathInRoot(cfg.PersistenceRoot)
 	if err != nil {

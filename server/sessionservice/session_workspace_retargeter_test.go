@@ -231,6 +231,7 @@ func (f realSessionRetargetFixture) openRuntime(t *testing.T) {
 func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot: f.sourceBinding.CanonicalRoot,
 		Settings: config.Settings{
 			Model:    "gpt-5",
 			Reviewer: config.ReviewerSettings{Frequency: "off"},

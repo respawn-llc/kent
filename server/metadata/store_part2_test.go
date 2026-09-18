@@ -729,7 +729,7 @@ func newMetadataTestStoreForWorkspace(t *testing.T, workspace string) (*Store, c
 
 func loadMetadataTestConfig(t *testing.T, workspace string, persistenceRoot string) config.App {
 	t.Helper()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: persistenceRoot})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

@@ -1,12 +1,60 @@
 package chatcontext
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"core/server/metadata"
 	"core/shared/config"
+	"github.com/google/uuid"
 )
+
+func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
+	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
+	binding, err := metadata.RegisterBinding(context.Background(), root, main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
+		ID: uuid.NewString(), WorkspaceID: binding.WorkspaceID, CanonicalRoot: worktree, Managed: true, GitMetadataJSON: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{main, worktree} {
+		if err := os.MkdirAll(filepath.Join(dir, ".kent"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, contents := range map[string]string{
+		filepath.Join(main, ".kent", "config.local.toml"):     "model = \"private-main\"\n",
+		filepath.Join(worktree, ".kent", "config.toml"):       "thinking_level = \"high\"\n",
+		filepath.Join(worktree, ".kent", "config.local.toml"): "this file must not be decoded",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := NewFixedRootWorkspaceResolver(root, main, config.LoadOptions{}).Resolve(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Settings.Model != "private-main" || app.Settings.ThinkingLevel != "high" {
+		t.Fatalf("workspace private/shared selection = %s / %s", app.Settings.Model, app.Settings.ThinkingLevel)
+	}
+	private := app.Source.File(config.FilePrivate)
+	if private == nil || private.Path != filepath.Join(binding.CanonicalRoot, ".kent", "config.local.toml") {
+		t.Fatalf("private source = %+v", private)
+	}
+}
 
 func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *testing.T) {
 	configRoot := t.TempDir()

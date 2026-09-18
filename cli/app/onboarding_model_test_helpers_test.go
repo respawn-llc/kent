@@ -63,10 +63,10 @@ func emptyOnboardingImportFacts() *capabilitypb.ImportFacts {
 }
 
 func normalizeOnboardingReviewerSeedInheritance(cfg *config.App) {
-	if cfg.Source.Sources["reviewer.model"] == "default" {
+	if cfg.Source.Sources["reviewer.model"].Inherited("reviewer.model") {
 		cfg.Settings.Reviewer.Model = cfg.Settings.Model
 	}
-	if cfg.Source.Sources["reviewer.thinking_level"] == "default" {
+	if cfg.Source.Sources["reviewer.thinking_level"].Inherited("reviewer.thinking_level") {
 		cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
 	}
 }

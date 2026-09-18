@@ -217,8 +217,8 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 			req.ActiveSettings.Model,
 		),
 		fmt.Sprintf(
-			"config.settings path=%s created=%t",
-			req.Source.SettingsPath,
+			"config.settings files=%+v created=%t",
+			req.Source.Files,
 			req.Source.CreatedDefaultConfig,
 		),
 	}
@@ -233,10 +233,12 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		}
 	}
 	return NewAgentRuntimePlan(AgentRuntimePlanOptions{
+		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
 		EnabledTools:             enabledTools,
 		FilesystemContext:        tools.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},
 		Sources:                  req.Source.Sources,
+		ExplicitToolSelection:    req.ExplicitToolSelection,
 		QuestionsEnabled:         req.QuestionsEnabled,
 		AutoCompactionEnabled:    req.AutoCompactionEnabled,
 		ClientFactory:            s.runtimeClientFactory,

@@ -54,34 +54,18 @@ func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
 	if err != nil {
 		return SessionConfigResult{}, err
 	}
-	loadOptions := req.LoadOptions
-	if req.OpenAIBaseURLExplicit {
-		loadOptions.OpenAIBaseURL = strings.TrimSpace(req.OpenAIBaseURL)
-	} else {
-		loadOptions.OpenAIBaseURL = ""
-	}
-	cfg, clientSettings, err := config.LoadInteractive(workspaceRoot, loadOptions)
-	if err != nil {
-		return SessionConfigResult{}, err
-	}
-	plan, err := bootstrap.ResolveConfig(bootstrap.Request{
+	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
 		OpenAIBaseURL:         req.OpenAIBaseURL,
 		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
 		LoadOptions:           req.LoadOptions,
-		InitialConfig: &bootstrap.InitialConfigSnapshot{
-			Config:           cfg,
-			WorkspaceRoot:    workspaceRoot,
-			OpenAIBaseURL:    strings.TrimSpace(req.OpenAIBaseURL),
-			UseOpenAIBaseURL: req.OpenAIBaseURLExplicit,
-		},
 	})
 	if err != nil {
 		return SessionConfigResult{}, err
 	}
-	return SessionConfigResult{Config: plan.Config, Client: clientSettings}, nil
+	return SessionConfigResult{Config: plan.Config, Client: plan.Client}, nil
 }
 
 func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
@@ -94,7 +78,7 @@ func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
 	if sessionID == "" && !req.WorkspaceRootExplicit {
 		sessionID = contextSessionID
 	}
-	plan, err := bootstrap.ResolveConfig(bootstrap.Request{
+	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             sessionID,

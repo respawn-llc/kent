@@ -507,13 +507,14 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 }
 
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	containerDir := filepath.Dir(store.Dir())
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -534,19 +535,19 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	if prompt == nil || prompt.Text != "edited prompt" {
 		t.Fatalf("initial prompt = %+v, want edited prompt", prompt)
 	}
-	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), sessionServiceTestPersistence.Options()...); err != nil {
+	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), metadataStore.AuthoritativeSessionStoreOptions()...); err != nil {
 		t.Fatalf("open forked session store: %v", err)
 	}
 }
 
 func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
+	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(containerDir, nil)
+	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, nil, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -563,7 +564,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	if !ok {
 		t.Fatal("rollback result omitted fork session ID")
 	}
-	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), sessionServiceTestPersistence.Options()...); err != nil {
+	if _, err := session.OpenByID(cfg.PersistenceRoot, forkID.String(), metadataStore.AuthoritativeSessionStoreOptions()...); err != nil {
 		t.Fatalf("open forked session store: %v", err)
 	}
 	prompt := preparation.InitialPrompt

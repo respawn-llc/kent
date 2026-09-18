@@ -44,7 +44,7 @@ func TestActiveToolIDsRejectsEffectivePatchAndEdit(t *testing.T) {
 	settings := validLaunchSettings("claude-sonnet-4.5")
 	settings.EnabledTools[toolspec.ToolEdit] = true
 	source := defaultToolSources()
-	source.Sources["tools.edit"] = "file"
+	source.Sources["tools.edit"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}}
 
 	_, err := ActiveToolIDsForPlan(settings, source, nil)
 	if err == nil || !errors.Is(err, ErrPatchEditToolsConflict) {
@@ -93,7 +93,8 @@ func TestActiveToolIDsLegacyMissingLockUsesEffectiveConfig(t *testing.T) {
 
 func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 	store := createTestSession(t, t.TempDir())
-	settings := validLaunchSettings("gpt-5.6-sol")
+	app := loadLaunchConfig(t, t.TempDir(), "model = \"gpt-5.6-sol\"")
+	settings := app.Settings
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: config.Settings{
@@ -103,16 +104,17 @@ func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 					toolspec.ToolEdit:  true,
 				},
 			},
-			Sources: map[string]string{
-				"tools.patch": "file",
-				"tools.edit":  "file",
+			Sources: map[string]config.Origin{
+				"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+				"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 			},
 		},
 	}
 	plan := sessionPlanWithSnapshot(SessionPlan{
 		ActiveSettings: settings,
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch},
-		Source:         defaultToolSources(),
+		Source:         app.Source,
 	}, store, filepath.Dir(store.Dir()))
 
 	updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
@@ -128,7 +130,8 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.PersistenceRootEnvName, t.TempDir())
 	store := createTestSession(t, t.TempDir())
-	settings := validLaunchSettings("gpt-5.6-sol")
+	app := loadLaunchConfig(t, t.TempDir(), "model = \"gpt-5.6-sol\"")
+	settings := app.Settings
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: config.Settings{
@@ -138,9 +141,10 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 					toolspec.ToolEdit:  true,
 				},
 			},
-			Sources: map[string]string{
-				"tools.patch": "file",
-				"tools.edit":  "file",
+			Sources: map[string]config.Origin{
+				"tools.patch": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.patch"}},
+
+				"tools.edit": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.edit"}},
 			},
 		},
 	}
@@ -148,7 +152,7 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 		ActiveSettings: settings,
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch},
 		WorkspaceRoot:  t.TempDir(),
-		Source:         defaultToolSources(),
+		Source:         app.Source,
 	}, store, filepath.Dir(store.Dir()))
 
 	updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker"), Model: "gpt-5.6-sol"}, auth.EmptyState())
@@ -158,15 +162,16 @@ func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testi
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
 		t.Fatalf("enabled tools = %+v, want explicit subagent edit preserved across model override", updated.EnabledTools)
 	}
-	if updated.Source.Sources["tools.edit"] != "subagent" || updated.Source.Sources["tools.patch"] != "subagent" {
+	if updated.Source.Sources["tools.edit"].Kind != config.SourceInput || updated.Source.Sources["tools.patch"].Kind != config.SourceInput {
 		t.Fatalf("tool sources = %+v, want subagent markers preserved", updated.Source.Sources)
 	}
 }
 
 func defaultToolSources() config.SourceReport {
-	sources := map[string]string{}
+	sources := map[string]config.Origin{}
 	for _, id := range toolspec.CatalogIDs() {
-		sources["tools."+toolspec.ConfigName(id)] = "default"
+		key := "tools." + toolspec.ConfigName(id)
+		sources[key] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: key}}
 	}
 	return config.SourceReport{Sources: sources}
 }

@@ -13,7 +13,7 @@ func TestMaxSubagentDepthDefaultsAndRenders(t *testing.T) {
 	if cfg.Settings.MaxSubagentDepth != 2 {
 		t.Fatalf("max_subagent_depth = %d, want 2", cfg.Settings.MaxSubagentDepth)
 	}
-	if got := cfg.Source.Sources["max_subagent_depth"]; got != "default" {
+	if got := cfg.Source.Sources["max_subagent_depth"].Kind; got != "default" {
 		t.Fatalf("max_subagent_depth source = %q, want default", got)
 	}
 	rendered := settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil)
@@ -52,7 +52,7 @@ func TestLoadMaxSubagentDepthUsesGlobalThenWorkspacePrecedence(t *testing.T) {
 	if cfg.Settings.MaxSubagentDepth != 3 {
 		t.Fatalf("max_subagent_depth = %d, want workspace value 3 (home %s)", cfg.Settings.MaxSubagentDepth, home)
 	}
-	if got := cfg.Source.Sources["max_subagent_depth"]; got != "file" {
+	if got := cfg.Source.Sources["max_subagent_depth"].Kind; got != "file" {
 		t.Fatalf("max_subagent_depth source = %q, want file", got)
 	}
 }

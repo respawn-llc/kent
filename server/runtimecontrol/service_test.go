@@ -714,6 +714,7 @@ func newRuntimeControlTestServiceWithFeeds(
 		})
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot:     store.Meta().WorkspaceRoot,
 		Settings:              settings,
 		EnabledTools:          enabledTools,
 		QuestionsEnabled:      textutil.Value(true),

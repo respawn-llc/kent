@@ -92,6 +92,7 @@ func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients
 		AutoCompactionEnabled:    plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           plan.ActivationAgentSelection,
+		ExplicitToolSelection:    plan.ExplicitToolSelection,
 		Source:                   plan.Source,
 	})
 	if err != nil {

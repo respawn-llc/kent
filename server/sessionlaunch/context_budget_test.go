@@ -13,7 +13,7 @@ import (
 
 func TestOpenSessionUsesCurrentAgentBudgetAcrossConfigChanges(t *testing.T) {
 	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,14 +46,15 @@ func TestOpenSessionUsesCurrentAgentBudgetAcrossConfigChanges(t *testing.T) {
 		cfg.Settings.Subagents = map[string]config.SubagentRole{
 			role: {
 				Settings: roleSettings,
-				Sources: map[string]string{
-					"model_context_window":                "file",
-					"context_compaction_threshold_tokens": "file",
+				Sources: map[string]config.Origin{
+					"model_context_window": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_context_window"}},
+
+					"context_compaction_threshold_tokens": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "context_compaction_threshold_tokens"}},
 				},
 			},
 			"code_review": {
 				Settings: cfg.Settings,
-				Sources:  map[string]string{"model": "file"},
+				Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 			},
 		}
 		service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(&nonRefreshingAuthStateReader{

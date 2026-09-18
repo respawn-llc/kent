@@ -247,9 +247,12 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 			Model:         "custom-reviewer",
 			ThinkingLevel: "custom-think",
 		}
-		cfg.Source.Sources["thinking_level"] = "file"
-		cfg.Source.Sources["reviewer.model"] = "file"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	}, facts)
 
 	request, err := onboardingFinalizeRequest(state, false)
@@ -297,7 +300,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "explicit-supported-level",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = "high"
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptrString("high")},
 		},
@@ -305,7 +309,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "custom",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = "ultra"
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptrString("ultra")},
 		},
@@ -313,7 +318,8 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 			name: "disabled",
 			configure: func(cfg *config.App) {
 				cfg.Settings.ThinkingLevel = ""
-				cfg.Source.Sources["thinking_level"] = "file"
+				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 			},
 			want: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
 		},
@@ -348,8 +354,10 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 			cfg.Settings.Reviewer.Model = cfg.Settings.Model
 			cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
-			cfg.Source.Sources["reviewer.model"] = "file"
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -366,7 +374,8 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 	t.Run("explicit-disabled", func(t *testing.T) {
 		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 			cfg.Settings.Reviewer.ThinkingLevel = ""
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -383,8 +392,10 @@ func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff
 			cfg.Settings.Reviewer.Frequency = "off"
 			cfg.Settings.Reviewer.Model = cfg.Settings.Model
 			cfg.Settings.Reviewer.ThinkingLevel = cfg.Settings.ThinkingLevel
-			cfg.Source.Sources["reviewer.model"] = "file"
-			cfg.Source.Sources["reviewer.thinking_level"] = "file"
+			cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+			cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 		}, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
 		if err != nil {
@@ -480,7 +491,8 @@ func TestOnboardingRecoverableRetrySubmitsUnchangedRequest(t *testing.T) {
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 		cfg.Settings.ProviderOverride = "openai"
 		cfg.Settings.ThinkingLevel = "high"
-		cfg.Source.Sources["thinking_level"] = "file"
+		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
+
 	}, testOnboardingCapabilityFacts())
 	model := newOnboardingModel(newOnboardingFinalization(finalizer, context.Background()), state)
 
@@ -508,10 +520,12 @@ func newOnboardingFinalizeProjectionState(t *testing.T, configure func(*config.A
 	settings := config.DefaultOnboardingSettings()
 	cfg := config.App{
 		Settings: settings,
-		Source: config.SourceReport{Sources: map[string]string{
-			"thinking_level":          "default",
-			"reviewer.model":          "default",
-			"reviewer.thinking_level": "default",
+		Source: config.SourceReport{Sources: map[string]config.Origin{
+			"thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "thinking_level"}},
+
+			"reviewer.model": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.model"}},
+
+			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
 		}},
 	}
 	if configure != nil {

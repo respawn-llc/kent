@@ -247,7 +247,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			_ = runtimeSupport.Background.Close()
 		}
 	}
-	workflowRoleResolver := configRoleResolver{settings: cfg.Settings}
+	workflowRoleResolver := configRoleResolver{app: cfg}
 	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
 	if err != nil {
 		cleanupNewFailure()

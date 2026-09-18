@@ -103,6 +103,8 @@ type SessionPlan struct {
 	AutoCompactionEnabled               bool
 	ThinkingOverrideExplicit            bool
 	ActivationAgentSelection            *session.ChatSettingsState
+	ExplicitToolSelection               *config.ToolSelection
+	RequiredTools                       []toolspec.ID
 }
 
 // ApplyContextPolicy resolves Context policy only after the plan's final Agent
@@ -254,6 +256,11 @@ func resolveReadOnlySessionContextSettings(
 	meta session.Meta,
 	skipContinuationAgentRoleValidation bool,
 ) (config.Settings, config.SourceReport, session.ChatSettings, error) {
+	var selectionErr error
+	app, selectionErr = ApplyRetainedToolSelection(app, meta)
+	if selectionErr != nil {
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, selectionErr
+	}
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	active, source := baseActive, app.Source
 	if meta.Continuation != nil {
@@ -440,6 +447,12 @@ func ValidateInitialChatCreationTarget(mode Mode, intent serverapi.SessionLaunch
 }
 
 func (p Planner) planSession(ctx context.Context, req SessionRequest, meta session.Meta, store *session.Store) (SessionPlan, error) {
+	explicitTools := config.ExplicitToolSelection(p.Config.Settings, p.Config.Source.Sources)
+	var selectionErr error
+	p.Config, selectionErr = ApplyRetainedToolSelection(p.Config, meta)
+	if selectionErr != nil {
+		return SessionPlan{}, selectionErr
+	}
 	if store == nil {
 		if req.Intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
 			return SessionPlan{}, errors.New("persisted session planning requires an existing-session intent")
@@ -554,6 +567,7 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: req.SkipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
+		ExplicitToolSelection:               explicitTools,
 		ExecutionTarget:                     executionTarget,
 		ProjectWorkspaceBoundary:            projectWorkspaceBoundary.Clone(),
 		ManagedWorktreeRoots:                append([]string(nil), managedWorktreeRoots...),
@@ -595,7 +609,10 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 		return base, source, nil
 	}
 	providerSettings := cloneSettings(base)
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, lookup.Role)
+	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: source}, lookup.Role)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, err
+	}
 	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, *lookup.NormalizedSelector, persistedRoleProviderID(providerSettings), allowModelOverride, validate)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
@@ -665,7 +682,7 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	}
 	next.QuestionsEnabled = chatSettings.Questions
 	next.AutoCompactionEnabled = chatSettings.AutoCompaction
-	next, err = withRequiredRunPromptTools(next, options.RequiredTools)
+	next, err = WithRequiredRunPromptTools(next, options.RequiredTools)
 	if err != nil {
 		return SessionPlan{}, nil, err
 	}
@@ -674,14 +691,18 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	return next, warnings, err
 }
 
-func withRequiredRunPromptTools(plan SessionPlan, required []toolspec.ID) (SessionPlan, error) {
+func WithRequiredRunPromptTools(plan SessionPlan, required []toolspec.ID) (SessionPlan, error) {
 	if len(required) == 0 {
 		return plan, nil
 	}
 	enabled := cloneMapOrEmpty(plan.ActiveSettings.EnabledTools)
 	for _, tool := range required {
 		enabled[tool] = true
+		if tool == toolspec.ToolAskQuestion {
+			plan.QuestionsEnabled = true
+		}
 	}
+	plan.RequiredTools = DedupeSortToolIDs(append(append([]toolspec.ID(nil), plan.RequiredTools...), required...))
 	plan.ActiveSettings.EnabledTools = enabled
 	plan.EnabledTools = DedupeSortToolIDs(append(append([]toolspec.ID(nil), plan.EnabledTools...), required...))
 	return plan, nil
@@ -754,7 +775,7 @@ func baseConfigForPlan(plan SessionPlan) config.App {
 	}
 }
 
-type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool)
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool)
 
 // PrepareRunPromptOverrides resolves every config-backed part of a RunPrompt
 // target from one loaded application snapshot. It intentionally performs no
@@ -840,7 +861,10 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 	providerSettings.ProviderOverride = overrideConfig.Settings.ProviderOverride
 	providerSettings.OpenAIBaseURL = overrideConfig.Settings.OpenAIBaseURL
 	providerSettings.Subagents = nil
-	providerSettings = config.OverlaySubagentRoleProviderSettings(providerSettings, lookup.Role)
+	providerSettings, err = config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: overrideConfig.Source}, lookup.Role)
+	if err != nil {
+		return PreparedRunPromptOverrides{}, err
+	}
 	providerID := persistedRoleProviderID(providerSettings)
 	var providerCapabilities *llm.ProviderCapabilities
 	if !preparation.SkipProviderReadinessValidation {
@@ -873,7 +897,8 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 
 func prepareBaseTargetWithoutProviderReadiness(app config.App, modelLock, toolLock *session.LockedContract) (PreparedBaseTarget, error) {
 	resolved := EffectiveSettings(app.Settings, modelLock)
-	source := app.Source
+	source := cloneSourceReport(app.Source)
+	config.InheritReviewerSettings(&resolved, source.Sources)
 	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
 	if err != nil {
 		return PreparedBaseTarget{}, err
@@ -886,13 +911,11 @@ func prepareBaseTargetWithoutProviderReadiness(app config.App, modelLock, toolLo
 }
 
 func prepareBaseTarget(app, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
-	resolved := EffectiveSettings(app.Settings, modelLock)
-	source := app.Source
-	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
+	target, err := prepareBaseTargetWithoutProviderReadiness(app, modelLock, toolLock)
 	if err != nil {
 		return PreparedBaseTarget{}, err
 	}
-	return preparePreparedBaseTarget(PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: enabledTools}, overrideConfig, overrides, modelLock, toolLock, applyBudget)
+	return preparePreparedBaseTarget(target, overrideConfig, overrides, modelLock, toolLock, applyBudget)
 }
 
 func preparePreparedBaseTarget(target PreparedBaseTarget, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
@@ -956,35 +979,16 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 	if !overrides.HasConfigOverrides() {
 		return settings, source, enabledTools, nil
 	}
-	source = mergeOverrideSources(source, overrideConfig.Source)
+	originalModel := settings.Model
+	settings, source.Sources = config.OverlayCLIOverrides(settings, source.Sources, overrideConfig.Settings, overrideConfig.Source.Sources, modelLock == nil, toolLock == nil)
 	if strings.TrimSpace(overrides.Model) != "" && modelLock == nil {
-		originalModel := settings.Model
-		explicitSources := map[string]string{}
+		explicitSources := map[string]config.Origin{}
 		for key, value := range source.Sources {
-			if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "default" {
+			if value.Configured() {
 				explicitSources[key] = value
 			}
 		}
-		settings.Model = overrideConfig.Settings.Model
 		applyBudget(&settings, explicitSources, originalModel, true)
-	}
-	if strings.TrimSpace(overrides.ProviderOverride) != "" {
-		settings.ProviderOverride = overrideConfig.Settings.ProviderOverride
-	}
-	if strings.TrimSpace(overrides.ThinkingLevel) != "" {
-		settings.ThinkingLevel = overrideConfig.Settings.ThinkingLevel
-	}
-	if strings.TrimSpace(overrides.Theme) != "" {
-		settings.Theme = overrideConfig.Settings.Theme
-	}
-	if overrides.ModelTimeoutSeconds > 0 {
-		settings.Timeouts.ModelRequestSeconds = overrideConfig.Settings.Timeouts.ModelRequestSeconds
-	}
-	if strings.TrimSpace(overrides.OpenAIBaseURL) != "" {
-		settings.OpenAIBaseURL = overrideConfig.Settings.OpenAIBaseURL
-	}
-	if strings.TrimSpace(overrides.Tools) != "" && toolLock == nil {
-		settings.EnabledTools = cloneMapOrEmpty(overrideConfig.Settings.EnabledTools)
 	}
 	if toolLock == nil && (strings.TrimSpace(overrides.Tools) != "" || strings.TrimSpace(overrides.Model) != "") {
 		var err error
@@ -1054,6 +1058,12 @@ func applySessionChatSettingsWithRunOverrides(
 }
 
 func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPlan, meta session.Meta, persistContinuation func(session.ContinuationContext) error, overrides serverapi.RunPromptOverrides, prepared PreparedRunPromptOverrides, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
+	plan.ExplicitToolSelection = config.ExplicitToolSelection(prepared.OverrideConfig.Settings, prepared.OverrideConfig.Source.Sources)
+	var retainedErr error
+	prepared, retainedErr = retainedPreparedToolTargets(prepared, meta)
+	if retainedErr != nil {
+		return SessionPlan{}, nil, retainedErr
+	}
 	if !overrides.HasAny() && !prepared.AgentRole.Present && prepared.BaseTarget == nil {
 		return sessionPlanWithMeta(plan, meta, p.ContainerDir), nil, nil
 	}
@@ -1225,51 +1235,16 @@ func cloneContinuationRole(role *string) *string {
 func validateRunPromptOverrideSettings(settings config.Settings, source config.SourceReport) (config.Settings, error) {
 	validated := cloneSettings(settings)
 	sources := cloneMapOrEmpty(source.Sources)
-	applyReviewerInheritance(&validated, sources)
+	config.InheritReviewerSettings(&validated, sources)
 	if err := config.ValidateSettingsWithSources(validated, sources); err != nil {
 		return config.Settings{}, err
 	}
 	return validated, nil
 }
 
-func mergeOverrideSources(base config.SourceReport, override config.SourceReport) config.SourceReport {
-	merged := base
-	merged.SettingsPath = override.SettingsPath
-	merged.SettingsFileExists = override.SettingsFileExists
-	merged.CreatedDefaultConfig = override.CreatedDefaultConfig
-	merged.Sources = make(map[string]string, len(base.Sources)+len(override.Sources))
-	for key, value := range base.Sources {
-		merged.Sources[key] = value
-	}
-	for key, value := range override.Sources {
-		if strings.TrimSpace(value) == "cli" {
-			merged.Sources[key] = value
-		}
-	}
-	return merged
-}
-
 func cloneSourceReport(source config.SourceReport) config.SourceReport {
 	next := source
 	next.Sources = cloneMapOrEmpty(source.Sources)
-	return next
-}
-
-func sourceReportWithSubagentRoleSources(base config.SourceReport, role config.SubagentRole, allowModelOverride bool) config.SourceReport {
-	if len(role.Sources) == 0 {
-		return base
-	}
-	next := base
-	next.Sources = cloneMapOrEmpty(base.Sources)
-	if !allowModelOverride && strings.TrimSpace(next.Sources["model"]) == "default" {
-		next.Sources["model"] = "session"
-	}
-	for key := range role.Sources {
-		if key == "model" && !allowModelOverride {
-			continue
-		}
-		next.Sources[key] = "subagent"
-	}
 	return next
 }
 
@@ -1386,8 +1361,8 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return err
 	}
 	childContextOptions := session.ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
+		LockedContract:      session.InheritFullContract,
+		InheritContinuation: true,
 	}
 	creationSourceKind := session.SessionCreationSourcePreviousSession
 	if originKind == serverapi.SessionCreateOriginParentAgent {
@@ -1530,7 +1505,7 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 }
 
 func bothEditToolSourcesDefault(source config.SourceReport) bool {
-	return strings.TrimSpace(source.Sources["tools.patch"]) == "default" && strings.TrimSpace(source.Sources["tools.edit"]) == "default"
+	return source.Sources["tools.patch"].Kind == config.SourceDefault && source.Sources["tools.edit"].Kind == config.SourceDefault
 }
 
 func enabledToolIDs(enabled map[toolspec.ID]bool) []toolspec.ID {

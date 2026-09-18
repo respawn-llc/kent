@@ -160,7 +160,7 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 	workspaceRoot := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, "kent-root"))
-	cfg, err := config.Load(workspaceRoot, config.LoadOptions{})
+	cfg, err := config.Load(workspaceRoot, workspaceRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

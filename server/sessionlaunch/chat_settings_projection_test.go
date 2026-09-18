@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/session"
@@ -175,14 +176,14 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 
 func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 	t.Helper()
-	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(), auth.EmptyState(), true)
+	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), auth.EmptyState(), true)
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
 	return catalog
 }
 
-func testChatSettingsApp() config.App {
+func testChatSettingsApp(t *testing.T) config.App {
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5"
 	settings.ThinkingLevel = "medium"
@@ -194,22 +195,22 @@ func testChatSettingsApp() config.App {
 	settings.Subagents = map[string]config.SubagentRole{
 		config.BuiltInSubagentRoleFast: {
 			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "low"},
-			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"no-questions": {
 			Settings: config.Settings{
 				EnabledTools: map[toolspec.ID]bool{toolspec.ToolAskQuestion: false},
 			},
-			Sources: map[string]string{"tools.ask_question": "file"},
+			Sources: map[string]config.Origin{"tools.ask_question": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.ask_question"}}},
 		},
 	}
-	return config.App{Settings: settings}
+	return testsetup.ProgrammaticConfig(t, settings)
 }
 
 func testNewChatSettingsApp(t *testing.T) config.App {
 	t.Helper()
 	app := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
-	settings := testChatSettingsApp().Settings
+	settings := testChatSettingsApp(t).Settings
 	app.Settings.Model = settings.Model
 	app.Settings.ThinkingLevel = settings.ThinkingLevel
 	app.Settings.Subagents = settings.Subagents

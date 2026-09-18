@@ -66,6 +66,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		MainWorkspaceRoot: workspace,
 		Settings: config.Settings{
 			Model:              "gpt-5",
 			ModelContextWindow: 200_000,

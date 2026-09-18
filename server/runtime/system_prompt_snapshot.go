@@ -15,9 +15,9 @@ import (
 )
 
 type systemPromptSnapshotOptions struct {
-	WorkspaceRoot     string
-	GlobalConfigDir   string
-	SystemPromptFiles []config.SystemPromptFile
+	WorkspaceRoot    string
+	GlobalConfigDir  string
+	SystemPromptFile *config.SystemPromptFile
 }
 
 func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract, workspaceRoot string) (string, error) {
@@ -26,9 +26,9 @@ func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract,
 		enabledTools = e.cfg.EnabledTools
 	}
 	return e.buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
-		WorkspaceRoot:     workspaceRoot,
-		GlobalConfigDir:   e.cfg.GlobalConfigDir,
-		SystemPromptFiles: e.cfg.SystemPromptFiles,
+		WorkspaceRoot:    workspaceRoot,
+		GlobalConfigDir:  e.cfg.GlobalConfigDir,
+		SystemPromptFile: e.cfg.SystemPromptFile,
 	}, enabledTools)
 }
 
@@ -121,7 +121,7 @@ func readSystemPromptTemplate(opts systemPromptSnapshotOptions) (string, string,
 }
 
 func systemPromptPathsWithConfig(opts systemPromptSnapshotOptions) ([]string, error) {
-	paths := make([]string, 0, 2+len(opts.SystemPromptFiles))
+	paths := make([]string, 0, 3)
 	addPath := func(path string) {
 		trimmed := strings.TrimSpace(path)
 		if trimmed != "" {
@@ -136,20 +136,17 @@ func systemPromptPathsWithConfig(opts systemPromptSnapshotOptions) ([]string, er
 			return nil, fmt.Errorf("resolve workspace root: %w", err)
 		}
 	}
-	addConfigPaths := func(scope config.SystemPromptFileScope) {
-		for i := len(opts.SystemPromptFiles) - 1; i >= 0; i-- {
-			candidate := opts.SystemPromptFiles[i]
-			if candidate.Scope == scope {
-				addPath(candidate.Path)
-			}
+	addConfigPath := func(scope config.SystemPromptFileScope) {
+		if opts.SystemPromptFile != nil && opts.SystemPromptFile.Scope == scope {
+			addPath(opts.SystemPromptFile.Path)
 		}
 	}
-	addConfigPaths(config.SystemPromptFileScopeSubagent)
-	addConfigPaths(config.SystemPromptFileScopeWorkspaceConfig)
+	addConfigPath(config.SystemPromptFileScopeSubagent)
+	addConfigPath(config.SystemPromptFileScopeWorkspaceConfig)
 	if absWorkspace != "" {
 		addPath(filepath.Join(absWorkspace, agentsGlobalDirName, systemPromptFileName))
 	}
-	addConfigPaths(config.SystemPromptFileScopeHomeConfig)
+	addConfigPath(config.SystemPromptFileScopeHomeConfig)
 	if globalDir, err := resolveGlobalConfigDir(opts.GlobalConfigDir); err == nil {
 		addPath(filepath.Join(globalDir, systemPromptFileName))
 	}
@@ -182,7 +179,7 @@ func (e *Engine) reviewerSystemPrompt(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(e.cfg.Reviewer.SystemPromptFile) == "" {
+	if e.cfg.Reviewer.SystemPromptFile == nil {
 		return prompt, nil
 	}
 	if err := e.store.BackfillLockedReviewerPrompt(prompt); err != nil {
@@ -206,50 +203,17 @@ func (e *Engine) lockedReviewerPromptSnapshot() (string, bool) {
 var errReadReviewerSystemPromptFile = errors.New("read reviewer.system_prompt_file")
 
 func (e *Engine) buildReviewerPromptSnapshot() (string, error) {
-	path := strings.TrimSpace(e.cfg.Reviewer.SystemPromptFile)
-	if path == "" {
+	path := e.cfg.Reviewer.SystemPromptFile
+	if path == nil {
 		return prompts.ReviewerSystemPrompt, nil
 	}
-	return buildReviewerPromptSnapshotFromFile(path)
+	return buildReviewerPromptSnapshotFromFile(*path)
 }
 
 func buildReviewerPromptSnapshotFromFile(path string) (string, error) {
-	resolved, err := resolveConfiguredPromptFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve reviewer.system_prompt_file %q: %w", path, err)
-	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", fmt.Errorf("%w %q: %w", errReadReviewerSystemPromptFile, resolved, err)
+		return "", fmt.Errorf("%w %q: %w", errReadReviewerSystemPromptFile, path, err)
 	}
 	return strings.TrimSpace(string(data)), nil
-}
-
-func resolveConfiguredPromptFile(path string) (string, error) {
-	expanded, err := expandTildePromptPath(path)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(expanded)
-}
-
-func expandTildePromptPath(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" || !strings.HasPrefix(trimmed, "~") {
-		return trimmed, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	if trimmed == "~" {
-		return home, nil
-	}
-	if strings.HasPrefix(trimmed, "~/") {
-		return filepath.Join(home, strings.TrimPrefix(trimmed, "~/")), nil
-	}
-	if strings.HasPrefix(trimmed, "~\\") {
-		return filepath.Join(home, strings.TrimPrefix(trimmed, "~\\")), nil
-	}
-	return trimmed, nil
 }

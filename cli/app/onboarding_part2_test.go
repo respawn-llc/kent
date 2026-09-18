@@ -284,7 +284,8 @@ func TestMainThinkingChoiceSynchronizesReviewerThinking(t *testing.T) {
 func TestMainThinkingChoicePreservesCustomReviewerThinking(t *testing.T) {
 	state := testOnboardingFlowStatePtr(t, func(cfg *config.App) {
 		cfg.Settings.Reviewer.ThinkingLevel = "low"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	})
 	if err := findWorkflowStep(t, state, "thinking").apply(state, "high"); err != nil {
 		t.Fatalf("apply thinking choice: %v", err)
@@ -298,8 +299,10 @@ func TestApplyOnboardingModelPreservesCustomReviewerOverrides(t *testing.T) {
 	state := testOnboardingFlowStatePtr(t, func(cfg *config.App) {
 		cfg.Settings.Reviewer.Model = "gpt-4.1"
 		cfg.Settings.Reviewer.ThinkingLevel = "low"
-		cfg.Source.Sources["reviewer.model"] = "file"
-		cfg.Source.Sources["reviewer.thinking_level"] = "file"
+		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
+
+		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
+
 	})
 	if err := state.submitPrimaryModel("gpt-5.3-codex"); err != nil {
 		t.Fatalf("apply onboarding model: %v", err)

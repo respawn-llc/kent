@@ -140,7 +140,7 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, ".kent-test"))
 	markGitRepository(t, workspace)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

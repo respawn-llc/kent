@@ -26,7 +26,7 @@ import (
 func registerAppWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureAppTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -61,7 +61,7 @@ func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, worksp
 
 func loadAppTestConfig(t *testing.T, workspace string, opts config.LoadOptions) config.App {
 	t.Helper()
-	cfg, err := config.Load(workspace, opts)
+	cfg, err := config.Load(workspace, workspace, opts)
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}

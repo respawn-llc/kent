@@ -15,7 +15,7 @@ type headlessAuthHandler struct {
 
 func NewHeadlessHandlers(lookupEnv func(string) string) (AuthHandler, OnboardingHandler) {
 	return headlessAuthHandler{lookupEnv: lookupEnv}, func(_ context.Context, req OnboardingRequest) (config.App, error) {
-		if !req.Config.Source.SettingsFileExists {
+		if !req.Config.Source.SettingsFileExists() {
 			return config.App{}, ErrOnboardingRequired
 		}
 		return req.Config, nil

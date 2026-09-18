@@ -301,9 +301,16 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 }
 
 func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
-	store := newSessionTestStore(t)
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	parent := newSessionTestStore(t)
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
+	}
+	store := newSessionTestLazyStore(t)
+	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritContractWithoutTools}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatal(err)
 	}
 	result, err := store.BackfillLockedRequestShape(LockedRequestShapeBackfill{
 		EnabledTools:    []string{"shell", "patch"},
@@ -1008,8 +1015,8 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}
 
 	if err := InitializeCreationContext(child, parent, SessionCreationSourcePreviousSession, ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
+		LockedContract:      InheritFullContract,
+		InheritContinuation: true,
 	}); err != nil {
 		t.Fatalf("InitializeCreationContext: %v", err)
 	}
