@@ -18,11 +18,10 @@ type uiLogger interface {
 }
 
 func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption) tea.Model {
-	construction := newUIModelConstruction(runtimeClient)
+	m := newUIModelDefaults(runtimeClient)
 	for _, opt := range opts {
-		opt(construction)
+		opt(m)
 	}
-	m := construction.finalize()
 	if m.pathReferenceSearch == nil {
 		m.pathReferenceSearch = newUIPathReferenceSearch()
 		m.pathReferenceEvents = m.pathReferenceSearch.Events()
@@ -58,34 +57,13 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 	return m
 }
 
-type uiModelConstruction struct {
-	*uiModel
-	initialPromptHistoryTail  []string
-	initialPromptHistoryCount int
-}
-
-func newUIModelConstruction(runtimeClient clientui.RuntimeClient) *uiModelConstruction {
-	return &uiModelConstruction{uiModel: newUIModelDefaults(runtimeClient)}
-}
-
-func (c *uiModelConstruction) finalize() *uiModel {
-	c.uiModel.loadInitialPromptHistory(c.initialPromptHistoryTail, c.initialPromptHistoryCount)
-	c.initialPromptHistoryTail = nil
-	c.initialPromptHistoryCount = 0
-	return c.uiModel
-}
-
-func (c *uiModelConstruction) appendInitialPromptHistory(history []string) {
-	c.initialPromptHistoryCount += len(history)
-	c.initialPromptHistoryTail = appendPromptHistoryTail(c.initialPromptHistoryTail, history)
-}
-
 func (m *uiModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.eventDispatcher.wait(),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
 		tea.SetWindowTitle(sessionTitle(m.sessionName)),
 		tea.WindowSize(),
+		m.loadPromptHistoryCmd(),
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)

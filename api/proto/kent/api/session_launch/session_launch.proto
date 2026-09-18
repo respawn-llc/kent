@@ -455,7 +455,8 @@ message SessionPlan {
       expression: "this.trim() != ''"
     }
   ];
-  repeated string prompt_history = 6 [(buf.validate.field).repeated.max_items = 100];
+  reserved 6;
+  reserved "prompt_history";
   bool model_contract_locked = 7;
   bool questions_enabled = 8;
   bool auto_compaction_enabled = 9;

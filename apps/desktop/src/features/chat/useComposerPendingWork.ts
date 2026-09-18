@@ -42,6 +42,7 @@ export function useComposerPendingWork(
     [hydrate, refresh, restore],
   );
   return {
+    query,
     items: query.data?.items ?? [],
     observation,
     refresh,

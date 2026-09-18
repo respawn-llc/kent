@@ -43,33 +43,23 @@ export function createChatSettingsViewModel({
       queryKey: ["chat-settings", crypto.randomUUID()],
       staleTime: Infinity,
       queryFn: async () => {
-        try {
-          const result = await services.api.chat.getSettings(selected);
-          if (result.kind !== selected.kind)
-            throw new ContractError("Chat Settings returned a different target kind.");
-          return result;
-        } catch (error) {
-          if (
-            observer.hasListeners() &&
-            get.get(target) === selected &&
-            observer.getCurrentResult().data !== undefined
-          )
-            report(chatOperationFailureMessage(t, error, "settings"));
-          throw error;
-        }
+        const result = await services.api.chat.getSettings(selected);
+        if (result.kind !== selected.kind)
+          throw new ContractError("Chat Settings returned a different target kind.");
+        return result;
       },
     });
     const read = queryAtom(observer);
     const state = Atom.make((get): SettingsState => {
       const result = get(read);
       const edit = get(local);
-      if (result.data !== undefined)
-        return edit?.source === result.data ? edit.state : loadedState(result.data);
       if (result.isError)
         return {
           kind: selected.kind === "new_chat" ? "failed-new-chat" : "failed-session",
           error: result.error,
         };
+      if (result.data !== undefined)
+        return edit?.source === result.data ? edit.state : loadedState(result.data);
       return loadingState(selected.kind);
     });
     return {

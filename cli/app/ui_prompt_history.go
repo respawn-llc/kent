@@ -1,17 +1,41 @@
 package app
 
 import (
+	"context"
 	"strings"
 
 	tuiinput "core/cli/tui/input"
 	"core/cli/tui/ongoing"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type promptHistoryLoadedMsg struct {
+	prompts []string
+	err     error
+}
+
+func (m *uiModel) loadPromptHistoryCmd() tea.Cmd {
+	client := m.statusConfig.SessionViews
+	sessionID := m.sessionID
+	if client == nil || sessionID == "" {
+		return nil
+	}
+	m.promptHistoryLoading = true
+	return func() tea.Msg {
+		result, err := client.GetPromptHistory(context.Background(), &sessionpb.PromptHistoryRequest{SessionId: sessionID})
+		if err != nil {
+			return promptHistoryLoadedMsg{err: err}
+		}
+		return promptHistoryLoadedMsg{prompts: result.Prompts}
+	}
+}
+
 func (m *uiModel) loadInitialPromptHistory(initial []string, rawCount int) {
 	m.validateInitialPromptHistoryCount(rawCount)
+	initial = appendPromptHistoryTail(nil, initial)
 	loaded := make([]string, 0, len(initial))
 	for _, raw := range initial {
 		if text := preservePromptHistoryText(raw); text != "" {
@@ -88,7 +112,7 @@ func (m *uiModel) syncPromptHistorySelectionToInput() {
 }
 
 func (m *uiModel) shouldAttemptPromptHistoryNavigation(delta int) bool {
-	if delta == 0 {
+	if m.promptHistoryLoading || delta == 0 {
 		return false
 	}
 	if len(m.promptHistory) == 0 {

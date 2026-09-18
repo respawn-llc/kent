@@ -12,7 +12,7 @@ import type {
 } from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
-import { Button, ErrorState, LoadingState } from "@/ui";
+import { ErrorState, LoadingState } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
 import {
   deriveGoalSidebarState,
@@ -66,7 +66,6 @@ function NewChatGoalSidebar({
   const mounted = useRef(false);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -83,7 +82,6 @@ function NewChatGoalSidebar({
   const canSave = draft.trim().length > 0 && snapshot.ready && !snapshot.pending && !unavailable;
   const save = () => {
     if (!canSave) return;
-    setError(null);
     setEditing(false);
     void setGoal(draft)
       .then((result) => {
@@ -101,7 +99,6 @@ function NewChatGoalSidebar({
         const nextError = cause instanceof Error ? cause : new Error(errorMessage(cause));
         const recover = () => {
           if (mounted.current) {
-            setError(nextError);
             setEditing(true);
           }
           push({
@@ -131,7 +128,6 @@ function NewChatGoalSidebar({
       <div className="min-h-0 flex-1">
         <GoalMarkdownField
           editing={editing}
-          error={error?.message}
           floatingAction={
             snapshot.pending || draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
@@ -174,28 +170,13 @@ function ExactGoalSidebar({
 }>) {
   const model = useExactGoalSidebarModel({ api, initialDraft, target });
 
-  if (model.observation.kind === "loading_retryable") {
-    return (
-      <LoadingState
-        actions={
-          <Button onClick={model.replaceObservation} variant="primary">
-            {model.t("app.retry")}
-          </Button>
-        }
-        body={model.observation.error.message}
-        fullPage={false}
-        title={model.t("chat.goal.loading")}
-      />
-    );
-  }
   if (model.observation.kind === "loading" && model.fact === null) {
     return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
   }
-  if (model.observation.kind === "error") {
+  if (model.observation.kind === "error" || model.observation.kind === "loading_retryable") {
     return (
       <ErrorState
         body={model.observation.error.message}
-        fullPage={false}
         onRetry={model.replaceObservation}
         retryLabel={model.t("app.retry")}
         title={model.t("chat.goal.loadFailed")}
@@ -221,7 +202,6 @@ type ExactGoalSidebarModel = Readonly<{
   unavailable: boolean;
   saveAvailable: boolean;
   actionsDisabled: boolean;
-  error: Error | null;
   t: ReturnType<typeof useTranslation>["t"];
   replaceObservation: () => void;
   setDraft: (value: string) => void;
@@ -248,7 +228,6 @@ type GoalMutationRunnerInput = Readonly<{
   mounted: Readonly<{ current: boolean }>;
   pendingIntent: GoalMutationIntent | null;
   push: ReturnType<typeof useStatusController>["push"];
-  setError: (error: Error | null) => void;
   setExpanded: (expanded: boolean) => void;
   setEditing: (editing: boolean) => void;
   setLocalDraft: React.Dispatch<React.SetStateAction<DraftState>>;
@@ -269,7 +248,6 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       const submittedDraftRevision = input.draftRevision.current;
       const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
       input.setPendingIntent(intent);
-      input.setError(null);
       if (intent.kind === "clear") {
         input.setLocalDraft({ base: "", draft: "" });
         input.setEditing(true);
@@ -284,7 +262,7 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       } catch (cause: unknown) {
         const failure = goalMutationFailure(cause, input.t);
         const recover = () => {
-          restoreGoalMutation(input, action, previous, failure);
+          restoreGoalMutation(input, action, previous);
         };
         if (cause instanceof ContractError) {
           void recoverOrThrowDebugFailure({
@@ -311,7 +289,6 @@ function settleGoalMutation(
 ): void {
   if (!input.mounted.current) return;
   input.setPendingIntent(null);
-  input.setError(null);
   const fact = input.currentFact();
   const draftChangedAfterSubmit = input.draftRevision.current !== submittedDraftRevision;
   input.setLocalDraft((current) =>
@@ -325,7 +302,6 @@ function restoreGoalMutation(
   input: GoalMutationRunnerInput,
   action: "set" | "pause" | "resume" | "reopen" | "clear",
   previous: Readonly<{ draft: string; editing: boolean; expanded: boolean }>,
-  failure: Error,
 ): void {
   if (!input.mounted.current) return;
   input.setPendingIntent(null);
@@ -337,7 +313,6 @@ function restoreGoalMutation(
     input.setEditing(previous.editing);
     input.setExpanded(previous.expanded);
   }
-  input.setError(failure);
 }
 
 function reportGoalMutationFailure(
@@ -392,7 +367,6 @@ function useExactGoalSidebarModel(
   const mounted = useRef(false);
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -432,7 +406,6 @@ function useExactGoalSidebarModel(
     mounted,
     pendingIntent,
     push,
-    setError,
     setExpanded,
     setEditing,
     setLocalDraft,
@@ -500,7 +473,6 @@ function useExactGoalSidebarModel(
     displayedObjective,
     displayedStatus,
     editing: (creationMode && pendingIntent === null) || editing,
-    error,
     expanded: (creationMode && pendingIntent === null) || expanded,
     fact,
     now,
@@ -617,7 +589,6 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
       <div className="min-h-0 flex-1">
         <GoalMarkdownField
           editing={model.editing}
-          error={model.error?.message}
           floatingAction={renderSaveAction(model)}
           expanded={model.expanded}
           onChange={model.setDraft}

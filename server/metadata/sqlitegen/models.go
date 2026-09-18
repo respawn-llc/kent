@@ -174,6 +174,7 @@ type Session struct {
 	TaskID                   sql.NullString
 	CompletedCompactionCount sql.NullInt64
 	ManualCompactEligible    sql.NullInt64
+	ProtectedInputDraft      sql.NullString
 }
 
 type SessionPromptHistoryEntry struct {

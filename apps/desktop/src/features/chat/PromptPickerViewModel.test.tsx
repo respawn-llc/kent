@@ -1,4 +1,4 @@
-import { RegistryProvider, useAtomValue } from "@effect/atom-react";
+import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -7,7 +7,7 @@ import { ChatRuntimeOwner } from "@/app-facade";
 import { runtimeApi, runtimeHost, target, deferred, hydration } from "@/test-support/chat-runtime";
 import { question, approval, failedBatchWithFreeform } from "@/test-support/chat-prompts";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "@/api";
-import { createPromptPickerViewModel, usePromptPickerActions } from "./PromptPickerViewModel";
+import { createPromptPickerViewModel } from "./PromptPickerViewModel";
 
 function mountPicker(options: Parameters<typeof createPromptPickerViewModel>[0]) {
   const model = createPromptPickerViewModel(options);
@@ -15,7 +15,7 @@ function mountPicker(options: Parameters<typeof createPromptPickerViewModel>[0])
     () => ({
       state: useAtomValue(model.state),
       request: useAtomValue(model.request),
-      ...usePromptPickerActions(model),
+      dispatch: useAtomSet(model.dispatch),
     }),
     {
       wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider>,

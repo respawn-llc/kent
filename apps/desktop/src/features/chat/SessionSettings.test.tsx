@@ -796,7 +796,7 @@ it("starts one read per changed host input and keeps mutations available during 
   expect(getSettings).toHaveBeenCalledTimes(2);
 });
 
-it("preserves whichever authoritative projection is current when a refresh fails", async () => {
+it("exposes cached refresh failure and retries only the read without replaying a mutation", async () => {
   const services = createTestServices([]);
   const refresh = deferred<ChatSettingsRead>();
   const mutation = deferred<ChatSettingsMutationResponse>();
@@ -804,7 +804,7 @@ it("preserves whichever authoritative projection is current when a refresh fails
     .spyOn(services.api.chat, "getSettings")
     .mockResolvedValueOnce(initialRead)
     .mockReturnValue(refresh.promise);
-  vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(mutation.promise);
+  const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(mutation.promise);
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const { result, rerender } = renderHook<ChatSettingsFeature, ChatSettingsOptions>(
     (options) => useChatSettings(options),
@@ -837,12 +837,19 @@ it("preserves whichever authoritative projection is current when a refresh fails
     refresh.reject(typedSettingsFailure());
     await refresh.promise.catch(() => undefined);
   });
-  expect(result.current).toMatchObject({ kind: "ready-session", settings: delivered.settings });
-  expect(notice).toHaveBeenCalledOnce();
-  expect(notice.mock.lastCall?.[0].body).toContain(settingsFailureOperation);
-  expect(notice.mock.lastCall?.[0].body).toContain(settingsFailureCause);
-  expect(notice.mock.lastCall?.[0].onAction).toBeUndefined();
+  expect(result.current.kind).toBe("failed-session");
+  expect(notice).not.toHaveBeenCalled();
   expect(getSettings).toHaveBeenCalledTimes(2);
+  getSettings.mockResolvedValue({ ...initialRead, settings: delivered.settings });
+  act(() => {
+    if (result.current.kind !== "failed-session") throw new Error("Expected read failure");
+    result.current.retry();
+  });
+  await waitFor(() => {
+    expect(result.current).toMatchObject({ kind: "ready-session", settings: delivered.settings });
+  });
+  expect(getSettings).toHaveBeenCalledTimes(3);
+  expect(mutate).toHaveBeenCalledOnce();
   notice.mockRestore();
 });
 

@@ -200,6 +200,7 @@ type Meta struct {
 	Name                            string                           `json:"name,omitempty"`
 	FirstPromptPreview              string                           `json:"first_prompt_preview,omitempty"`
 	InputDraft                      string                           `json:"input_draft,omitempty"`
+	ProtectedInputDraft             *string                          `json:"protected_input_draft,omitempty"`
 	PreviousSessionID               *runtimeids.SessionID            `json:"previous_session_id,omitempty"`
 	ParentAgentSessionID            *runtimeids.SessionID            `json:"parent_agent_session_id,omitempty"`
 	WorkspaceRoot                   string                           `json:"workspace_root"`

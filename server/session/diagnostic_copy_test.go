@@ -64,7 +64,7 @@ func TestDiagnosticSessionCopyLeavesSourceUntouched(t *testing.T) {
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("append ephemeral event = %+v, %v; want committed", receipt, err)
 	}
-	if err := copyStore.SetInputDraft("inspection draft"); err != nil {
+	if err := copyStore.SetInputDraft("inspection draft", nil); err != nil {
 		t.Fatalf("mutate diagnostic metadata: %v", err)
 	}
 	if got := copyStore.Meta(); got.LastSequence != beforeRecord.Meta.LastSequence+1 || got.InputDraft != "inspection draft" {

@@ -13,8 +13,8 @@ import (
 
 func TestOngoingFrameInputUsesOperatorLocalSectionsAndCursor(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUITerminalCursorState(newUITerminalCursorState()),
-		WithUIPromptHistory([]string{"older", "newer"})), 48, 10)
+		WithUITerminalCursorState(newUITerminalCursorState())), 48, 10)
+	m.Update(promptHistoryLoadedMsg{prompts: []string{"older", "newer"}})
 	testSetMainInputAtRuneCursor(m, "hello", 2)
 	testSetPromptHistorySelection(m, 1)
 	m.helpVisible = true
@@ -307,8 +307,8 @@ func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
 }
 
 func TestOngoingFrameInputSanitizesPromptHistorySection(t *testing.T) {
-	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIPromptHistory([]string{"alpha\nbeta\tgamma\x1b"})), 48, 10)
+	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
+	m.Update(promptHistoryLoadedMsg{prompts: []string{"alpha\nbeta\tgamma\x1b"}})
 	testSetPromptHistorySelection(m, 0)
 
 	frame := m.ongoingFrameInput()

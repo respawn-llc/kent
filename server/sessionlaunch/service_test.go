@@ -213,68 +213,6 @@ func (r sessionLaunchBoundaryResolver) ListManagedWorktreeRoots(context.Context)
 	return nil, nil
 }
 
-func TestPlanLaunchSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(config.PersistenceRootEnvName, home)
-	ctx := context.Background()
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	meta, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
-	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	eventLog, err := store.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("materialize event log: %v", err)
-	}
-	eventLogText := "event-log history must not become prompt history"
-	if _, receipt, err := eventLog.AppendRecord(nil, session.LocalEntryRecord{
-		Visibility: session.EntryVisibilityHidden,
-		Role:       "system",
-		Text:       &eventLogText,
-	}); err != nil || !receipt.Committed {
-		t.Fatalf("append event-log entry: receipt=%+v error=%v", receipt, err)
-	}
-	if _, err := meta.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
-		SessionID: store.Meta().SessionID,
-		Text:      "db-history",
-	}); err != nil {
-		t.Fatalf("record metadata prompt history: %v", err)
-	}
-	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
-	}).WithPromptHistoryReader(meta)
-
-	resp, err := service.PlanLaunchSession(ctx, PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if !reflect.DeepEqual(resp.Plan.PromptHistory, []string{"db-history"}) {
-		t.Fatalf("prompt history = %+v, want metadata only", resp.Plan.PromptHistory)
-	}
-}
-
 func TestServicePlanSessionProjectsTypedOptionalSessionName(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()

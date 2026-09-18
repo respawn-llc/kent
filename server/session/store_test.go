@@ -193,7 +193,7 @@ func TestAppendTypedRecordMonotonicSequence(t *testing.T) {
 func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 	store := newSessionTestLazyStore(t)
 	want := "draft line one\nline two"
-	if err := store.SetInputDraft(want); err != nil {
+	if err := store.SetInputDraft(want, nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 	reopened := mustOpenSessionTestStore(t, store)
@@ -201,7 +201,7 @@ func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 		t.Fatalf("expected persisted draft %q, got %q", want, reopened.Meta().InputDraft)
 	}
 
-	if err := reopened.SetInputDraft(""); err != nil {
+	if err := reopened.SetInputDraft("", nil); err != nil {
 		t.Fatalf("clear input draft: %v", err)
 	}
 	cleared := mustOpenSessionTestStore(t, store)
