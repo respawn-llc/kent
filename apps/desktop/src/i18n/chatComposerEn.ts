@@ -1,4 +1,9 @@
 export const chatComposerEnglish = {
+  commands: {
+    loading: "Loading commands",
+    review: "Review changes in a fresh conversation",
+    init: "Initialize project guidance in a fresh conversation",
+  },
   context: {
     compact: "Compact",
     compacting: "Compacting",

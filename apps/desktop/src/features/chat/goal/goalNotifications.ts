@@ -6,20 +6,10 @@ type StatusPush = ReturnType<typeof useStatusController>["push"];
 type Translator = ReturnType<typeof useTranslation>["t"];
 
 export function goalErrorMessage(error: ChatError, t: Translator): string {
-  switch (error.kind) {
-    case "runtime_unavailable":
-      return t("chatSettings.errors.runtimeUnavailable");
-    case "internal_failure":
-      return error.cause ?? t("chatSettings.errors.internalFailure");
-    case "unknown":
-      return t("chatSettings.errors.unknown", { code: error.code });
-    case "session_not_found":
-    case "workspace_not_registered":
-    case "agent_preparation":
-    case "auth_required":
-    case "server_not_ready":
-      return t("chat.goal.mutationFailed");
-  }
+  if (error.kind === "runtime_unavailable") return t("chatSettings.errors.runtimeUnavailable");
+  if (error.kind === "internal_failure") return error.cause ?? t("chatSettings.errors.internalFailure");
+  if (error.kind === "unknown") return t("chatSettings.errors.unknown", { code: error.code });
+  return t("chat.goal.mutationFailed");
 }
 
 export function goalSetDiagnosticNotificationID(): string {

@@ -10,6 +10,7 @@ import { chatDestinationCommands } from "./chatDestinationCommands";
 import type { ComposerCommand } from "./composerCommands";
 import { useGoalSidebarLauncher } from "./goal/useGoalSidebarLauncher";
 import { useNewChatGoalActions } from "./goal/goalBinding";
+import type { ChatNotAcceptedReason, ChatSettingsTarget } from "@/api";
 
 export function useChatDestination({
   opening,
@@ -39,18 +40,33 @@ export function useChatDestination({
   const selectWorkspace = useAtomSet(model.selectWorkspace);
   const firstActionPending = useAtomValue(model.firstActionPending);
   const settings = useChatSettings({ model: model.settings, ...navigation });
-  const adopt = (sessionID: string) => {
+  const catalog = useAtomValue(model.catalog.read);
+  const retryCatalog = useAtomSet(model.catalog.retry);
+  const adopt = (
+    sessionID: string,
+    origin: Pick<ChatSettingsTarget, "kind">,
+    rejection: ChatNotAcceptedReason | null = null,
+  ) => {
     if (mounted.current)
       adoptAction({
         sessionID,
+        origin,
+        rejection,
         ...(onSessionDelivered === undefined ? {} : { delivered: onSessionDelivered }),
       });
   };
   const composer = useChatComposer({
     model: model.composer,
-    commands: [...chatDestinationCommands(services.api.chat, target.kind === "new_chat", t), ...commands],
-    onDeliveredSession: (result) => {
-      adopt(result.sessionID);
+    commands: [
+      ...chatDestinationCommands(services.api.chat, target.kind === "new_chat", t, catalog.data),
+      ...commands,
+    ],
+    catalog,
+    retryCatalog: () => {
+      retryCatalog(undefined);
+    },
+    onDeliveredSession: (result, origin) => {
+      adopt(result.sessionID, origin, result.outcome.kind === "not_accepted" ? result.outcome.reason : null);
     },
   });
   const goalActions = useNewChatGoalActions(model.goal);
@@ -62,7 +78,7 @@ export function useChatDestination({
       goalActions.setGoal({
         objective,
         delivered: (delivery) => {
-          adopt(delivery.target.sessionID);
+          adopt(delivery.target.sessionID, delivery.origin);
         },
       }),
   });

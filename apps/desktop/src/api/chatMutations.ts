@@ -24,7 +24,7 @@ import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { initialChatSettingsToWire } from "./chatSettings";
 import { nonBlank } from "./chatSchemas";
-import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
+import { isValidChatSessionID, requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
 import {
@@ -72,7 +72,11 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
               return call.result;
             });
     const success = requireChatSuccess(method, result);
-    const returnedSessionID = mutationSessionID(target, success.session?.sessionId, "Chat mutation");
+    const returnedSessionID = mutationSessionID(
+      target.kind === "session" && activation.kind === "text" ? target.sessionID : null,
+      success.session?.sessionId,
+      "Chat mutation",
+    );
     if (success.outcome.case === "notAccepted") {
       return {
         sessionID: returnedSessionID,
@@ -126,7 +130,11 @@ export function createChatMutationApi(transport: DescriptorRpcTransport): ChatMu
                 return call.result;
               });
       const success = requireChatSuccess(method, result);
-      const returnedSessionID = mutationSessionID(target, success.session?.sessionId, "Chat compaction");
+      const returnedSessionID = mutationSessionID(
+        target.kind === "session" ? target.sessionID : null,
+        success.session?.sessionId,
+        "Chat compaction",
+      );
       if (success.outcome.case === "notAccepted") {
         return {
           sessionID: returnedSessionID,
@@ -260,13 +268,14 @@ function mutationTarget(
 }
 
 function mutationSessionID(
-  target: ChatMutationTarget,
+  expectedSessionID: string | null,
   returnedSessionID: string | undefined,
   operation: string,
 ): string {
   if (
     returnedSessionID === undefined ||
-    (target.kind === "session" && returnedSessionID !== target.sessionID)
+    !isValidChatSessionID(returnedSessionID) ||
+    (expectedSessionID !== null && returnedSessionID !== expectedSessionID)
   ) {
     throw new ContractError(`${operation} response Session does not match the request.`);
   }

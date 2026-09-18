@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"core/server/auth"
 	"core/server/chatcontext"
@@ -52,7 +51,6 @@ type SessionManagedWorktreeRootsResolver interface {
 type MetadataExecutionTargetStore interface {
 	SessionExecutionTargetResolver
 	UpdateSessionExecutionTarget(ctx context.Context, update metadata.SessionExecutionTargetUpdate) error
-	DeleteFailedSessionCreationRecordByID(ctx context.Context, sessionID string) error
 	Close() error
 }
 
@@ -1410,7 +1408,7 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return nil
 	}
 	if err := p.updateChildExecutionTarget(ctx, child.Meta().SessionID, target); err != nil {
-		return errors.Join(err, p.rollbackChildSession(child))
+		return err
 	}
 	return nil
 }
@@ -1451,30 +1449,6 @@ func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID 
 	}
 	defer func() { _ = store.Close() }()
 	return store.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
-}
-
-func (p Planner) rollbackChildSession(child *session.Store) error {
-	if child == nil {
-		return nil
-	}
-	childMeta := child.Meta()
-	rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var rollbackErrs []error
-	if store, err := p.openMetadataStore(); err == nil {
-		if err := store.DeleteFailedSessionCreationRecordByID(rollbackCtx, childMeta.SessionID); err != nil {
-			rollbackErrs = append(rollbackErrs, err)
-		}
-		if err := store.Close(); err != nil {
-			rollbackErrs = append(rollbackErrs, err)
-		}
-	} else {
-		rollbackErrs = append(rollbackErrs, err)
-	}
-	if err := child.RemoveDurable(); err != nil {
-		rollbackErrs = append(rollbackErrs, err)
-	}
-	return errors.Join(rollbackErrs...)
 }
 
 func EnsureSubagentSessionName(store *session.Store) error {

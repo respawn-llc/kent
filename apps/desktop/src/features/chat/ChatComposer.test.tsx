@@ -263,7 +263,12 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
   await act(async () => {
     result.current.submit("send");
   });
-  expect(onDeliveredSession).toHaveBeenCalledWith(rejected);
+  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, {
+    kind: "new_chat",
+    projectID: target.projectID,
+    workspace: { workspaceID: "workspace-1" },
+    initialSettings,
+  });
   expect(result.current.text).toBe("/compact \n keep decisions");
   expect(compact).toHaveBeenCalledExactlyOnceWith(
     {
@@ -624,7 +629,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
     { kind: "text", text: "typed before settings" },
   );
   expect(result.current.text).toBe("typed before settings");
-  expect(onDeliveredSession).toHaveBeenCalledWith(rejected);
+  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, { ...newChat, initialSettings: settings });
   const readPending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({
     items: [
       {

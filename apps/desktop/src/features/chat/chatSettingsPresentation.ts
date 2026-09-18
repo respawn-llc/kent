@@ -97,6 +97,10 @@ function typedChatOperationFailureMessage(
   labels: (typeof operationFailureLabels)[keyof typeof operationFailureLabels],
 ): string {
   switch (detail.kind) {
+    case "prompt_catalog_read":
+    case "prompt_command_not_found":
+    case "prompt_command_read":
+      return t(`chatComposer.rejections.${detail.kind}`);
     case "session_not_found":
       return t("chatSettings.errors.sessionNotFound");
     case "workspace_not_registered":

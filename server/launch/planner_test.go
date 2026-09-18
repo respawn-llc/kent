@@ -13,7 +13,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -35,10 +34,6 @@ func (s *failingUpdateMetadataExecutionTargetStore) ResolveSessionExecutionTarge
 func (s *failingUpdateMetadataExecutionTargetStore) UpdateSessionExecutionTarget(_ context.Context, update metadata.SessionExecutionTargetUpdate) error {
 	s.updatedSessionID = update.SessionID
 	return s.updateErr
-}
-
-func (s *failingUpdateMetadataExecutionTargetStore) DeleteFailedSessionCreationRecordByID(ctx context.Context, sessionID string) error {
-	return s.base.DeleteFailedSessionCreationRecordByID(ctx, sessionID)
 }
 
 func (s *failingUpdateMetadataExecutionTargetStore) Close() error {
@@ -957,7 +952,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 	}
 }
 
-func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails(t *testing.T) {
+func TestPlannerNewChildSessionRetainsDurableChildWhenExecutionTargetCopyFails(t *testing.T) {
 	ctx := context.Background()
 	workspace := t.TempDir()
 	cfg := loadLaunchConfig(t, workspace)
@@ -1020,23 +1015,18 @@ func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails
 	if strings.TrimSpace(failingStore.updatedSessionID) == "" {
 		t.Fatal("expected child execution target update to be attempted")
 	}
-	if _, err := metadataStore.ResolveSessionExecutionTarget(ctx, failingStore.updatedSessionID); !errors.Is(err, session.ErrSessionNotFound) {
-		t.Fatalf("ResolveSessionExecutionTarget child after rollback error = %v, want ErrSessionNotFound", err)
-	} else if errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("ResolveSessionExecutionTarget child after rollback leaked sql.ErrNoRows: %v", err)
+	if _, err := session.ResolvePersistedSessionRecord(ctx, metadataStore, failingStore.updatedSessionID); err != nil {
+		t.Fatalf("saved child after target assignment failure: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(containerDir, failingStore.updatedSessionID)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("child session dir stat after rollback error = %v, want not exist", err)
+	if _, err := os.Stat(filepath.Join(containerDir, failingStore.updatedSessionID)); err != nil {
+		t.Fatalf("child session dir after target assignment failure: %v", err)
 	}
 	afterEntries, err := os.ReadDir(containerDir)
 	if err != nil {
 		t.Fatalf("read container after plan: %v", err)
 	}
-	if len(afterEntries) != len(beforeEntries) {
-		t.Fatalf("session dirs after failed plan = %d, want %d", len(afterEntries), len(beforeEntries))
-	}
-	if len(afterEntries) != 1 || afterEntries[0].Name() != parent.Meta().SessionID {
-		t.Fatalf("unexpected remaining session dirs after rollback: %+v", afterEntries)
+	if len(afterEntries) != len(beforeEntries)+1 {
+		t.Fatalf("session dirs after failed plan = %d, want %d", len(afterEntries), len(beforeEntries)+1)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"core/server/promptcommands"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionruntime"
@@ -15,12 +16,14 @@ import (
 	"core/shared/serverapi"
 )
 
-type userTurnProjection struct {
+type PreparedUserTurn struct {
+	Input         runtimeinput.Input
+	Placement     promptcommands.Placement
 	ExecutionText string
 	HistoryText   string
 }
 
-func (p userTurnProjection) queuedInput() runtime.QueuedUserInput {
+func (p PreparedUserTurn) queuedInput() runtime.QueuedUserInput {
 	return runtime.QueuedUserInput{
 		ExecutionText:         p.ExecutionText,
 		CanonicalPresentation: p.HistoryText,
@@ -48,21 +51,24 @@ func canonicalUserTurnRequest(sessionID string, input runtimeinput.Input) sessio
 	return request
 }
 
-func (s *Service) resolveUserTurnInput(ctx context.Context, sessionID string, input runtimeinput.Input) (userTurnProjection, error) {
+func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input runtimeinput.Input) (PreparedUserTurn, error) {
 	if input.Kind == runtimeinput.KindPromptCommand && (s == nil || s.promptCommands == nil) {
-		return userTurnProjection{}, errors.New("prompt command resolver is required")
+		return PreparedUserTurn{}, errors.New("prompt command resolver is required")
 	}
+	placement := promptcommands.PlacementCurrent
 	execution, err := input.ExecutionText(func(command runtimeinput.PromptCommand) (string, error) {
-		return s.promptCommands.ResolvePromptCommand(ctx, sessionID, command.Name, command.Arguments)
+		resolved, err := s.promptCommands.ResolvePromptCommand(ctx, sessionID, command.Name, command.Arguments)
+		placement = resolved.Placement
+		return resolved.Text, err
 	})
 	if err != nil {
-		return userTurnProjection{}, err
+		return PreparedUserTurn{}, err
 	}
 	history, err := input.CanonicalHistoryText()
 	if err != nil {
-		return userTurnProjection{}, err
+		return PreparedUserTurn{}, err
 	}
-	return userTurnProjection{ExecutionText: execution, HistoryText: history}, nil
+	return PreparedUserTurn{Input: input, Placement: placement, ExecutionText: execution, HistoryText: history}, nil
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
@@ -70,16 +76,25 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserT
 		return nil, err
 	}
 	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
-		response, accepted, _, err := s.admitUserTurn(ctx, req)
+		input, err := protoapi.UserTurnInputFromProto(req.Input)
+		if err != nil {
+			return nil, false, err
+		}
+		prepared, err := s.PrepareUserTurn(ctx, req.SessionId, input)
+		if err != nil {
+			return nil, false, err
+		}
+		response, accepted, _, err := s.admitUserTurn(ctx, req.SessionId, prepared)
 		return response, accepted, err
 	})
 }
 
 func (s *Service) AdmitChatUserTurn(
 	ctx context.Context,
-	req *runtimepb.SubmitUserTurnRequest,
+	sessionID string,
+	prepared PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	response, accepted, historyErr, commandErr := s.admitUserTurn(ctx, req)
+	response, accepted, historyErr, commandErr := s.admitUserTurn(ctx, sessionID, prepared)
 	if !accepted {
 		return serverapi.ChatInputAdmissionResult{}, commandErr
 	}
@@ -93,23 +108,13 @@ func (s *Service) AdmitChatUserTurn(
 
 func (s *Service) admitUserTurn(
 	ctx context.Context,
-	req *runtimepb.SubmitUserTurnRequest,
+	sessionID string,
+	projection PreparedUserTurn,
 ) (*runtimepb.SubmitUserTurnSuccess, bool, error, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, false, nil, err
-	}
-	input, err := protoapi.UserTurnInputFromProto(req.Input)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	request := canonicalUserTurnRequest(req.SessionId, input)
-	projection, err := s.resolveUserTurnInput(ctx, req.SessionId, input)
-	if err != nil {
-		return nil, false, nil, err
-	}
+	request := canonicalUserTurnRequest(sessionID, projection.Input)
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
-	response, commandErr := s.submitUserTurn(attempt, request, projection, req)
+	response, commandErr := s.submitUserTurn(attempt, request, projection)
 	if commandErr == nil {
 		commandErr = protoapi.Validate(response)
 	}
@@ -124,11 +129,10 @@ func (s *Service) admitUserTurn(
 func (s *Service) submitUserTurn(
 	attempt *runtimeCommandAttempt,
 	request sessionUserTurnRequest,
-	projection userTurnProjection,
-	req *runtimepb.SubmitUserTurnRequest,
+	projection PreparedUserTurn,
 ) (*runtimepb.SubmitUserTurnSuccess, error) {
 	var response *runtimepb.SubmitUserTurnSuccess
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := runtimeids.ParseSessionID(request.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +235,7 @@ func (s *Service) submitUserTurn(
 
 func (s *Service) recordAcceptedUserTurnHistory(
 	request sessionUserTurnRequest,
-	projection userTurnProjection,
+	projection PreparedUserTurn,
 ) error {
 	if _, err := s.recordPromptHistory(context.Background(), request.SessionID, projection.HistoryText); err != nil {
 		reportErr := s.withRuntime(context.Background(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {

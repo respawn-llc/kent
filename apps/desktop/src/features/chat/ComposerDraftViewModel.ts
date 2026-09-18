@@ -158,8 +158,14 @@ export function createComposerDraftViewModel({
         const input = get(text);
         get.set(editor, { kind: "editing", text: input });
         get.set(persistence, "editing");
-        persistLocal("");
         yield* Effect.tryPromise(async () => persist(session, input)).pipe(Effect.ignore);
+      }),
+    { concurrent: true },
+  );
+  const consumeNewChat = Atom.fn(
+    () =>
+      Effect.sync(() => {
+        persistLocal("");
       }),
     { concurrent: true },
   );
@@ -211,6 +217,7 @@ export function createComposerDraftViewModel({
     begin,
     resume,
     adopt,
+    consumeNewChat,
     flush,
     navigationPending,
   } as const;

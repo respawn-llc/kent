@@ -91,11 +91,11 @@ func TestResolveReadsCurrentWinningContentAndExpandsArguments(t *testing.T) {
 	writePromptFile(t, path, "before $ARGUMENTS")
 
 	service := New(persistenceRoot, workspaceRoot)
-	if got, err := service.Resolve("prompt:review_file", "  src/internal  "); err != nil || got != "before src/internal" {
+	if got, err := service.Resolve("prompt:review_file", "  src/internal  "); err != nil || got.Text != "before src/internal" {
 		t.Fatalf("Resolve first = %q, %v", got, err)
 	}
 	writePromptFile(t, path, "after")
-	if got, err := service.Resolve("prompt:review_file", "retry"); err != nil || got != "after\n\nretry" {
+	if got, err := service.Resolve("prompt:review_file", "retry"); err != nil || got.Text != "after\n\nretry" {
 		t.Fatalf("Resolve current = %q, %v", got, err)
 	}
 }
@@ -106,7 +106,7 @@ func TestResolveReturnsExactEmptyExpansion(t *testing.T) {
 	writePromptFile(t, filepath.Join(persistenceRoot, "prompts", "arguments_only.md"), "$ARGUMENTS")
 
 	got, err := New(persistenceRoot, workspaceRoot).Resolve("prompt:arguments_only", "")
-	if err != nil || got != "" {
+	if err != nil || got.Text != "" {
 		t.Fatalf("empty expansion = %q, %v; want exact empty result", got, err)
 	}
 }
@@ -125,7 +125,7 @@ func TestBuiltInPromptCommandsResolveThroughTheServerService(t *testing.T) {
 			t.Fatalf("Resolve(%q): %v", test.name, err)
 		}
 		want := textutil.ExpandPromptTemplate(test.body, "  src/internal  ")
-		if got != want {
+		if got.Text != want {
 			t.Fatalf("Resolve(%q) = %q, want %q", test.name, got, want)
 		}
 	}
@@ -157,7 +157,7 @@ func TestResolveDoesNotReadUnrelatedUnreadablePrompt(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(bad, 0o600) })
 
-	if got, err := New(persistenceRoot, workspaceRoot).Resolve("prompt:good", ""); err != nil || got != "good" {
+	if got, err := New(persistenceRoot, workspaceRoot).Resolve("prompt:good", ""); err != nil || got.Text != "good" {
 		t.Fatalf("Resolve valid command = %q, %v", got, err)
 	}
 }

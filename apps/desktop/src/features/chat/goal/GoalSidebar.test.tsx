@@ -296,6 +296,7 @@ describe("Goal sidebar", () => {
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
     expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
       target: exactTarget(),
+      origin: newChatTarget(),
       goal: null,
     });
   });
@@ -410,6 +411,7 @@ describe("Goal sidebar", () => {
     });
     expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
       target: exactTarget(),
+      origin: newChatTarget(),
       goal: goalValue("close-safe success", "active", "goal-close-safe"),
     });
     expect(await screen.findByText("hydrated replacement")).toBeInTheDocument();

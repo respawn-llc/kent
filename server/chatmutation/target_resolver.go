@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"core/server/launch"
+	"core/server/promptcommands"
+	"core/server/runtimecontrol"
 	"core/server/session"
+	"core/server/sessionlaunch"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -39,16 +43,60 @@ type ResolvedTarget struct {
 type TargetResolver struct {
 	persistedSessions session.PersistedSessionResolver
 	sessionLaunch     SessionLaunchServiceResolver
+	sourceLaunch      SessionRuntimePlannerResolver
+	activity          runtimecontrol.RuntimeActivityResolver
 }
 
 func NewTargetResolver(
 	persistedSessions session.PersistedSessionResolver,
 	sessionLaunch SessionLaunchServiceResolver,
+	sourceLaunch SessionRuntimePlannerResolver,
+	activity runtimecontrol.RuntimeActivityResolver,
 ) *TargetResolver {
 	return &TargetResolver{
 		persistedSessions: persistedSessions,
 		sessionLaunch:     sessionLaunch,
+		sourceLaunch:      sourceLaunch,
+		activity:          activity,
 	}
+}
+
+func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTarget, placement promptcommands.Placement) (ResolvedTarget, error) {
+	if placement == promptcommands.PlacementCurrent || target.Created {
+		return target, nil
+	}
+	if placement != promptcommands.PlacementFresh {
+		return target, errors.New("invalid prompt command placement")
+	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, r.persistedSessions, target.SessionID.String())
+	if err != nil {
+		return target, err
+	}
+	if r.activity == nil {
+		return target, errors.New("Runtime activity resolver is required")
+	}
+	activity, err := r.activity.RuntimeReadModelFeedSnapshot(ctx, target.SessionID.String())
+	if err != nil {
+		return target, err
+	}
+	if !record.Meta.ConversationEstablished && !protoapi.RuntimeActivityActiveForControl(activity.GetActivity()) {
+		return target, nil
+	}
+	if r.sourceLaunch == nil {
+		return target, errors.New("persisted Session launch resolver is required")
+	}
+	service, err := r.sourceLaunch(ctx, target.SessionID)
+	if err != nil {
+		return target, err
+	}
+	planned, err := service.PlanLaunchSession(ctx, sessionlaunch.PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.PreviousSessionCreateOrigin(target.SessionID)),
+	})
+	if err != nil {
+		return target, err
+	}
+	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), Created: true}, nil
 }
 
 func (r *TargetResolver) Resolve(

@@ -37,7 +37,7 @@ type SubmissionCallbacks = Readonly<{
   restore(input: ComposerTextRestoration): void;
   accepted(sessionID: string): void;
   failed(): void;
-  delivered?(result: CompletedInput): void;
+  delivered?(result: CompletedInput, target: ChatMutationTarget): void;
 }>;
 type Request = SubmissionCallbacks &
   Readonly<{
@@ -145,8 +145,11 @@ function mutationTarget(
 
 function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
   if ("kind" in result) return;
+  const delivers =
+    input.target.kind === "new_chat" ||
+    (input.command.kind === "input" && input.command.activation.kind === "command");
   if (result.outcome.kind === "accepted") {
-    if (input.target.kind === "new_chat") input.delivered?.(result);
+    if (delivers) input.delivered?.(result, input.target);
     input.accepted(result.sessionID);
     const diagnostic = result.outcome.diagnostic;
     if (diagnostic !== null)
@@ -160,7 +163,7 @@ function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
       });
   } else {
     if (input.original !== null) input.restore({ text: input.original, direction: "append" });
-    if (input.target.kind === "new_chat") input.delivered?.(result);
+    if (delivers) input.delivered?.(result, input.target);
     showStatusToast({
       id: "chat-composer-input",
       tone: "danger",
