@@ -12,7 +12,9 @@ Models will follow the instructions by role: `system -> developer -> user`, from
 - `~/.kent/AGENTS.md` is a global instructions file injected into every session automatically.
 - `<workspace>/AGENTS.md` adds developer instructions that are specific to the current project.
 
-These files are `developer`-level instructions.
+These files are `developer`-level instructions. Kent includes their full Markdown content beneath an H1 identifying the source file, without wrapping the content in a code block.
+
+Instruction and skill reference paths use CWD-relative paths inside the Working Directory, `~/` paths elsewhere under home, and absolute paths otherwise. CWD itself remains absolute. Skill paths refer to the Working Directory when the Skills list was injected; worktree moves provide a separate CWD-change reminder.
 
 ## System Prompt
 

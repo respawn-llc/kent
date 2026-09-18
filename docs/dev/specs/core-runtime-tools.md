@@ -27,6 +27,9 @@
 
 ## Skills And Generated Assets
 
+- Kent must inject each `AGENTS.md` as Markdown with the H1 header `# Authoritative instructions, rules, and important context from the <path> file:`, a blank line, and the full unmodified file content. Kent must not wrap that content in a code fence or add a separate `source:` line.
+- Model-facing reference paths must be relative to the current Working Directory when contained within it, home-relative with `~/` when elsewhere under the home directory, and absolute otherwise. Kent must not construct parent-relative reference paths. Working Directory values must remain absolute.
+- Path shortening must affect newly rendered context only, not file contents, source identity, or already-sent conversation history. Skills retain their rendered paths across Working Directory changes; the existing Working Directory reminder supplies the changed location without rebuilding the Skills list.
 - Skills are discovered from `<persistence-root>/skills` (default `~/.kent/skills`), workspace `.kent/skills`, and `<persistence-root>/.generated/skills`. Global `AGENTS.md` and the global system-prompt file use the selected persistence root; an empty root means `~/.kent`. Symlinks are followed when these files are discovered or read.
 - File-only `[skills]` boolean settings enable or disable a skill for new-session model context. Disabled skills remain visible in clients.
 - The generated `prompting` skill owns on-demand prompt-writing and agent-coordination guidance. Its enabled or disabled state must affect only ordinary skill visibility; it must not select system-prompt content, role guidance, reminders, or other model context.

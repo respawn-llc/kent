@@ -92,7 +92,7 @@ func TestFirstMetaInjectionUsesPendingWorktreeCWD(t *testing.T) {
 		t.Fatalf("expected environment cwd not to use stale workspace %q, got %q", workspace, messageContent(envMsg))
 	}
 	agentsMsg := messages[1]
-	if agentsMsg.Role != llm.RoleDeveloper || agentsMsg.MessageType == nil || *agentsMsg.MessageType != llm.MessageTypeAgentsMD || !strings.Contains(messageContent(agentsMsg), "source: "+filepath.Join(worktree, agentsFileName)) {
+	if agentsMsg.Role != llm.RoleDeveloper || agentsMsg.MessageType == nil || *agentsMsg.MessageType != llm.MessageTypeAgentsMD || agentsMsg.SourcePath == nil || *agentsMsg.SourcePath != filepath.Join(worktree, agentsFileName) {
 		t.Fatalf("expected active worktree AGENTS context second, got %+v", agentsMsg)
 	}
 	if strings.Contains(messageContent(agentsMsg), "stale workspace instruction") {
@@ -801,7 +801,7 @@ func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testi
 	}
 
 	assertModelCallCount(t, client, 2)
-	exitMessage, ok := worktreeModeExitMetaMessage(exitTarget)
+	exitMessage, ok := worktreeModeExitMetaMessage(exitTarget, t.TempDir())
 	if !ok {
 		t.Fatal("expected exit reminder message")
 	}
