@@ -39,8 +39,6 @@ message ReadinessCause {
 }
 
 message Readiness {
-  reserved 4;
-  reserved "server_build";
 
   bool ready = 1;
   string server_id = 2 [(buf.validate.field).string.min_len = 1];

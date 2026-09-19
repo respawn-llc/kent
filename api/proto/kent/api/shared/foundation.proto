@@ -113,8 +113,6 @@ enum AuthenticationStage {
 }
 
 enum ScopePolicy {
-  reserved 15;
-  reserved "SCOPE_POLICY_PROCESS_LIST_ACTIVE_PROJECT";
 
   SCOPE_POLICY_UNSPECIFIED = 0;
   SCOPE_POLICY_NONE = 1;
