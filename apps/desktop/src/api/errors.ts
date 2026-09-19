@@ -74,6 +74,21 @@ export function isTaskMissingError(error: unknown): boolean {
   return error instanceof RpcError && error.code === rpcErrorCodes.workflowTaskNotFound;
 }
 
+const taskContextSelectionRequiredSchema = z
+  .object({
+    type: z.literal("workflow_task_context_selection_required"),
+    task_id: z.string().trim().min(1),
+  })
+  .strict();
+
+export function isTaskContextSelectionRequiredError(error: unknown): boolean {
+  return (
+    error instanceof RpcError &&
+    error.code === rpcErrorCodes.workflowTaskContextSelectionRequired &&
+    taskContextSelectionRequiredSchema.safeParse(error.data).success
+  );
+}
+
 export function isProjectMissingError(error: unknown): boolean {
   return (
     (error instanceof RpcError && error.code === rpcErrorCodes.projectNotFound) ||

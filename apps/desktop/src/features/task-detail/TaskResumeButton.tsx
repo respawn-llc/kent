@@ -1,16 +1,11 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  errorMessage,
-  type TaskSetupRecovery,
-  type WorkflowExecutionTarget,
-  type WorkflowExecutionTargetSelection,
-} from "@/api";
+import { type WorkflowExecutionTargetSelection } from "@/api";
+import { taskActionErrorMessage } from "@/shared/task-mutations";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   executeTaskInitiatingAction,
-  executionTargetBranchName,
   resumeTaskInitiatingAction,
   startTaskInitiatingAction,
   TaskInitiatingActionDialogs,
@@ -20,7 +15,7 @@ import {
 import { Button, Spinner } from "@/ui";
 
 type TaskInitiatingActionController = Readonly<{
-  resume(recovery?: TaskSetupRecovery): void;
+  resume(): void;
   start(): void;
   starting: boolean;
   resuming: boolean;
@@ -33,24 +28,21 @@ export function TaskInitiatingActionProvider({
   onApplied,
   onViewDependencies,
   taskID,
-  executionTarget,
 }: Readonly<{
   children: ReactNode;
   onApplied(): void | Promise<void>;
   onViewDependencies(taskID: string): void;
   taskID: string;
-  executionTarget: WorkflowExecutionTarget | null;
 }>) {
   const { api } = useAppServices();
   const { push } = useStatusController();
   const { t } = useTranslation();
-  const [recovery, setRecovery] = useState<TaskSetupRecovery | null>(null);
   const reportError = useCallback(
     (kind: "resume" | "start", error: unknown) => {
       push({
         id: `task-${kind}-error`,
         title: t(kind === "resume" ? "board.resumeFailed" : "board.startFailed"),
-        body: errorMessage(error),
+        body: taskActionErrorMessage(error, t),
         durationMs: Infinity,
         tone: "danger",
       });
@@ -59,10 +51,7 @@ export function TaskInitiatingActionProvider({
   );
   const continuation = useTaskInitiatingActionController({
     execute: async (action, selection) => executeTaskInitiatingAction(api, action, selection),
-    onApplied: async () => {
-      setRecovery(null);
-      await onApplied();
-    },
+    onApplied,
     onAppliedError: (error, result) => {
       reportError(result.kind === "start" ? "start" : "resume", error);
     },
@@ -76,11 +65,7 @@ export function TaskInitiatingActionProvider({
   ): void {
     continuation.run(action, selection);
   }
-  function resume(setupRecovery?: TaskSetupRecovery): void {
-    if (setupRecovery !== undefined) {
-      setRecovery(setupRecovery);
-      return;
-    }
+  function resume(): void {
     run(resumeTaskInitiatingAction(taskID));
   }
   function start(): void {
@@ -105,28 +90,12 @@ export function TaskInitiatingActionProvider({
             run(result.action, result.selection);
           }
         }}
-        setupRecovery={
-          recovery === null
-            ? undefined
-            : {
-                onClose: () => {
-                  setRecovery(null);
-                },
-                onSubmit: (selection, branchName) => {
-                  const action = resumeTaskInitiatingAction(taskID);
-                  run({ ...action, branchName: executionTargetBranchName(selection, branchName) }, selection);
-                },
-                recovery,
-                running: continuation.pendingResumeTaskIDs.has(taskID),
-                ...(executionTarget === null ? { retrySelection: recovery.executionTarget } : {}),
-              }
-        }
       />
     </TaskInitiatingActionContext.Provider>
   );
 }
 
-export function TaskResumeButton({ recovery }: Readonly<{ recovery?: TaskSetupRecovery | undefined }>) {
+export function TaskResumeButton() {
   const { t } = useTranslation();
   const controller = useContext(TaskInitiatingActionContext);
   if (controller === null) {
@@ -137,7 +106,7 @@ export function TaskResumeButton({ recovery }: Readonly<{ recovery?: TaskSetupRe
       data-testid="task-detail-resume"
       aria-busy={controller.resuming}
       onClick={() => {
-        controller.resume(recovery);
+        controller.resume();
       }}
       variant="primary"
     >

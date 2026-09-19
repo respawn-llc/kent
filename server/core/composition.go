@@ -278,7 +278,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		RuntimeClientFactory: opts.RuntimeClientFactory,
 		RuntimeAuthority:     runtimeAuthority,
 		TaskDependencies:     workflowTaskDependencyCounter,
-		ExecutionTargets:     workflowExecutionTargets,
 	})
 	if err != nil {
 		cleanupNewFailure()
@@ -290,9 +289,9 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		runtimeAuthority,
 		workflowTaskMutations,
 		workflowexecution.CurrentNodeControllerConfig{
-			AgentConcurrency:  cfg.Settings.Workflow.Concurrency,
-			Attention:         workflowAttentionFinalizer,
-			AssignmentSteerer: workflowRuntimeStarter,
+			AgentConcurrency: cfg.Settings.Workflow.Concurrency,
+			Attention:        workflowAttentionFinalizer,
+			ExecutionTargets: workflowExecutionTargets,
 		},
 	)
 	if err != nil {

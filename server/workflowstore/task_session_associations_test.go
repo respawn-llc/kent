@@ -1,7 +1,6 @@
 package workflowstore
 
 import (
-	"database/sql"
 	"errors"
 	"sort"
 	"testing"
@@ -42,8 +41,8 @@ func TestAssociateTaskSessionBindsFreshSessionToCurrentNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTaskSessions: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("task session count = %d, want 1", count)
+	if count != 2 {
+		t.Fatalf("task session count = %d, want initial and associated Sessions", count)
 	}
 	latest, err := store.LatestTaskSessionForNode(ctx, started.Mutation.Created[0].Reference)
 	if err != nil {
@@ -123,14 +122,7 @@ func requireRetainedSessionThinkingContract(
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	sessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		started.Reference,
-	)
+	sessionID := currentNodeSessionForStoreTest(t, ctx, store, started.Reference)
 	setPersistedSessionRoleForTest(t, cfg, binding, store.metadata, sessionID, "reviewer")
 
 	startContext, err := store.ResolveCurrentNodeStartContext(ctx, started.Reference)
@@ -151,7 +143,7 @@ func requireRetainedSessionThinkingContract(
 		t.Fatalf("retained Session thinking parameter omitted: %+v", startContext.TransitionOptions)
 	}
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{
@@ -178,27 +170,13 @@ func requireRetainedSessionThinkingContract(
 	}
 }
 
-func TestBindSessionToCurrentNodeEstablishesLiveBindingAndProvenance(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+func TestTaskStartCutoverEstablishesLiveBindingAndProvenance(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	sessionID, err := runtimeids.ParseSessionID(createTestSession(t, ctx, store, binding, cfg))
-	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
-	}
-
-	association, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    sessionID,
-			CurrentNode:  started.Mutation.Created[0].Reference,
-			AssociatedAt: time.UnixMilli(1_700_000_000_000).UTC(),
-		},
-	})
-	if err != nil {
-		t.Fatalf("BindSessionToCurrentNode: %v", err)
-	}
+	sessionID := *started.Mutation.Created[0].SessionID
 
 	currentNodes, err := store.ListCurrentNodes(ctx, task.ID)
 	if err != nil {
@@ -206,9 +184,6 @@ func TestBindSessionToCurrentNodeEstablishesLiveBindingAndProvenance(t *testing.
 	}
 	if len(currentNodes) != 1 || currentNodes[0].SessionID == nil || *currentNodes[0].SessionID != sessionID {
 		t.Fatalf("current nodes = %+v, want one node bound to %q", currentNodes, sessionID)
-	}
-	if association.SessionID != sessionID || !association.CurrentNode.Equal(started.Mutation.Created[0].Reference) {
-		t.Fatalf("live binding association = %+v", association)
 	}
 	latest, err := store.LatestTaskSessionForNode(ctx, started.Mutation.Created[0].Reference)
 	if err != nil {
@@ -225,120 +200,46 @@ func TestBindSessionToCurrentNodeEstablishesLiveBindingAndProvenance(t *testing.
 	}
 }
 
-func TestBindSessionToBranchCurrentNodeReplacesExpectedFanoutSourceSession(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
-	workflowID := createValidWorkflow(t, ctx, store)
+func TestAutomaticFanoutCutoverBindsIndependentExactSessions(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
+		for _, key := range []string{"split_a", "split_b"} {
+			edge := workflowGraphSaveEdgeRecord(t, req.Edges, edgeByKey(t, def, key).ID)
+			edge.ContextMode = workflow.ContextModeContinueSession
+			edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceImmediateSource}
+		}
+	})
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	sourceSessionID, err := runtimeids.ParseSessionID(createTestSession(t, ctx, store, binding, cfg))
+	plan, err := store.PlanCurrentNodeCompletion(ctx, CurrentNodeCompletionRequest{
+		Source: started.Reference, OutputValues: map[string]string{"summary": "prepared fanout"},
+	})
 	if err != nil {
-		t.Fatalf("parse source Session ID: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    sourceSessionID,
-			CurrentNode:  started.Reference,
-			AssociatedAt: time.UnixMilli(1_700_000_000_000).UTC(),
-		},
-	}); err != nil {
-		t.Fatalf("bind source Session: %v", err)
+	sessions := plannedSessionsForStoreTest(t, ctx, store, plan.StartContexts())
+	if _, err := store.CommitCurrentNodeCompletion(ctx, plan, sessions); err != nil {
+		t.Fatal(err)
 	}
-
-	branchKey := workflow.TransitionBranchKey("qa")
-	if _, err := store.db.ExecContext(ctx, `DELETE FROM task_current_nodes WHERE task_id = ?`, string(task.ID)); err != nil {
-		t.Fatalf("delete serial Current Node: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `INSERT INTO task_active_fanouts (task_id) VALUES (?)`, string(task.ID)); err != nil {
-		t.Fatalf("insert active fan-out: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-INSERT INTO task_active_fanout_branches (
-    task_id, transition_branch_key, arrival_state, arrival_values_json
-) VALUES (?, ?, 'pending', NULL)`, string(task.ID), string(branchKey)); err != nil {
-		t.Fatalf("insert active fan-out branch: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-INSERT INTO task_current_nodes (
-    task_id, node_id, transition_branch_key, current_input_values_json,
-    prior_node_values_json, session_id, scheduling_state, entered_by_edge_id,
-    effective_assignee, assignee_origin
-) VALUES (?, ?, ?, '{}', '{"transition_parameters":{}}', ?, 'ready', ?, ?, ?)`,
-		string(task.ID),
-		string(started.Reference.NodeID),
-		string(branchKey),
-		sourceSessionID.String(),
-		string(*started.EnteredByEdgeID),
-		started.AgentExecutionSelection.Assignee,
-		string(started.AgentExecutionSelection.Origin),
-	); err != nil {
-		t.Fatalf("insert retained fan-out Current Node: %v", err)
-	}
-	branchReference, err := workflow.NewCurrentNodeReference(task.ID, started.Reference.NodeID, &branchKey)
-	if err != nil {
-		t.Fatalf("create branch Current Node reference: %v", err)
-	}
-	cloneSessionID, err := runtimeids.ParseSessionID(createTestSession(t, ctx, store, binding, cfg))
-	if err != nil {
-		t.Fatalf("parse clone Session ID: %v", err)
-	}
-
-	if _, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    cloneSessionID,
-			CurrentNode:  branchReference,
-			AssociatedAt: time.UnixMilli(1_700_000_001_000).UTC(),
-		},
-		ExpectedCurrentSessionID: &sourceSessionID,
-	}); err != nil {
-		t.Fatalf("replace fan-out source Session with clone: %v", err)
-	}
-
 	currentNodes, err := store.ListCurrentNodes(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("list branch Current Node: %v", err)
+	if err != nil || len(currentNodes) != 2 {
+		t.Fatalf("committed fanout = %+v, %v", currentNodes, err)
 	}
-	if len(currentNodes) != 1 ||
-		currentNodes[0].SessionID == nil ||
-		*currentNodes[0].SessionID != cloneSessionID {
-		t.Fatalf("branch Current Nodes = %+v, want clone Session %q", currentNodes, cloneSessionID)
-	}
-	if err := store.ValidateCurrentNodeSessionBinding(ctx, cloneSessionID, branchReference); err != nil {
-		t.Fatalf("validate clone Session binding: %v", err)
-	}
-	if _, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    cloneSessionID,
-			CurrentNode:  branchReference,
-			AssociatedAt: time.UnixMilli(1_700_000_002_000).UTC(),
-		},
-		ExpectedCurrentSessionID: &sourceSessionID,
-	}); err != nil {
-		t.Fatalf("repeat fan-out clone binding: %v", err)
-	}
-
-	staleCloneSessionID, err := runtimeids.ParseSessionID(createTestSession(t, ctx, store, binding, cfg))
-	if err != nil {
-		t.Fatalf("parse stale clone Session ID: %v", err)
-	}
-	if _, err := store.BindSessionToCurrentNode(ctx, CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    staleCloneSessionID,
-			CurrentNode:  branchReference,
-			AssociatedAt: time.UnixMilli(1_700_000_003_000).UTC(),
-		},
-		ExpectedCurrentSessionID: &sourceSessionID,
-	}); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("stale fan-out replacement error = %v, want sql.ErrNoRows", err)
-	}
-	currentNodes, err = store.ListCurrentNodes(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("list branch Current Node after stale replacement: %v", err)
-	}
-	if len(currentNodes) != 1 ||
-		currentNodes[0].SessionID == nil ||
-		*currentNodes[0].SessionID != cloneSessionID {
-		t.Fatalf("branch Current Nodes after stale replacement = %+v, want clone Session %q", currentNodes, cloneSessionID)
+	seen := map[runtimeids.SessionID]bool{*started.SessionID: true}
+	for _, node := range currentNodes {
+		if node.SessionID == nil || seen[*node.SessionID] {
+			t.Fatalf("fanout reused a source or sibling identity: %+v", node)
+		}
+		seen[*node.SessionID] = true
+		if err := store.ValidateCurrentNodeSessionBinding(ctx, *node.SessionID, node.Reference); err != nil {
+			t.Fatal(err)
+		}
+		association, err := store.LatestTaskSessionForNode(ctx, node.Reference)
+		if err != nil || association.SessionID != *node.SessionID {
+			t.Fatalf("exact branch provenance = %+v, %v", association, err)
+		}
 	}
 }
 
@@ -536,6 +437,7 @@ func TestLoadSessionReuseAssociationsTreatsMissingReferencesAsNormalWithoutDiagn
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	removeRetainedSessionHistoryForTest(t, ctx, store, started.Reference)
 	branchKey := workflow.TransitionBranchKey("missing")
 	branchReference, err := workflow.NewCurrentNodeReference(
 		task.ID,
@@ -647,7 +549,7 @@ func TestAssociateTaskSessionRetainsVisitsAcrossNodes(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AssociateTaskSession plan: %v", err)
 	}
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan"},
@@ -667,8 +569,8 @@ func TestAssociateTaskSessionRetainsVisitsAcrossNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTaskSessions: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("task session count = %d, want 1", count)
+	if count != 3 {
+		t.Fatalf("task session count = %d, want two prepared Sessions and one historical Session", count)
 	}
 	for _, currentNode := range []workflow.CurrentNodeReference{started.Mutation.Created[0].Reference, reviewReference} {
 		latest, err := store.LatestTaskSessionForNode(ctx, currentNode)
@@ -716,11 +618,11 @@ func TestAssociateTaskSessionRejectsCrossTaskOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTaskSessions second: %v", err)
 	}
-	if firstCount != 1 || secondCount != 0 {
-		t.Fatalf("task session counts = %d, %d; want 1, 0", firstCount, secondCount)
+	if firstCount != 2 || secondCount != 1 {
+		t.Fatalf("task session counts = %d, %d; want one extra association on only the first Task", firstCount, secondCount)
 	}
-	if _, err := store.LatestTaskSessionForNode(ctx, secondCurrentNode); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("second task association error = %v, want sql.ErrNoRows", err)
+	if latest, err := store.LatestTaskSessionForNode(ctx, secondCurrentNode); err != nil || latest.SessionID == sessionID {
+		t.Fatalf("second Task association = %+v, %v, want its original Session", latest, err)
 	}
 }
 

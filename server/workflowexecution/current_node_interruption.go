@@ -29,11 +29,11 @@ type currentNodeInterruptCleanupState struct {
 	taskFence      *currentNodeInterruptFence
 }
 
-func (c *CurrentNodeController) cleanupInterrupt(state currentNodeInterruptCleanupState) error {
+func (c *CurrentNodeController) cleanupInterrupt(ctx context.Context, state currentNodeInterruptCleanupState) error {
 	if len(state.stopHandles) == 0 && len(state.admissionWaits) == 0 {
 		return nil
 	}
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), interruptCleanupTimeout)
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), interruptCleanupTimeout)
 	defer cleanupCancel()
 	c.wakeAdmissionWorker()
 	for _, handle := range state.stopHandles {
@@ -166,7 +166,7 @@ func (c *CurrentNodeController) Interrupt(ctx context.Context, selector Interrup
 	}); err != nil {
 		return err
 	}
-	return c.cleanupInterrupt(currentNodeInterruptCleanupState{
+	return c.cleanupInterrupt(ctx, currentNodeInterruptCleanupState{
 		taskID:         selector.TaskID,
 		stopHandles:    stopHandles,
 		waitHandles:    waitHandles,
@@ -234,9 +234,6 @@ func (c *CurrentNodeController) InterruptForManualMove(
 			}
 			if c.workerErr != nil {
 				return fmt.Errorf("workflow execution lifecycle failed: %w", c.workerErr)
-			}
-			if taskHasPreparationLocked(c, taskID) {
-				return ErrManualMoveLifecycleConflict
 			}
 			if c.interrupts.taskActive(taskID) {
 				return ErrTaskExecutionNotQuiescent
@@ -314,9 +311,9 @@ func (c *CurrentNodeController) InterruptForManualMove(
 		if taskFence == nil {
 			return selectionErr
 		}
-		return errors.Join(selectionErr, c.cleanupInterrupt(cleanupState))
+		return errors.Join(selectionErr, c.cleanupInterrupt(ctx, cleanupState))
 	}
-	return c.cleanupInterrupt(cleanupState)
+	return c.cleanupInterrupt(ctx, cleanupState)
 }
 
 func appendAdmissionWait(
@@ -328,9 +325,6 @@ func appendAdmissionWait(
 }
 
 func taskHasControllerQueuedWorkLocked(c *CurrentNodeController, taskID workflow.TaskID) bool {
-	if taskHasPreparationLocked(c, taskID) {
-		return true
-	}
 	for entry := c.automaticQueue.first; entry != nil; entry = entry.globalNext {
 		if entry.start.reference.TaskID == taskID {
 			return true
@@ -359,21 +353,7 @@ func taskHasControllerQueuedWorkLocked(c *CurrentNodeController, taskID workflow
 	return false
 }
 
-func taskHasPreparationLocked(c *CurrentNodeController, taskID workflow.TaskID) bool {
-	return c.queuedTaskPreparationLocked(taskID) != nil || c.runningTaskPreparationLocked(taskID) != nil
-}
-
 func validateTaskControllerWorkLocked(c *CurrentNodeController, taskID workflow.TaskID) error {
-	for _, batch := range []*taskPreparationBatch{c.queuedTaskPreparationLocked(taskID), c.runningTaskPreparationLocked(taskID)} {
-		if batch == nil {
-			continue
-		}
-		for index, start := range batch.starts {
-			if _, err := start.reference.Key(); err != nil {
-				return fmt.Errorf("validate task preparation Current Node at index %d for task %s: %w", index, taskID, err)
-			}
-		}
-	}
 	for entry := c.automaticQueue.first; entry != nil; entry = entry.globalNext {
 		if entry.start.reference.TaskID == taskID {
 			if _, err := entry.start.reference.Key(); err != nil {

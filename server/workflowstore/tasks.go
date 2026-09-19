@@ -452,26 +452,7 @@ func (s *Store) DeleteTask(ctx context.Context, taskID workflow.TaskID) (DeleteT
 	return DeleteTaskResult{TaskRecord: record, TaskAttentionResolution: resolution}, nil
 }
 
-func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTaskResult, error) {
-	return s.startTask(ctx, taskID, nil, false)
-}
-
-func (s *Store) StartTaskWithExecutionTarget(ctx context.Context, taskID workflow.TaskID, candidate *ExecutionTargetCandidate) (StartTaskResult, error) {
-	return s.startTask(ctx, taskID, candidate, true)
-}
-
-func (s *Store) startTask(ctx context.Context, taskID workflow.TaskID, candidate *ExecutionTargetCandidate, requireTarget bool) (StartTaskResult, error) {
-	prepared, err := s.prepareTaskStart(ctx, taskID)
-	if err != nil {
-		return StartTaskResult{}, err
-	}
-	var targetMutation preparedExecutionTargetMutation
-	if requireTarget {
-		targetMutation, err = s.prepareExecutionTargetMutation(ctx, prepared.task, candidate)
-		if err != nil {
-			return StartTaskResult{}, err
-		}
-	}
+func (s *Store) materializeTaskStart(prepared preparedTaskStart) (workflow.CurrentNode, error) {
 	var targetSelection *workflow.AgentExecutionSelection
 	if prepared.target.Kind() == workflow.NodeKindAgent {
 		selectionPlan, selectionErr := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
@@ -491,47 +472,11 @@ func (s *Store) startTask(ctx context.Context, taskID workflow.TaskID, candidate
 			selectionErr = errors.New("transition selection planner omitted Agent execution selection")
 		}
 		if selectionErr != nil {
-			return StartTaskResult{}, fmt.Errorf("materialize Agent target selection: %w", selectionErr)
+			return workflow.CurrentNode{}, fmt.Errorf("materialize Agent target selection: %w", selectionErr)
 		}
 		targetSelection = &value
 	}
-	target, err := newReadyCurrentNode(taskID, workflow.NodeIDOf(prepared.target), prepared.startEdge.ID, targetSelection)
-	if err != nil {
-		return StartTaskResult{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return StartTaskResult{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	q := s.queries.WithTx(tx)
-	nowTime := s.now().UTC()
-	now := nowTime.UnixMilli()
-	if requireTarget {
-		if err := applyPreparedExecutionTargetMutation(ctx, q, prepared.task, targetMutation, now); err != nil {
-			return StartTaskResult{}, err
-		}
-	}
-	removed, err := q.DeleteSerialTaskCurrentNode(ctx, sqlitegen.DeleteSerialTaskCurrentNodeParams{TaskID: string(taskID), NodeID: string(workflow.NodeIDOf(prepared.start))})
-	if err != nil {
-		return StartTaskResult{}, err
-	}
-	if removed != 1 {
-		return StartTaskResult{}, sql.ErrNoRows
-	}
-	if err := insertTaskCurrentNode(ctx, q, target, nowTime); err != nil {
-		return StartTaskResult{}, err
-	}
-	if err := touchTaskUpdatedAt(ctx, q, string(taskID), now); err != nil {
-		return StartTaskResult{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return StartTaskResult{}, err
-	}
-	return StartTaskResult{Mutation: workflow.CurrentNodeMutationResult{
-		Removed: []workflow.CurrentNodeReference{prepared.startCurrentNode.Reference},
-		Created: []workflow.CurrentNode{target},
-	}}, nil
+	return newReadyCurrentNode(workflow.TaskID(prepared.task.ID), workflow.NodeIDOf(prepared.target), prepared.startEdge.ID, targetSelection)
 }
 
 func (s *Store) ValidateTaskStart(ctx context.Context, taskID workflow.TaskID) error {
@@ -541,6 +486,7 @@ func (s *Store) ValidateTaskStart(ctx context.Context, taskID workflow.TaskID) e
 
 type preparedTaskStart struct {
 	task             sqlitegen.TaskRecord
+	workflowVersion  int64
 	start            workflow.Node
 	target           workflow.Node
 	startEdge        workflow.Edge
@@ -552,7 +498,7 @@ func (s *Store) prepareTaskStart(ctx context.Context, taskID workflow.TaskID) (p
 	if err != nil {
 		return preparedTaskStart{}, err
 	}
-	definition, _, err := s.GetDefinition(ctx, task.WorkflowID)
+	definition, record, err := s.GetDefinition(ctx, task.WorkflowID)
 	if err != nil {
 		return preparedTaskStart{}, err
 	}
@@ -581,7 +527,7 @@ func (s *Store) prepareTaskStart(ctx context.Context, taskID workflow.TaskID) (p
 	if err != nil {
 		return preparedTaskStart{}, err
 	}
-	return preparedTaskStart{task: task, start: start, target: target, startEdge: edge, startCurrentNode: current}, nil
+	return preparedTaskStart{task: task, workflowVersion: record.Version, start: start, target: target, startEdge: edge, startCurrentNode: current}, nil
 }
 
 func (s *Store) preflightInitialExecution(definition workflow.Definition) error {

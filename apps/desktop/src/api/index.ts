@@ -122,6 +122,7 @@ export {
   decodeTaskSearchError,
   decodeWorkflowLabelError,
   decodeWorkflowTaskCreateSelectionError,
+  isTaskContextSelectionRequiredError,
   decodeWorkflowTaskDependencyError,
   isProjectMissingError,
   isTaskMissingError,
@@ -175,12 +176,7 @@ export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
 export type { WorktreeSetupEventHandler } from "./worktreeSetup";
-export {
-  decodeWorktreeSetupRetainedError,
-  parseTaskSetupRecoveryDetail,
-  WorktreeSetupRetainedError,
-  type TaskSetupRecovery,
-} from "./schemas/workflowBoard";
+export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./schemas/workflowBoard";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
 export type { ProjectObservation } from "./projectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";

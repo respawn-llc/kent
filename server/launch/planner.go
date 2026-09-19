@@ -21,7 +21,6 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -437,13 +436,17 @@ func ValidateInitialChatCreationTarget(mode Mode, intent serverapi.SessionLaunch
 }
 
 func (p Planner) planSession(ctx context.Context, req SessionRequest, meta session.Meta, store *session.Store) (SessionPlan, error) {
+	return p.planSessionWithExecutionContext(ctx, req, meta, store, nil)
+}
+
+func (p Planner) planSessionWithExecutionContext(ctx context.Context, req SessionRequest, meta session.Meta, store *session.Store, preparedContext *PreparedExecutionContext) (SessionPlan, error) {
 	explicitTools := config.ExplicitToolSelection(p.Config.Settings, p.Config.Source.Sources)
 	var selectionErr error
 	p.Config, selectionErr = ApplyRetainedToolSelection(p.Config, meta)
 	if selectionErr != nil {
 		return SessionPlan{}, selectionErr
 	}
-	if store == nil {
+	if store == nil && preparedContext == nil {
 		if req.Intent.Kind() != serverapi.SessionLaunchIntentOpenExisting {
 			return SessionPlan{}, errors.New("persisted session planning requires an existing-session intent")
 		}
@@ -456,11 +459,15 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 			)
 		}
 	}
-	if req.Mode == ModeHeadless && store != nil {
-		if err := EnsureSubagentSessionName(store); err != nil {
-			return SessionPlan{}, err
+	if req.Mode == ModeHeadless && (store != nil || preparedContext != nil) {
+		if store != nil {
+			if err := EnsureSubagentSessionName(store); err != nil {
+				return SessionPlan{}, err
+			}
+			meta = store.Meta()
+		} else if strings.TrimSpace(meta.Name) == "" {
+			meta.Name = subagentSessionName(meta)
 		}
-		meta = store.Meta()
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
@@ -495,6 +502,11 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 			return SessionPlan{}, err
 		}
 		meta = store.Meta()
+	} else if preparedContext != nil {
+		meta.Continuation, err = session.NormalizeContinuationContext(continuation)
+		if err != nil {
+			return SessionPlan{}, err
+		}
 	}
 	if req.PreparedPromptFacingTarget == nil {
 		enabledTools, err = ActiveToolIDsForPlan(active, source, meta.Locked)
@@ -529,18 +541,7 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 	if err != nil {
 		return SessionPlan{}, err
 	}
-	executionTarget, err := p.resolvePlannedExecutionTarget(ctx, meta.SessionID)
-	if err != nil {
-		return SessionPlan{}, err
-	}
-	if p.ProjectWorkspaceBoundary == nil {
-		return SessionPlan{}, errors.New("project workspace boundary resolver is required")
-	}
-	projectWorkspaceBoundary, err := p.ProjectWorkspaceBoundary.ResolveSessionProjectWorkspaceBoundary(ctx, meta.SessionID)
-	if err != nil {
-		return SessionPlan{}, err
-	}
-	managedWorktreeRoots, err := p.ProjectWorkspaceBoundary.ListManagedWorktreeRoots(ctx)
+	executionContext, err := p.resolveSessionPlanExecutionContext(ctx, meta.SessionID, preparedContext)
 	if err != nil {
 		return SessionPlan{}, err
 	}
@@ -554,9 +555,9 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 		SkipContinuationAgentRoleValidation: req.SkipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
 		ExplicitToolSelection:               explicitTools,
-		ExecutionTarget:                     executionTarget,
-		ProjectWorkspaceBoundary:            projectWorkspaceBoundary.Clone(),
-		ManagedWorktreeRoots:                append([]string(nil), managedWorktreeRoots...),
+		ExecutionTarget:                     executionContext.ExecutionTarget,
+		ProjectWorkspaceBoundary:            executionContext.ProjectWorkspaceBoundary.Clone(),
+		ManagedWorktreeRoots:                append([]string(nil), executionContext.ManagedWorktreeRoots...),
 		Source:                              source,
 		BaseSource:                          baseSource,
 		QuestionsEnabled:                    chatSettings.Questions,
@@ -668,13 +669,18 @@ func (p Planner) ApplyRunPromptOverridesWithStore(plan SessionPlan, store *sessi
 	}
 	next.QuestionsEnabled = chatSettings.Questions
 	next.AutoCompactionEnabled = chatSettings.AutoCompaction
-	next, err = WithRequiredRunPromptTools(next, options.RequiredTools)
+	next, err = finalizeRunPromptOverrides(next, overrides, options)
+	return next, warnings, err
+}
+
+func finalizeRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOverrides, options RunPromptOverrideOptions) (SessionPlan, error) {
+	next, err := WithRequiredRunPromptTools(plan, options.RequiredTools)
 	if err != nil {
-		return SessionPlan{}, nil, err
+		return SessionPlan{}, err
 	}
 	next, err = withWorkflowThinking(next, options.WorkflowThinking)
 	next.ThinkingOverrideExplicit = strings.TrimSpace(overrides.ThinkingLevel) != ""
-	return next, warnings, err
+	return next, err
 }
 
 func WithRequiredRunPromptTools(plan SessionPlan, required []toolspec.ID) (SessionPlan, error) {
@@ -1275,105 +1281,30 @@ func (p Planner) createSession(
 	mode Mode,
 	initialChat *session.ChatDraftState,
 ) (*session.Store, error) {
-	containerName := filepath.Base(p.ContainerDir)
-	category := sessioncontract.SessionCategoryMain
-	if mode == ModeHeadless {
-		category = sessioncontract.SessionCategorySubagent
+	plan, err := p.prepareCreation(ctx, origin, mode, runtimeids.NewSessionID(), initialChat)
+	if err != nil {
+		return nil, err
 	}
-	if origin.Kind() == serverapi.SessionCreateOriginIndependent {
-		created, err := session.NewLazy(p.ContainerDir, containerName, p.Config.WorkspaceRoot, category, p.StoreOptions...)
+	var target *worktreepb.SessionExecutionTarget
+	if sourceID, present := origin.SessionID(); present {
+		resolved, hasTarget, err := p.resolveParentExecutionTarget(ctx, sourceID.String())
 		if err != nil {
 			return nil, err
 		}
-		if err := session.InitializeCreationContext(created, nil, session.SessionCreationSourceIndependent, session.ChildContextOptions{}); err != nil {
-			return nil, err
+		if hasTarget {
+			target = resolved
 		}
-		if initialChat != nil {
-			if err := session.InitializeChatDraft(created, *initialChat); err != nil {
-				return nil, err
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := created.EnsureDurable(); err != nil {
-			return nil, err
-		}
-		return created, nil
 	}
-	sourceID, present := origin.SessionID()
-	if !present {
-		return nil, errors.New("session creation source is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if p.PersistedSessions == nil {
-		return nil, errors.New("persisted session resolver is required")
-	}
-	sourceRecord, err := session.ResolvePersistedSessionRecord(ctx, p.PersistedSessions, sourceID.String())
+	created, err := session.MaterializeCreation(ctx, plan, p.StoreOptions...)
 	if err != nil {
 		return nil, err
 	}
-	source := session.CreationContextSourceFromMeta(*sourceRecord.Meta)
-	if origin.Kind() == serverapi.SessionCreateOriginParentAgent {
-		if err := (parentAgentDepthPolicy{sessions: p.PersistedSessions}).enforce(
-			ctx,
-			source.Meta(),
-			p.Config.Settings.MaxSubagentDepth,
-			p.Config.Settings.Debug,
-		); err != nil {
-			return nil, err
+	if target != nil {
+		if err := p.updateChildExecutionTarget(ctx, created.Meta().SessionID, target); err != nil {
+			return nil, errors.Join(err, p.rollbackChildSession(created))
 		}
-	}
-	created, err := session.NewLazy(p.ContainerDir, containerName, p.Config.WorkspaceRoot, category, p.StoreOptions...)
-	if err != nil {
-		return nil, err
-	}
-	if err := p.initializeChildSessionContext(ctx, created, source, sourceID, origin.Kind(), mode); err != nil {
-		return nil, err
 	}
 	return created, nil
-}
-
-func (p Planner) initializeChildSessionContext(ctx context.Context, child *session.Store, source session.CreationContextSource, sourceSessionID runtimeids.SessionID, originKind serverapi.SessionCreateOriginKind, mode Mode) error {
-	if child == nil {
-		return errors.New("child session store is required")
-	}
-	if source == nil {
-		return errors.New("session creation source is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	childContextOptions := session.ChildContextOptions{
-		LockedContract:      session.InheritFullContract,
-		InheritContinuation: true,
-	}
-	creationSourceKind := session.SessionCreationSourcePreviousSession
-	if originKind == serverapi.SessionCreateOriginParentAgent {
-		creationSourceKind = session.SessionCreationSourceParentAgent
-		childContextOptions = session.ChildContextOptions{}
-	} else if originKind != serverapi.SessionCreateOriginPreviousSession {
-		return errors.New("session creation origin kind is invalid")
-	}
-	if err := session.InitializeCreationContext(child, source, creationSourceKind, childContextOptions); err != nil {
-		return err
-	}
-	target, hasTarget, err := p.resolveParentExecutionTarget(ctx, sourceSessionID.String())
-	if err != nil {
-		return err
-	}
-	if err := child.EnsureDurable(); err != nil {
-		return err
-	}
-	if !hasTarget {
-		return nil
-	}
-	if err := p.updateChildExecutionTarget(ctx, child.Meta().SessionID, target); err != nil {
-		return errors.Join(err, p.rollbackChildSession(child))
-	}
-	return nil
 }
 
 func (p Planner) openMetadataStore() (MetadataExecutionTargetStore, error) {
@@ -1446,11 +1377,11 @@ func EnsureSubagentSessionName(store *session.Store) error {
 	if strings.TrimSpace(meta.Name) != "" {
 		return nil
 	}
-	name := strings.TrimSpace(meta.SessionID + " " + SubagentSessionSuffix)
-	if name == "" {
-		return nil
-	}
-	return store.SetName(name)
+	return store.SetName(subagentSessionName(meta))
+}
+
+func subagentSessionName(meta session.Meta) string {
+	return strings.TrimSpace(meta.SessionID + " " + SubagentSessionSuffix)
 }
 
 func EffectiveSettings(base config.Settings, locked *session.LockedContract) config.Settings {

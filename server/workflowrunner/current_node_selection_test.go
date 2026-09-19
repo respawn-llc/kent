@@ -15,6 +15,7 @@ import (
 	"core/server/sessionruntime"
 	"core/server/tools"
 	"core/server/workflow"
+	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/clientui"
@@ -43,8 +44,12 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 		t.Fatal(err)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	steer, err := f.starter.SteerCurrentNodeAssignment(t.Context(), input.CurrentNode.Reference)
+	prepared, err := f.starter.PrepareCurrentNode(t.Context(), input, workflowruntime.TaskPromptDeliveryResume)
 	if err != nil {
+		t.Fatal(err)
+	}
+	steer := prepared.Assignment
+	if err := steer.(workflowexecution.CurrentNodeAssignmentPreparation).Prepare(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	handle, err := f.starter.StartAgentCurrentNode(t.Context(), input.CurrentNode.Reference, workflowruntime.TaskPromptDeliveryAssignment, steer, nil, f.controller)
@@ -110,7 +115,7 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 	}
 	f.starter.cfg = unrestricted
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	if _, err := f.controller.ResumeTask(t.Context(), input.Task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(t.Context(), input.Task.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	answer()
@@ -129,22 +134,12 @@ func TestCurrentNodeStartUsesMaterializedSelectedRoleAndForcesQuestions(t *testi
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
-	plan, disposable, err := f.starter.planCurrentNodeSession(
-		context.Background(),
-		input,
-		*input.ExecutionRoot,
-		false,
-	)
+	_, err := f.starter.PrepareCurrentNode(context.Background(), input, workflowruntime.TaskPromptDeliveryAssignment)
 	if err != nil {
 		t.Fatalf("planCurrentNodeSession: %v", err)
 	}
-	if disposable {
-		t.Cleanup(func() {
-			if err := f.starter.cleanupSession(context.Background(), plan.Descriptor); err != nil {
-				t.Errorf("cleanup planned session: %v", err)
-			}
-		})
-	}
+	requests := f.runtimeRequests()
+	plan := requests[len(requests)-1]
 	if plan.ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("planned model = %q, want materialized reviewer model", plan.ActiveSettings.Model)
 	}
@@ -184,22 +179,12 @@ func TestCurrentNodeStartUsesMaterializedSelectedRoleAtCompactionBoundary(t *tes
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
-	plan, disposable, err := f.starter.planCurrentNodeSession(
-		context.Background(),
-		input,
-		*input.ExecutionRoot,
-		false,
-	)
+	_, err = f.starter.PrepareCurrentNode(context.Background(), input, workflowruntime.TaskPromptDeliveryAssignment)
 	if err != nil {
 		t.Fatalf("planCurrentNodeSession compact: %v", err)
 	}
-	if disposable {
-		t.Cleanup(func() {
-			if err := f.starter.cleanupSession(context.Background(), plan.Descriptor); err != nil {
-				t.Errorf("cleanup compact planned session: %v", err)
-			}
-		})
-	}
+	requests := f.runtimeRequests()
+	plan := requests[len(requests)-1]
 	if plan.ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("compact planned model = %q, want materialized reviewer model", plan.ActiveSettings.Model)
 	}
@@ -218,22 +203,12 @@ func TestCurrentNodeStartAppliesMaterializedWorkflowThinkingAfterRoleResolution(
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
-	plan, disposable, err := f.starter.planCurrentNodeSession(
-		context.Background(),
-		input,
-		*input.ExecutionRoot,
-		false,
-	)
+	_, err = f.starter.PrepareCurrentNode(context.Background(), input, workflowruntime.TaskPromptDeliveryAssignment)
 	if err != nil {
 		t.Fatalf("planCurrentNodeSession: %v", err)
 	}
-	if disposable {
-		t.Cleanup(func() {
-			if err := f.starter.cleanupSession(context.Background(), plan.Descriptor); err != nil {
-				t.Errorf("cleanup planned session: %v", err)
-			}
-		})
-	}
+	requests := f.runtimeRequests()
+	plan := requests[len(requests)-1]
 	if plan.ActiveSettings.ThinkingLevel != "max" {
 		t.Fatalf("planned thinking level = %q, want max", plan.ActiveSettings.ThinkingLevel)
 	}
@@ -257,22 +232,12 @@ func TestCurrentNodeStartUsesConfiguredFallbackThinking(t *testing.T) {
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
-	plan, disposable, err := f.starter.planCurrentNodeSession(
-		context.Background(),
-		input,
-		*input.ExecutionRoot,
-		false,
-	)
+	_, err = f.starter.PrepareCurrentNode(context.Background(), input, workflowruntime.TaskPromptDeliveryAssignment)
 	if err != nil {
 		t.Fatalf("planCurrentNodeSession: %v", err)
 	}
-	if disposable {
-		t.Cleanup(func() {
-			if err := f.starter.cleanupSession(context.Background(), plan.Descriptor); err != nil {
-				t.Errorf("cleanup planned session: %v", err)
-			}
-		})
-	}
+	requests := f.runtimeRequests()
+	plan := requests[len(requests)-1]
 	if plan.ActiveSettings.ThinkingLevel != "high" {
 		t.Fatalf("planned thinking level = %q, want configured fallback high", plan.ActiveSettings.ThinkingLevel)
 	}
@@ -284,7 +249,7 @@ func TestCurrentNodeStartFailsWhenMaterializedRoleIsRemovedFromConfig(t *testing
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
-	if _, _, err := f.starter.planCurrentNodeSession(context.Background(), input, *input.ExecutionRoot, false); err == nil {
+	if _, err := f.starter.PrepareCurrentNode(context.Background(), input, workflowruntime.TaskPromptDeliveryAssignment); err == nil {
 		t.Fatal("planCurrentNodeSession succeeded after removing materialized role")
 	}
 }
@@ -294,24 +259,12 @@ func newMaterializedRoleSelectionStart(t *testing.T, steps ...ScriptedRuntimeSte
 	f := newCurrentNodeRunnerFixture(t, steps...)
 	workflowID := createCurrentNodeRoleSelectionWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
-	if err := f.store.LockTaskExecutionTarget(context.Background(), task.ID, &workflowstore.ExecutionTargetCandidate{
-		Snapshot: workflowstore.ExecutionTargetSnapshot{
-			Mode:       workflow.ExecutionTargetModeNone,
-			Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-		},
-		Root: workflowstore.ExecutionRoot{
-			SourceWorkspaceID:   f.workspaceID,
-			SourceWorkspaceRoot: f.workspace,
-		},
-	}); err != nil {
-		t.Fatalf("LockTaskExecutionTarget: %v", err)
-	}
-	started, err := f.store.StartTask(context.Background(), task.ID)
+	started, err := f.commitTaskStart(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	first := started.Mutation.Created[0]
-	completed, err := f.store.CompleteCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+	completed, err := f.commitCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
 		Source:       first.Reference,
 		TransitionID: "next",
 		OutputValues: map[string]string{"role": "reviewer"},

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
@@ -114,7 +115,7 @@ func TestManualMovePreviewFindsIncomingTransitionWithoutCurrentEdge(t *testing.T
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -139,7 +140,7 @@ func TestManualMovePreviewExpandsFanoutTransitionChoice(t *testing.T) {
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -204,7 +205,7 @@ func TestManualMovePreviewDescribesPriorJoinParameterRequirement(t *testing.T) {
 	})
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 
@@ -258,7 +259,7 @@ func TestManualMovePreviewRequiresAndHonorsStableTransitionSelection(t *testing.
 	})
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -304,7 +305,7 @@ func TestManualMovePreviewRejectsFieldsForDirectDestinations(t *testing.T) {
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -398,7 +399,7 @@ func TestManualMovePreviewHidesAuthorizedSoleRoleSelection(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -436,16 +437,7 @@ func TestManualMovePreviewHidesAuthorizedSoleRoleSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, &ExecutionTargetCandidate{
-		Snapshot: ExecutionTargetSnapshot{
-			Mode:       workflow.ExecutionTargetModeNone,
-			Provenance: ExecutionTargetProvenanceResolved,
-		},
-		Root: ExecutionRoot{
-			SourceWorkspaceID:   binding.WorkspaceID,
-			SourceWorkspaceRoot: binding.CanonicalRoot,
-		},
-	})
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove: %v", err)
 	}
@@ -479,7 +471,7 @@ func TestManualMoveAppliesAutomaticSoleRoleSelection(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -501,16 +493,7 @@ func TestManualMoveAppliesAutomaticSoleRoleSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, &ExecutionTargetCandidate{
-		Snapshot: ExecutionTargetSnapshot{
-			Mode:       workflow.ExecutionTargetModeNone,
-			Provenance: ExecutionTargetProvenanceResolved,
-		},
-		Root: ExecutionRoot{
-			SourceWorkspaceID:   binding.WorkspaceID,
-			SourceWorkspaceRoot: binding.CanonicalRoot,
-		},
-	})
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove: %v", err)
 	}
@@ -539,7 +522,7 @@ func TestManualMoveValidatesAndAppliesManyRoleSelection(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -579,16 +562,7 @@ func TestManualMoveValidatesAndAppliesManyRoleSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, &ExecutionTargetCandidate{
-		Snapshot: ExecutionTargetSnapshot{
-			Mode:       workflow.ExecutionTargetModeNone,
-			Provenance: ExecutionTargetProvenanceResolved,
-		},
-		Root: ExecutionRoot{
-			SourceWorkspaceID:   binding.WorkspaceID,
-			SourceWorkspaceRoot: binding.CanonicalRoot,
-		},
-	})
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove: %v", err)
 	}
@@ -635,7 +609,7 @@ func TestManualMovePreviewBlocksSerialDestinationInsideFanoutBranch(t *testing.T
 	})
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	if _, err := seedStartedTask(t, ctx, store, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 
@@ -654,7 +628,8 @@ func TestManualMovePreviewReportsUnavailableImmediateContextForNonCurrentSource(
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
+	started, err := seedStartedTask(t, ctx, store, task.ID)
+	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -662,9 +637,10 @@ func TestManualMovePreviewReportsUnavailableImmediateContextForNonCurrentSource(
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	done := nodeByKey(t, definition, "done")
-	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(done)}); err != nil {
+	if _, err := moveTask(t, store, ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(done)}); err != nil {
 		t.Fatalf("move to done: %v", err)
 	}
+	removeRetainedSessionHistoryForTest(t, ctx, store, started.Mutation.Created[0].Reference)
 	target := nodeByKey(t, definition, "implement")
 
 	preview, err := store.PreviewManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(target)})
@@ -678,14 +654,12 @@ func TestManualMovePreviewReportsUnavailableImmediateContextForNonCurrentSource(
 }
 
 func TestManualMoveBackwardUsesRetainedImmediateSourceSession(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	sessionID := associateAndBindCurrentNodeSessionForTest(
-		t, ctx, store, binding, cfg, started.Mutation.Created[0].Reference,
-	)
+	sessionID := currentNodeSessionForStoreTest(t, ctx, store, started.Mutation.Created[0].Reference)
 	if _, err := store.LatestTaskSessionForNode(ctx, started.Mutation.Created[0].Reference); err != nil {
 		t.Fatalf("LatestTaskSessionForNode before move to done: %v", err)
 	}
@@ -694,7 +668,7 @@ func TestManualMoveBackwardUsesRetainedImmediateSourceSession(t *testing.T) {
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	done := nodeByKey(t, definition, "done")
-	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(done)}); err != nil {
+	if _, err := moveTask(t, store, ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(done)}); err != nil {
 		t.Fatalf("move to done: %v", err)
 	}
 	if _, err := store.LatestTaskSessionForNode(ctx, started.Mutation.Created[0].Reference); err != nil {
@@ -712,10 +686,7 @@ func TestManualMoveBackwardUsesRetainedImmediateSourceSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareManualMove backward: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, &ExecutionTargetCandidate{
-		Snapshot: ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: ExecutionTargetProvenanceResolved},
-		Root:     ExecutionRoot{SourceWorkspaceID: binding.WorkspaceID, SourceWorkspaceRoot: binding.CanonicalRoot},
-	})
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove backward: %v", err)
 	}
@@ -727,7 +698,7 @@ func TestManualMoveBackwardUsesRetainedImmediateSourceSession(t *testing.T) {
 }
 
 func TestManualMoveUsesLatestRetainedTargetAfterPlannedSourceBinds(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -753,8 +724,8 @@ func TestManualMoveUsesLatestRetainedTargetAfterPlannedSourceBinds(t *testing.T)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	implementationA := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, implementationA.Reference)
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, implementationA.Reference)
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       implementationA.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "implementation A"},
@@ -763,21 +734,14 @@ func TestManualMoveUsesLatestRetainedTargetAfterPlannedSourceBinds(t *testing.T)
 		t.Fatalf("CompleteCurrentNode implementation A: %v", err)
 	}
 	firstReview := reviewResult.Mutation.Created[0]
-	retainedReviewSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		firstReview.Reference,
-	)
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	retainedReviewSessionID := currentNodeSessionForStoreTest(t, ctx, store, firstReview.Reference)
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source: firstReview.Reference, TransitionID: "audit",
 	})
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode Review: %v", err)
 	}
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, auditResult.Mutation.Created[0].Reference)
+	currentNodeSessionForStoreTest(t, ctx, store, auditResult.Mutation.Created[0].Reference)
 	implementationBMove := applyManualMoveFixture(t, ctx, store, binding, ManualMoveRequest{
 		TaskID:       task.ID,
 		TargetNodeID: workflow.NodeIDOf(plan),
@@ -819,7 +783,7 @@ func TestManualMoveUsesLatestRetainedTargetAfterPlannedSourceBinds(t *testing.T)
 }
 
 func TestManualMoveRetainedTargetUsesCurrentAssociationBeforePlannedSourceBinds(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -844,10 +808,8 @@ func TestManualMoveRetainedTargetUsesCurrentAssociationBeforePlannedSourceBinds(
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	implementationA := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(
-		t, ctx, store, binding, cfg, implementationA.Reference,
-	)
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, implementationA.Reference)
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       implementationA.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "implementation A"},
@@ -856,18 +818,14 @@ func TestManualMoveRetainedTargetUsesCurrentAssociationBeforePlannedSourceBinds(
 		t.Fatalf("CompleteCurrentNode implementation A: %v", err)
 	}
 	firstReview := reviewResult.Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(
-		t, ctx, store, binding, cfg, firstReview.Reference,
-	)
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, firstReview.Reference)
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source: firstReview.Reference, TransitionID: "audit",
 	})
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode Review: %v", err)
 	}
-	associateAndBindCurrentNodeSessionForTest(
-		t, ctx, store, binding, cfg, auditResult.Mutation.Created[0].Reference,
-	)
+	currentNodeSessionForStoreTest(t, ctx, store, auditResult.Mutation.Created[0].Reference)
 	transitionKey := workflow.TransitionID("rework")
 	reviewFromAudit := applyManualMoveFixture(t, ctx, store, binding, ManualMoveRequest{
 		TaskID:        task.ID,
@@ -958,14 +916,7 @@ func TestManualMoveRetainedTargetUsesLatestTargetAssociation(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	current := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	lineageSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		current.Reference,
-	)
+	lineageSessionID := currentNodeSessionForStoreTest(t, ctx, store, current.Reference)
 	lineageSource, err := workflow.NewExactMaterializedContinuationSource(lineageSessionID)
 	if err != nil {
 		t.Fatalf("NewExactMaterializedContinuationSource: %v", err)
@@ -979,13 +930,14 @@ func TestManualMoveRetainedTargetUsesLatestTargetAssociation(t *testing.T) {
 		nil,
 		lineageSource,
 	)
-	retainedReviewSessionID := associateAndBindCurrentNodeSessionForTest(
+	retainedReviewSessionID := associateTaskSessionForTest(
 		t,
 		ctx,
 		store,
 		binding,
 		cfg,
 		reviewReference,
+		time.UnixMilli(1_700_000_000_000).UTC(),
 	)
 	auditReference := replaceSerialCurrentNodeBindingFixture(
 		t,
@@ -996,7 +948,7 @@ func TestManualMoveRetainedTargetUsesLatestTargetAssociation(t *testing.T) {
 		nil,
 		lineageSource,
 	)
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, auditReference)
+	associateTaskSessionForTest(t, ctx, store, binding, cfg, auditReference, time.UnixMilli(1_700_000_000_000).UTC())
 	replaceSerialCurrentNodeBindingFixture(
 		t,
 		ctx,
@@ -1025,7 +977,7 @@ func TestManualMoveRetainedTargetUsesLatestTargetAssociation(t *testing.T) {
 		ctx,
 		store,
 		prepared,
-		noneManualMoveExecutionTargetCandidate(binding),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("ApplyManualMove: %v", err)
@@ -1051,7 +1003,7 @@ func TestManualMoveRetainedTargetUsesLatestTargetAssociation(t *testing.T) {
 }
 
 func TestManualMoveRetainedTargetUsesLatestTargetWhenSourceIsUnbound(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1076,8 +1028,8 @@ func TestManualMoveRetainedTargetUsesLatestTargetWhenSourceIsUnbound(t *testing.
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, plan.Reference)
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, plan.Reference)
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "implementation A"},
@@ -1086,10 +1038,8 @@ func TestManualMoveRetainedTargetUsesLatestTargetWhenSourceIsUnbound(t *testing.
 		t.Fatalf("CompleteCurrentNode Plan: %v", err)
 	}
 	firstReview := reviewResult.Mutation.Created[0]
-	retainedReviewSessionID := associateAndBindCurrentNodeSessionForTest(
-		t, ctx, store, binding, cfg, firstReview.Reference,
-	)
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	retainedReviewSessionID := currentNodeSessionForStoreTest(t, ctx, store, firstReview.Reference)
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source: firstReview.Reference, TransitionID: "audit",
 	})
 	if err != nil {
@@ -1136,7 +1086,7 @@ WHERE session_id = ?
 	if err != nil {
 		t.Fatalf("PrepareManualMove Review: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, noneManualMoveExecutionTargetCandidate(binding))
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove Review: %v", err)
 	}
@@ -1216,7 +1166,7 @@ WHERE task_id = ?
 }
 
 func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWithoutInvariant(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1238,7 +1188,7 @@ func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWith
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "bypassed plan"},
@@ -1246,7 +1196,7 @@ func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWith
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode Plan: %v", err)
 	}
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       reviewResult.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 	})
@@ -1254,7 +1204,8 @@ func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWith
 		t.Fatalf("CompleteCurrentNode Review: %v", err)
 	}
 	origin := auditResult.Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, origin.Reference)
+	removeRetainedSessionHistoryForTest(t, ctx, store, reviewResult.Mutation.Created[0].Reference)
+	currentNodeSessionForStoreTest(t, ctx, store, origin.Reference)
 	transitionKey := workflow.TransitionID("rework")
 	request := ManualMoveRequest{
 		TaskID:        task.ID,
@@ -1279,7 +1230,7 @@ func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWith
 	if !errors.As(err, &unavailable) {
 		t.Fatalf("PreviewManualMove error = %T %v, want RetainedTargetUnavailableError", err, err)
 	}
-	_, err = applyManualMoveForStoreTest(t, ctx, store, preparedFallback, noneManualMoveExecutionTargetCandidate(binding))
+	_, err = applyManualMoveForStoreTest(t, ctx, store, preparedFallback, nil)
 	if !errors.As(err, &unavailable) {
 		t.Fatalf("ApplyManualMove error = %T %v, want RetainedTargetUnavailableError", err, err)
 	}
@@ -1309,7 +1260,7 @@ func TestManualMoveRetainedTargetWithoutHistoryFailsStrictAndCreatesFallbackWith
 	if err != nil {
 		t.Fatalf("PrepareManualMove fallback retry: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, preparedFallback, noneManualMoveExecutionTargetCandidate(binding))
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, preparedFallback, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove fallback: %v", err)
 	}
@@ -1329,7 +1280,7 @@ func TestManualMoveFanoutRetainedTargetUsesSerialAssociationDuringApply(t *testi
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	sourceSessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, source.Reference)
+	sourceSessionID := currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
 	source.SessionID = &sourceSessionID
 	exactSource, err := workflow.NewExactMaterializedContinuationSource(sourceSessionID)
 	if err != nil {
@@ -1343,7 +1294,7 @@ func TestManualMoveFanoutRetainedTargetUsesSerialAssociationDuringApply(t *testi
 	for _, targetKey := range []string{"impl_a", "impl_b"} {
 		target := nodeByKey(t, definition, targetKey)
 		reference := replaceSerialCurrentNodeBindingFixture(t, ctx, store, source, workflow.NodeIDOf(target), nil, source.ContinuationSource)
-		associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, reference)
+		associateTaskSessionForTest(t, ctx, store, binding, cfg, reference, time.UnixMilli(1_700_000_000_000).UTC())
 		replaceSerialCurrentNodeBindingFixture(t, ctx, store, source, source.Reference.NodeID, source.SessionID, source.ContinuationSource)
 	}
 	for key, targetKey := range map[string]string{"split_a": "impl_a", "split_b": "impl_b"} {
@@ -1399,7 +1350,7 @@ func appendManualMoveRetainedReviewEdge(
 }
 
 func TestManualMovePreviewAndApplyUsesUnscopedRetainedSessionForParallelTask(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1417,15 +1368,8 @@ func TestManualMovePreviewAndApplyUsesUnscopedRetainedSessionForParallelTask(t *
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	planSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		started.Mutation.Created[0].Reference,
-	)
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	planSessionID := currentNodeSessionForStoreTest(t, ctx, store, started.Mutation.Created[0].Reference)
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -1452,16 +1396,7 @@ func TestManualMovePreviewAndApplyUsesUnscopedRetainedSessionForParallelTask(t *
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
-	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, &ExecutionTargetCandidate{
-		Snapshot: ExecutionTargetSnapshot{
-			Mode:       workflow.ExecutionTargetModeNone,
-			Provenance: ExecutionTargetProvenanceResolved,
-		},
-		Root: ExecutionRoot{
-			SourceWorkspaceID:   binding.WorkspaceID,
-			SourceWorkspaceRoot: binding.CanonicalRoot,
-		},
-	})
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
 	if err != nil {
 		t.Fatalf("ApplyManualMove: %v", err)
 	}
@@ -1480,7 +1415,7 @@ func TestManualMovePreviewPrefillsAndOverridesPendingApprovalValues(t *testing.T
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "next",
 		OutputValues: map[string]string{"prior_summary": "approved plan"},
@@ -1561,7 +1496,7 @@ func TestManualMovePreviewPrefillsPartiallyArrivedFanoutValuesBySourceNode(t *te
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	splitResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	splitResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "plan summary"},
@@ -1577,7 +1512,7 @@ func TestManualMovePreviewPrefillsPartiallyArrivedFanoutValuesBySourceNode(t *te
 		}
 		branches[key] = branch
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "arrived from A"},

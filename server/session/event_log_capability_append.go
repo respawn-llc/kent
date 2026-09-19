@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"core/shared/transcript"
 )
@@ -119,11 +120,26 @@ func (c MaterializedEventLog) appendReplayRecords(
 			"materialized event log owning Store is required",
 		)
 	}
+	inputs, err := replayRecordInputs(records)
+	if err != nil {
+		return recordAppendOutcome{}, err
+	}
+	outcome, err := c.appendRecordInputsAtomic(inputs, nil)
+	if err == nil && requireEndByteCursor &&
+		(outcome.endByteCursor == nil || *outcome.endByteCursor <= 0) {
+		err = errors.New(
+			"replayed typed records did not produce a positive event-log byte cursor",
+		)
+	}
+	return outcome, err
+}
+
+func replayRecordInputs(records []EventRecord) ([]EventRecordAppendInput, error) {
 	inputs := make([]EventRecordAppendInput, len(records))
 	for index, record := range records {
 		payload, err := record.Payload()
 		if err != nil {
-			return recordAppendOutcome{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"read replay event record %d payload: %w",
 				index,
 				err,
@@ -136,14 +152,7 @@ func (c MaterializedEventLog) appendReplayRecords(
 			preserveCommittedAt: true,
 		}
 	}
-	outcome, err := c.appendRecordInputsAtomic(inputs, nil)
-	if err == nil && requireEndByteCursor &&
-		(outcome.endByteCursor == nil || *outcome.endByteCursor <= 0) {
-		err = errors.New(
-			"replayed typed records did not produce a positive event-log byte cursor",
-		)
-	}
-	return outcome, err
+	return inputs, nil
 }
 
 func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
@@ -153,9 +162,7 @@ func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
-		meta.UsageState = nil
-		meta.OriginalThinkingEffort = nil
-		meta.Locked = nil
+		*meta = ProjectCompactedMeta(*meta)
 		return true, nil
 	})
 	if len(outcome.records) != 1 {
@@ -267,70 +274,16 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 			s.meta.LastSequence,
 		)
 	}
-	records := make([]EventRecord, 0, len(inputs))
-	sequence := log.lastSequence
 	appendNow := storeTimestamp(s.options)
-	appendTimeUnixMs, err := transcript.NewCommittedAtUnixMs(appendNow.UnixMilli())
+	records, err := buildAppendRecords(inputs, log.version, log.lastSequence, appendNow)
 	if err != nil {
 		s.mu.Unlock()
-		return recordAppendOutcome{}, fmt.Errorf("store clock committed time: %w", err)
-	}
-	for index, input := range inputs {
-		sequence++
-		committedAtUnixMs := input.committedAtUnixMs
-		payload, err := projectEventPayloadForVersion(log.version, input.Payload)
-		if err != nil {
-			s.mu.Unlock()
-			return recordAppendOutcome{}, fmt.Errorf(
-				"project event record %d for event-log v%d: %w",
-				index,
-				log.version,
-				err,
-			)
-		}
-		if !input.preserveCommittedAt {
-			eligible, err := eventPayloadEligibleForCommittedTime(payload)
-			if err != nil {
-				s.mu.Unlock()
-				return recordAppendOutcome{}, fmt.Errorf(
-					"evaluate committed time eligibility for event record %d: %w",
-					index,
-					err,
-				)
-			}
-			if eligible {
-				committedAtUnixMs = &appendTimeUnixMs
-			}
-		}
-		record, err := newEventRecord(
-			sequence,
-			input.StepID,
-			payload,
-			committedAtUnixMs,
-		)
-		if err != nil {
-			s.mu.Unlock()
-			return recordAppendOutcome{}, fmt.Errorf(
-				"build typed event record %d: %w",
-				index,
-				err,
-			)
-		}
-		records = append(records, record)
+		return recordAppendOutcome{}, err
 	}
 
 	previousMeta := cloneMeta(s.meta)
 	previousFreshness := s.conversationFreshness
-	if err := s.captureFirstPromptPreviewFromRecordsLocked(records); err != nil {
-		s.mu.Unlock()
-		return recordAppendOutcome{records: records}, err
-	}
-	if err := s.advanceConversationFreshnessFromRecordsLocked(records); err != nil {
-		s.meta = previousMeta
-		s.mu.Unlock()
-		return recordAppendOutcome{records: records}, err
-	}
-	if err := advanceActiveWorkflowAssignmentFromRecords(&s.meta, records); err != nil {
+	if err := s.advanceAppendedRecordMetadataLocked(records); err != nil {
 		s.meta = previousMeta
 		s.conversationFreshness = previousFreshness
 		s.mu.Unlock()
@@ -387,6 +340,45 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 		endByteCursor: endByteCursor,
 	}
 	return outcome, s.observePersistenceAndClearAppendRecovery(observation)
+}
+
+func buildAppendRecords(inputs []EventRecordAppendInput, version int, previousSequence int64, now time.Time) ([]EventRecord, error) {
+	appendTimeUnixMs, err := transcript.NewCommittedAtUnixMs(now.UnixMilli())
+	if err != nil {
+		return nil, fmt.Errorf("store clock committed time: %w", err)
+	}
+	records := make([]EventRecord, len(inputs))
+	for index, input := range inputs {
+		payload, err := projectEventPayloadForVersion(version, input.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("project event record %d for event-log v%d: %w", index, version, err)
+		}
+		committedAt := input.committedAtUnixMs
+		if !input.preserveCommittedAt {
+			eligible, err := eventPayloadEligibleForCommittedTime(payload)
+			if err != nil {
+				return nil, err
+			}
+			if eligible {
+				committedAt = &appendTimeUnixMs
+			}
+		}
+		records[index], err = newEventRecord(previousSequence+int64(index)+1, input.StepID, payload, committedAt)
+		if err != nil {
+			return nil, fmt.Errorf("build typed event record %d: %w", index, err)
+		}
+	}
+	return records, nil
+}
+
+func (s *Store) advanceAppendedRecordMetadataLocked(records []EventRecord) error {
+	if err := s.captureFirstPromptPreviewFromRecordsLocked(records); err != nil {
+		return err
+	}
+	if err := s.advanceConversationFreshnessFromRecordsLocked(records); err != nil {
+		return err
+	}
+	return advanceActiveWorkflowAssignmentFromRecords(&s.meta, records)
 }
 
 func projectEventPayloadForVersion(version int, payload EventRecordPayload) (EventRecordPayload, error) {

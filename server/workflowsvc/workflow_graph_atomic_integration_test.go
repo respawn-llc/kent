@@ -2,6 +2,7 @@ package workflowsvc
 
 import (
 	"context"
+	"core/internal/testharness/workflowfixture"
 	"encoding/json"
 	"reflect"
 	"slices"
@@ -125,7 +126,7 @@ func TestServiceWorkflowGraphSaveCurrentNodeDeletionIsBlocked(t *testing.T) {
 }
 
 func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) {
-	ctx, service, binding := newWorkflowServiceTestContext(t)
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	requireWorkflowServiceEdgeApproval(t, ctx, service, workflowID, "next")
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
@@ -134,7 +135,7 @@ func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) 
 	})
 	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
 	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.ID), started.CurrentNodes[0])
-	completed, err := service.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source: source, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "approved"},
 	})
 	if err != nil || completed.PendingApproval == nil {

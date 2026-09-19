@@ -11,7 +11,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
-	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	"core/server/worktree"
 	"core/shared/serverapi"
@@ -68,10 +67,7 @@ func (f *currentNodeRunnerFixture) RestoreExecutionTarget(ctx context.Context, r
 
 func startManagedCompletionTask(t *testing.T, f *currentNodeRunnerFixture, task workflowstore.TaskRecord, candidate workflowstore.ExecutionTargetCandidate) workflow.CurrentNodeReference {
 	t.Helper()
-	return f.startTaskWithPreparation(t, task, workflowexecution.TaskStartPreparation{
-		Prepare: func(context.Context) error { return nil },
-		Commit:  func(ctx context.Context) error { return f.store.LockTaskExecutionTarget(ctx, task.ID, &candidate) },
-	})
+	return f.startTaskWithExecutionTarget(t, task, &candidate)
 }
 
 func removeCompletionWorktree(ctx context.Context, source, root string) error {
@@ -152,7 +148,7 @@ func TestCurrentNodeCompletionRestoresExecutableSuccessorWorktree(t *testing.T) 
 	}
 }
 
-func TestCurrentNodeCompletionPausesExecutableSuccessorWithUnavailableWorktree(t *testing.T) {
+func TestCurrentNodeCompletionKeepsSourceWhenTargetRootPreparationFails(t *testing.T) {
 	for _, kind := range []workflow.NodeKind{workflow.NodeKindAgent, workflow.NodeKindScript} {
 		t.Run(string(kind), func(t *testing.T) {
 			step := ScriptedFinalAnswer(`{"commentary":"completed source work"}`)
@@ -192,12 +188,14 @@ func TestCurrentNodeCompletionPausesExecutableSuccessorWithUnavailableWorktree(t
 					nodes[0].Scheduling.State == workflow.CurrentNodeSchedulingInterrupted
 			})
 			f.waitForTaskQuiescence(t, task.ID)
-			detail := nodes[0].Scheduling.Interruption.Detail
-			if nodes[0].Reference.Equal(source) || detail.OriginalExecutionTargetUnavailable == nil || detail.SetupRecovery != nil {
-				t.Fatalf("completion did not preserve source and request successor selection: %+v", nodes[0])
+			if !nodes[0].Reference.Equal(source) {
+				t.Fatalf("failed preparation replaced the source: %+v", nodes[0])
 			}
-			if nodes[0].SessionID != nil || len(f.client.Requests()) != 1 {
-				t.Fatal("successor assignment or model execution began before target selection")
+			if nodes[0].SessionID == nil || len(f.client.Requests()) != 1 {
+				t.Fatal("failed preparation lost the source Session or submitted target work")
+			}
+			if count, err := f.store.CountTaskSessions(t.Context(), task.ID); err != nil || count != 1 {
+				t.Fatalf("failed target preparation published Sessions: count=%d error=%v", count, err)
 			}
 			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("successor Script executed: %v", err)

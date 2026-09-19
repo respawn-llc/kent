@@ -344,6 +344,9 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 			if writeTaskSetupObservationError(taskSetupObservedActionStart, stderr, positionals[0], recoveryProject, err) {
 				return 1
 			}
+			if writeTaskSetupFailure(stderr, taskSetupObservedActionStart, positionals[0], recoveryProject, executionTarget, err) {
+				return 1
+			}
 			var conflict *serverapi.WorkflowTaskStartConflictError
 			if errors.As(err, &conflict) && conflict.Reason == serverapi.WorkflowTaskStartConflictAlreadyStarted {
 				renderTaskSetupGuidance(stderr, taskAlreadyStartedGuidance(positionals[0], recoveryProject))
@@ -566,7 +569,11 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			if writeTaskSetupObservationError(taskSetupObservedActionResume, stderr, positionals[0], recoveryProject, err) {
 				return 1
 			}
+			if writeTaskSetupFailure(stderr, taskSetupObservedActionResume, positionals[0], recoveryProject, executionTarget, err) {
+				return 1
+			}
 			if writeWorkflowTaskTargetOrBranchError(stderr, err) ||
+				writeWorkflowTaskContextSelectionError(stderr, err) ||
 				writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				return 1
 			}
@@ -676,7 +683,7 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 			InvokingSessionID: invokingSessionID,
 		})
 		if err != nil {
-			if !writeWorkflowTaskMutationSelfTargetError(stderr, err) {
+			if !writeWorkflowTaskContextSelectionError(stderr, err) && !writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				fmt.Fprintln(stderr, err)
 			}
 			return 1
@@ -831,7 +838,7 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 					_ = writeCommandJSON(stdout, stderr, setupErr.RPCErrorData())
 					return 1
 				}
-				guidance, projectionErr := projectMoveSetupGuidance(recoveryArgs, executionTarget, setupErr)
+				guidance, projectionErr := projectRetainedSetupGuidance(recoveryArgs, executionTarget, setupErr)
 				if projectionErr != nil {
 					fmt.Fprintln(stderr, projectionErr)
 				} else {
@@ -1064,13 +1071,11 @@ type taskSetupOutcomeKind string
 type taskSetupObservedActionKind string
 
 const (
-	taskSetupOutcomeCompleted, taskSetupOutcomeObservedSetupFailure, taskSetupOutcomeObservationFailure      taskSetupOutcomeKind        = "completed", "observed_setup_failure", "observation_failure"
-	taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure   taskSetupOutcomeKind        = "start_interrupted_setup_failure", "start_interrupted_target_preparation_failure"
-	taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure taskSetupOutcomeKind        = "resume_interrupted_setup_failure", "resume_interrupted_target_preparation_failure"
-	taskSetupOutcomeAlreadyStartedConflict, taskSetupOutcomeMoveSetupFailure                                 taskSetupOutcomeKind        = "already_started_conflict", "move_setup_failure"
-	taskSetupOutcomeMoveReplacementSetupFailure                                                              taskSetupOutcomeKind        = "move_replacement_setup_failure"
-	taskSetupOutcomeResumeReplacementSetupFailure                                                            taskSetupOutcomeKind        = "resume_replacement_setup_failure"
-	taskSetupObservedActionStart, taskSetupObservedActionResume                                              taskSetupObservedActionKind = "start", "resume"
+	taskSetupOutcomeCompleted, taskSetupOutcomeObservedSetupFailure, taskSetupOutcomeObservationFailure taskSetupOutcomeKind        = "completed", "observed_setup_failure", "observation_failure"
+	taskSetupOutcomeAlreadyStartedConflict, taskSetupOutcomeMoveSetupFailure                            taskSetupOutcomeKind        = "already_started_conflict", "move_setup_failure"
+	taskSetupOutcomeMoveReplacementSetupFailure                                                         taskSetupOutcomeKind        = "move_replacement_setup_failure"
+	taskSetupOutcomeReplacementSetupFailure                                                             taskSetupOutcomeKind        = "replacement_setup_failure"
+	taskSetupObservedActionStart, taskSetupObservedActionResume                                         taskSetupObservedActionKind = "start", "resume"
 )
 
 type taskSetupGuidance struct {
@@ -1086,7 +1091,7 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 	if action != taskSetupObservedActionStart && action != taskSetupObservedActionResume {
 		return taskSetupGuidance{}, fmt.Errorf("invalid observed Task setup action %q", action)
 	}
-	base := []string{config.Command, "task", "resume", taskRef}
+	base := []string{config.Command, "task", string(action), taskRef}
 	inspect := []string{config.Command, "task", "show", taskRef}
 	if projectRef != nil {
 		base = append(base, "--project", *projectRef)
@@ -1128,19 +1133,9 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 			return taskSetupGuidance{}, errors.New("retry-ready Task setup failure requires execution target")
 		}
 		if failed.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
-			result.Outcome = taskSetupOutcomeResumeReplacementSetupFailure
+			result.Outcome = taskSetupOutcomeReplacementSetupFailure
 			result.Actions = taskFreshTargetChoiceActions(base)
 			return result, nil
-		}
-		result.Outcome = taskSetupOutcomeStartInterruptedSetupFailure
-		if action == taskSetupObservedActionResume {
-			result.Outcome = taskSetupOutcomeResumeInterruptedSetupFailure
-		}
-		if failed.Cause.GetTargetPreparation() != nil {
-			result.Outcome = taskSetupOutcomeStartInterruptedTargetPreparationFailure
-			if action == taskSetupObservedActionResume {
-				result.Outcome = taskSetupOutcomeResumeInterruptedTargetPreparationFailure
-			}
 		}
 		selector, err := taskSetupExecutionTargetSelector(failed.ExecutionTarget)
 		if err != nil {
@@ -1228,7 +1223,7 @@ func taskMoveRecoveryArgs(taskRef, targetNode string, project, commentary, trans
 	return args, nil
 }
 
-func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecutionTargetSelection, setupErr *serverapi.WorkflowSetupRetainedError) (taskSetupGuidance, error) {
+func projectRetainedSetupGuidance(base []string, target *serverapi.WorkflowExecutionTargetSelection, setupErr *serverapi.WorkflowSetupRetainedError) (taskSetupGuidance, error) {
 	if err := setupErr.Validate(); err != nil {
 		return taskSetupGuidance{}, err
 	}
@@ -1255,6 +1250,28 @@ func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecution
 		actions = taskFreshTargetChoiceActions(base)
 	}
 	return taskSetupGuidance{Outcome: outcome, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: actions}, nil
+}
+
+func writeTaskSetupFailure(stderr io.Writer, action taskSetupObservedActionKind, taskRef string, project *string, target *serverapi.WorkflowExecutionTargetSelection, err error) bool {
+	var setupErr *serverapi.WorkflowSetupRetainedError
+	if !errors.As(err, &setupErr) {
+		return false
+	}
+	base := []string{config.Command, "task", string(action), taskRef}
+	if project != nil {
+		base = append(base, "--project", *project)
+	}
+	guidance, projectionErr := projectRetainedSetupGuidance(base, target, setupErr)
+	if projectionErr != nil {
+		fmt.Fprintln(stderr, errors.Join(err, projectionErr))
+		return true
+	}
+	guidance.Outcome = taskSetupOutcomeObservedSetupFailure
+	if setupErr.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
+		guidance.Outcome = taskSetupOutcomeReplacementSetupFailure
+	}
+	renderTaskSetupGuidance(stderr, guidance)
+	return true
 }
 
 func taskSetupStringPointer(value string) *string { return &value }
@@ -1308,6 +1325,8 @@ func runWorkflowMutationWithSetupProgress[T any](
 	mutate func(context.Context, serverapi.WorkflowSetupOperationID) (T, error),
 	shouldWait func(T) bool,
 ) (T, *worktreepb.SetupEvent, error) {
+	ctx, cancel := context.WithTimeout(ctx, workflowTaskSetupObservationTimeout)
+	defer cancel()
 	setupOperationID := serverapi.NewWorkflowSetupOperationID()
 	observation, err := subscribeWorktreeSetupProgress(ctx, remote, setupOperationID, stderr)
 	if err != nil {
@@ -1319,20 +1338,21 @@ func runWorkflowMutationWithSetupProgress[T any](
 	if mutateErr != nil || !shouldWait(resp) {
 		observation.cancel(context.Canceled)
 		<-observation.done
+		if ctx.Err() != nil {
+			return resp, nil, &worktreeSetupObservationError{cause: ctx.Err()}
+		}
 		return resp, nil, mutateErr
 	}
-	timer := time.NewTimer(workflowTaskSetupObservationTimeout)
-	defer timer.Stop()
 	select {
 	case result := <-observation.done:
 		if result.err != nil {
 			return resp, nil, &worktreeSetupObservationError{cause: result.err}
 		}
 		return resp, result.terminal, nil
-	case <-timer.C:
-		observation.cancel(context.DeadlineExceeded)
+	case <-ctx.Done():
+		observation.cancel(ctx.Err())
 		<-observation.done
-		return resp, nil, &worktreeSetupObservationError{cause: context.DeadlineExceeded}
+		return resp, nil, &worktreeSetupObservationError{cause: ctx.Err()}
 	}
 }
 
@@ -1407,11 +1427,7 @@ func writeTaskSetupObservationError(action taskSetupObservedActionKind, stderr i
 func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 	switch guidance.Outcome {
 	case taskSetupOutcomeCompleted, taskSetupOutcomeObservationFailure:
-	case taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure:
-		fmt.Fprintln(stderr, "The Task was started and is now interrupted.")
-	case taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure, taskSetupOutcomeResumeReplacementSetupFailure:
-		fmt.Fprintln(stderr, "The Task was resumed and is now interrupted.")
-	case taskSetupOutcomeObservedSetupFailure:
+	case taskSetupOutcomeObservedSetupFailure, taskSetupOutcomeReplacementSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 	case taskSetupOutcomeAlreadyStartedConflict:
 		fmt.Fprintln(stderr, "The Task is already started. Resume it if interrupted; otherwise move it.")
@@ -1421,7 +1437,7 @@ func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 	default:
 		panic(fmt.Sprintf("render Task setup guidance with invalid outcome %q", guidance.Outcome))
 	}
-	if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure || guidance.Outcome == taskSetupOutcomeResumeReplacementSetupFailure {
+	if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure || guidance.Outcome == taskSetupOutcomeReplacementSetupFailure {
 		fmt.Fprintln(stderr, "The failed replacement Worktree was retained but is not the Task target. Choose another target with a free branch name; setup will not be retried in this root.")
 	}
 	if guidance.ScriptPath != nil {

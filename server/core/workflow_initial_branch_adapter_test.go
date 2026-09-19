@@ -19,6 +19,7 @@ import (
 	"core/server/workflowsvc"
 	"core/server/worktree"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
 )
 
 func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *testing.T) {
@@ -63,15 +64,19 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	if err != nil {
 		t.Fatalf("ResolveHEAD: %v", err)
 	}
-	materialized, err := worktreeService.MaterializeInitialTaskWorktree(
+	preparedRoot, err := worktreeService.PrepareTaskExecutionRoot(
 		ctx,
-		worktree.InitialTaskWorktreeMaterializationRequest{
-			TaskID:         taskID,
-			ResolvedTarget: revision,
+		worktree.TaskExecutionRootPreparationRequest{
+			TaskID: taskID, ManagedTarget: &revision,
+			SetupRequirement: worktreecontract.SetupRequirementRequired,
 		},
 	)
 	if err != nil {
-		t.Fatalf("MaterializeInitialTaskWorktree: %v", err)
+		t.Fatalf("PrepareTaskExecutionRoot: %v", err)
+	}
+	materialized := preparedRoot.Materialization
+	if materialized == nil {
+		t.Fatal("managed Task preparation omitted its Worktree")
 	}
 	requestedRef := revision.RequestedRef
 	commitOID := revision.CommitOID
@@ -80,17 +85,16 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 		ResolvedRef: revision.CanonicalRef, CommitOID: &commitOID,
 		Provenance: workflowstore.ExecutionTargetProvenanceResolved,
 	}
-	if err := store.LockTaskExecutionTarget(ctx, taskID, &workflowstore.ExecutionTargetCandidate{
+	plan, err := store.PlanTaskStart(ctx, taskID, &workflowstore.ExecutionTargetCandidate{
 		Snapshot: snapshot,
-		Root: workflowstore.ExecutionRoot{
-			SourceWorkspaceID: binding.WorkspaceID, SourceWorkspaceRoot: binding.CanonicalRoot,
-			Managed: &workflowstore.ManagedExecutionRoot{
-				WorktreeID: materialized.Worktree.GetRegistered().GetKent().GetWorktreeId(),
-				Root:       materialized.Worktree.GetRegistered().GetGit().GetCanonicalRoot(),
-			},
-		},
-	}); err != nil {
-		t.Fatalf("LockTaskExecutionTarget: %v", err)
+		Root:     preparedRoot.Root,
+	})
+	if err != nil {
+		t.Fatalf("PlanTaskStart: %v", err)
+	}
+	sessions := workflowfixture.PrepareCurrentNodeSessions(t, ctx, appCore.bundles.Persistence.metadataStore, plan.StartContexts())
+	if _, err := store.CommitTaskStart(ctx, plan, sessions); err != nil {
+		t.Fatalf("CommitTaskStart: %v", err)
 	}
 	if err := infrastructure.AssertInitialTaskBranch(ctx, workflowsvc.InitialTaskBranchAssertionRequest{
 		TaskID: taskID, BranchName: branchA,
@@ -130,7 +134,7 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 		t.Fatalf("current Nodes = %+v: %v", currentNodes, err)
 	}
 	source := currentNodes[0].Reference
-	if _, err := store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
+	if _, err := workflowfixture.CompleteCurrentNode(t, ctx, appCore.bundles.Persistence.metadataStore, store, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
 		t.Fatal(err)
 	}
 	workflowfixture.SaveStoreGraph(t, ctx, store, targetContext.Task.WorkflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
@@ -230,9 +234,6 @@ func createCoreInitialBranchTask(t *testing.T, store *workflowstore.Store, proje
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
-	}
-	if _, err := store.StartTask(ctx, task.ID); err != nil {
-		t.Fatalf("StartTask: %v", err)
 	}
 	return task.ID
 }

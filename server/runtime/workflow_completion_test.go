@@ -18,7 +18,6 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowstore"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -89,10 +88,6 @@ func applyWorkflowCompletionForTest(
 func (c *fakeWorkflowController) CompleteScriptCurrentNode(context.Context, workflowruntime.ScriptCompletionRequest) (workflowruntime.CompletionResult, error) {
 	err := errors.New("unexpected Script completion")
 	return workflowruntime.CompletionResult{}, err
-}
-
-func (c *fakeWorkflowController) ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult, error) error {
-	return nil
 }
 
 func (c *fakeWorkflowController) RecordProtocolViolation(_ context.Context, req workflowruntime.ViolationRequest) (workflowruntime.ViolationResult, error) {

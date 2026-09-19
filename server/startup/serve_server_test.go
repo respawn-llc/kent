@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	"core/server/auth"
 	"core/server/authservice"
 	corepkg "core/server/core"
@@ -382,7 +383,18 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	started, err := store.StartTask(ctx, workflow.TaskID(task.Task.ID))
+	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.ID), &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := store.CommitTaskStart(ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, ctx, server.MetadataStore(), plan.StartContexts()))
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
@@ -390,9 +402,6 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 		t.Fatalf("StartTask created current nodes = %+v, want one", started.Mutation.Created)
 	}
 	currentNode := started.Mutation.Created[0].Reference
-	if _, err := store.AdmitCurrentNode(ctx, currentNode); err != nil {
-		t.Fatalf("AdmitCurrentNode: %v", err)
-	}
 	return workflow.TaskID(task.Task.ID), currentNode
 }
 

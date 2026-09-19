@@ -174,102 +174,6 @@ func (s *Store) IsCurrentNodeExecutionEligible(ctx context.Context, reference wo
 	return !pending, nil
 }
 
-func (s *Store) ApplyPendingApproval(ctx context.Context, approvalID workflow.ApprovalID) (PendingApprovalApplyResult, error) {
-	normalizedID, err := normalizeApprovalID(approvalID)
-	if err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	select {
-	case s.approvalGate <- struct{}{}:
-		defer func() { <-s.approvalGate }()
-	case <-ctx.Done():
-		return PendingApprovalApplyResult{}, ctx.Err()
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	q := s.queries.WithTx(tx)
-	nowTime := s.now().UTC()
-	approval, err := pendingApprovalByID(ctx, q, normalizedID)
-	if err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	approvalAttention, found, err := pendingApprovalAttentionProjection(ctx, q, normalizedID)
-	if err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	if !found {
-		return PendingApprovalApplyResult{}, fmt.Errorf("pending approval %q disappeared during attention resolution", normalizedID)
-	}
-	if _, err := s.currentNodeForReference(ctx, q, approval.Source); err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	targets := make([]workflow.CurrentNode, 0, len(approval.Branches))
-	for _, branch := range approval.Branches {
-		targets = append(targets, branch.Target.CurrentNode)
-	}
-	if len(targets) == 0 {
-		return PendingApprovalApplyResult{}, errors.New("pending approval has no target branches")
-	}
-	var fanoutTargets []currentNodeFanoutTarget
-	if len(targets) == 1 {
-		if err := validatePendingApprovalSequentialTarget(approval.Source, targets[0].Reference); err != nil {
-			return PendingApprovalApplyResult{}, err
-		}
-	} else {
-		fanoutTargets, err = pendingApprovalFanoutTargets(approval.Source, approval.Branches)
-		if err != nil {
-			return PendingApprovalApplyResult{}, err
-		}
-	}
-	removedApproval, err := q.DeleteTaskPendingApproval(ctx, normalizedID.String())
-	if err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	if removedApproval != 1 {
-		return PendingApprovalApplyResult{}, sql.ErrNoRows
-	}
-	if len(targets) == 1 {
-		removedCurrentNode, err := deleteTaskCurrentNode(ctx, q, approval.Source)
-		if err != nil {
-			return PendingApprovalApplyResult{}, err
-		}
-		if removedCurrentNode != 1 {
-			return PendingApprovalApplyResult{}, sql.ErrNoRows
-		}
-		if err := insertTaskCurrentNodeWithKind(ctx, q, targets[0], approval.Branches[0].Target.NodeKind, nowTime); err != nil {
-			return PendingApprovalApplyResult{}, err
-		}
-	} else if err := replaceCurrentNodeWithFanout(ctx, q, approval.Source, fanoutTargets, nowTime); err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	if err := touchTaskUpdatedAt(ctx, q, string(approval.Source.TaskID), nowTime.UnixMilli()); err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return PendingApprovalApplyResult{}, err
-	}
-	result := PendingApprovalApplyResult{
-		Mutation: workflow.CurrentNodeMutationResult{
-			Removed: []workflow.CurrentNodeReference{approval.Source},
-			Created: targets,
-		},
-		ResolvedApproval: approval,
-		Handoff:          pendingApprovalHandoff(approval),
-		TaskAttentionResolution: TaskAttentionResolution{
-			Approvals: []ApprovalAttentionProjection{approvalAttention},
-		},
-	}
-	for _, target := range targets {
-		if target.Scheduling != nil {
-			result.AutomaticIntents = append(result.AutomaticIntents, target.Reference)
-		}
-	}
-	return result, nil
-}
-
 func pendingApprovalByID(
 	ctx context.Context,
 	q *sqlitegen.Queries,
@@ -305,39 +209,33 @@ func validatePendingApprovalSequentialTarget(source workflow.CurrentNodeReferenc
 	return nil
 }
 
-func pendingApprovalFanoutTargets(source workflow.CurrentNodeReference, branches []workflow.PendingApprovalBranch) ([]currentNodeFanoutTarget, error) {
+func validatePendingApprovalFanoutTargets(source workflow.CurrentNodeReference, branches []workflow.PendingApprovalBranch) error {
 	if source.IsBranchScoped() {
-		return nil, errors.New("branch-scoped pending approval cannot create a nested fanout")
+		return errors.New("branch-scoped pending approval cannot create a nested fanout")
 	}
 	if len(branches) < 2 {
-		return nil, errors.New("fanout pending approval requires multiple target branches")
+		return errors.New("fanout pending approval requires multiple target branches")
 	}
-	targets := make([]currentNodeFanoutTarget, 0, len(branches))
 	seen := make(map[workflow.TransitionBranchKey]struct{}, len(branches))
 	for _, branch := range branches {
 		branchKey := workflow.TransitionBranchKey(strings.TrimSpace(string(branch.TransitionBranchKey)))
 		if branchKey == "" {
-			return nil, errors.New("fanout pending approval branch key is required")
+			return errors.New("fanout pending approval branch key is required")
 		}
 		if _, exists := seen[branchKey]; exists {
-			return nil, fmt.Errorf("fanout pending approval branch key %q is duplicated", branchKey)
+			return fmt.Errorf("fanout pending approval branch key %q is duplicated", branchKey)
 		}
 		seen[branchKey] = struct{}{}
 		target := branch.Target.CurrentNode
 		if target.Reference.TaskID != source.TaskID {
-			return nil, errors.New("fanout pending approval target task must match its source")
+			return errors.New("fanout pending approval target task must match its source")
 		}
 		targetBranchKey, branchScoped := target.Reference.TransitionBranchKey()
 		if !branchScoped || targetBranchKey != branchKey {
-			return nil, errors.New("fanout pending approval target branch must match its frozen branch key")
+			return errors.New("fanout pending approval target branch must match its frozen branch key")
 		}
-		targets = append(targets, currentNodeFanoutTarget{
-			BranchKey:   branchKey,
-			CurrentNode: target,
-			NodeKind:    branch.Target.NodeKind,
-		})
 	}
-	return targets, nil
+	return nil
 }
 
 func newPendingApproval(

@@ -494,7 +494,7 @@
 - Task start, resume, approve, and move never prompt interactively.
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.
-- `kent task start` reports success only after the server's atomic Start cutover. If the command stops waiting or loses its connection first, the server operation continues; the CLI does not replay it and a later command reads authoritative Task state.
+- `kent task start`, `kent task resume`, and `kent task move` must report success only after the server completes preparation and commits the action's atomic cutover. They must not wait for Agent or Script execution to finish. If a command stops waiting or loses its connection, the server operation must continue; the CLI must not replay it and must direct the operator to inspect authoritative Task state.
 - `kent task edit <task>` changes a Task's title, body, or source workspace.
 - Task edit requires at least one of `--title`, `--body`, `--body-file`, or `--source-workspace`.
 - Task edit preserves the current title when `--title` is absent.

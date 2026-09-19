@@ -82,10 +82,10 @@ func collectForkRecords(t *testing.T, log MaterializedEventLog) []EventRecord {
 }
 
 type forkReplayCountingPersistence struct {
-	base     *testSessionMetadata
-	mu       sync.Mutex
-	parentID string
-	childSeq []int64
+	base         *testSessionMetadata
+	mu           sync.Mutex
+	parentID     string
+	appendCounts []int
 }
 
 func newForkReplayCountingPersistence() *forkReplayCountingPersistence {
@@ -100,16 +100,6 @@ func (p *forkReplayCountingPersistence) ObservePersistedStore(
 ) error {
 	if err := p.base.ObservePersistedStore(ctx, snapshot); err != nil {
 		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.parentID != "" &&
-		snapshot.Meta.SessionID != p.parentID &&
-		snapshot.Meta.LastSequence > 0 {
-		if len(p.childSeq) == 0 ||
-			p.childSeq[len(p.childSeq)-1] != snapshot.Meta.LastSequence {
-			p.childSeq = append(p.childSeq, snapshot.Meta.LastSequence)
-		}
 	}
 	return nil
 }
@@ -132,6 +122,7 @@ func (p *forkReplayCountingPersistence) options() []StoreOption {
 	return []StoreOption{
 		WithPersistenceObserver(p),
 		WithPersistedSessionResolver(p),
+		WithDurabilityObserver(p),
 	}
 }
 
@@ -139,13 +130,23 @@ func (p *forkReplayCountingPersistence) startChildCapture(parentID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.parentID = parentID
-	p.childSeq = nil
+	p.appendCounts = nil
 }
 
-func (p *forkReplayCountingPersistence) childSequences() []int64 {
+func (p *forkReplayCountingPersistence) ObserveEventLogAppend(observation EventLogAppendObservation) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return append([]int64(nil), p.childSeq...)
+	if p.parentID != "" && observation.Succeeded {
+		p.appendCounts = append(p.appendCounts, observation.RecordCount)
+	}
+}
+
+func (p *forkReplayCountingPersistence) ObserveEventLogSync(EventLogSyncObservation) {}
+
+func (p *forkReplayCountingPersistence) childAppendCounts() []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]int(nil), p.appendCounts...)
 }
 
 func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
@@ -292,9 +293,9 @@ func TestForkAtUserMessageOutOfRangeCleansUpChild(t *testing.T) {
 
 func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 	tests := []struct {
-		name         string
-		payloads     []EventRecordPayload
-		wantChildSeq []int64
+		name            string
+		payloads        []EventRecordPayload
+		wantChildCounts []int
 	}{
 		{
 			name: "event count",
@@ -309,9 +310,9 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 				}
 				return payloads
 			}(),
-			wantChildSeq: []int64{
-				int64(forkReplayFlushEventCount),
-				int64(forkReplayFlushEventCount + 1),
+			wantChildCounts: []int{
+				forkReplayFlushEventCount,
+				1,
 			},
 		},
 		{
@@ -321,7 +322,7 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 				largeForkLocalEntry(),
 				largeForkLocalEntry(),
 			},
-			wantChildSeq: []int64{1, 2, 3},
+			wantChildCounts: []int{1, 1, 1},
 		},
 	}
 	for _, test := range tests {
@@ -354,14 +355,14 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("clone session: %v", err)
 			}
-			if got := persistence.childSequences(); !reflect.DeepEqual(
+			if got := persistence.childAppendCounts(); !reflect.DeepEqual(
 				got,
-				test.wantChildSeq,
+				test.wantChildCounts,
 			) {
 				t.Fatalf(
-					"child replay flush revisions = %v, want %v",
+					"child replay batch sizes = %v, want %v",
 					got,
-					test.wantChildSeq,
+					test.wantChildCounts,
 				)
 			}
 			assertNoForkTemporaryArtifacts(t, parent.Dir())

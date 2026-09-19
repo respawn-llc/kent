@@ -89,86 +89,6 @@ type currentNodeRunnerConversationState struct {
 	history     []string
 }
 
-type currentNodeAssignmentSteererFactory func(*Starter) workflowexecution.CurrentNodeAssignmentSteerer
-
-type failingManualMoveAssignmentSteerer struct {
-	delegate *Starter
-	cause    error
-}
-
-type failAfterManualMoveAssignmentPreparationSteerer struct {
-	delegate *Starter
-	cause    error
-}
-
-type diagnosticManualMoveAssignmentSteerer struct {
-	delegate   *Starter
-	diagnostic error
-}
-
-func (s failingManualMoveAssignmentSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s failingManualMoveAssignmentSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, s.cause
-}
-
-func (s failAfterManualMoveAssignmentPreparationSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s failAfterManualMoveAssignmentPreparationSteerer) PrepareManualMoveAssignments(
-	ctx context.Context,
-	inputs []workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	preparation, _, err := s.delegate.PrepareManualMoveAssignments(ctx, inputs)
-	if err != nil {
-		return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, err
-	}
-	return preparation, nil, s.cause
-}
-
-func (s diagnosticManualMoveAssignmentSteerer) SteerCurrentNodeAssignment(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return s.delegate.SteerCurrentNodeAssignment(ctx, reference)
-}
-
-func (s diagnosticManualMoveAssignmentSteerer) PrepareManualMoveAssignments(
-	ctx context.Context,
-	inputs []workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	preparation, steers, err := s.delegate.PrepareManualMoveAssignments(ctx, inputs)
-	if err != nil {
-		return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, err
-	}
-	preparation.Diagnostic = s.diagnostic
-	return preparation, steers, nil
-}
-
 func workflowPostCompletionCompactionResponse(summary string) llm.CompactionResponse {
 	return llm.CompactionResponse{
 		Checkpoint: llm.ResponseItem{
@@ -206,22 +126,6 @@ func (s currentNodeRunnerStepLifecycle) StepEnded(
 	).StepEnded(ctx, snapshot)
 }
 
-type currentNodeStartContextStore struct {
-	RuntimeStore
-	transform func(workflowstore.CurrentNodeStartContext) workflowstore.CurrentNodeStartContext
-}
-
-func (s currentNodeStartContextStore) ResolveCurrentNodeStartContext(
-	ctx context.Context,
-	reference workflow.CurrentNodeReference,
-) (workflowstore.CurrentNodeStartContext, error) {
-	input, err := s.RuntimeStore.ResolveCurrentNodeStartContext(ctx, reference)
-	if err != nil {
-		return workflowstore.CurrentNodeStartContext{}, err
-	}
-	return s.transform(input), nil
-}
-
 func newCurrentNodeRunnerFixture(t *testing.T, steps ...ScriptedRuntimeStep) *currentNodeRunnerFixture {
 	return newCurrentNodeRunnerFixtureWithClient(
 		t,
@@ -233,29 +137,20 @@ func newCurrentNodeRunnerFixture(t *testing.T, steps ...ScriptedRuntimeStep) *cu
 }
 
 func newCurrentNodeRunnerFixtureWithClient(t *testing.T, client currentNodeRunnerClient) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, nil)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false)
 }
 
 func newCurrentNodeRunnerFixtureWithPersistenceGate(
 	t *testing.T,
 	client currentNodeRunnerClient,
 ) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true, nil)
-}
-
-func newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-	t *testing.T,
-	client currentNodeRunnerClient,
-	factory currentNodeAssignmentSteererFactory,
-) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, factory)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true)
 }
 
 func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	t *testing.T,
 	client currentNodeRunnerClient,
 	withPersistenceGate bool,
-	assignmentSteererFactory currentNodeAssignmentSteererFactory,
 ) *currentNodeRunnerFixture {
 	t.Helper()
 	home := t.TempDir()
@@ -355,7 +250,6 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, StarterOptions{
 		RuntimeAuthority: fixture.authority,
 		TaskDependencies: dependencyCounter,
-		ExecutionTargets: fixture,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			fixture.mu.Lock()
 			fixture.clientRequests = append(fixture.clientRequests, request)
@@ -371,13 +265,9 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new starter: %v", err)
 	}
 	fixture.starter = starter
-	var assignmentSteerer workflowexecution.CurrentNodeAssignmentSteerer = starter
-	if assignmentSteererFactory != nil {
-		assignmentSteerer = assignmentSteererFactory(starter)
-	}
 	controller, err = workflowexecution.NewCurrentNodeController(store, starter, fixture.authority, permit, workflowexecution.CurrentNodeControllerConfig{
-		AgentConcurrency:  1,
-		AssignmentSteerer: assignmentSteerer,
+		AgentConcurrency: 1,
+		ExecutionTargets: fixture,
 	})
 	if err != nil {
 		t.Fatalf("new current node controller: %v", err)
@@ -426,40 +316,89 @@ func (f *currentNodeRunnerFixture) startTask(t *testing.T, task workflowstore.Ta
 
 func (f *currentNodeRunnerFixture) startTaskWithExecutionTarget(t *testing.T, task workflowstore.TaskRecord, candidate *workflowstore.ExecutionTargetCandidate) workflow.CurrentNodeReference {
 	t.Helper()
-	return f.startTaskWithPreparation(t, task, workflowexecution.TaskStartPreparation{
-		Prepare: func(context.Context) error { return nil },
-		Commit: func(ctx context.Context) error {
-			return f.store.LockTaskExecutionTarget(ctx, task.ID, candidate)
-		},
-	})
-}
-
-func (f *currentNodeRunnerFixture) startTaskWithPreparation(t *testing.T, task workflowstore.TaskRecord, preparation workflowexecution.TaskStartPreparation) workflow.CurrentNodeReference {
-	t.Helper()
-	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
 	started, err := f.controller.StartTask(
 		context.Background(),
 		task.ID,
-		preparation,
-		func(finalization workflowexecution.TaskPreparationFinalization) {
-			finalized <- finalization
-		},
+		candidate,
 	)
 	if err != nil {
 		t.Fatalf("start task: %v", err)
-	}
-	select {
-	case finalization := <-finalized:
-		if finalization.Kind != workflowexecution.TaskPreparationHandedOff {
-			t.Fatalf("task preparation finalization = %+v, want handed off", finalization)
-		}
-	case <-time.After(currentNodeRunnerWait):
-		t.Fatal("task preparation did not hand off to Current Node admission")
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("start mutation = %+v, want one Current Node", started.Mutation)
 	}
 	return started.Mutation.Created[0].Reference
+}
+
+func (f *currentNodeRunnerFixture) commitTaskStart(ctx context.Context, taskID workflow.TaskID) (workflowstore.StartTaskResult, error) {
+	target, err := f.store.GetTaskExecutionTargetContext(ctx, taskID)
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
+	}
+	var candidate *workflowstore.ExecutionTargetCandidate
+	if target.Task.ExecutionTarget == nil {
+		candidate = &workflowstore.ExecutionTargetCandidate{
+			Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+			Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
+		}
+	}
+	plan, err := f.store.PlanTaskStart(ctx, taskID, candidate)
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
+	}
+	var bindings []workflowstore.PlannedCurrentNodeSession
+	var preparations []workflowexecution.CurrentNodeAssignmentSteer
+	for _, input := range plan.StartContexts() {
+		prepared, err := f.starter.PrepareCurrentNode(ctx, input, workflowruntime.TaskPromptDeliveryAssignment)
+		if err != nil {
+			return workflowstore.StartTaskResult{}, err
+		}
+		if prepared.Session != nil {
+			bindings = append(bindings, *prepared.Session)
+		}
+		if prepared.Assignment != nil {
+			preparations = append(preparations, prepared.Assignment)
+		}
+	}
+	started, err := f.store.CommitTaskStart(ctx, plan, bindings)
+	if err != nil {
+		return started, err
+	}
+	for _, preparation := range preparations {
+		if err := preparation.(workflowexecution.CurrentNodeAssignmentPreparation).Prepare(ctx); err != nil {
+			return started, err
+		}
+	}
+	return started, nil
+}
+
+func (f *currentNodeRunnerFixture) commitCurrentNode(ctx context.Context, req workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error) {
+	plan, err := f.store.PlanCurrentNodeCompletion(ctx, req)
+	if err != nil {
+		return workflowstore.CurrentNodeCompletionOutcome{}, err
+	}
+	var sessions []workflowstore.PlannedCurrentNodeSession
+	var starts []workflowexecution.CurrentNodeAssignmentSteer
+	for _, input := range plan.StartContexts() {
+		prepared, err := f.starter.PrepareCurrentNode(ctx, input, workflowruntime.TaskPromptDeliveryAssignment)
+		if err != nil {
+			return workflowstore.CurrentNodeCompletionOutcome{}, err
+		}
+		if prepared.Session != nil {
+			sessions = append(sessions, *prepared.Session)
+			starts = append(starts, prepared.Assignment)
+		}
+	}
+	result, err := f.store.CommitCurrentNodeCompletion(ctx, plan, sessions)
+	if err != nil {
+		return result, err
+	}
+	for _, start := range starts {
+		if err := start.(workflowexecution.CurrentNodeAssignmentPreparation).Prepare(ctx); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
@@ -494,7 +433,6 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.starter, err = NewStarter(f.cfg, f.metadata, f.store, nil, nil, StarterOptions{
 		RuntimeAuthority: f.authority,
 		TaskDependencies: dependencyCounter,
-		ExecutionTargets: f,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			f.mu.Lock()
 			f.clientRequests = append(f.clientRequests, request)
@@ -515,8 +453,8 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 		f.authority,
 		permit,
 		workflowexecution.CurrentNodeControllerConfig{
-			AgentConcurrency:  1,
-			AssignmentSteerer: f.starter,
+			AgentConcurrency: 1,
+			ExecutionTargets: f,
 		},
 	)
 	if err != nil {
@@ -688,8 +626,15 @@ func (f *currentNodeRunnerFixture) openRetainedRuntime(
 ) sessionruntime.RuntimeAttachment {
 	t.Helper()
 	requests := f.runtimeRequests()
-	if len(requests) == 0 {
-		t.Fatal("runtime client was never prepared")
+	var prepared *runtimewire.RuntimeClientRequest
+	for index := len(requests) - 1; index >= 0; index-- {
+		if requests[index].SessionID == sessionID.String() {
+			prepared = &requests[index]
+			break
+		}
+	}
+	if prepared == nil {
+		t.Fatalf("runtime client was never prepared for Session %s", sessionID)
 	}
 	boundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
 	if err != nil {
@@ -701,10 +646,10 @@ func (f *currentNodeRunnerFixture) openRetainedRuntime(
 	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     f.workspace,
-		Settings:              requests[0].ActiveSettings,
-		EnabledTools:          requests[0].EnabledTools,
+		Settings:              prepared.ActiveSettings,
+		EnabledTools:          prepared.EnabledTools,
 		FilesystemContext:     askquestion.FilesystemContext{Access: filesystemContext.Access},
-		Sources:               requests[0].Sources,
+		Sources:               prepared.Sources,
 		Headless:              true,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
@@ -1581,16 +1526,9 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 	}
 	f := newCurrentNodeRunnerFixture(
 		t,
-		ScriptedToolBatch(
-			"complete implementation",
-			llm.ToolCall{
-				ID:    "complete-implementation",
-				Name:  string(toolspec.ToolCompleteNode),
-				Input: json.RawMessage(`{"transition":"next","commentary":"implemented"}`),
-			},
-		),
-		ScriptedRuntimeError(ErrScriptedRuntime),
-		ScriptedRuntimeError(ErrScriptedRuntime),
+		ScriptedFinalAnswer(`{"transition":"review","commentary":"implemented"}`),
+		ScriptedCancellation(),
+		ScriptedCancellation(),
 	)
 	workflowID := createCurrentNodeLinearWorkflow(
 		t,
@@ -1611,10 +1549,11 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 		},
 	)
 	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
+	initial := f.startTask(t, task)
 	f.waitForModelRequests(t, 2)
 	review := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
+			!nodes[0].Reference.Equal(initial) &&
 			nodes[0].SessionID != nil &&
 			nodes[0].Scheduling != nil &&
 			nodes[0].Scheduling.Interruption != nil
@@ -1692,23 +1631,6 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 			nodes[0].Scheduling.Interruption != nil
 	})
 	f.waitForTaskQuiescence(t, task.ID)
-	retainedRecord, err := f.metadata.ResolvePersistedSession(context.Background(), review.SessionID.String())
-	if err != nil {
-		t.Fatalf("resolve retained Review Session: %v", err)
-	}
-	retainedStore, err := session.Open(
-		retainedRecord.SessionDir,
-		f.metadata.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("open retained Review Session: %v", err)
-	}
-	legacySnapshot := retainedStore.PromptFacingMetadataSnapshot()
-	legacySnapshot.ActiveWorkflowAssignment = nil
-	legacySnapshot.ActiveWorkflowAssignmentState = nil
-	if err := retainedStore.RestorePromptFacingMetadata(legacySnapshot); err != nil {
-		t.Fatalf("simulate retained Session created before assignment projection: %v", err)
-	}
 	rework := workflow.TransitionID("rework")
 	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
 		TaskID:        task.ID,
@@ -1727,15 +1649,15 @@ func TestManualMoveToRetainedTargetAssignsBeforeResumingLockedSession(t *testing
 		*moved.Mutation.Created[0].SessionID != *review.SessionID {
 		t.Fatalf("Manual Move target = %+v, want retained Session %s", moved.Mutation.Created, *review.SessionID)
 	}
-	if count := f.workflowAssignmentRecordCount(t, *review.SessionID); count != 2 {
-		t.Fatalf("workflow assignment records after Manual Move = %d, want one appended target assignment", count)
-	}
-
 	requests := f.waitForModelRequests(t, 3)
+	if count := f.workflowAssignmentRecordCount(t, *review.SessionID); count != 2 {
+		t.Fatalf("workflow assignment records before provider work = %d, want one appended target assignment", count)
+	}
 	assignments := workflowAssignments(requests[2])
-	if len(assignments) != 1 ||
-		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(review.Reference) {
-		t.Fatalf("resumed workflow assignments = %+v, want Manual Move target assignment", assignments)
+	previousAssignments := workflowAssignments(requests[1])
+	if len(assignments) != len(previousAssignments)+1 ||
+		assignments[len(assignments)-1].sourcePath != workflowruntime.CurrentNodePromptIdentity(review.Reference) {
+		t.Fatalf("resumed workflow assignments = %+v, want one new Manual Move target assignment after retained history", assignments)
 	}
 	runtimeRequests := f.runtimeRequests()
 	runtimeModels := make([]string, 0, len(runtimeRequests))
@@ -1816,13 +1738,7 @@ func TestManualMoveFromInterruptedScriptAssignsAgentBeforeModelRequest(t *testin
 
 func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T) {
 	cause := errors.New("assignment preparation failed")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-		t,
-		NewScriptedClient(llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true}),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return failingManualMoveAssignmentSteerer{delegate: starter, cause: cause}
-		},
-	)
+	f := newCurrentNodeRunnerFixtureWithClient(t, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true}))
 	scriptPath := filepath.Join(t.TempDir(), "fail.sh")
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
 		t.Fatalf("write failing Script: %v", err)
@@ -1865,6 +1781,9 @@ func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T)
 	if err != nil {
 		t.Fatalf("prepare Manual Move: %v", err)
 	}
+	f.mu.Lock()
+	f.clientErr = cause
+	f.mu.Unlock()
 	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
 	if !errors.Is(err, cause) {
 		t.Fatalf("Manual Move error = %v, want %v", err, cause)
@@ -1884,17 +1803,14 @@ func TestManualMoveAssignmentPreparationFailureLeavesOriginCurrent(t *testing.T)
 	}
 }
 
-func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata(t *testing.T) {
-	cause := errors.New("assignment preparation failed after retained Session mutation")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
+func TestManualMoveRetainedSessionPreparationFailurePreservesPromptFacingMetadata(t *testing.T) {
+	cause := errors.New("provider preparation failed")
+	f := newCurrentNodeRunnerFixtureWithClient(
 		t,
 		NewScriptedClient(
 			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 			ScriptedRuntimeError(ErrScriptedRuntime),
 		),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return failAfterManualMoveAssignmentPreparationSteerer{delegate: starter, cause: cause}
-		},
 	)
 	workflowID := createCurrentNodeChainedWorkflow(t, f.store, workflow.ContextModeCompactAndContinueSession)
 	task := f.createTask(t, workflowID)
@@ -1934,6 +1850,9 @@ func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata
 	if err != nil {
 		t.Fatalf("PrepareManualMove: %v", err)
 	}
+	f.mu.Lock()
+	f.clientErr = cause
+	f.mu.Unlock()
 	if _, err := f.controller.ApplyManualMove(context.Background(), prepared, nil); !errors.Is(err, cause) {
 		t.Fatalf("ApplyManualMove error = %v, want %v", err, cause)
 	}
@@ -1957,7 +1876,7 @@ func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata
 	}
 }
 
-func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
+func TestStartBindsSessionBeforeAssignmentAndWaitsForAssignmentBeforeProvider(t *testing.T) {
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
 		NewScriptedClient(
@@ -1984,8 +1903,11 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list Current Nodes before assignment commit: %v", err)
 	}
-	if len(nodes) != 1 || !nodes[0].Reference.Equal(currentNode) || nodes[0].SessionID != nil {
-		t.Fatalf("Current Nodes before assignment commit = %+v, want unbound %v", nodes, currentNode)
+	if len(nodes) != 1 || !nodes[0].Reference.Equal(currentNode) || nodes[0].SessionID == nil {
+		t.Fatalf("Current Nodes before assignment commit = %+v, want exact bound %v", nodes, currentNode)
+	}
+	if requests := f.client.Requests(); len(requests) != 0 {
+		t.Fatalf("provider requests before assignment commit = %d, want none", len(requests))
 	}
 
 	releaseAssignment()
@@ -1999,7 +1921,7 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	})
 }
 
-func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *testing.T) {
+func TestUncommittedInitialAssignmentRetainsExactSessionForExplicitResume(t *testing.T) {
 	cause := errors.New("assignment persistence failed")
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
@@ -2022,22 +1944,20 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 			nodes[0].Scheduling.Interruption != nil
 	})
 	f.waitForTaskQuiescence(t, task.ID)
-	if nodes[0].SessionID != nil {
-		t.Fatalf(
-			"Current Node retained unassigned Session %s after assignment failure",
-			*nodes[0].SessionID,
-		)
+	if nodes[0].SessionID == nil {
+		t.Fatal("Current Node lost its committed Session after assignment failure")
 	}
+	committedID := *nodes[0].SessionID
 	sessionIDs, err := f.metadata.ListProjectSessionIDs(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatalf("list project Sessions: %v", err)
 	}
-	if len(sessionIDs) != 0 {
-		t.Fatalf("project Sessions after uncommitted assignment = %+v, want none", sessionIDs)
+	if len(sessionIDs) != 1 || sessionIDs[0] != committedID.String() {
+		t.Fatalf("project Sessions after uncommitted assignment = %+v, want exact committed Session", sessionIDs)
 	}
 
 	f.restartRuntime(t)
-	resumed, err := f.controller.ResumeTask(context.Background(), task.ID)
+	resumed, err := f.controller.ResumeTask(context.Background(), task.ID, nil)
 	if err != nil {
 		t.Fatalf("ResumeTask after assignment failure: %v", err)
 	}
@@ -2054,6 +1974,9 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 			nodes[0].Scheduling.Interruption != nil &&
 			len(f.client.Requests()) == 1
 	})
+	if *nodes[0].SessionID != committedID {
+		t.Fatalf("Resume changed exact Session from %s to %s", committedID, *nodes[0].SessionID)
+	}
 	assignments := workflowAssignments(f.client.Requests()[0])
 	if len(assignments) != 1 ||
 		assignments[0].sourcePath != workflowruntime.CurrentNodePromptIdentity(currentNode) {
@@ -2061,7 +1984,7 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 	}
 }
 
-func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent(t *testing.T) {
+func TestManualMoveAssignmentFailureInterruptsCommittedDestination(t *testing.T) {
 	cause := errors.New("assignment persistence failed")
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(
 		t,
@@ -2113,99 +2036,28 @@ func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent
 		t.Fatalf("prepare Manual Move: %v", err)
 	}
 	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
-	if !errors.Is(err, cause) {
-		t.Fatalf("Manual Move error = %v, want %v", err, cause)
-	}
-	if moved.Outcome != "" {
-		t.Fatalf("Manual Move result = %+v, want unapplied zero result", moved)
-	}
-	nodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
 	if err != nil {
-		t.Fatalf("list Current Nodes: %v", err)
+		t.Fatalf("Manual Move: %v", err)
 	}
-	if len(nodes) != 1 || !nodes[0].Reference.Equal(origin) {
-		t.Fatalf("Current Nodes after uncommitted assignment = %+v, want origin %v", nodes, origin)
+	if moved.Outcome != workflowstore.ManualMoveResultOutcomeApplied {
+		t.Fatalf("Manual Move result = %+v, want committed destination", moved)
+	}
+	nodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Reference.NodeID == target && nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
+	})
+	if nodes[0].SessionID == nil {
+		t.Fatal("failed destination lost its committed Session")
 	}
 	sessionIDs, err := f.metadata.ListProjectSessionIDs(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatalf("list project Sessions: %v", err)
 	}
-	if len(sessionIDs) != 0 {
-		t.Fatalf("project Sessions after uncommitted assignment = %+v, want none", sessionIDs)
+	if len(sessionIDs) != 1 || sessionIDs[0] != nodes[0].SessionID.String() {
+		t.Fatalf("project Sessions after uncommitted assignment = %+v, want exact committed Session", sessionIDs)
 	}
-	sessionDirs, err := os.ReadDir(filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"))
-	if err != nil {
-		t.Fatalf("read project Session directory: %v", err)
+	if requests := f.client.Requests(); len(requests) != 0 {
+		t.Fatalf("provider requests after assignment failure = %d, want none", len(requests))
 	}
-	if len(sessionDirs) != 0 {
-		t.Fatalf("durable Session directories after uncommitted assignment = %d, want none", len(sessionDirs))
-	}
-}
-
-func TestManualMoveCommittedAssignmentDiagnosticAppliesAndStartsTarget(t *testing.T) {
-	diagnostic := errors.New("assignment observer diagnostic")
-	f := newCurrentNodeRunnerFixtureWithAssignmentSteerer(
-		t,
-		NewScriptedClient(
-			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
-			ScriptedRuntimeError(ErrScriptedRuntime),
-		),
-		func(starter *Starter) workflowexecution.CurrentNodeAssignmentSteerer {
-			return diagnosticManualMoveAssignmentSteerer{
-				delegate:   starter,
-				diagnostic: diagnostic,
-			}
-		},
-	)
-	scriptPath := filepath.Join(t.TempDir(), "fail.sh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 23\n"), 0o755); err != nil {
-		t.Fatalf("write failing Script: %v", err)
-	}
-	workflowID := createCurrentNodeTwoStepWorkflow(
-		t,
-		f.store,
-		"Manual Move committed assignment diagnostic",
-		workflow.ContextModeNewSession,
-		currentNodeWorkflowStep{kind: workflow.NodeKindScript, scriptPath: scriptPath},
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review the task."},
-	)
-	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
-	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 &&
-			nodes[0].Scheduling != nil &&
-			nodes[0].Scheduling.Interruption != nil
-	})
-	f.waitForTaskQuiescence(t, task.ID)
-	definition, _, err := f.store.GetDefinition(context.Background(), workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition: %v", err)
-	}
-	var target workflow.NodeID
-	for _, node := range definition.Nodes {
-		if node.Kind() == workflow.NodeKindAgent {
-			target = workflow.NodeIDOf(node)
-			break
-		}
-	}
-	if target == "" {
-		t.Fatal("workflow has no Agent target")
-	}
-	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID:       task.ID,
-		TargetNodeID: target,
-	})
-	if err != nil {
-		t.Fatalf("prepare Manual Move: %v", err)
-	}
-	moved, err := f.controller.ApplyManualMove(context.Background(), prepared, nil)
-	if !errors.Is(err, diagnostic) {
-		t.Fatalf("Manual Move error = %v, want committed diagnostic %v", err, diagnostic)
-	}
-	if moved.Outcome != workflowstore.ManualMoveResultOutcomeApplied {
-		t.Fatalf("Manual Move result = %+v, want applied", moved)
-	}
-	f.waitForModelRequests(t, 1)
 }
 
 func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) {
@@ -2242,7 +2094,7 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	}
 	requireLazyCompactionPreservesRequestPrefix(t, client.Requests()[0], compactions[0])
 	if client.Requests()[0].ReasoningEffort != "low" || client.Requests()[1].ReasoningEffort != "high" {
-		t.Fatal("direct continuation did not apply target Thinking after outgoing compaction")
+		t.Fatalf("direct continuation Thinking = %q -> %q, want low -> high", client.Requests()[0].ReasoningEffort, client.Requests()[1].ReasoningEffort)
 	}
 
 	requests := f.runtimeRequests()
@@ -2446,7 +2298,7 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 		f.openRetainedRuntime(t, *interrupted.SessionID)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume disabled CAC target: %v", err)
 	}
 	requests := f.waitForModelRequestsWithin(t, 3, 60*time.Second)
@@ -2604,7 +2456,7 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 			f.waitForModelRequests(t, 1)
 			f.waitForTaskQuiescence(t, task.ID)
 			meta := f.onlyProjectSessionMeta(t)
-			if _, err := f.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
+			if _, err := f.commitCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
 				t.Fatal(err)
 			}
 			projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(ctx, f.projectID)
@@ -2825,7 +2677,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 		}
 		t.Fatalf("current Node %q missing from Workflow graph", currentNode.NodeID)
 	})
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume task: %v", err)
 	}
 	eventCtx, cancelEvent := context.WithTimeout(context.Background(), currentNodeRunnerWait)
@@ -2895,7 +2747,7 @@ func TestResumeRestoresAssignmentAfterDormantHistoryReplacement(t *testing.T) {
 	sessionID, descriptor := f.waitForDormantRetainedSession(t, task.ID)
 	f.appendManualCompactionReplacement(t, descriptor)
 
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume compacted retained Session: %v", err)
 	}
 	requests := f.waitForModelRequests(t, 2)
@@ -3016,7 +2868,7 @@ func lockedContractDifferences(left, right *session.LockedContract) []string {
 func TestResumeRestoresAssignmentAfterActualManualCompactionWithOpenRuntime(t *testing.T) {
 	recovery := newActualManualCompactionRecovery(t)
 	f := recovery.fixture
-	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("resume manually compacted retained Session: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
@@ -3048,7 +2900,7 @@ func TestResumeRestoresAssignmentAfterActualManualCompactionWithDormantRuntime(t
 	if _, err := recovery.attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
 		t.Fatalf("release retained runtime before dormant Resume: %v", err)
 	}
-	if _, err := recovery.fixture.controller.ResumeTask(context.Background(), recovery.task.ID); err != nil {
+	if _, err := recovery.fixture.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("resume manually compacted dormant Session: %v", err)
 	}
 	requests := recovery.fixture.waitForModelRequests(t, len(recovery.initialRequests)+1)
@@ -3248,7 +3100,7 @@ func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
 
-	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("resume retained Session with replacement: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
@@ -3272,7 +3124,7 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 	identity := workflowruntime.CurrentNodePromptIdentity(recovery.currentNode)
 	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
 
-	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("first Resume with replacement failure: %v", err)
 	}
 	f.waitForTaskQuiescence(t, recovery.task.ID)
@@ -3294,7 +3146,7 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 	}
 	assignmentRecords := f.workflowAssignmentRecordCount(t, recovery.sessionID)
 
-	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("retry Resume after replacement failure: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(recovery.initialRequests)+1)
@@ -3387,7 +3239,7 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 	if target.SessionID == nil {
 		t.Fatal("pre-activation target lost retained Session")
 	}
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume pre-activation target: %v", err)
 	}
 	requests := f.waitForModelRequests(t, 2)
@@ -3429,7 +3281,7 @@ func TestTaskResumeRetriesDormantAssignmentFailureThroughWorkflowOwner(t *testin
 	identity := workflowruntime.CurrentNodePromptIdentity(currentNode)
 	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
 
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("first Task Resume: %v", err)
 	}
 	f.waitForTaskQuiescence(t, task.ID)
@@ -3463,7 +3315,7 @@ func TestTaskResumeRetriesDormantAssignmentFailureThroughWorkflowOwner(t *testin
 		t.Fatalf("load assignment after failed Task Resume: %v", err)
 	}
 
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("retry Task Resume: %v", err)
 	}
 	requests := f.waitForModelRequests(t, 2)
@@ -3544,27 +3396,31 @@ func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTermi
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := f.store.ManualMoveTask(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, workflow.NodeKindTerminal),
-	}); err != nil {
-		t.Fatalf("manual terminal move: %v", err)
+	for index, kind := range []workflow.NodeKind{workflow.NodeKindTerminal, workflow.NodeKindStart} {
+		preflight, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
+			TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, kind),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := f.store.PlanManualMove(context.Background(), preflight, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.store.CommitManualMove(context.Background(), plan, nil); err != nil {
+			t.Fatal(err)
+		}
+		assertAwareness(int64(index))
 	}
-	assertAwareness(0)
-	if _, err := f.store.ManualMoveTask(context.Background(), workflowstore.ManualMoveRequest{
-		TaskID: blocker.ID, TargetNodeID: currentNodeKindID(t, definition, workflow.NodeKindStart),
-	}); err != nil {
-		t.Fatalf("reopen blocker: %v", err)
-	}
-	assertAwareness(1)
 
-	started, err := f.store.StartTask(context.Background(), blocker.ID)
+	started, err := f.commitTaskStart(context.Background(), blocker.ID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("started Current Nodes = %+v, want one", started.Mutation.Created)
 	}
-	if _, err := f.store.CompleteCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+	if _, err := f.commitCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
 		Source: started.Mutation.Created[0].Reference, TransitionID: "done",
 	}); err != nil {
 		t.Fatalf("complete blocker to ordinary terminal: %v", err)
@@ -3583,7 +3439,7 @@ func currentNodeKindID(t *testing.T, definition workflow.Definition, kind workfl
 	return ""
 }
 
-func TestCurrentNodeRuntimePreparationFailureRetainsAssignedFreshSession(t *testing.T) {
+func TestCurrentNodeRuntimePreparationFailureLeavesTaskUnstarted(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
@@ -3595,57 +3451,27 @@ func TestCurrentNodeRuntimePreparationFailureRetainsAssignedFreshSession(t *test
 	f.clientErr = errors.New("provider unavailable")
 	f.mu.Unlock()
 
-	finalized := make(chan workflowexecution.TaskPreparationFinalization, 1)
 	started, err := f.controller.StartTask(
 		context.Background(),
 		task.ID,
-		workflowexecution.TaskStartPreparation{
-			Prepare: func(context.Context) error { return nil },
-			Commit: func(ctx context.Context) error {
-				return f.store.LockTaskExecutionTarget(ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
-					Snapshot: workflowstore.ExecutionTargetSnapshot{
-						Mode:       workflow.ExecutionTargetModeNone,
-						Provenance: workflowstore.ExecutionTargetProvenanceResolved,
-					},
-					Root: workflowstore.ExecutionRoot{
-						SourceWorkspaceID:   f.workspaceID,
-						SourceWorkspaceRoot: f.workspace,
-					},
-				})
-			},
-		},
-		func(finalization workflowexecution.TaskPreparationFinalization) {
-			finalized <- finalization
+		&workflowstore.ExecutionTargetCandidate{
+			Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+			Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: f.workspaceID, SourceWorkspaceRoot: f.workspace},
 		},
 	)
-	if err != nil {
-		t.Fatalf("start task: %v", err)
+	if !errors.Is(err, f.clientErr) || len(started.Mutation.Created) != 0 {
+		t.Fatalf("StartTask = %+v, %v; want unapplied provider failure", started, err)
 	}
-	select {
-	case finalization := <-finalized:
-		if finalization.Kind != workflowexecution.TaskPreparationHandedOff {
-			t.Fatalf("task preparation finalization = %+v, want handed off", finalization)
-		}
-	case <-time.After(currentNodeRunnerWait):
-		t.Fatal("task preparation did not hand off before runtime preparation")
-	}
-	if len(started.Mutation.Created) != 1 {
-		t.Fatalf("start mutation = %+v, want one Current Node", started.Mutation)
-	}
-	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 && nodes[0].Scheduling != nil &&
-			nodes[0].Scheduling.State == workflow.CurrentNodeSchedulingInterrupted
-	})
-	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 1 {
-		t.Fatalf("retained Session count after runtime preparation failure = %d, %v; want assigned Session", count, err)
+	if count, err := f.store.CountTaskSessions(context.Background(), task.ID); err != nil || count != 0 {
+		t.Fatalf("Session count after preparation failure = %d, %v; want none", count, err)
 	}
 	nodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
-	if err != nil || len(nodes) != 1 || nodes[0].SessionID == nil {
-		t.Fatalf("Current Nodes after runtime preparation failure = %+v, %v; want retained binding", nodes, err)
+	if err != nil || len(nodes) != 1 || nodes[0].SessionID != nil || nodes[0].Scheduling != nil {
+		t.Fatalf("Current Nodes after preparation failure = %+v, %v; want Start", nodes, err)
 	}
-	startContext, err := f.store.ResolveCurrentNodeStartContext(context.Background(), nodes[0].Reference)
-	if err != nil || startContext.CurrentNode.SessionID == nil || *startContext.CurrentNode.SessionID != *nodes[0].SessionID {
-		t.Fatalf("resumed start context Session = %+v, %v; want retained binding %q", startContext.CurrentNode.SessionID, err, nodes[0].SessionID)
+	target, err := f.store.GetTaskExecutionTargetContext(context.Background(), task.ID)
+	if err != nil || target.Task.ExecutionTarget != nil {
+		t.Fatalf("target after preparation failure = %+v, %v; want unlocked", target, err)
 	}
 }
 
@@ -3784,7 +3610,7 @@ func TestCurrentNodeFanoutCompactResumeReusesEstablishedBranchSessions(t *testin
 		t.Fatalf("retained Session count before branch Resume = %d, %v; want source plus branches", count, err)
 	}
 
-	if _, err := f.controller.ResumeTask(context.Background(), task.ID); err != nil {
+	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume interrupted compact-and-continue branches: %v", err)
 	}
 	requests := f.waitForModelRequests(t, len(branchNodeIDs)+1+len(branchNodeIDs))
@@ -3986,7 +3812,7 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 	}
 }
 
-func TestCurrentNodeFanoutRuntimePreparationFailureKeepsAssignedBranchesResumable(t *testing.T) {
+func TestCurrentNodeFanoutExecutionFailureKeepsAssignedBranchesResumable(t *testing.T) {
 	sourceResponseStarted := make(chan struct{})
 	sourceResponseRelease := make(chan struct{})
 	var releaseSource sync.Once
@@ -4007,21 +3833,11 @@ func TestCurrentNodeFanoutRuntimePreparationFailureKeepsAssignedBranchesResumabl
 			},
 			Response: ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`).Response,
 		},
+		ScriptedCancellation(),
+		ScriptedCancellation(),
 	)
 	workflowID, branchNodeIDs := createCurrentNodeFanoutContinuationWorkflow(t, f.store, false)
 	task := f.createTask(t, workflowID)
-	f.starter.store = currentNodeStartContextStore{
-		RuntimeStore: f.store,
-		transform: func(input workflowstore.CurrentNodeStartContext) workflowstore.CurrentNodeStartContext {
-			if !input.IsFanoutBranch {
-				return input
-			}
-			root := *input.ExecutionRoot
-			root.SourceWorkspaceID = "workspace-missing"
-			input.ExecutionRoot = &root
-			return input
-		},
-	}
 	source := f.startTask(t, task)
 	select {
 	case <-sourceResponseStarted:

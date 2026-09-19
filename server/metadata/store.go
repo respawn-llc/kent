@@ -603,6 +603,19 @@ func (s *Store) UpdateSessionExecutionTarget(ctx context.Context, update Session
 	if s == nil || s.queries == nil {
 		return errors.New("metadata store is required")
 	}
+	return updateSessionExecutionTarget(ctx, s.queries, update)
+}
+
+// UpdateSessionExecutionTargetInTransaction applies the same target validation
+// and mapping inside the caller's database-only cutover.
+func UpdateSessionExecutionTargetInTransaction(ctx context.Context, tx *sql.Tx, update SessionExecutionTargetUpdate) error {
+	if tx == nil {
+		return errors.New("Session execution target transaction is required")
+	}
+	return updateSessionExecutionTarget(ctx, sqlitegen.New(tx), update)
+}
+
+func updateSessionExecutionTarget(ctx context.Context, q *sqlitegen.Queries, update SessionExecutionTargetUpdate) error {
 	trimmedSessionID := strings.TrimSpace(update.SessionID)
 	if trimmedSessionID == "" {
 		return errors.New("session id is required")
@@ -624,12 +637,8 @@ func (s *Store) UpdateSessionExecutionTarget(ctx context.Context, update Session
 		if trimmedWorktreeID == "" {
 			return ErrWorktreeIDRequired
 		}
-		record, err := s.GetWorktreeRecordByID(ctx, trimmedWorktreeID)
-		if err != nil {
+		if _, err := sessionWorktreeForWorkspace(ctx, q, trimmedWorktreeID, workspaceID.String); err != nil {
 			return err
-		}
-		if strings.TrimSpace(record.WorkspaceID) != workspaceID.String {
-			return &WorktreeWorkspaceMismatchError{WorktreeID: trimmedWorktreeID, WorkspaceID: workspaceID.String}
 		}
 		worktreeID = sql.NullString{String: trimmedWorktreeID, Valid: true}
 	}
@@ -653,7 +662,7 @@ func (s *Store) UpdateSessionExecutionTarget(ctx context.Context, update Session
 		WorktreeReminderJson: reminderJSON,
 		UpdatedAtUnixMs:      time.Now().UTC().UnixMilli(),
 	}
-	rows, err := s.queries.UpdateSessionExecutionTargetByID(ctx, params)
+	rows, err := q.UpdateSessionExecutionTargetByID(ctx, params)
 	if err != nil {
 		return fmt.Errorf("update session execution target: %w", err)
 	}
@@ -2438,51 +2447,6 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	q *sqlitegen.Queries,
 	snapshot session.PersistedStoreSnapshot,
 ) error {
-	category, err := nullableSessionCategory(snapshot.Meta.SessionID, snapshot.Meta.Category)
-	if err != nil {
-		return err
-	}
-	if snapshot.Meta.Continuation != nil {
-		continuation, err := session.NormalizeContinuationContext(*snapshot.Meta.Continuation)
-		if err != nil {
-			return fmt.Errorf("validate session continuation: %w", err)
-		}
-		snapshot.Meta.Continuation = continuation
-	}
-	chatSettings, err := session.NormalizeChatSettingsOverrides(snapshot.Meta.ChatSettings)
-	if err != nil {
-		return fmt.Errorf("validate session Chat settings: %w", err)
-	}
-	snapshot.Meta.ChatSettings = chatSettings
-	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
-		return err
-	}
-	if err := session.ValidateRetainedToolSelection(snapshot.Meta.RetainedToolSelection); err != nil {
-		return err
-	}
-	if snapshot.Meta.RebindReminder != nil {
-		rebindReminder, err := session.NormalizeSessionRebindReminder(*snapshot.Meta.RebindReminder)
-		if err != nil {
-			return fmt.Errorf("validate session rebind reminder: %w", err)
-		}
-		snapshot.Meta.RebindReminder = &rebindReminder
-	}
-	relpath, err := relativePathWithinRoot(s.persistenceRoot, snapshot.SessionDir)
-	if err != nil {
-		return err
-	}
-	continuationJSON, err := marshalJSON(snapshot.Meta.Continuation)
-	if err != nil {
-		return err
-	}
-	lockedJSON, err := marshalJSON(snapshot.Meta.Locked)
-	if err != nil {
-		return err
-	}
-	usageStateJSON, err := marshalJSON(snapshot.Meta.UsageState)
-	if err != nil {
-		return err
-	}
 	if _, err := q.AcquireWorkspaceRegistrationLock(ctx); err != nil {
 		return fmt.Errorf("lock session snapshot import: %w", err)
 	}
@@ -2491,9 +2455,6 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		return fmt.Errorf("get existing session execution target: %w", targetErr)
 	}
 	binding := Binding{}
-	workspaceRoot := snapshot.Meta.WorkspaceRoot
-	workspaceContainer := snapshot.Meta.WorkspaceContainer
-	persistedWorktreeReminder := snapshot.Meta.WorktreeReminder
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if targetErr == nil {
@@ -2508,16 +2469,17 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 			return err
 		}
 		if !sameRoot {
-			persistedWorktreeReminder = nil
+			snapshot.Meta.WorktreeReminder = nil
 		}
-		workspaceRoot = authoritativeRoot
-		workspaceContainer = strings.TrimSpace(existingTarget.WorkspaceSnapshotName)
-		if workspaceContainer == "" {
+		snapshot.Meta.WorkspaceRoot = authoritativeRoot
+		snapshot.Meta.WorkspaceContainer = strings.TrimSpace(existingTarget.WorkspaceSnapshotName)
+		if snapshot.Meta.WorkspaceContainer == "" {
 			return fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceContainerRequired)
 		}
 		worktreeID = existingTarget.WorktreeID
 		cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
 	} else {
+		var err error
 		binding, err = lookupWorkspaceBindingWithQueries(ctx, q, snapshot.Meta.WorkspaceRoot)
 		if errors.Is(err, sql.ErrNoRows) {
 			return serverapi.ErrWorkspaceNotRegistered
@@ -2526,9 +2488,76 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 			return err
 		}
 	}
+	params, err := s.serializeSessionSnapshot(snapshot)
+	if err != nil {
+		return err
+	}
+	params.ProjectID = binding.ProjectID
+	params.WorkspaceID = sql.NullString{String: binding.WorkspaceID, Valid: binding.WorkspaceID != ""}
+	params.WorktreeID = worktreeID
+	params.CwdRelpath = cwdRelpath
+	if err := q.UpsertSession(ctx, params); err != nil {
+		return fmt.Errorf("upsert session snapshot: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot) (sqlitegen.UpsertSessionParams, error) {
+	category, err := nullableSessionCategory(snapshot.Meta.SessionID, snapshot.Meta.Category)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	if snapshot.Meta.Continuation != nil {
+		continuation, err := session.NormalizeContinuationContext(*snapshot.Meta.Continuation)
+		if err != nil {
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session continuation: %w", err)
+		}
+		snapshot.Meta.Continuation = continuation
+	}
+	chatSettings, err := session.NormalizeChatSettingsOverrides(snapshot.Meta.ChatSettings)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session Chat settings: %w", err)
+	}
+	snapshot.Meta.ChatSettings = chatSettings
+	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	if err := session.ValidateRetainedToolSelection(snapshot.Meta.RetainedToolSelection); err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	if snapshot.Meta.WorktreeReminder != nil {
+		reminder, err := session.NormalizeWorktreeReminderState(*snapshot.Meta.WorktreeReminder)
+		if err != nil {
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session worktree reminder: %w", err)
+		}
+		snapshot.Meta.WorktreeReminder = &reminder
+	}
+	if snapshot.Meta.RebindReminder != nil {
+		rebindReminder, err := session.NormalizeSessionRebindReminder(*snapshot.Meta.RebindReminder)
+		if err != nil {
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session rebind reminder: %w", err)
+		}
+		snapshot.Meta.RebindReminder = &rebindReminder
+	}
+	relpath, err := relativePathWithinRoot(s.persistenceRoot, snapshot.SessionDir)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	continuationJSON, err := marshalJSON(snapshot.Meta.Continuation)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	lockedJSON, err := marshalJSON(snapshot.Meta.Locked)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
+	usageStateJSON, err := marshalJSON(snapshot.Meta.UsageState)
+	if err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
 	metadataJSON, err := marshalJSON(sessionMetadataDocument{
-		WorkspaceRoot:                   workspaceRoot,
-		WorkspaceContainer:              workspaceContainer,
+		WorkspaceRoot:                   snapshot.Meta.WorkspaceRoot,
+		WorkspaceContainer:              snapshot.Meta.WorkspaceContainer,
 		ChatSettings:                    snapshot.Meta.ChatSettings,
 		OriginalThinkingEffort:          snapshot.Meta.OriginalThinkingEffort,
 		RetainedToolSelection:           snapshot.Meta.RetainedToolSelection,
@@ -2536,14 +2565,14 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		HeadlessActive:                  snapshot.Meta.HeadlessActive,
 		CompactionSoonReminderIssued:    snapshot.Meta.CompactionSoonReminderIssued,
 		GeneratedRecoveredWarningIssued: snapshot.Meta.GeneratedRecoveredWarningIssued,
-		WorktreeReminder:                persistedWorktreeReminder,
+		WorktreeReminder:                snapshot.Meta.WorktreeReminder,
 		RebindReminder:                  snapshot.Meta.RebindReminder,
 		Goal:                            snapshot.Meta.Goal,
 		ActiveWorkflowAssignment:        snapshot.Meta.ActiveWorkflowAssignment,
 		ActiveWorkflowAssignmentState:   snapshot.Meta.ActiveWorkflowAssignmentState,
 	})
 	if err != nil {
-		return err
+		return sqlitegen.UpsertSessionParams{}, err
 	}
 	launchVisible := int64(0)
 	if sessionLaunchVisible(snapshot.Meta) {
@@ -2553,11 +2582,8 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	if snapshot.Meta.ProtectedInputDraft != nil {
 		protectedInputDraft = sql.NullString{String: *snapshot.Meta.ProtectedInputDraft, Valid: true}
 	}
-	if err := q.UpsertSession(ctx, sqlitegen.UpsertSessionParams{
+	return sqlitegen.UpsertSessionParams{
 		ID:                       snapshot.Meta.SessionID,
-		ProjectID:                binding.ProjectID,
-		WorkspaceID:              sql.NullString{String: binding.WorkspaceID, Valid: strings.TrimSpace(binding.WorkspaceID) != ""},
-		WorktreeID:               worktreeID,
 		ArtifactRelpath:          relpath,
 		Name:                     snapshot.Meta.Name,
 		FirstPromptPreview:       snapshot.Meta.FirstPromptPreview,
@@ -2571,17 +2597,13 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		LastSequence:             snapshot.Meta.LastSequence,
 		ModelRequestCount:        snapshot.Meta.ModelRequestCount,
 		LaunchVisible:            launchVisible,
-		CwdRelpath:               cwdRelpath,
 		ContinuationJson:         continuationJSON,
 		LockedJson:               lockedJSON,
 		UsageStateJson:           usageStateJSON,
 		MetadataJson:             metadataJSON,
 		CompletedCompactionCount: nullableContextFactInt(snapshot.ContextFacts.CompletedCompactionCount),
 		ManualCompactEligible:    nullableContextFactBool(snapshot.ContextFacts.ManualCompactEligible),
-	}); err != nil {
-		return fmt.Errorf("upsert session snapshot: %w", err)
-	}
-	return nil
+	}, nil
 }
 
 func nullableContextFactInt(value *int) sql.NullInt64 {

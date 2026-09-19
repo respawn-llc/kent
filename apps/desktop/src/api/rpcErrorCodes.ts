@@ -13,6 +13,7 @@ export const rpcErrorCodes = {
   workflowExecutionTargetResolution: -32035,
   workflowTaskInitialBranch: -32060,
   workflowTaskNotFound: -32024,
+  workflowTaskContextSelectionRequired: -32063,
   workflowTaskCreateSelection: -32045,
   workflowTaskDependency: -32049,
   workflowTaskSearch: -32052,
