@@ -60,7 +60,7 @@ func NewSessionWorkspaceRetargeter(
 }
 
 func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
-	return s.retargetWorkspaceResolution(ctx, req.SessionID, nil, worktreecontract.NewOperationID(),
+	return s.retargetWorkspaceResolution(ctx, req, nil, worktreecontract.NewOperationID(),
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil }, nil)
 }
 
@@ -72,7 +72,7 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 ) (*worktreepb.ScheduledAcknowledgement, error) {
 	return s.ScheduleWorkspaceRetargetResolutionWithCompletion(
 		ctx,
-		req.SessionID,
+		req,
 		origin,
 		operationID,
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
@@ -84,13 +84,13 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 
 func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	ctx context.Context,
-	sessionID string,
+	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
 ) (*worktreepb.ScheduledAcknowledgement, error) {
-	_, err := s.retargetWorkspaceResolution(ctx, sessionID, origin, operationID, resolve, completion)
+	_, err := s.retargetWorkspaceResolution(ctx, request, origin, operationID, resolve, completion)
 	if err != nil {
 		return &worktreepb.ScheduledAcknowledgement{}, err
 	}
@@ -99,7 +99,7 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithComp
 
 func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	ctx context.Context,
-	sessionID string,
+	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
@@ -111,13 +111,16 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	if resolve == nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget resolver is required")
 	}
-	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(request.SessionID))
 	if err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	sessionID = parsedSessionID.String()
+	sessionID := parsedSessionID.String()
 	if err := context.Cause(ctx); err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
+	}
+	if _, err := s.metadata.PlanSessionWorkspaceRetarget(ctx, request); err != nil {
+		return nil, err
 	}
 	type outcome struct {
 		response *sessionlaunchpb.SessionRetargetWorkspaceSuccess

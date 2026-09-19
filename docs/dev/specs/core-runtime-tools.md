@@ -463,6 +463,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Worktree deletion follows the concrete multi-Session and process blockers in the Runtime Steering and Workflow specifications.
 - Worktree deletion never joins Session mutation ordering.
 - For a Session with an Active Session Runtime, Kent must acknowledge a scheduled rebind and apply it between Agent Steps before queued user work, regardless of the caller. A successful move must preserve the running agent and queued input across Projects.
+- Before acknowledging a Session rebind, Kent must validate the selected Workspace destination and reject an invalid move, including a Workflow Session move to another Project. Kent must validate the move again when it executes. Entering a Worktree in another Workspace must use the same admission rules, while Worktree selector resolution must remain deferred to the Step Boundary.
 - When the active agent invokes rebind for its own Session, Kent must accept the move only for that Exact Execution Scope.
 - Dormant Session rebinds must complete synchronously and must reject a Session with a running Session-owned background command.
 - A live Session rebind must allow Session-owned background commands. Existing commands must continue in the directories where they started, and commands started after the move must use the new Working Directory.

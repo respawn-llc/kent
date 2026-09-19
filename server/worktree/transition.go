@@ -111,7 +111,10 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 	}
 	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 		ctx,
-		request.sessionID,
+		metadata.SessionWorkspaceRetargetRequest{
+			SessionID: request.sessionID, WorkspaceRoot: request.workspace.workspaceRoot,
+			ProjectID: &request.workspace.projectID,
+		},
 		runtimeOrigin,
 		worktreecontract.OperationID(request.operationID),
 		resolve,

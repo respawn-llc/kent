@@ -34,6 +34,55 @@ import (
 
 type retargetProcessSource []shelltool.Snapshot
 
+func TestSessionWorkspaceRetargeterRejectsInvalidDestinationBeforeScheduling(t *testing.T) {
+	for _, scheduled := range []bool{false, true} {
+		t.Run(fmt.Sprint(scheduled), func(t *testing.T) {
+			f := newRealSessionRetargetFixture(t, false)
+			client := &selfRetargetRuntimeClient{}
+			engine := f.openRuntimeWithClient(t, client)
+			workflowID := uuid.New()
+			linkID, taskID := uuid.NewString(), uuid.NewString()
+			for _, seed := range []struct {
+				query string
+				args  []any
+			}{
+				{`INSERT INTO workflows (id, name, description, version, created_at_unix_ms, updated_at_unix_ms) VALUES (?, 'Move', '', 1, 1, 1)`, []any{workflowID[:]}},
+				{`INSERT INTO project_workflow_links (id, project_id, workflow_id, created_at_unix_ms, updated_at_unix_ms) VALUES (?, ?, ?, 1, 1)`, []any{linkID, f.sourceBinding.ProjectID, workflowID[:]}},
+				{`INSERT INTO tasks (id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id, title, body, created_at_unix_ms, updated_at_unix_ms, metadata_json) VALUES (?, ?, 1, 1, 'MOV-1', 'Move', '', 1, 1, '{}')`, []any{taskID, linkID}},
+				{`UPDATE sessions SET task_id = ? WHERE id = ?`, []any{taskID, f.childID.String()}},
+			} {
+				if _, err := f.metadata.DB().ExecContext(t.Context(), seed.query, seed.args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			retargeter := f.retargeter(f.metadata, retargetProcessSource{})
+			req := metadata.SessionWorkspaceRetargetRequest{
+				SessionID: f.childID.String(), WorkspaceRoot: f.targetWorkspaceRoot, ProjectID: &f.targetProject.ProjectID,
+			}
+			client.run = func() error {
+				var err error
+				if scheduled {
+					active := engine.ActiveRun()
+					_, err = retargeter.ScheduleWorkspaceRetarget(t.Context(), req, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID())
+				} else {
+					_, err = retargeter.RetargetWorkspace(t.Context(), req)
+				}
+				var failure *serverapi.SessionRetargetError
+				if !errors.As(err, &failure) || failure.Reason != serverapi.SessionRetargetWorkflowOwned {
+					t.Errorf("invalid destination acknowledged: %v", err)
+				}
+				return nil
+			}
+			if _, err := engine.SubmitUserMessage(t.Context(), "move"); err != nil {
+				t.Fatal(err)
+			}
+			if projectID, err := f.metadata.ResolveSessionProjectID(t.Context(), f.childID.String()); err != nil || projectID != f.sourceBinding.ProjectID {
+				t.Fatalf("Workflow Session ownership changed: %q, %v", projectID, err)
+			}
+		})
+	}
+}
+
 func (s retargetProcessSource) List() []shelltool.Snapshot {
 	return append([]shelltool.Snapshot(nil), s...)
 }
@@ -215,7 +264,7 @@ func completeWorkspaceRetarget(t *testing.T, retargeter *SessionWorkspaceRetarge
 	t.Helper()
 	completed := make(chan error, 1)
 	_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
-		t.Context(), req.SessionID, nil, worktreecontract.NewOperationID(),
+		t.Context(), req, nil, worktreecontract.NewOperationID(),
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil },
 		func(err error) { completed <- err },
 	)
@@ -540,7 +589,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		requestCtx, cancelRequest := context.WithCancel(t.Context())
 		_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 			requestCtx,
-			request.SessionID,
+			request,
 			&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
 			worktreecontract.NewOperationID(),
 			func(resolveCtx context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
@@ -626,8 +675,9 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 
 func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		metadata func(*metadata.Store, error) sessionRetargetMetadata
+		name          string
+		metadata      func(*metadata.Store, error) sessionRetargetMetadata
+		afterSchedule func(string) error
 	}{
 		{
 			name: "apply failure",
@@ -638,8 +688,9 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 		{
 			name: "planning failure",
 			metadata: func(store *metadata.Store, failure error) sessionRetargetMetadata {
-				return failingSessionRetargetPlan{Store: store, err: failure}
+				return store
 			},
+			afterSchedule: func(root string) error { return os.Rename(root, root+"-moved") },
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -667,6 +718,9 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 					t.Context(),
 					request, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID(),
 				)
+				if err == nil && test.afterSchedule != nil {
+					return test.afterSchedule(fixture.targetWorkspaceRoot)
+				}
 				return err
 			}
 
@@ -722,18 +776,6 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 			t.Fatalf("queued request lacks rebind failure notice; message types: %v", messageTypes)
 		})
 	}
-}
-
-type failingSessionRetargetPlan struct {
-	*metadata.Store
-	err error
-}
-
-func (s failingSessionRetargetPlan) PlanSessionWorkspaceRetarget(
-	context.Context,
-	metadata.SessionWorkspaceRetargetRequest,
-) (metadata.SessionWorkspaceRetargetPlan, error) {
-	return metadata.SessionWorkspaceRetargetPlan{}, s.err
 }
 
 func projectContainsWorkspaceRoot(t *testing.T, store *metadata.Store, projectID string, workspaceRoot string) bool {
