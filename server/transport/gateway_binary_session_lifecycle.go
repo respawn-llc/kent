@@ -57,14 +57,21 @@ func registerSessionLifecycleUnary[Request interface {
 			return invoke(g.deps.SessionLifecycleClient(), ctx, request)
 		},
 		func(_ *Gateway, _ *connectionState, _ Request, err error) proto.Message {
-			var retarget *serverapi.SessionRetargetError
-			if errors.As(err, &retarget) {
-				details, conversionErr := protoapi.SessionRetargetErrorToProto(retarget)
-				if conversionErr != nil {
-					return binaryInternalFailure(conversionErr)
-				}
+			if details := binarySessionRetargetFailure(err); details != nil {
 				return details
 			}
 			return binaryAuthFailure(err)
 		})
+}
+
+func binarySessionRetargetFailure(err error) proto.Message {
+	var retarget *serverapi.SessionRetargetError
+	if !errors.As(err, &retarget) {
+		return nil
+	}
+	details, conversionErr := protoapi.SessionRetargetErrorToProto(retarget)
+	if conversionErr != nil {
+		return binaryInternalFailure(conversionErr)
+	}
+	return details
 }
