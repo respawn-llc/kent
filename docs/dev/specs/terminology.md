@@ -2,6 +2,12 @@
 
 Use these terms consistently in specs and product surfaces. These terms extend common English for Kent's domain.
 
+## Provider Access
+
+### Provider Connection
+
+A named server-owned provider-access configuration containing provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents and roles select it by its user-chosen configuration ID; model and context policy remain agent or role settings.
+
 ## Workflow
 
 ### Task
