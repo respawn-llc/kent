@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   Button,
+  ErrorState,
   IconTooltipButton,
   Island,
   PeekingSurface,
@@ -43,7 +44,7 @@ export function ChatComposer({
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
-  const pickerOpen = composer.suggestions.length > 0;
+  const pickerOpen = composer.pickerOpen;
   const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
     availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
   useLayoutEffect(() => {
@@ -126,8 +127,23 @@ export function ChatComposer({
 type Composer = ReturnType<typeof useChatComposer>;
 
 function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
+  const { t } = useTranslation();
   return (
     <div className="chat-composer-sheet">
+      {composer.catalog?.isFetching === true && (
+        <div className="flex items-center gap-[var(--space-2)] text-[var(--color-muted)]">
+          <Spinner size="sm" />
+          <span>{t("chatComposer.commands.loading")}</span>
+        </div>
+      )}
+      {composer.catalog?.isError === true && (
+        <ErrorState
+          fullPage={false}
+          title={t("chatComposer.rejections.prompt_catalog_read")}
+          {...(composer.retryCatalog === undefined ? {} : { onRetry: composer.retryCatalog })}
+          retryLabel={t("app.retry")}
+        />
+      )}
       {composer.suggestions.map((command) => (
         <button
           key={command.token}

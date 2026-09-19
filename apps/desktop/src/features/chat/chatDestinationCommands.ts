@@ -2,11 +2,13 @@ import type { ChatApi } from "@/api";
 import type { TFunction } from "i18next";
 import { showStatusToast } from "@/ui";
 import type { ComposerCommand } from "./composerCommands";
+import { promptCommands } from "./promptCommands";
 
 export function chatDestinationCommands(
   api: ChatApi,
   newChat: boolean,
   t: TFunction,
+  catalog: Awaited<ReturnType<ChatApi["getCommandCatalog"]>> = [],
 ): readonly ComposerCommand[] {
   const compact: ComposerCommand = {
     token: "/compact",
@@ -23,7 +25,7 @@ export function chatDestinationCommands(
         }),
     },
   };
-  return newChat
+  const nativeCommands: readonly ComposerCommand[] = newChat
     ? [
         compact,
         {
@@ -45,4 +47,5 @@ export function chatDestinationCommands(
         },
       ]
     : [compact];
+  return [...nativeCommands, ...promptCommands(catalog, t)];
 }

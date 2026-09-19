@@ -7,6 +7,7 @@ import { useAppServices } from "@/app-facade";
 import {
   compactCommand,
   composerSuggestions,
+  tokenizeComposerCommand,
   type ComposerCommand,
   type ComposerCommandResult,
 } from "./composerCommands";
@@ -16,13 +17,21 @@ import { useComposerDraftActions } from "./ComposerDraftViewModel";
 import { useComposerInputActions } from "./ComposerInputViewModel";
 import { useComposerHistoryActions } from "./ComposerHistoryViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
+import type { QuerySnapshot } from "@/app-facade";
+import type { QueryObserverResult } from "@tanstack/react-query";
+import type { ChatApi, ChatMutationTarget } from "@/api";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
 export type ChatComposerOptions = Readonly<{
   model: ChatComposerViewModel;
-  onDeliveredSession?(result: Exclude<ComposerCommandResult, { kind: "local" }>): void;
+  onDeliveredSession?(
+    result: Exclude<ComposerCommandResult, { kind: "local" }>,
+    target: ChatMutationTarget,
+  ): void;
   commands?: readonly ComposerCommand[];
+  catalog?: QuerySnapshot<QueryObserverResult<Awaited<ReturnType<ChatApi["getCommandCatalog"]>>>>;
+  retryCatalog?(): void;
 }>;
 const noCommands: readonly ComposerCommand[] = [];
 
@@ -79,6 +88,7 @@ export function useChatComposer(options: ChatComposerOptions) {
   >({ kind: "selecting", token: null });
   const suggestions =
     picker.kind === "dismissed" || historySelection !== null ? [] : composerSuggestions(text, commands);
+  const pickerOpen = commandPickerOpen(picker.kind, suggestions, text, options.catalog);
   const selectedCommand =
     (picker.kind === "selecting"
       ? suggestions.find((command) => command.token === picker.token)
@@ -119,8 +129,11 @@ export function useChatComposer(options: ChatComposerOptions) {
       ...(onDeliveredSession === undefined
         ? {}
         : {
-            delivered: (result: Exclude<ComposerCommandResult, { kind: "local" }>) => {
-              if (mounted.current) onDeliveredSession(result);
+            delivered: (
+              result: Exclude<ComposerCommandResult, { kind: "local" }>,
+              target: ChatMutationTarget,
+            ) => {
+              if (mounted.current) onDeliveredSession(result, target);
             },
           }),
     });
@@ -140,6 +153,9 @@ export function useChatComposer(options: ChatComposerOptions) {
       submit("send", "compact-button");
     },
     suggestions,
+    pickerOpen,
+    catalog: options.catalog,
+    retryCatalog: options.retryCatalog,
     selectedCommand,
     pending,
     observation,
@@ -166,4 +182,20 @@ export function useChatComposer(options: ChatComposerOptions) {
     flushDraft: async () => draftActions.flush(undefined),
     restore,
   };
+}
+
+function commandPickerOpen(
+  mode: "dismissed" | "selecting",
+  suggestions: readonly ComposerCommand[],
+  text: string,
+  catalog: ChatComposerOptions["catalog"],
+): boolean {
+  if (mode === "dismissed") return false;
+  if (suggestions.length > 0) return true;
+  const invocation = tokenizeComposerCommand(text);
+  return (
+    invocation.token.startsWith("/") &&
+    invocation.separatorWhitespace.length === 0 &&
+    (catalog?.isFetching === true || catalog?.isError === true)
+  );
 }

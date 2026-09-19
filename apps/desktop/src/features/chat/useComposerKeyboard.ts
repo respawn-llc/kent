@@ -141,14 +141,14 @@ function escapeStopPlatform(platform: string): boolean {
 }
 
 function handlePickerKey(composer: ReturnType<typeof useChatComposer>, event: KeyboardEvent): boolean {
-  if (composer.suggestions.length === 0) return false;
+  if (!composer.pickerOpen) return false;
   if (event.key === "Escape") {
     composer.dismissPicker();
     event.preventDefault();
     event.stopPropagation();
     return true;
   }
-  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+  if (composer.suggestions.length > 0 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
     composer.moveCommand(event.key === "ArrowUp" ? -1 : 1);
     event.preventDefault();
     return true;

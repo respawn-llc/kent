@@ -15,7 +15,11 @@ import { queryAtom } from "@/app-facade";
 import type { ChatSettingsViewModel } from "../ChatSettingsViewModel";
 import type { ComposerDraftViewModel } from "../ComposerDraftViewModel";
 
-export type NewChatGoalHostDelivery = Readonly<{ target: ChatSessionTarget; goal: ChatGoal | null }>;
+export type NewChatGoalHostDelivery = Readonly<{
+  target: ChatSessionTarget;
+  origin: Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
+  goal: ChatGoal | null;
+}>;
 export type NewChatGoalBindingSnapshot =
   | Readonly<{
       kind: "unresolved";
@@ -49,7 +53,11 @@ export function createNewChatGoalBinding(
         if (result.sessionID.trim().length === 0)
           throw new ContractError("Goal Set success Session is required.");
         const goal = result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null;
-        input.delivered({ target: { projectID: input.target.projectID, sessionID: result.sessionID }, goal });
+        input.delivered({
+          target: { projectID: input.target.projectID, sessionID: result.sessionID },
+          origin: input.target,
+          goal,
+        });
         input.completed(result);
       },
       onError: (error: Error, input) => {

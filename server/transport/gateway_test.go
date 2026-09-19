@@ -21,6 +21,8 @@ import (
 	"core/server/chatmutation"
 	"core/server/core"
 	"core/server/metadata"
+	"core/server/promptcommands"
+	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
@@ -44,6 +46,7 @@ import (
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
@@ -66,6 +69,10 @@ type gatewayChatLifecycleResolver struct {
 	started chan context.Context
 	proceed chan struct{}
 	target  chatmutation.ResolvedTarget
+}
+
+func (*gatewayChatLifecycleResolver) SelectPlacement(_ context.Context, target chatmutation.ResolvedTarget, _ promptcommands.Placement) (chatmutation.ResolvedTarget, error) {
+	return target, nil
 }
 
 func (r *gatewayChatLifecycleResolver) Resolve(
@@ -122,9 +129,14 @@ func (gatewayChatLifecycleGoal) SetResolvedGoal(
 	return serverapi.ResolvedGoalSetCommit{}, errors.New("unexpected Goal Set")
 }
 
+func (gatewayChatLifecycleAdmission) PrepareUserTurn(ctx context.Context, sessionID string, input runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error) {
+	return (*runtimecontrol.Service)(nil).PrepareUserTurn(ctx, sessionID, input)
+}
+
 func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 	context.Context,
-	*runtimepb.SubmitUserTurnRequest,
+	string,
+	runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID: a.queueItemID,
@@ -134,7 +146,8 @@ func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 
 func (gatewayChatLifecycleAdmission) AdmitChatQueuedUserInput(
 	context.Context,
-	*runtimepb.SubmitUserTurnRequest,
+	string,
+	runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	panic("unexpected Queue admission")
 }

@@ -387,6 +387,20 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sleepManager:            sleepManager,
 		chatOperationOwner:      chatOperationOwner,
 	})}
+	sourceSessionLaunch := func(
+		ctx context.Context,
+		sessionID runtimeids.SessionID,
+	) (chatmutation.PersistedSessionPlanner, error) {
+		binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, sessionID.String())
+		if err != nil {
+			return nil, err
+		}
+		projectCtx, err := core.resolveProjectContext(ctx, binding.ProjectId, binding.WorkspaceId, "")
+		if err != nil {
+			return nil, err
+		}
+		return core.sessionLaunchServiceForProjectContext(projectCtx), nil
+	}
 	chatTargets := chatmutation.NewTargetResolver(
 		metadataStore,
 		func(
@@ -396,28 +410,12 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		) (chatmutation.SessionCreationService, error) {
 			return core.SessionLaunchClientForProjectWorkspaceID(ctx, projectID, workspaceID)
 		},
+		sourceSessionLaunch,
+		runtimeRegistry,
 	)
 	chatRuntimes := chatmutation.NewRuntimePlanner(
 		runtimeAuthority,
-		func(
-			ctx context.Context,
-			sessionID runtimeids.SessionID,
-		) (chatmutation.PersistedSessionPlanner, error) {
-			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, sessionID.String())
-			if err != nil {
-				return nil, err
-			}
-			projectCtx, err := core.resolveProjectContext(
-				ctx,
-				binding.ProjectId,
-				binding.WorkspaceId,
-				"",
-			)
-			if err != nil {
-				return nil, err
-			}
-			return core.sessionLaunchServiceForProjectContext(projectCtx), nil
-		},
+		sourceSessionLaunch,
 		sessionRuntimeAPI,
 	)
 	core.bundles.Chat.mutations = chatmutation.NewService(

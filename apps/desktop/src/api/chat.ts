@@ -19,6 +19,7 @@ import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
 import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
+import { createChatCommandApi } from "./chatCommands";
 import { createChatDraftApi } from "./chatDrafts";
 import { listPendingPrompts } from "./clientPendingPrompts";
 import { answerPromptBatch } from "./clientPromptAnswers";
@@ -91,6 +92,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
     ...createChatDraftApi(transport),
     ...createChatSettingsApi(transport),
     ...createChatGoalApi(transport),
+    ...createChatCommandApi(transport),
     async getPromptHistory(target) {
       const method = SessionReadService.method.getPromptHistory;
       const result = await transport.callDescriptorAttachedSession(

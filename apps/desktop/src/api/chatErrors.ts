@@ -2,6 +2,7 @@ import type { DescMethod, Message, MessageShape } from "@app/server-api-contract
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import type { GetCatalogError } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
   GoalSetError,
@@ -19,6 +20,8 @@ import { ContractError, RpcError } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
 
 export type ChatError =
+  | Readonly<{ kind: "prompt_catalog_read"; command: string | null }>
+  | Readonly<{ kind: "prompt_command_not_found" | "prompt_command_read"; command: string }>
   | Readonly<{ kind: "session_not_found"; sessionID: string }>
   | Readonly<{ kind: "workspace_not_registered" }>
   | Readonly<{
@@ -50,6 +53,7 @@ export class ChatOperationError extends RpcError {
 }
 
 type ChatWireError =
+  | GetCatalogError
   | WireChatOperationError
   | GoalSetError
   | ReadError
@@ -135,20 +139,37 @@ function standardChatOperationError(generic: RpcError, failure: ChatWireError): 
   return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
 }
 
+type PromptCommandWireDetail = Extract<
+  GetCatalogError["detail"],
+  {
+    case: "catalogRead" | "commandNotFound" | "commandRead";
+  }
+>;
+
 function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
-  switch (failure.detail.case) {
+  const detail = failure.detail;
+  if (detail.case === "catalogRead" || detail.case === "commandNotFound" || detail.case === "commandRead") {
+    return promptCommandErrorDetail(detail);
+  }
+  return standardChatErrorDetail(detail);
+}
+
+function standardChatErrorDetail(
+  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail>,
+): KnownChatError | null {
+  switch (detail.case) {
     case "sessionNotFound":
       return {
         kind: "session_not_found",
-        sessionID: failure.detail.value.sessionId,
+        sessionID: detail.value.sessionId,
       };
     case "workspaceNotRegistered":
       return { kind: "workspace_not_registered" };
     case "chatSettingsAgentPreparation":
       return {
         kind: "agent_preparation",
-        agent: failure.detail.value.agent,
-        category: agentPreparationCategory(failure.detail.value.category),
+        agent: detail.value.agent,
+        category: agentPreparationCategory(detail.value.category),
       };
     case "authRequired":
       return { kind: "auth_required" };
@@ -157,17 +178,28 @@ function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null 
     case "runtimeUnavailable":
       return {
         kind: "runtime_unavailable",
-        sessionID: failure.detail.value.sessionId,
+        sessionID: detail.value.sessionId,
       };
     case "internalFailure":
       return {
         kind: "internal_failure",
-        operation: failure.detail.value.operation ?? null,
-        cause: failure.detail.value.cause ?? null,
+        operation: detail.value.operation ?? null,
+        cause: detail.value.cause ?? null,
       };
     case "pendingWorkNotPending":
     case undefined:
       return null;
+  }
+}
+
+function promptCommandErrorDetail(detail: PromptCommandWireDetail): KnownChatError {
+  switch (detail.case) {
+    case "catalogRead":
+      return { kind: "prompt_catalog_read", command: detail.value.command ?? null };
+    case "commandNotFound":
+      return { kind: "prompt_command_not_found", command: detail.value.command };
+    case "commandRead":
+      return { kind: "prompt_command_read", command: detail.value.command };
   }
 }
 

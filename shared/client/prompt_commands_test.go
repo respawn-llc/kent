@@ -202,7 +202,7 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 					t.Errorf("Resolve: %v", err)
 					return
 				}
-				resolvedContent <- content
+				resolvedContent <- content.Text
 				frame, err := remoteDescriptorResultFrame(submitMethod, call.Correlation, &runtimepb.SubmitUserTurnResult{
 					Outcome: &runtimepb.SubmitUserTurnResult_Success{Success: &runtimepb.SubmitUserTurnSuccess{
 						Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "accepted"}},
