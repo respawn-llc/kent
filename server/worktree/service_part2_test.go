@@ -226,7 +226,7 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	})
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
-	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir})
+	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{PersistenceRoot: cfg.PersistenceRoot, BaseDir: cfg.Settings.Worktrees.BaseDir})
 	return &serviceTestEnv{
 		t:             t,
 		ctx:           ctx,

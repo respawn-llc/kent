@@ -10,9 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+
 	"github.com/google/uuid"
 )
 
@@ -549,6 +551,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 		meta.ChatSettings.Thinking = nil
 	}
 	return PromptFacingMetadataSnapshot{
+		ConnectionID:                  meta.ConnectionID,
 		Name:                          meta.Name,
 		FirstPromptPreview:            meta.FirstPromptPreview,
 		Continuation:                  cloneContinuationContext(meta.Continuation),
@@ -562,6 +565,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapshot) error {
 	return s.mutateAndPersist(func() error {
 		s.meta.Name = snapshot.Name
+		s.meta.ConnectionID = textutil.Pointer(snapshot.ConnectionID)
 		s.meta.FirstPromptPreview = snapshot.FirstPromptPreview
 		s.meta.Continuation = cloneContinuationContext(snapshot.Continuation)
 		settings := cloneChatSettingsOverrides(snapshot.ChatSettings)
@@ -1164,6 +1168,16 @@ func (s *Store) SetUsageState(state *UsageState) (CommitReceipt, error) {
 	s.meta.UsageState = normalized
 	s.meta.UpdatedAt = time.Now().UTC()
 	return s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
+}
+
+func (s *Store) SetConnectionID(id config.ConnectionID) error {
+	if _, err := config.ParseConnectionID(string(id)); err != nil {
+		return err
+	}
+	return s.mutateAndPersist(func() error {
+		s.meta.ConnectionID = &id
+		return nil
+	})
 }
 
 func (s *Store) SetContinuationContext(ctx ContinuationContext) error {

@@ -1174,6 +1174,11 @@ message Hydration {
   };
 }
 
+message ConnectionReplacement {
+  string previous_id = 1 [(buf.validate.field).string.min_len = 1];
+  string current_id = 2 [(buf.validate.field).string.min_len = 1];
+}
+
 message Event {
   oneof payload {
     option (buf.validate.oneof).required = true;
@@ -1204,6 +1209,7 @@ message Event {
     PendingWorkRestored pending_work_restored = 27;
     SessionSettingFeedback session_setting_feedback = 28;
     HumanInputInterrupted human_input_interrupted = 29;
+    ConnectionReplacement connection_replaced = 30;
   }
 }
 

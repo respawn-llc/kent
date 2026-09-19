@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"os"
 	"path/filepath"
@@ -23,7 +24,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"core/shared/textutil"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -451,7 +451,6 @@ func TestSessionChatSettingsPreparationUsesAuthoritativePersistenceRoot(t *testi
 
 	prepared, err := (sessionChatSettingsPreparationResolver{
 		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
 		persistenceRoot: persistenceRoot,
 	}).PrepareSessionChatSettings(t.Context(), store, "worker")
 	if err != nil {
@@ -535,7 +534,7 @@ func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *test
 		t.Fatalf("ResolveConfig: %v", err)
 	}
 	resolved.Config.Settings.Model = "gpt-5.6-sol"
-	resolved.Config.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, "https://api.openai.com/v1"))
 	resolved.Config.Settings.PriorityRequestMode = true
 	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
 	if err != nil {
@@ -543,15 +542,9 @@ func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *test
 	}
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://compatible.example/v1"),
-	}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
 
 	prepared, err := (sessionChatSettingsPreparationResolver{
 		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
 		persistenceRoot: persistenceRoot,
 	}).PrepareSessionChatSettings(t.Context(), store, brand.DefaultSubagentRole)
 	if err != nil {
@@ -585,7 +578,6 @@ func TestSessionChatSettingsPreparationUsesLockedPromptFacingModelCapabilities(t
 
 	prepared, err := (sessionChatSettingsPreparationResolver{
 		metadataStore:   appCore.MetadataStore(),
-		authManager:     appCore.AuthManager(),
 		persistenceRoot: persistenceRoot,
 	}).PrepareSessionChatSettings(t.Context(), store, brand.DefaultSubagentRole)
 	if err != nil {
@@ -668,6 +660,7 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)

@@ -15,14 +15,14 @@ import (
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
-	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
+	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
 		switch key {
 		case "KENT_OAUTH_CLIENT_ID":
-			return "client-test"
+			return "client-test", true
 		case "KENT_OAUTH_ISSUER":
-			return "https://attacker.example"
+			return "https://attacker.example", true
 		default:
-			return ""
+			return "", false
 		}
 	}, func() time.Time {
 		return time.Unix(123, 0)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
@@ -45,6 +46,18 @@ func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 			compactions[0].Model, compactions[0].ReasoningEffort, requests[1].Model, requests[1].ReasoningEffort)
 	}
 	requireLazyCompactionPreservesRequestPrefix(t, requests[1], compactions[0])
+	factoryRequests := f.runtimeRequests()
+	if len(factoryRequests) == 0 || factoryRequests[len(factoryRequests)-1].Connection.ID != "reviewer" {
+		t.Fatal("lazy continuation did not construct the target connection")
+	}
+	targetID := factoryRequests[len(factoryRequests)-1].SessionID
+	record, err := f.metadata.ResolvePersistedSession(t.Context(), targetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "reviewer" {
+		t.Fatal("lazy continuation did not persist the target binding")
+	}
 }
 
 func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *testing.T) {
@@ -62,7 +75,7 @@ func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *
 	}
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	configureCompactionThinking(f)
+	configureCompactionThinking(t, f)
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(client.release) }) }
 	t.Cleanup(unblock)
@@ -115,6 +128,9 @@ func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *
 	if settings.Settings.Model != "workflow-coder" || settings.Settings.ThinkingLevel != "low" {
 		t.Fatal("interrupted direct compaction changed outgoing model or Thinking")
 	}
+	if meta.ConnectionID == nil || *meta.ConnectionID != "coder" {
+		t.Fatal("interrupted direct compaction changed the outgoing connection")
+	}
 }
 
 func newLazyCompactionClient(responses []llm.CompactionResponse) *compactingScriptedClient {
@@ -133,7 +149,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	// Enable compaction only after outgoing completion to exercise an
 	// un-precompacted Session at the lazy continuation boundary.
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
-	configureCompactionThinking(f)
+	configureCompactionThinking(t, f)
 	task := f.createTask(t, createCurrentNodeThreeStepWorkflow(
 		t, f.store, "Lazy compaction configuration",
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "First."},
@@ -147,9 +163,17 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	return f, approval
 }
 
-func configureCompactionThinking(f *currentNodeRunnerFixture) {
+func configureCompactionThinking(t *testing.T, f *currentNodeRunnerFixture) {
+	t.Helper()
+	if f.starter.cfg.Settings.Connections == nil {
+		f.starter.cfg.Settings.Connections = make(map[config.ConnectionID]config.ProviderConnection)
+	}
 	for role, effort := range map[string]string{"coder": "low", "reviewer": "high"} {
 		settings := f.starter.cfg.Settings.Subagents[role]
+		id := config.ConnectionID(role)
+		settings.Settings.Connection = &id
+		f.starter.cfg.Settings.Connections[id] = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
+		settings.Sources["connection"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}}
 		settings.Settings.ThinkingLevel = effort
 		settings.Settings.ModelCapabilities.SupportsReasoningEffort = true
 		settings.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
@@ -158,6 +182,7 @@ func configureCompactionThinking(f *currentNodeRunnerFixture) {
 
 		f.starter.cfg.Settings.Subagents[role] = settings
 	}
+	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
 }
 
 func TestLazyCompactAndContinueFailureRetainsOutgoingConfiguration(t *testing.T) {
@@ -373,7 +398,8 @@ func requireLazyCompactionRetainsOutgoingConfiguration(t *testing.T, f *currentN
 		t.Errorf("Session contract = %+v, want outgoing model workflow-coder", meta.Locked)
 	}
 	if !reflect.DeepEqual(meta.ChatSettings, before.ChatSettings) ||
-		!reflect.DeepEqual(meta.Continuation, before.Continuation) {
+		!reflect.DeepEqual(meta.Continuation, before.Continuation) ||
+		!reflect.DeepEqual(meta.ConnectionID, before.ConnectionID) {
 		t.Errorf("outgoing Session configuration changed: before settings=%+v continuation=%+v; after settings=%+v continuation=%+v",
 			before.ChatSettings, before.Continuation, meta.ChatSettings, meta.Continuation)
 	}

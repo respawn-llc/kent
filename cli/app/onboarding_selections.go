@@ -131,8 +131,6 @@ type onboardingThinkingEdit struct {
 }
 
 type onboardingPreservedInputs struct {
-	providerOverride           *string
-	openAIBaseURL              *string
 	modelTimeoutSeconds        *int
 	enabledTools               map[toolspec.ID]bool
 	baselineModelContextWindow *int

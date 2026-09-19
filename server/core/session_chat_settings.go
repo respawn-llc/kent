@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
@@ -14,7 +13,6 @@ import (
 
 type sessionChatSettingsPreparationResolver struct {
 	metadataStore   *metadata.Store
-	authManager     *auth.Manager
 	persistenceRoot string
 }
 
@@ -38,16 +36,9 @@ func (r sessionChatSettingsPreparationResolver) PrepareSessionChatSettings(
 	if err != nil {
 		return launch.PreparedChatSettings{}, err
 	}
-	authState := auth.EmptyState()
-	if r.authManager != nil {
-		authState, err = r.authManager.CurrentState(ctx)
-		if err != nil {
-			return launch.PreparedChatSettings{}, err
-		}
-	}
 	promptFacing, err := (launch.Planner{Config: cfg}).SelectedSessionPromptFacingTargetFromMeta(store.Meta())
 	if err != nil {
 		return launch.PreparedChatSettings{}, err
 	}
-	return launch.PrepareSessionChatSettingsForAgent(cfg, authState, store.Meta(), agent, promptFacing)
+	return launch.PrepareSessionChatSettingsForAgent(cfg, store.Meta(), agent, promptFacing)
 }

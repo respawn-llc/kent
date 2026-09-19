@@ -160,7 +160,6 @@ type gatewayEstablishedRequest struct {
 
 type connectionState struct {
 	handshakeDone         bool
-	noAuthAccepted        bool
 	attachedProject       string
 	attachedWorkspaceID   string
 	attachedWorkspaceRoot string

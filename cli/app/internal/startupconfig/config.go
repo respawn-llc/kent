@@ -18,8 +18,6 @@ type Request struct {
 	WorkspaceRootExplicit     bool
 	SessionID                 string
 	WorkspaceContextSessionID string
-	OpenAIBaseURL             string
-	OpenAIBaseURLExplicit     bool
 	LoadOptions               config.LoadOptions
 }
 
@@ -58,8 +56,6 @@ func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
-		OpenAIBaseURL:         req.OpenAIBaseURL,
-		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
 		LoadOptions:           req.LoadOptions,
 	})
 	if err != nil {
@@ -82,8 +78,6 @@ func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             sessionID,
-		OpenAIBaseURL:         req.OpenAIBaseURL,
-		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
 		LoadOptions:           req.LoadOptions,
 	})
 	if err != nil {

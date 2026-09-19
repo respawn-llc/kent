@@ -22,10 +22,8 @@ type Request struct {
 	WorkspaceRoot         string
 	WorkspaceRootExplicit bool
 	SessionID             string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
 	LoadOptions           config.LoadOptions
-	LookupEnv             func(string) string
+	Environment           func(string) (string, bool)
 	Now                   func() time.Time
 }
 
@@ -41,6 +39,7 @@ func ValidateSessionExists(persistenceRoot string, sessionID string) error {
 type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
+	Environment  func(string) (string, bool)
 }
 
 type RuntimeSupport struct {
@@ -70,54 +69,49 @@ func resolveConfig(req Request, load func(config.LoadOptions, string, launch.Boo
 		WorkspaceRoot:         strings.TrimSpace(req.WorkspaceRoot),
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             strings.TrimSpace(req.SessionID),
-		OpenAIBaseURL:         strings.TrimSpace(req.OpenAIBaseURL),
-		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
 	})
 	if err != nil {
 		return ConfigPlan{}, err
 	}
 	opts := req.LoadOptions
-	if bootstrapPlan.UseOpenAIBaseURL {
-		opts.OpenAIBaseURL = bootstrapPlan.OpenAIBaseURL
-	} else {
-		opts.OpenAIBaseURL = ""
-	}
 	return load(opts, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func() time.Time) (AuthSupport, error) {
+func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
 	if lookupEnv == nil {
-		lookupEnv = os.Getenv
+		lookupEnv = os.LookupEnv
 	}
 	if now == nil {
 		now = time.Now
 	}
+	clientID, _ := lookupEnv("KENT_OAUTH_CLIENT_ID")
 	oauthOpts := auth.OpenAIOAuthOptions{
 		Issuer:   auth.DefaultOpenAIIssuer,
-		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(lookupEnv("KENT_OAUTH_CLIENT_ID")), auth.DefaultOpenAIClientID),
+		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
 	return AuthSupport{
 		OAuthOptions: oauthOpts,
+		Environment:  lookupEnv,
 		AuthManager: auth.NewManager(
 			store,
 			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
-			now,
 		),
 	}, nil
 }
 
 func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
 	runner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     cfg.Settings.Shell.PostprocessingMode,
-		HookPath: cfg.Settings.Shell.PostprocessHook,
+		PersistenceRoot: cfg.PersistenceRoot,
+		Mode:            cfg.Settings.Shell.PostprocessingMode,
+		HookPath:        cfg.Settings.Shell.PostprocessHook,
 	})
 	if err != nil {
 		return RuntimeSupport{}, fmt.Errorf("compile shell postprocessor: %w", err)
 	}
-	background, err := shelltool.NewManager(
+	background, err := shelltool.NewManager(cfg.PersistenceRoot,
 		shelltool.WithMaxConcurrent(cfg.Settings.Shell.MaxConcurrent),
 		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
 		shelltool.WithPostprocessor(runner),

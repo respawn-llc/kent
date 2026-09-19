@@ -25,6 +25,7 @@ import (
 	"core/server/transport"
 	"core/shared/apicontract"
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
@@ -55,11 +56,16 @@ func (s *ServeServer) Config() config.App {
 var localSocketListener = listenLocalSocket
 var errStartupControlSurfaceNotRequired = errors.New("startup control surface is not required")
 
-func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*ServeServer, error) {
-	if authHandler == nil {
-		return nil, errors.New("auth handler is required")
+func StartServeServer(ctx context.Context, req Request, onboardingHandler OnboardingHandler) (*ServeServer, error) {
+	bootstrapReq := buildRequest(req)
+	root, err := config.ResolvePersistenceRoot(bootstrapReq.LoadOptions.ConfigRoot)
+	if err != nil {
+		return nil, err
 	}
-	bootstrapReq := buildRequest(req, authHandler)
+	bootstrapReq.Environment, err = serverbootstrap.LoadEnvironment(root)
+	if err != nil {
+		return nil, err
+	}
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
@@ -67,29 +73,29 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler,
 	}
 	cfg := resolved.Config
 	if cfg.Source.SettingsFileExists() {
-		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler, onboardingHandler)
+		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, onboardingHandler)
 		if err != nil {
 			return nil, err
 		}
 		return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
 	}
 	if onboardingHandler != nil {
-		onboardingCfg, completed, err := runStartupOnboardingHandler(ctx, cfg, bootstrapReq, authHandler, onboardingHandler)
+		onboardingCfg, completed, err := runStartupOnboardingHandler(ctx, cfg, bootstrapReq, onboardingHandler)
 		if err != nil {
 			return nil, err
 		}
 		if completed && onboardingCfg.Source.SettingsFileExists() {
-			appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler, nil)
+			appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, nil)
 			if err != nil {
 				return nil, err
 			}
 			return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
 		}
 	}
-	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq, authHandler)
+	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq)
 	if err != nil {
 		if errors.Is(err, errStartupControlSurfaceNotRequired) {
-			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler, onboardingHandler)
+			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, onboardingHandler)
 			if coreErr != nil {
 				return nil, coreErr
 			}
@@ -100,13 +106,13 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler,
 	return &ServeServer{deps: deps, cfg: cfg}, nil
 }
 
-func runStartupOnboardingHandler(ctx context.Context, cfg config.App, bootstrapReq serverbootstrap.Request, authHandler AuthHandler, onboardingHandler OnboardingHandler) (config.App, bool, error) {
-	store := authHandler.WrapStore(auth.NewFileStore(config.GlobalAuthConfigPath(cfg)))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.LookupEnv, bootstrapReq.Now)
+func runStartupOnboardingHandler(ctx context.Context, cfg config.App, bootstrapReq serverbootstrap.Request, onboardingHandler OnboardingHandler) (config.App, bool, error) {
+	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
 	if err != nil {
 		return config.App{}, false, err
 	}
-	factsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg, AuthManager: authSupport.AuthManager})
+	factsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
 	reloadConfig := func() (config.App, error) {
 		refreshed, err := serverbootstrap.ResolveConfig(bootstrapReq)
 		if err != nil {
@@ -129,7 +135,7 @@ func runStartupOnboardingHandler(ctx context.Context, cfg config.App, bootstrapR
 	return onboardingCfg, onboardingCfg.Source.SettingsFileExists(), nil
 }
 
-func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request, authHandler AuthHandler) (config.App, *startupGatewayDependencies, error) {
+func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request) (config.App, *startupGatewayDependencies, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		return config.App{}, nil, err
@@ -149,8 +155,8 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 		_ = rootLease.Close()
 		return config.App{}, nil, errStartupControlSurfaceNotRequired
 	}
-	store := authHandler.WrapStore(auth.NewFileStore(config.GlobalAuthConfigPath(cfg)))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.LookupEnv, bootstrapReq.Now)
+	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
 	if err != nil {
 		_ = rootLease.Close()
 		return config.App{}, nil, err
@@ -374,17 +380,17 @@ func writeStatusJSON(w http.ResponseWriter, status int, body map[string]any) {
 }
 
 func serverAuthReady(ctx context.Context, deps transport.GatewayDependencies) bool {
-	if deps == nil || deps.AuthManager() == nil {
+	if deps == nil || deps.AuthBootstrapClient() == nil {
 		return false
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	state, err := deps.AuthManager().Load(ctx)
+	status, err := deps.AuthBootstrapClient().GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{})
 	if err != nil {
 		return false
 	}
-	return auth.EvaluateStartupGate(state).Ready
+	return status.AuthReady
 }
 
 type startupGatewayDependencies struct {
@@ -494,7 +500,7 @@ func (d *startupGatewayDependencies) DebugEnabled() bool { return d.snapshot.Loa
 
 func (d *startupGatewayDependencies) GetReadiness(ctx context.Context, req *emptypb.Empty) (*serverpb.GetReadinessSuccess, error) {
 	snapshot := d.snapshot.Load()
-	resp, err := serverstatus.NewServerStatusService(d.authSupport.AuthManager, snapshot.cfg, nil).GetReadiness(ctx, req)
+	resp, err := serverstatus.NewServerStatusService(d.AuthBootstrapClient(), snapshot.cfg, nil).GetReadiness(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -562,13 +568,16 @@ func (s startupFinalizeService) Finalize(ctx context.Context, req *onboardingpb.
 
 func (d *startupGatewayDependencies) AuthManager() *auth.Manager { return d.authSupport.AuthManager }
 func (d *startupGatewayDependencies) AuthBootstrapClient() apicontract.AuthBootstrapService {
-	return authservice.NewBootstrapService(d.authSupport.AuthManager, d.authSupport.OAuthOptions, d.snapshotConfig().Settings)
+	return authservice.NewBootstrapService(
+		authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment),
+		d.authSupport.OAuthOptions,
+	)
 }
 func (d *startupGatewayDependencies) AuthStatusClient() apicontract.AuthStatusService {
-	return authservice.NewStatusService(d.authSupport.AuthManager, d.snapshotConfig().Settings)
+	return authservice.NewStatusService(authservice.NewConnectionResolver(d.snapshotConfig().PersistenceRoot, d.authSupport.AuthManager, d.authSupport.Environment))
 }
 func (d *startupGatewayDependencies) CapabilityFactsClient() apicontract.CapabilityFactsService {
-	return capabilityfacts.NewService(capabilityfacts.Options{Config: d.snapshotConfig(), AuthManager: d.authSupport.AuthManager})
+	return capabilityfacts.NewService(capabilityfacts.Options{Config: d.snapshotConfig()})
 }
 func (d *startupGatewayDependencies) ServerStatusClient() apicontract.ServerStatusService { return d }
 func (d *startupGatewayDependencies) ServerAuthRequired() bool {

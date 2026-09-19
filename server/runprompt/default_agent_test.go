@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -27,7 +27,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg.Settings.OpenAIBaseURL = provider.URL
+		cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 		cfg.Settings.Reviewer.Frequency = "off"
 		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
 			Settings: config.Settings{Model: "gpt-5-mini"},
@@ -42,9 +42,8 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: initialRole}); err != nil {
 			t.Fatal(err)
 		}
-		authManager := auth.NewManager(auth.NewMemoryStore(auth.State{Method: auth.Method{
-			Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}}), nil, time.Now)
+		authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 		client := NewInProcessRunPromptClient(HeadlessBootstrap{
 			SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
 			RuntimeAuthority: newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...),

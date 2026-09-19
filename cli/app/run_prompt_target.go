@@ -123,11 +123,8 @@ func startupConfigRequest(opts Options) startupconfig.Request {
 		WorkspaceRootExplicit:     opts.WorkspaceRootExplicit,
 		SessionID:                 opts.SessionID,
 		WorkspaceContextSessionID: opts.WorkspaceContextSessionID,
-		OpenAIBaseURL:             opts.OpenAIBaseURL,
-		OpenAIBaseURLExplicit:     opts.OpenAIBaseURLExplicit,
 		LoadOptions: config.LoadOptions{
 			Model:               opts.Model,
-			ProviderOverride:    opts.ProviderOverride,
 			ThinkingLevel:       opts.ThinkingLevel,
 			Theme:               opts.Theme,
 			ModelTimeoutSeconds: opts.ModelTimeoutSeconds,

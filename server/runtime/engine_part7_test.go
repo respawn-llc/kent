@@ -23,7 +23,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

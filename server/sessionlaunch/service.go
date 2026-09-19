@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
@@ -22,15 +21,8 @@ import (
 	"core/shared/textutil"
 )
 
-type authStateReader interface {
-	Load(context.Context) (auth.State, error)
-	CurrentState(context.Context) (auth.State, error)
-	StoredState(context.Context) (auth.State, error)
-}
-
 type Service struct {
-	planner    launch.Planner
-	authStates authStateReader
+	planner launch.Planner
 }
 
 type PlanResult struct {
@@ -70,14 +62,6 @@ func NewService(planner launch.Planner) *Service {
 	return &Service{planner: planner}
 }
 
-func (s *Service) WithAuthStateReader(reader authStateReader) *Service {
-	if s == nil {
-		return nil
-	}
-	s.authStates = reader
-	return s
-}
-
 func (s *Service) PrepareSessionChatSettingsOperation(
 	ctx context.Context,
 	store *session.Store,
@@ -98,15 +82,7 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
 	}
-	authState := auth.EmptyState()
-	var err error
-	if s.authStates != nil {
-		authState, err = s.authStates.StoredState(ctx)
-		if err != nil {
-			return PreparedChatSettingsOperationInput{}, nil, err
-		}
-	}
-	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, authState, meta)
+	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
@@ -175,15 +151,7 @@ func (s *Service) NewChatSettings(ctx context.Context) (*chatsettingspb.ReadSucc
 		}
 		planner.Config = snapshot
 	}
-	authState := auth.EmptyState()
-	if s.authStates != nil {
-		var err error
-		authState, err = s.authStates.StoredState(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, authState, false)
+	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, false)
 	if err != nil {
 		return nil, err
 	}
@@ -339,16 +307,8 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	if err := subagentpolicy.Authorize(planner.Config.Settings, caller, target); err != nil {
 		return PlanResult{}, err
 	}
-	authState := auth.EmptyState()
-	if (req.Overrides.NeedsAuthState() || req.Mode == launch.ModeHeadless) && s.authStates != nil {
-		var authErr error
-		authState, authErr = s.authStates.CurrentState(ctx)
-		if authErr != nil {
-			return PlanResult{}, authErr
-		}
-	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode}
-	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, authState, preparation)
+	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -380,13 +340,6 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	} else if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
 		return PlanResult{}, err
 	}
-	authState := auth.EmptyState()
-	if (req.Overrides.NeedsAuthState() || (req.Mode == launch.ModeHeadless && roleOverride.Default)) && s.authStates != nil {
-		authState, err = s.authStates.CurrentState(ctx)
-		if err != nil {
-			return PlanResult{}, err
-		}
-	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked}
 	if !roleOverride.Present {
 		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta)
@@ -395,13 +348,12 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 		}
 		preparation.OmittedTarget = &target
 	}
-	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, authState, preparation)
+	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err
 	}
 	meta, agentSelectionResolved, activationAgentSelection, err := applyPreparedAgentChatSettings(
 		planner.Config,
-		authState,
 		roleOverride,
 		preparedOverrides,
 		meta,
@@ -416,7 +368,7 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 		SkipContinuationAgentRoleValidation: roleOverride.Default,
 		PreparedPromptFacingTarget:          preparedPromptFacingTarget,
 	}, meta, req.Overrides, preparedOverrides, launch.RunPromptOverrideOptions{
-		AgentSelectionPersisted: agentSelectionResolved && strings.TrimSpace(req.Overrides.OpenAIBaseURL) == "",
+		AgentSelectionPersisted: agentSelectionResolved,
 	})
 	plan.ActivationAgentSelection = activationAgentSelection
 	return s.finalizeLaunchPlan(ctx, plan, warnings, err)
@@ -454,7 +406,6 @@ func authorizePersistedHeadlessRole(
 
 func applyPreparedAgentChatSettings(
 	app config.App,
-	authState auth.State,
 	roleOverride serverapi.RunPromptAgentRoleOverride,
 	preparedOverrides launch.PreparedRunPromptOverrides,
 	meta session.Meta,
@@ -497,7 +448,7 @@ func applyPreparedAgentChatSettings(
 			llm.SupportsFastModeProvider(*preparedOverrides.ProviderCapabilities),
 		)
 	} else {
-		prepared, err = launch.PrepareChatSettingsForAgent(app, authState, targetAgent)
+		prepared, err = launch.PrepareChatSettingsForAgent(app, targetAgent)
 	}
 	if err != nil {
 		return session.Meta{}, false, nil, err
@@ -545,10 +496,8 @@ func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPla
 		return PlanResult{}, err
 	}
 	provider, err := llm.ResolveEffectiveProviderCapabilities(
-		ctx,
 		plan.Locked,
 		plan.ActiveSettings,
-		s.authStates,
 	)
 	if err != nil {
 		return PlanResult{}, err

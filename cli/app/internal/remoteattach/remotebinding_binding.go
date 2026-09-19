@@ -89,11 +89,6 @@ func replaceWithEstablishedRemote(
 	if err := nextRemote.RequireRoot(rootID); err != nil {
 		return nil, errors.Join(err, nextRemote.Close())
 	}
-	if current.NoAuthBootstrapAcknowledgementEnabled() {
-		if err := nextRemote.EnableNoAuthBootstrapAcknowledgement(ctx); err != nil {
-			return nil, errors.Join(err, nextRemote.Close())
-		}
-	}
 	// The successor is fully established at this point. Remote.Close marks the
 	// superseded connection closed before its transport teardown can fail, so a
 	// teardown error cannot roll the binding back to a usable current remote.

@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"core/shared/config"
 )
 
 func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 	store := NewFileStore(statePath)
 
-	state := testAuthStateAt(testAPIKeyState("secret-key"), 10)
+	state := testOAuthState()
 
 	if err := store.Save(context.Background(), state); err != nil {
 		t.Fatalf("save auth state: %v", err)
@@ -25,12 +27,12 @@ func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
 func TestFileStoreLoadCorrectsExistingFilePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testOAuthState(), 10), 0o644)
+	writeAuthStateFile(t, statePath, testOAuthState(), 0o644)
 
 	store := NewFileStore(statePath)
 	loaded := requireAuthState(t, store.Load)
-	if loaded.Method.Type != MethodOAuth {
-		t.Fatalf("expected oauth method, got %q", loaded.Method.Type)
+	if loaded.Connections["work"].AccessToken != "oauth-access" {
+		t.Fatal("expected connection credential")
 	}
 
 	assertAuthStateFileMode(t, statePath, authStateFileMode)
@@ -39,7 +41,7 @@ func TestFileStoreLoadCorrectsExistingFilePermissions(t *testing.T) {
 func TestFileStoreLoadDoesNotBroadenStrictPermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testOAuthState(), 10), 0o400)
+	writeAuthStateFile(t, statePath, testOAuthState(), 0o400)
 
 	store := NewFileStore(statePath)
 	requireAuthState(t, store.Load)
@@ -50,10 +52,10 @@ func TestFileStoreLoadDoesNotBroadenStrictPermissions(t *testing.T) {
 func TestFileStoreSaveCorrectsExistingInsecurePermissions(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "auth-state.json")
 
-	writeAuthStateFile(t, statePath, testAuthStateAt(testAPIKeyState("seed-key"), 9), 0o644)
+	writeAuthStateFile(t, statePath, testOAuthState(), 0o644)
 
 	store := NewFileStore(statePath)
-	next := testAuthStateAt(testAPIKeyState("next-key"), 10)
+	next := testOAuthState()
 	if err := store.Save(context.Background(), next); err != nil {
 		t.Fatalf("save auth state: %v", err)
 	}
@@ -61,140 +63,16 @@ func TestFileStoreSaveCorrectsExistingInsecurePermissions(t *testing.T) {
 	assertAuthStateFileMode(t, statePath, authStateFileMode)
 }
 
-func TestEnvAPIKeyOverrideStoreLoadAlwaysPrefersEnvironmentWithoutPersistedState(t *testing.T) {
-	store := NewEnvAPIKeyOverrideStore(NewMemoryStore(testOAuthState()), testEnvAPIKey("  sk-env  "))
-
-	state := requireAuthState(t, store.Load)
-	if state.Method.Type != MethodAPIKey {
-		t.Fatalf("expected api key override, got %q", state.Method.Type)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-env" {
-		t.Fatalf("expected trimmed env api key, got %+v", state.Method.APIKey)
-	}
-}
-
-func TestEnvAPIKeyOverrideStoreRespectsSavedPreference(t *testing.T) {
-	persisted := testOAuthState()
-	persisted.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferEnv
-	store := NewEnvAPIKeyOverrideStore(NewMemoryStore(persisted), testEnvAPIKey("sk-env"))
-
-	state := requireAuthState(t, store.Load)
-	if state.Method.Type != MethodAPIKey {
-		t.Fatalf("expected api key override, got %q", state.Method.Type)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-env" {
-		t.Fatalf("expected env api key override, got %+v", state.Method.APIKey)
-	}
-}
-
-func TestEnvAPIKeyOverrideStoreKeepsSavedOAuthWhenPreferencePrefersSaved(t *testing.T) {
-	persisted := testOAuthState()
-	persisted.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferSaved
-	store := NewEnvAPIKeyOverrideStore(NewMemoryStore(persisted), testEnvAPIKey("sk-env"))
-
-	state := requireAuthState(t, store.Load)
-	if state.Method.Type != MethodOAuth {
-		t.Fatalf("expected saved oauth method, got %q", state.Method.Type)
-	}
-}
-
-func TestEnvAPIKeyOverrideStoreSaveDelegatesToBaseStore(t *testing.T) {
-	base := NewMemoryStore(EmptyState())
-	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) { return "", false })
-
-	want := testAuthStateAt(testAPIKeyState("sk-saved"), 12)
-	if err := store.Save(context.Background(), want); err != nil {
-		t.Fatalf("save auth state: %v", err)
-	}
-
-	loaded := requireAuthState(t, base.Load)
-	if loaded.Method.Type != MethodAPIKey {
-		t.Fatalf("expected delegated api key save, got %q", loaded.Method.Type)
-	}
-	if loaded.Method.APIKey == nil || loaded.Method.APIKey.Key != "sk-saved" {
-		t.Fatalf("expected delegated saved key, got %+v", loaded.Method.APIKey)
-	}
-}
-
-func TestEnvAPIKeyOverrideStoreLoadPersistedReturnsBaseState(t *testing.T) {
-	base := NewMemoryStore(testOAuthState())
-	store := NewEnvAPIKeyOverrideStore(base, testEnvAPIKey("sk-env"))
-
-	loaded := requireAuthState(t, store.LoadPersisted)
-	if loaded.Method.Type != MethodOAuth {
-		t.Fatalf("expected base oauth state, got %q", loaded.Method.Type)
-	}
-}
-
-type persistedDecoratorStore struct {
-	loadState      State
-	persistedState State
-}
-
-func (s *persistedDecoratorStore) Load(context.Context) (State, error) {
-	return s.loadState, nil
-}
-
-func (s *persistedDecoratorStore) LoadPersisted(context.Context) (State, error) {
-	return s.persistedState, nil
-}
-
-func (s *persistedDecoratorStore) Save(context.Context, State) error {
-	return nil
-}
-
-func TestEnvAPIKeyOverrideStoreLoadPersistedDelegatesToBasePersistedLoader(t *testing.T) {
-	base := &persistedDecoratorStore{
-		loadState: State{
-			Scope:  ScopeGlobal,
-			Method: Method{Type: MethodAPIKey, APIKey: &APIKeyMethod{Key: "runtime-key"}},
-		},
-		persistedState: State{
-			Scope:  ScopeGlobal,
-			Method: Method{Type: MethodOAuth, OAuth: &OAuthMethod{AccessToken: "persisted-access", RefreshToken: "persisted-refresh", TokenType: "Bearer"}},
-		},
-	}
-	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) { return "sk-env", true })
-
-	loaded := requireAuthState(t, store.LoadPersisted)
-	if loaded.Method.Type != MethodOAuth {
-		t.Fatalf("expected persisted oauth state, got %q", loaded.Method.Type)
-	}
-}
-
-func testAPIKeyState(key string) State {
-	return State{
-		Scope:  ScopeGlobal,
-		Method: Method{Type: MethodAPIKey, APIKey: &APIKeyMethod{Key: key}},
-	}
-}
-
 func testOAuthState() State {
 	return State{
-		Scope: ScopeGlobal,
-		Method: Method{
-			Type: MethodOAuth,
-			OAuth: &OAuthMethod{
+		Connections: map[config.ConnectionID]OAuthMethod{
+			"work": {
 				AccessToken:  "oauth-access",
 				RefreshToken: "oauth-refresh",
 				TokenType:    "Bearer",
 				Expiry:       time.Date(2026, time.January, 1, 11, 0, 0, 0, time.UTC),
 			},
 		},
-	}
-}
-
-func testAuthStateAt(state State, hour int) State {
-	state.UpdatedAt = time.Date(2026, time.January, 1, hour, 0, 0, 0, time.UTC)
-	return state
-}
-
-func testEnvAPIKey(value string) func(string) (string, bool) {
-	return func(key string) (string, bool) {
-		if key == "OPENAI_API_KEY" {
-			return value, true
-		}
-		return "", false
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 func mustPostprocessRunner(t *testing.T, settings postprocess.Settings) *postprocess.Runner {
 	t.Helper()
+	settings.PersistenceRoot = t.TempDir()
 	runner, err := postprocess.NewRunner(settings)
 	if err != nil {
 		t.Fatalf("new postprocess runner: %v", err)
@@ -20,7 +21,7 @@ func mustPostprocessRunner(t *testing.T, settings postprocess.Settings) *postpro
 }
 
 func TestNewManagerRejectsNilPostprocessor(t *testing.T) {
-	if _, err := NewManager(WithPostprocessor(nil)); err == nil {
+	if _, err := NewManager(t.TempDir(), WithPostprocessor(nil)); err == nil {
 		t.Fatal("expected nil shell postprocessor to fail manager construction")
 	}
 }
@@ -68,11 +69,9 @@ func TestExecCommandRawPreservesAnsi(t *testing.T) {
 
 func TestExecCommandPostprocessingNonePreservesAnsi(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := NewManager(
-		WithMinimumExecToBgTime(250*time.Millisecond),
+	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(250*time.Millisecond),
 		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
-		WithPostprocessor(mustPostprocessRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone})),
-	)
+		WithPostprocessor(mustPostprocessRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone})))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

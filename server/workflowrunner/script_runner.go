@@ -63,7 +63,7 @@ func (s *Starter) PrepareScriptPublication(
 	if err := s.prepareExecutableTarget(ctx, input); err != nil {
 		return nil, err
 	}
-	command, err := currentNodeScriptCommand(input)
+	command, err := currentNodeScriptCommand(input, s.cfg.PersistenceRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (s *Starter) PrepareScriptPublication(
 	return &currentNodeScriptPublication{detached: detached}, nil
 }
 
-func currentNodeScriptCommand(input workflowstore.CurrentNodeStartContext) (sessionruntime.ScriptCommand, error) {
+func currentNodeScriptCommand(input workflowstore.CurrentNodeStartContext, persistenceRoot string) (sessionruntime.ScriptCommand, error) {
 	executionRoot, err := requireCurrentNodeExecutionRoot(input)
 	if err != nil {
 		return sessionruntime.ScriptCommand{}, err
@@ -110,6 +110,10 @@ func currentNodeScriptCommand(input workflowstore.CurrentNodeStartContext) (sess
 	)
 	if branchKey, branchScoped := input.CurrentNode.Reference.TransitionBranchKey(); branchScoped {
 		env = append(env, "KENT_WORKFLOW_TRANSITION_BRANCH_KEY="+string(branchKey))
+	}
+	env, err = tools.FilterCredentialEnvironment(persistenceRoot, env)
+	if err != nil {
+		return sessionruntime.ScriptCommand{}, fmt.Errorf("prepare Workflow Script environment: %w", err)
 	}
 	return sessionruntime.ScriptCommand{
 		Path: resolvedPath, Workdir: stringPointer(executionRoot.EffectiveRoot()),

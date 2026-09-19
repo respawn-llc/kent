@@ -3,7 +3,6 @@ package launch
 import (
 	"testing"
 
-	"core/server/auth"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -21,22 +20,23 @@ func TestResolveForkThinkingUsesCurrentSelectionAndTargetSupport(t *testing.T) {
 		{name: "custom", model: "gpt-6-astra", endpoint: "https://example.test/v1"},
 		{name: "different model", model: "gpt-5.4"},
 		{name: "OAuth default", model: "gpt-6-astra", oauth: true, supported: true},
-		{name: "OAuth explicit Codex", model: "gpt-6-astra", endpoint: "https://chatgpt.com/backend-api/codex", oauth: true, supported: true},
-		{name: "OAuth API endpoint uses compatible transport", model: "gpt-6-astra", endpoint: "https://api.openai.com/v1", oauth: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			settings := config.DefaultOnboardingSettings()
-			settings.Model, settings.OpenAIBaseURL = test.model, test.endpoint
-			state := auth.EmptyState()
-			if test.oauth {
-				state.Method = auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{
-					AccessToken: "test-access", RefreshToken: "test-refresh", TokenType: "Bearer",
-				}}
+			settings.Model = test.model
+			id := config.ConnectionID("test")
+			settings.Connection = &id
+			definition := config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://api.openai.com/v1")}
+			if test.endpoint != "" {
+				definition.Endpoint = &test.endpoint
 			}
-			manager := auth.NewManager(auth.NewMemoryStore(state), nil, nil)
+			if test.oauth {
+				definition = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
+			}
+			settings.Connections = map[config.ConnectionID]config.ProviderConnection{id: definition}
 			for _, override := range []*string{nil, textutil.Value("low")} {
 				meta := session.Meta{ChatSettings: &session.ChatSettingsOverrides{Thinking: override}}
-				got, err := ResolveForkThinking(t.Context(), config.App{Settings: settings}, meta, manager, false)
+				got, err := ResolveForkThinking(config.App{Settings: settings}, meta, false)
 				if err != nil {
 					t.Fatal(err)
 				}

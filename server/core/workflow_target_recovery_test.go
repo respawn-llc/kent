@@ -76,12 +76,11 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 	secondStep := scriptedllm.FinalAnswer(`{"commentary":"completed"}`)
 	secondStep.BeforeResponse = second.ArriveAndWait
 	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{firstStep, secondStep}})
-	app := newCoreTestAppWithOptions(t, resolved.Config, auth.State{
-		Scope:  auth.ScopeGlobal,
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}, Options{RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
-		return client, nil
-	})})
+	app := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(),
+
+		Options{RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+			return client, nil
+		})})
 	if err := app.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "REC"); err != nil {
 		t.Fatal(err)
 	}

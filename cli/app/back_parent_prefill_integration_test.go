@@ -14,12 +14,13 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	textutil "core/shared/textutil"
-	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 type backParentPrefillScenarioServer interface {
@@ -38,7 +39,8 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}
@@ -92,7 +94,8 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "source-project-model",
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}

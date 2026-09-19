@@ -18,6 +18,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/config"
 	"core/shared/worktreecontract"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -175,7 +176,7 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 		authority:     authority,
 		publisher:     publisher,
 		processes:     processes,
-		service:       NewService(store, nil, authority, publisher, processes, ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir}),
+		service:       NewService(store, nil, authority, publisher, processes, ServiceOptions{PersistenceRoot: cfg.PersistenceRoot, BaseDir: cfg.Settings.Worktrees.BaseDir}),
 		leaseID:       "lease-1",
 		workspaceRoot: workspaceRoot,
 		baseDir:       cfg.Settings.Worktrees.BaseDir,

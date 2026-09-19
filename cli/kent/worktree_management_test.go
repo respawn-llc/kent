@@ -57,12 +57,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = authSupport.AuthManager.SwitchMethod(context.Background(), auth.Method{
-		Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"},
-	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	runtimeSupport, err := bootstrap.BuildRuntimeSupport(cfg)
 	if err != nil {
 		t.Fatal(err)

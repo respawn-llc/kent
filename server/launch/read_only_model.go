@@ -109,16 +109,11 @@ func ResolveReadOnlySessionModel(app config.App, meta session.Meta) (ReadOnlySes
 }
 
 func resolveReadOnlySessionModelProviderFromSettings(settings config.Settings) (ReadOnlySessionModelProvider, error) {
-	if providerID := strings.TrimSpace(settings.ProviderCapabilities.ProviderID); providerID != "" {
-		return resolveReadOnlySessionModelProvider(settings.Model, providerID)
+	capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+	if err != nil {
+		return ReadOnlySessionModelProvider{}, invalidReadOnlySessionModel(err)
 	}
-	if providerOverride := strings.TrimSpace(settings.ProviderOverride); providerOverride != "" {
-		return resolveReadOnlySessionModelProvider(settings.Model, providerOverride)
-	}
-	if strings.TrimSpace(settings.OpenAIBaseURL) != "" {
-		return resolveReadOnlySessionModelProvider(settings.Model, persistedRoleProviderID(settings))
-	}
-	return resolveReadOnlySessionModelProvider(settings.Model, "")
+	return newReadOnlySessionModelProvider(capabilities.ProviderID)
 }
 
 func resolveReadOnlySessionModelProvider(model, configuredProvider string) (ReadOnlySessionModelProvider, error) {

@@ -33,12 +33,14 @@ const (
 
 const openAIResponsesStreamEndedBeforeTerminalMessage = "OpenAI-compatible Responses SSE stream ended before a terminal Responses event"
 
-type AuthHeaderProvider interface {
-	AuthorizationHeader(ctx context.Context) (string, error)
+type DispatchAuthProvider interface {
+	// A nil result explicitly selects auth-less access; errors never do.
+	ResolveDispatchAuth(context.Context) (*DispatchAuth, error)
 }
 
-type OpenAIAuthMetadataProvider interface {
-	OpenAIAuthMetadata(ctx context.Context) (method string, accountID string, err error)
+type DispatchAuth struct {
+	Header string
+	Mode   OpenAIAuthMode
 }
 
 type OpenAIAuthMode struct {
@@ -58,7 +60,7 @@ type HTTPTransport struct {
 	BaseURL                      string
 	BaseURLExplicit              bool
 	Client                       *http.Client
-	Auth                         AuthHeaderProvider
+	Auth                         DispatchAuthProvider
 	Provider                     Provider
 	Store                        bool
 	ModelVerbosity               string
@@ -70,7 +72,7 @@ type HTTPTransport struct {
 	modelContextWindows map[string]int
 }
 
-func NewHTTPTransport(auth AuthHeaderProvider) *HTTPTransport {
+func NewHTTPTransport(auth DispatchAuthProvider) *HTTPTransport {
 	window := 200000
 	if raw := strings.TrimSpace(os.Getenv("KENT_CONTEXT_WINDOW")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -544,27 +546,17 @@ func (t *HTTPTransport) ProviderCapabilities(ctx context.Context) (ProviderCapab
 
 func (t *HTTPTransport) resolveAuth(ctx context.Context) (string, OpenAIAuthMode, error) {
 	if t.Auth == nil {
-		if t.BaseURLExplicit {
-			return "", OpenAIAuthMode{}, nil
-		}
 		return "", OpenAIAuthMode{}, &AuthError{Err: auth.ErrAuthNotConfigured}
 	}
-	authHeader, err := t.Auth.AuthorizationHeader(ctx)
+	result, err := t.Auth.ResolveDispatchAuth(ctx)
 	if err != nil {
-		if t.BaseURLExplicit && errors.Is(err, auth.ErrAuthNotConfigured) {
-			return "", OpenAIAuthMode{}, nil
-		}
 		return "", OpenAIAuthMode{}, &AuthError{Err: err}
 	}
-
-	mode := OpenAIAuthMode{}
-	if provider, ok := t.Auth.(OpenAIAuthMetadataProvider); ok {
-		method, accountID, err := provider.OpenAIAuthMetadata(ctx)
-		if err != nil {
-			return "", OpenAIAuthMode{}, &AuthError{Err: err}
-		}
-		mode.IsOAuth = method == "oauth"
-		mode.AccountID = strings.TrimSpace(accountID)
+	if result == nil {
+		return "", OpenAIAuthMode{}, nil
 	}
-	return authHeader, mode, nil
+	if strings.TrimSpace(result.Header) == "" {
+		return "", OpenAIAuthMode{}, &AuthError{Err: errors.New("dispatch credential is empty")}
+	}
+	return result.Header, result.Mode, nil
 }

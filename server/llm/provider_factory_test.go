@@ -45,14 +45,14 @@ func httpTransportFromOpenAIClient(t *testing.T, client *OpenAIClient) *HTTPTran
 
 type providerTestAuth struct{}
 
-func (providerTestAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer test", nil
+func (providerTestAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer test"}, nil
 }
 
 type providerTestMissingAuth struct{}
 
-func (providerTestMissingAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "", auth.ErrAuthNotConfigured
+func (providerTestMissingAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return nil, auth.ErrAuthNotConfigured
 }
 
 func TestInferProviderFromModel(t *testing.T) {
@@ -137,7 +137,7 @@ func TestNewProviderClient_OpenAIClientPathCompressesCodexRequest(t *testing.T) 
 	}
 }
 
-func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,15 +148,9 @@ func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing
 	}))
 	defer server.Close()
 
-	manager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{
-			Type:  auth.MethodOAuth,
-			OAuth: &auth.OAuthMethod{AccessToken: "oauth-token", AccountID: "account-1"},
-		},
-	}), nil, nil)
 	client, err := NewProviderClient(ProviderClientOptions{
 		Model:      "gpt-5.6-sol",
-		Auth:       manager,
+		Auth:       oauthStaticAuth{},
 		HTTPClient: newRewritingHTTPClient(t, server),
 	})
 	if err != nil {
@@ -265,7 +259,7 @@ func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsCustomModelFamily(
 func TestNewProviderClient_RemoteOpenAICompatibleBaseURLAllowsAnonymousCapabilitiesResolution(t *testing.T) {
 	openAIClient := newOpenAIClientFromOptions(t, ProviderClientOptions{
 		Model:         "vendor-custom-model",
-		Auth:          providerTestMissingAuth{},
+		Auth:          anonymousAuth{},
 		OpenAIBaseURL: "https://example.openrouter.ai/api/v1",
 	})
 

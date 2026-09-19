@@ -3,7 +3,6 @@ package launch
 import (
 	"testing"
 
-	"core/server/auth"
 	"core/server/workflow"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -32,9 +31,9 @@ func TestApplyRunPromptOverridesAppliesWorkflowThinkingAfterRoleResolution(t *te
 		plan,
 		store,
 		serverapi.RunPromptOverrides{AgentRole: &role},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{WorkflowThinking: workflow.SetThinking(thinking)},
-	)
+
+		RunPromptOverrideOptions{WorkflowThinking: workflow.SetThinking(thinking)})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithStore: %v", err)
 	}
@@ -59,9 +58,9 @@ func TestApplyRunPromptOverridesClearsWorkflowThinking(t *testing.T) {
 		plan,
 		store,
 		serverapi.RunPromptOverrides{},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{WorkflowThinking: workflow.ClearThinking()},
-	)
+
+		RunPromptOverrideOptions{WorkflowThinking: workflow.ClearThinking()})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithStore: %v", err)
 	}

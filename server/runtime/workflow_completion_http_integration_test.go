@@ -14,8 +14,8 @@ import (
 
 type workflowCompatibleHTTPAuth struct{}
 
-func (workflowCompatibleHTTPAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer workflow-black-box", nil
+func (workflowCompatibleHTTPAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer workflow-black-box"}, nil
 }
 
 func TestWorkflowCompatibleResponsesHTTPBlackBoxGatesUnphasedAnswer(t *testing.T) {

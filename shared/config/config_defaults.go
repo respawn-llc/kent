@@ -49,10 +49,6 @@ func settingsTOMLForOnboarding(settings Settings, preservedDefaults map[string]b
 			preserved[key] = true
 		}
 	}
-	if strings.TrimSpace(settings.ProviderOverride) != "" {
-		// provider_override must round-trip with an explicit model line.
-		preserved["model"] = true
-	}
 	return settingsTOMLWithRenderingOptions(settings, true, preserved, map[string]bool{"debug": true})
 }
 
@@ -80,11 +76,6 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	if len(modelCapabilityLines) > 0 {
 		out.WriteString("\n[model_capabilities]\n")
 		writeDefaultLines(&out, modelCapabilityLines)
-	}
-	providerCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "provider_capabilities"), filterDefaultLines(defaultLines, "provider_capabilities"))
-	if len(providerCapabilityLines) > 0 {
-		out.WriteString("\n[provider_capabilities]\n")
-		writeDefaultLines(&out, providerCapabilityLines)
 	}
 	if includeToolSection {
 		out.WriteString("\n[tools]\n")
@@ -125,13 +116,6 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	if len(reviewerModelCapabilityLines) > 0 {
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
-	}
-	reviewerProviderCapabilityDefaultState := state
-	reviewerProviderCapabilityDefaultState.Settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-	reviewerProviderCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.provider_capabilities"), filterDefaultLines(configRegistry.defaultLines(reviewerProviderCapabilityDefaultState), "reviewer.provider_capabilities"))
-	if len(reviewerProviderCapabilityLines) > 0 {
-		out.WriteString("\n[reviewer.provider_capabilities]\n")
-		writeDefaultLines(&out, reviewerProviderCapabilityLines)
 	}
 	writeBuiltInSubagentSections(&out)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
@@ -244,10 +228,6 @@ func writeReviewerInheritanceLines(builder *strings.Builder, raw Settings, effec
 	writeCommentedAssignment(builder, "thinking_level", thinkingValue, thinkingCommented, "# inherited from main thinking_level unless overridden")
 	verbosityCommented := !(preserved != nil && preserved["reviewer.model_verbosity"]) && strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == ""
 	writeCommentedAssignment(builder, "model_verbosity", effective.Reviewer.ModelVerbosity, verbosityCommented, "# inherited from main model_verbosity unless overridden")
-	providerCommented := !(preserved != nil && preserved["reviewer.provider_override"]) && strings.TrimSpace(raw.Reviewer.ProviderOverride) == ""
-	writeCommentedAssignment(builder, "provider_override", effective.Reviewer.ProviderOverride, providerCommented, "# inherited from main provider_override unless overridden")
-	baseURLCommented := !(preserved != nil && preserved["reviewer.openai_base_url"]) && strings.TrimSpace(raw.Reviewer.OpenAIBaseURL) == ""
-	writeCommentedAssignment(builder, "openai_base_url", effective.Reviewer.OpenAIBaseURL, baseURLCommented, "# inherited from main openai_base_url for OpenAI-family reviewer providers")
 	contextCommented := !(preserved != nil && preserved["reviewer.model_context_window"]) && raw.Reviewer.ModelContextWindow <= 0
 	writeCommentedAssignment(builder, "model_context_window", effective.Reviewer.ModelContextWindow, contextCommented, "# inherited from main model_context_window unless overridden")
 }

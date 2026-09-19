@@ -1,6 +1,7 @@
 package runtimeview
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -313,6 +314,13 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 		return transcriptStepStateMessages(evt)
 	case runtime.EventLiveRunFinished:
 		return transcriptLiveRunFinishedMessages(evt)
+	case runtime.EventConnectionReplaced:
+		if evt.ConnectionReplacement == nil {
+			return nil, errors.New("connection replacement event has no binding change")
+		}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ConnectionReplaced{ConnectionReplaced: &transcriptpb.ConnectionReplacement{
+			PreviousId: string(evt.ConnectionReplacement.Previous), CurrentId: string(evt.ConnectionReplacement.Current),
+		}}}}, nil
 	case runtime.EventSleepGuardFailed,
 		runtime.EventPromptHistoryPersistFailed,
 		runtime.EventContextFactsPersistFailed,

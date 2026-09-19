@@ -14,7 +14,6 @@ import (
 	"core/server/httpcompression"
 	"core/server/llm"
 	"core/shared/authstatus"
-	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 
@@ -25,138 +24,66 @@ import (
 const usageBaseURL = "https://chatgpt.com/backend-api"
 
 type StatusService struct {
-	manager  *auth.Manager
-	settings config.Settings
+	connections *ConnectionResolver
 }
 
-func NewStatusService(manager *auth.Manager, settings config.Settings) *StatusService {
-	return &StatusService{manager: manager, settings: settings}
+func NewStatusService(connections *ConnectionResolver) *StatusService {
+	return &StatusService{connections: connections}
 }
 
 func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error) {
 	if req == nil {
-		return nil, errors.New("auth status request is required")
+		return nil, errors.New("connection status request is required")
 	}
-	state := auth.EmptyState()
-	if s != nil && s.manager != nil {
-		loaded, err := s.manager.Load(ctx)
-		if err != nil {
-			return &authpb.Status{
-				Resolution: &authpb.StatusResolution{
-					Resolution: &authpb.StatusResolution_Unavailable{Unavailable: authStatusFailure(err)},
-				},
-				Subscription: &authpb.SubscriptionFacts{},
-			}, nil
-		}
-		state = loaded
+	var target *string
+	if req.Provider != nil {
+		target = &req.Provider.ConnectionId
 	}
-	provider, subscriptionUsageSupported, err := s.resolveProvider(state, req.Provider)
+	snapshot, err := s.connections.snapshot(ctx, target)
+	if err != nil {
+		return &authpb.Status{
+			Resolution:   &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Unavailable{Unavailable: authStatusFailure(err)}},
+			Subscription: &authpb.SubscriptionFacts{},
+		}, nil
+	}
+	definition := snapshot.connection.Definition
+	capabilities, err := llm.ResolveConnectionCapabilities(definition)
 	if err != nil {
 		return nil, err
 	}
-	subscriptionUsageSupported = subscriptionUsageSupported && !req.SkipSubscriptionUsage
-	return &authpb.Status{
-		Resolution: &authpb.StatusResolution{
-			Resolution: &authpb.StatusResolution_Known{Known: authFacts(state, provider)},
-		},
-		Subscription: subscriptionStatus(ctx, state, nil, subscriptionUsageSupported),
-	}, nil
-}
-
-func (s *StatusService) resolveProvider(
-	state auth.State,
-	requested *authpb.ProviderSelection,
-) (*authpb.ProviderFacts, bool, error) {
-	settings := config.Settings{}
-	if s != nil {
-		settings = s.settings
-	}
-	requestedSelection := requested != nil
-	if requested != nil {
-		settings = authstatus.ProviderSettings(requested)
-	}
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(state, settings)
-	if err != nil {
-		return nil, false, fmt.Errorf("resolve auth status provider: %w", err)
-	}
-	provider := authstatus.ProviderFacts(capabilities.ProviderID, capabilities.IsOpenAIFirstParty, settings)
-	if requestedSelection {
-		return provider, capabilities.IsOpenAIFirstParty, nil
-	}
-	return provider, authstatus.SupportsSubscriptionUsage(settings, capabilities.IsOpenAIFirstParty), nil
-}
-
-func authFacts(state auth.State, provider *authpb.ProviderFacts) *authpb.StatusFacts {
 	facts := &authpb.StatusFacts{
-		Method:        authStatusMethod(state.Method.Type),
-		Provider:      provider,
-		EnvPreference: authStatusEnvPreference(state.EnvAPIKeyPreference),
+		ConnectionId: string(snapshot.connection.ID), Method: connectionAuthMethod(definition),
+		Provider: authstatus.ProviderFacts(capabilities.ProviderID, capabilities.IsOpenAIFirstParty, definition),
 	}
-	switch state.Method.Type {
-	case auth.MethodOAuth:
-		oauthFacts := &authpb.OAuthFacts{}
-		if state.Method.OAuth != nil {
-			oauthFacts.AccountId = textutil.OptionalTrimmedString(state.Method.OAuth.AccountID)
-			oauthFacts.Email = textutil.OptionalTrimmedString(state.Method.OAuth.Email)
+	switch facts.Method {
+	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
+		oauth := &authpb.OAuthFacts{}
+		if snapshot.oauth != nil {
+			oauth.AccountId = textutil.OptionalTrimmedString(snapshot.oauth.AccountID)
+			oauth.Email = textutil.OptionalTrimmedString(snapshot.oauth.Email)
 		}
-		facts.MethodFacts = &authpb.StatusFacts_Oauth{Oauth: oauthFacts}
-	case auth.MethodAPIKey:
-		facts.MethodFacts = &authpb.StatusFacts_ApiKey{ApiKey: apiKeyFacts(state.Method.APIKey)}
-	default:
+		facts.MethodFacts = &authpb.StatusFacts_Oauth{Oauth: oauth}
+	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
+		facts.MethodFacts = &authpb.StatusFacts_ApiKey{ApiKey: &authpb.APIKeyFacts{EnvironmentVariable: *definition.EnvironmentVariable}}
+	case authpb.AuthMethod_AUTH_METHOD_NONE:
 		facts.MethodFacts = &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}}
 	}
-	return facts
-}
-
-func authStatusMethod(method auth.MethodType) authpb.AuthMethod {
-	switch method {
-	case auth.MethodOAuth:
-		return authpb.AuthMethod_AUTH_METHOD_OAUTH
-	case auth.MethodAPIKey:
-		return authpb.AuthMethod_AUTH_METHOD_API_KEY
-	default:
-		return authpb.AuthMethod_AUTH_METHOD_NONE
+	resolution := &authpb.StatusResolution{Resolution: &authpb.StatusResolution_Known{Known: facts}}
+	if snapshot.failure != nil {
+		resolution.PartialFailure = authStatusFailure(snapshot.failure)
 	}
-}
-
-func authStatusEnvPreference(preference auth.EnvAPIKeyPreference) authpb.EnvironmentPreference {
-	switch preference {
-	case auth.EnvAPIKeyPreferencePreferSaved:
-		return authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_SAVED_AUTH
-	case auth.EnvAPIKeyPreferencePreferEnv:
-		return authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_ENV_API_KEY
-	default:
-		return authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_UNSPECIFIED
-	}
-}
-
-func apiKeyFacts(method *auth.APIKeyMethod) *authpb.APIKeyFacts {
-	facts := &authpb.APIKeyFacts{}
-	if method == nil {
-		return facts
-	}
-	runes := []rune(strings.TrimSpace(method.Key))
-	if len(runes) <= 4 {
-		return facts
-	}
-	suffix := string(runes[len(runes)-4:])
-	facts.Suffix = &suffix
-	return facts
+	return &authpb.Status{Resolution: resolution, Subscription: subscriptionStatus(ctx, snapshot.oauth, !req.SkipSubscriptionUsage)}, nil
 }
 
 func subscriptionStatus(
 	ctx context.Context,
-	state auth.State,
-	authStateErr error,
+	credential *auth.OAuthMethod,
 	subscriptionUsageSupported bool,
 ) *authpb.SubscriptionFacts {
-	if !shouldFetchSubscriptionUsage(state, subscriptionUsageSupported) {
+	if credential == nil || !subscriptionUsageSupported {
 		return &authpb.SubscriptionFacts{}
 	}
-	if authStateErr != nil {
-		return &authpb.SubscriptionFacts{Applicable: true, Failure: authStatusFailure(authStateErr)}
-	}
-	payload, err := fetchUsagePayload(ctx, usageBaseURL, state)
+	payload, err := fetchUsagePayload(ctx, usageBaseURL, *credential)
 	if err != nil {
 		return &authpb.SubscriptionFacts{Applicable: true, Failure: authStatusFailure(err)}
 	}
@@ -169,12 +96,6 @@ func subscriptionStatus(
 		Plan:       textutil.OptionalTrimmedString(payload.PlanType),
 		Windows:    windows,
 	}
-}
-
-func shouldFetchSubscriptionUsage(state auth.State, subscriptionUsageSupported bool) bool {
-	return state.Method.Type == auth.MethodOAuth &&
-		state.Method.OAuth != nil &&
-		subscriptionUsageSupported
 }
 
 type usagePayload struct {
@@ -200,8 +121,8 @@ type usageWindow struct {
 	ResetAt            int64   `json:"reset_at"`
 }
 
-func fetchUsagePayload(ctx context.Context, baseURL string, state auth.State) (usagePayload, error) {
-	authorization, err := state.Method.AuthHeaderValue()
+func fetchUsagePayload(ctx context.Context, baseURL string, credential auth.OAuthMethod) (usagePayload, error) {
+	authorization, err := (auth.Method{Type: auth.MethodOAuth, OAuth: &credential}).AuthHeaderValue()
 	if err != nil {
 		return usagePayload{}, err
 	}
@@ -211,10 +132,8 @@ func fetchUsagePayload(ctx context.Context, baseURL string, state auth.State) (u
 	}
 	request.Header.Set("Authorization", authorization)
 	request.Header.Set("User-Agent", "kent/dev")
-	if state.Method.OAuth != nil {
-		if accountID := strings.TrimSpace(state.Method.OAuth.AccountID); accountID != "" {
-			request.Header.Set("ChatGPT-Account-Id", accountID)
-		}
+	if accountID := strings.TrimSpace(credential.AccountID); accountID != "" {
+		request.Header.Set("ChatGPT-Account-Id", accountID)
 	}
 	response, err := httpcompression.NewClient(&http.Client{Timeout: 10 * time.Second}).Do(request)
 	if err != nil {

@@ -140,12 +140,6 @@ func (selections onboardingSelections) invariantViolation() (onboardingInvariant
 	if violation, ok := importSelectionInvariantViolation("command_import", selections.commandImport); ok {
 		return violation, true
 	}
-	if selections.preserved.providerOverride != nil && strings.TrimSpace(*selections.preserved.providerOverride) == "" {
-		return onboardingInvariantViolation{VariantType: "preserved.provider_override", VariantTag: *selections.preserved.providerOverride}, true
-	}
-	if selections.preserved.openAIBaseURL != nil && strings.TrimSpace(*selections.preserved.openAIBaseURL) == "" {
-		return onboardingInvariantViolation{VariantType: "preserved.openai_base_url", VariantTag: *selections.preserved.openAIBaseURL}, true
-	}
 	if selections.preserved.modelTimeoutSeconds != nil {
 		value := *selections.preserved.modelTimeoutSeconds
 		if value <= 0 || uint64(value) > math.MaxUint32 {

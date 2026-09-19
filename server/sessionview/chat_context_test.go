@@ -16,6 +16,7 @@ import (
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -66,8 +67,7 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	authReader := &sessionChatContextAuthReader{}
 	target := availableSessionExecutionTarget(executionRoot)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
-		WithChatContextWorkspaceResolver(resolver).
-		WithChatContextAuthReader(authReader)
+		WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
 	if err != nil {
@@ -111,9 +111,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 	}
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5.6-sol"
-	settings.ProviderCapabilities.ProviderID = "openai"
 	settings.Reviewer.Model = "gpt-5.6-sol"
-	settings.Reviewer.ProviderCapabilities.ProviderID = "openai"
 	settings.Reviewer.ModelContextWindow = 160_000
 	settings.ModelContextWindow = 160_000
 	settings.ContextCompactionThresholdTokens = 120_000
@@ -144,7 +142,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 		newTestSessionResolver(store),
 		nil,
 		staticExecutionTargetResolver{target: availableSessionExecutionTarget(executionRoot)},
-	).WithChatContextWorkspaceResolver(resolver).WithChatContextAuthReader(authReader)
+	).WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
 	if err != nil {
@@ -201,7 +199,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 		metadataStore,
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
 		app: testsetup.ProgrammaticConfig(t, settings),
-	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+	})
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
 	if err != nil {
@@ -229,8 +227,8 @@ func TestReadDormantSessionChatContextPropagatesLoadAndAuthFailures(t *testing.T
 	authErr := errors.New("auth unavailable")
 	settings := config.DefaultOnboardingSettings()
 	service = NewService(newTestSessionResolver(store), nil, targets).
-		WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)}).
-		WithChatContextAuthReader(&sessionChatContextAuthReader{err: authErr})
+		WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)})
+
 	if _, err := service.ReadSessionChatContext(t.Context(), sessionID); !errors.Is(err, authErr) {
 		t.Fatalf("auth error = %v, want %v", err, authErr)
 	}

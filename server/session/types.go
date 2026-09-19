@@ -7,6 +7,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+
 	"github.com/google/uuid"
 )
 
@@ -108,8 +109,7 @@ type LockedProviderCapabilities struct {
 }
 
 type ContinuationContext struct {
-	OpenAIBaseURL *string `json:"openai_base_url"`
-	AgentRole     *string `json:"agent_role,omitempty"`
+	AgentRole *string `json:"agent_role,omitempty"`
 }
 
 // NavigationTargetSessionID returns the authoritative human-navigation target
@@ -197,6 +197,7 @@ type GoalState struct {
 }
 
 type Meta struct {
+	ConnectionID                    *config.ConnectionID             `json:"connection_id"`
 	SessionID                       string                           `json:"session_id"`
 	Category                        *sessioncontract.SessionCategory `json:"category,omitempty"`
 	Name                            string                           `json:"name,omitempty"`
@@ -236,6 +237,7 @@ type ActiveWorkflowAssignmentState struct{}
 // PromptFacingMetadataSnapshot captures metadata that Session planning may
 // change before a Workflow assignment commits.
 type PromptFacingMetadataSnapshot struct {
+	ConnectionID                  *config.ConnectionID
 	Name                          string
 	FirstPromptPreview            string
 	Continuation                  *ContinuationContext

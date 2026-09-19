@@ -1,25 +1,14 @@
 package authservice
 
-import (
-	"strings"
-
-	"core/server/llm"
-	"core/shared/config"
-)
+import "core/shared/config"
 
 func StartupAuthRequired(settings config.Settings) bool {
-	if baseURL := strings.TrimSpace(settings.OpenAIBaseURL); baseURL != "" {
-		if llm.IsOpenAIFirstPartyBaseURL(baseURL) {
-			return true
-		}
+	if settings.Connection == nil {
 		return false
 	}
-	if provider := strings.ToLower(strings.TrimSpace(settings.ProviderOverride)); provider != "" {
-		return provider == string(llm.ProviderOpenAI)
+	connection, present := settings.Connections[*settings.Connection]
+	if !present {
+		return true
 	}
-	provider, err := llm.InferProviderFromModel(settings.Model)
-	if err != nil {
-		return false
-	}
-	return provider == llm.ProviderOpenAI
+	return connection.Protocol == config.ConnectionChatGPT || connection.EnvironmentVariable != nil
 }

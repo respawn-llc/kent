@@ -18,8 +18,8 @@ import (
 
 type staticAuthHeader struct{}
 
-func (staticAuthHeader) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer test", nil
+func (staticAuthHeader) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer test"}, nil
 }
 
 func newOpenAIStreamTestServer(t *testing.T, events ...string) *httptest.Server {

@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
-	"core/server/authservice"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
@@ -35,18 +33,6 @@ import (
 
 type envAuthHandler struct {
 	lookupEnv func(string) string
-}
-
-func (h envAuthHandler) WrapStore(base auth.Store) auth.Store {
-	return authservice.WrapStoreWithEnvAPIKeyOverride(base, h.LookupEnv)
-}
-
-func (envAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (envAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
 }
 
 func (h envAuthHandler) LookupEnv(key string) string {
@@ -105,7 +91,7 @@ func newServeWorkspace(t *testing.T) string {
 
 func startServeTestServer(t *testing.T, request Request, authHandler envAuthHandler, onboarding OnboardingHandler) *ServeServer {
 	t.Helper()
-	server, err := StartServeServer(context.Background(), request, authHandler, onboarding)
+	server, err := StartServeServer(context.Background(), request, onboarding)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -118,7 +104,7 @@ func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	first := startServeTestServer(t, request, envAuthHandler{}, noopOnboarding)
 
-	if _, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+	if _, err := StartServeServer(context.Background(), request, noopOnboarding); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
 		t.Fatalf("second StartServeServer error = %v, want ErrPersistenceRootBusy", err)
 	}
 	if first.Core == nil {
@@ -159,9 +145,9 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 			WorkspaceRootExplicit: true,
 			AllowUnauthenticated:  true,
 		},
-		envAuthHandler{},
-		nil,
-	)
+
+		nil)
+
 	if server != nil {
 		_ = server.Close()
 	}
@@ -261,7 +247,7 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	server, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding)
+	server, err := StartServeServer(context.Background(), request, noopOnboarding)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -270,7 +256,7 @@ func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.
 		t.Fatalf("close initial server: %v", err)
 	}
 
-	restarted, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding)
+	restarted, err := StartServeServer(context.Background(), request, noopOnboarding)
 	if err != nil {
 		t.Fatalf("restart: %v", err)
 	}
@@ -598,7 +584,7 @@ func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.
 		t.Fatalf("write settings: %v", err)
 	}
 
-	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}), envAuthHandler{})
+	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}))
 	if !errors.Is(err, errStartupControlSurfaceNotRequired) {
 		t.Fatalf("buildStartupControlSurface error = %v, want not required", err)
 	}

@@ -6,10 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
+	"core/server/authservice"
 	"core/shared/config"
+	"core/shared/textutil"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -57,7 +61,7 @@ func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
 
 func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 	readiness := requireServerReadiness(t, nil, config.App{
-		Settings: config.Settings{ProviderOverride: "anthropic"},
+		Settings: config.Settings{},
 	})
 
 	if readiness.AuthRequired {
@@ -73,7 +77,9 @@ func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 
 func TestGetServerReadinessBlockedWhenStartupAuthRequiredButMissing(t *testing.T) {
 	readiness := requireServerReadiness(t, nil, config.App{
-		Settings: config.Settings{ProviderOverride: "openai"},
+		Settings: config.Settings{Connection: textutil.Value(config.ConnectionID("work")), Connections: map[config.ConnectionID]config.ProviderConnection{
+			"work": {Protocol: config.ConnectionChatGPT},
+		}},
 	})
 
 	if !readiness.AuthRequired {
@@ -96,8 +102,9 @@ func (failingAuthStore) Load(context.Context) (auth.State, error) {
 func (failingAuthStore) Save(context.Context, auth.State) error { return nil }
 
 func TestGetServerReadinessSkipsAuthStateWhenStartupAuthNotRequired(t *testing.T) {
-	manager := auth.NewManager(failingAuthStore{}, nil, nil)
-	service := NewServerStatusService(manager, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}}, nil)
+	manager := auth.NewManager(failingAuthStore{}, nil)
+	app := testsetup.ProgrammaticConfig(t, config.Settings{})
+	service := NewServerStatusService(authservice.NewBootstrapService(authservice.NewConnectionResolver(app.PersistenceRoot, manager, nil), auth.OpenAIOAuthOptions{}), app, nil)
 
 	response, err := service.GetReadiness(context.Background(), &emptypb.Empty{})
 	if err != nil {
@@ -116,7 +123,7 @@ func TestServerStatusSeparatesReadinessFromLazyUpdateStatus(t *testing.T) {
 			t.Fatalf("Close: %v", err)
 		}
 	})
-	service := NewServerStatusService(nil, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}}, updates)
+	service := NewServerStatusService(nil, config.App{Settings: config.Settings{}}, updates)
 
 	if _, err := service.GetReadiness(context.Background(), &emptypb.Empty{}); err != nil {
 		t.Fatalf("GetReadiness: %v", err)
@@ -139,7 +146,13 @@ func TestServerStatusSeparatesReadinessFromLazyUpdateStatus(t *testing.T) {
 
 func requireServerReadiness(t *testing.T, manager *auth.Manager, app config.App) *serverpb.Readiness {
 	t.Helper()
-	response, err := NewServerStatusService(manager, app, nil).GetReadiness(context.Background(), &emptypb.Empty{})
+	bootstrap := authservice.NewBootstrapService(authservice.NewConnectionResolver(t.TempDir(), manager, nil), auth.OpenAIOAuthOptions{})
+	if app.Settings.Connection != nil {
+		root := t.TempDir()
+		testsetup.WriteProviderSettings(t, root, app.Settings)
+		bootstrap = authservice.NewBootstrapService(authservice.NewConnectionResolver(root, manager, nil), auth.OpenAIOAuthOptions{})
+	}
+	response, err := NewServerStatusService(bootstrap, app, nil).GetReadiness(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("GetReadiness: %v", err)
 	}

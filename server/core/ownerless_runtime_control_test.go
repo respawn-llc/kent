@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -129,15 +130,12 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatalf("ResolveConfig: %v", err)
 	}
 	resolved.Config.Settings.Model = "gpt-5"
-	resolved.Config.Settings.OpenAIBaseURL = server.URL
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, server.URL))
 	binding, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.State{
-		Scope:  auth.ScopeGlobal,
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -149,8 +147,7 @@ func runSecondClientLiveControlsActiveRun(
 
 	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, runtimeSupport, Options{
 		WorkspaceConfigLoadOptions: config.LoadOptions{
-			Model:         "gpt-5",
-			OpenAIBaseURL: server.URL,
+			Model: "gpt-5",
 		},
 	})
 	if err != nil {

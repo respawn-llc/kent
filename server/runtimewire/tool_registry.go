@@ -276,7 +276,7 @@ func NewLocalToolRegistryBinding(opts LocalToolRegistryOptions) (*LocalToolRegis
 	background := opts.Background
 	if background == nil {
 		var err error
-		background, err = shelltool.NewManager(shelltool.WithMinimumExecToBgTime(opts.MinimumExecToBgTime))
+		background, err = shelltool.NewManager(opts.GlobalConfigDir, shelltool.WithMinimumExecToBgTime(opts.MinimumExecToBgTime))
 		if err != nil {
 			return nil, nil, nil, err
 		}

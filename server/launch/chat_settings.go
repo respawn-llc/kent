@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"core/server/auth"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
@@ -45,17 +44,17 @@ type preparedChatAgentComparison struct {
 
 func PrepareChatAgentCatalog(
 	app config.App,
-	authState auth.State,
 	skipProviderReadinessValidation bool,
 ) (PreparedChatAgentCatalog, error) {
-	return prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{
+	return prepareChatAgentCatalog(app, RunPromptPreparationContext{
 		Mode:                            ModeInteractive,
 		SkipProviderReadinessValidation: skipProviderReadinessValidation,
 	})
+
 }
 
-func PrepareSessionChatAgentCatalog(app config.App, authState auth.State, meta session.Meta) (PreparedChatAgentCatalog, error) {
-	return prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
+func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
+	return prepareChatAgentCatalog(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
 }
 
 func defaultAgentMode(meta session.Meta) Mode {
@@ -65,14 +64,14 @@ func defaultAgentMode(meta session.Meta) Mode {
 	return ModeInteractive
 }
 
-func prepareChatAgentCatalog(app config.App, authState auth.State, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
+func prepareChatAgentCatalog(app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
 	selectors := append(
 		[]string{config.DefaultSubagentRole},
 		config.AvailableSubagentRoleNames(app.Settings, false)...,
 	)
 	entries := make([]PreparedChatAgentCatalogEntry, 0, len(selectors))
 	for _, selector := range selectors {
-		entry, err := prepareChatAgentCatalogEntry(app, authState, selector, preparation)
+		entry, err := prepareChatAgentCatalogEntry(app, selector, preparation)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
 		}
@@ -115,7 +114,6 @@ func (c PreparedChatAgentCatalog) Lookup(agent string) (PreparedChatAgentCatalog
 
 func prepareChatAgentCatalogEntry(
 	app config.App,
-	authState auth.State,
 	selector string,
 	preparation RunPromptPreparationContext,
 ) (PreparedChatAgentCatalogEntry, error) {
@@ -125,15 +123,18 @@ func prepareChatAgentCatalogEntry(
 		}
 	}
 	target, prepared, err := prepareChatSettingsTargetForAgent(
-		app, authState, selector, preparation,
-	)
+		app, selector, preparation)
+
 	if err != nil {
 		return fail(classifyChatAgentPreparationError(err))
 	}
 	var capabilities llm.ProviderCapabilities
 	var fastAvailable bool
 	if preparation.SkipProviderReadinessValidation {
-		capabilities, _ = llm.ProviderCapabilitiesFromOverride(target.Settings.ProviderCapabilities)
+		capabilities, err = llm.ResolveRuntimeProviderCapabilities(target.Settings)
+		if err != nil {
+			return fail(serverapi.ChatSettingsAgentInternalPreparation)
+		}
 		fastAvailable = true
 	} else {
 		if prepared.ProviderCapabilities == nil {
@@ -181,8 +182,8 @@ func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPre
 	return serverapi.ChatSettingsAgentInternalPreparation
 }
 
-func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent string) (PreparedChatSettings, error) {
-	target, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, RunPromptPreparationContext{Mode: ModeInteractive})
+func PrepareChatSettingsForAgent(app config.App, agent string) (PreparedChatSettings, error) {
+	target, prepared, err := prepareChatSettingsTargetForAgent(app, agent, RunPromptPreparationContext{Mode: ModeInteractive})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -195,8 +196,8 @@ func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent str
 	)
 }
 
-func PrepareSessionChatSettingsForAgent(app config.App, authState auth.State, meta session.Meta, agent string, promptFacing PreparedBaseTarget) (PreparedChatSettings, error) {
-	baselineTarget, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
+func PrepareSessionChatSettingsForAgent(app config.App, meta session.Meta, agent string, promptFacing PreparedBaseTarget) (PreparedChatSettings, error) {
+	baselineTarget, prepared, err := prepareChatSettingsTargetForAgent(app, agent, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -210,7 +211,7 @@ func PrepareSessionChatSettingsForAgent(app config.App, authState auth.State, me
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
-	capabilities, err := PrepareChatSettingsForTarget(authState, promptFacing)
+	capabilities, err := PrepareChatSettingsForTarget(promptFacing)
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -224,7 +225,6 @@ func PrepareSessionChatSettingsForAgent(app config.App, authState auth.State, me
 
 func prepareChatSettingsTargetForAgent(
 	app config.App,
-	authState auth.State,
 	agent string,
 	preparation RunPromptPreparationContext,
 ) (PreparedBaseTarget, PreparedRunPromptOverrides, error) {
@@ -236,9 +236,9 @@ func prepareChatSettingsTargetForAgent(
 	prepared, err := PrepareRunPromptOverridesWithContext(
 		app,
 		serverapi.RunPromptOverrides{AgentRole: &agent},
-		authState,
-		preparation,
-	)
+
+		preparation)
+
 	if err != nil {
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, err
 	}
@@ -249,8 +249,8 @@ func prepareChatSettingsTargetForAgent(
 	return *target, prepared, nil
 }
 
-func PrepareChatSettingsForTarget(authState auth.State, target PreparedBaseTarget) (PreparedChatSettings, error) {
-	capabilities, err := llm.ProviderCapabilitiesForSettings(authState, target.Settings)
+func PrepareChatSettingsForTarget(target PreparedBaseTarget) (PreparedChatSettings, error) {
+	capabilities, err := llm.ResolveRuntimeProviderCapabilities(target.Settings)
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}

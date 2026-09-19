@@ -109,6 +109,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		Environment:     authSupport.Environment,
 		Debug:           cfg.Settings.Debug,
 		PersistenceRoot: cfg.PersistenceRoot,
 		AuthManager:     authSupport.AuthManager,
@@ -149,7 +150,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = metadataStore.Close()
 		return nil, fmt.Errorf("projects bundle: metadata service: %w", err)
 	}
-	capabilityFactsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg, AuthManager: authSupport.AuthManager})
+	capabilityFactsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
 	askService := promptcontrol.NewAskViewService(runtimeRegistry)
 	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
 	processService := processview.NewProcessViewService(runtimeSupport.Background, metadataStore)
@@ -192,6 +193,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	gitInspector := worktree.NewGitInspector(nil)
 	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, runtimeSupport.Background)
 	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, runtimeSupport.Background, worktree.ServiceOptions{
+		PersistenceRoot:   cfg.PersistenceRoot,
 		BaseDir:           cfg.Settings.Worktrees.BaseDir,
 		SessionRetargeter: sessionWorkspaceRetargeter,
 		ResolveSetup: func(sourceWorkspaceRoot string) (config.WorktreeSettings, error) {
@@ -199,17 +201,17 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 	})
 	projectViews := projectService
-	authBootstrapService := authservice.NewBootstrapService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings)
-	authStatusService := authservice.NewStatusService(authSupport.AuthManager, cfg.Settings)
+	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
+	authBootstrapService := authservice.NewBootstrapService(connections, authSupport.OAuthOptions)
+	authStatusService := authservice.NewStatusService(connections)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
-	serverStatusService := serverstatus.NewServerStatusService(authSupport.AuthManager, cfg, updateStatusService)
+	serverStatusService := serverstatus.NewServerStatusService(authBootstrapService, cfg, updateStatusService)
 	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
 		WithPromptHistoryReader(metadataStore).
 		WithExecutionEnvironmentConfig(cfg).
 		WithExecutionEnvironmentAuth(authStatusService).
 		WithExecutionEnvironmentGit(gitInspector).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
-		WithChatContextAuthReader(authSupport.AuthManager).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
 	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, authSupport.AuthManager).
 		WithPersistedSessionResolver(metadataStore).
@@ -285,6 +287,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
 	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
+		Environment:          authSupport.Environment,
 		RuntimeClientFactory: opts.RuntimeClientFactory,
 		RuntimeAuthority:     runtimeAuthority,
 		TaskDependencies:     workflowTaskDependencyCounter,

@@ -15,6 +15,7 @@ type CompactionFeedback =
   | Readonly<{ kind: "failed"; diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"] }>;
 export type ChatProjectionHostEffect =
   | Readonly<{ kind: "compaction"; feedback: CompactionFeedback }>
+  | Readonly<{ kind: "connection-replaced"; replacement: ChatTranscriptPayloadByKind["connection_replaced"] }>
   | Readonly<{ kind: "pending-work-hydrated"; sessionID: string }>
   | Readonly<{ kind: "pending-work-changed" }>
   | Readonly<{
@@ -156,6 +157,9 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
     return result(state, {
       effects: [{ kind: "worktree-transition-outcome", outcome: event.payload }],
     });
+  }
+  if (event.kind === "connection_replaced") {
+    return result(state, { effects: [{ kind: "connection-replaced", replacement: event.payload }] });
   }
   return result(state);
 }

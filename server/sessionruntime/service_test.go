@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -82,7 +81,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	override := serverapi.RunPromptOverrides{Tools: "exec_command"}
-	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, auth.EmptyState(), launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
+	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -912,11 +911,7 @@ func sessionRuntimeFastSettings(enabled bool) config.Settings {
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5"
 	settings.PriorityRequestMode = enabled
-	settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
+	settings = testsetup.ProviderSettings(settings)
 	settings.Reviewer.Frequency = "off"
 	return settings
 }
@@ -1242,12 +1237,13 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	bootstrapRunner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode: config.ShellPostprocessingModeNone,
+		PersistenceRoot: t.TempDir(),
+		Mode:            config.ShellPostprocessingModeNone,
 	})
 	if err != nil {
 		t.Fatalf("new bootstrap shell postprocessor: %v", err)
 	}
-	background, err := shelltool.NewManager(
+	background, err := shelltool.NewManager(t.TempDir(),
 		shelltool.WithMinimumExecToBgTime(time.Second),
 		shelltool.WithPostprocessor(bootstrapRunner),
 	)

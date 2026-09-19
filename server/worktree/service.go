@@ -16,6 +16,7 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/mutationlane"
 	"core/server/sessionruntime"
+	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowstore"
@@ -30,6 +31,7 @@ import (
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -53,6 +55,7 @@ type sessionWorkspaceRetargeter interface {
 }
 
 type ServiceOptions struct {
+	PersistenceRoot     string
 	BaseDir             string
 	SetupScript         string
 	SetupTimeoutSeconds int
@@ -61,6 +64,7 @@ type ServiceOptions struct {
 }
 
 type Service struct {
+	persistenceRoot     string
 	metadata            *metadata.Store
 	git                 *GitInspector
 	authority           *sessionruntime.Authority
@@ -353,6 +357,7 @@ func NewService(metadataStore *metadata.Store, gitInspector *GitInspector, autho
 		setupScript:         strings.TrimSpace(opts.SetupScript),
 		setupTimeoutSeconds: opts.SetupTimeoutSeconds,
 		resolveSetup:        opts.ResolveSetup,
+		persistenceRoot:     opts.PersistenceRoot,
 		setupBroker:         newSetupEventBroker(),
 		workspaceMutations:  mutationlane.NewMutationLaneRegistry[string](),
 		sessionRetargeter:   opts.SessionRetargeter,
@@ -2677,6 +2682,9 @@ func (s *Service) runSetupScript(ctx context.Context, scriptPath string, payload
 	cmd.Dir = payload.WorktreeRoot
 	cmd.Stdin = strings.NewReader(string(body))
 	cmd.Env, err = buildSetupEnvironment(os.Environ(), payload, platformSetupEnvironmentKeyCanonicalizer)
+	if err == nil {
+		cmd.Env, err = tools.FilterCredentialEnvironment(s.persistenceRoot, cmd.Env)
+	}
 	if err != nil {
 		return &setupScriptError{Message: fmt.Sprintf("build setup environment: %v", err), ScriptPath: scriptPath, WorktreeRoot: payload.WorktreeRoot}
 	}

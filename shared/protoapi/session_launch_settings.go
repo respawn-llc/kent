@@ -99,6 +99,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		return nil, err
 	}
 	message := &sessionlaunchpb.Settings{
+		Connection:                       connectionIDToProto(settings.Connection),
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
@@ -112,10 +113,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		ServerHost:                       settings.ServerHost,
 		ServerPort:                       serverPort,
 		WebSearch:                        settings.WebSearch,
-		ProviderOverride:                 settings.ProviderOverride,
 		ProviderIdentifier:               settings.ProviderIdentifier,
-		OpenaiBaseUrl:                    settings.OpenAIBaseURL,
-		ProviderCapabilities:             providerCapabilitiesToProto(settings.ProviderCapabilities),
 		Store:                            settings.Store,
 		AllowNonCwdEdits:                 settings.AllowNonCwdEdits,
 		ModelContextWindow:               modelContextWindow,
@@ -210,7 +208,12 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
+	connection, err := connectionIDFromProto(message.Connection)
+	if err != nil {
+		return config.Settings{}, err
+	}
 	settings := config.Settings{
+		Connection:                       connection,
 		Model:                            message.Model,
 		ThinkingLevel:                    message.ThinkingLevel,
 		ModelVerbosity:                   modelVerbosity,
@@ -224,10 +227,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 		ServerHost:                       message.ServerHost,
 		ServerPort:                       int(message.ServerPort),
 		WebSearch:                        message.WebSearch,
-		ProviderOverride:                 message.ProviderOverride,
 		ProviderIdentifier:               message.ProviderIdentifier,
-		OpenAIBaseURL:                    message.OpenaiBaseUrl,
-		ProviderCapabilities:             providerCapabilitiesFromProto(message.ProviderCapabilities),
 		Store:                            message.Store,
 		AllowNonCwdEdits:                 message.AllowNonCwdEdits,
 		ModelContextWindow:               int(message.ModelContextWindow),
@@ -282,10 +282,9 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	}
 	return &sessionlaunchpb.ReviewerSettings{
 		Frequency: settings.Frequency, Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
-		ModelVerbosity: verbosity, ProviderOverride: settings.ProviderOverride,
-		OpenaiBaseUrl: settings.OpenAIBaseURL, ModelCapabilities: modelCapabilitiesToProto(settings.ModelCapabilities),
-		ProviderCapabilities: providerCapabilitiesToProto(settings.ProviderCapabilities),
-		ModelContextWindow:   window, Auth: settings.Auth, SystemPromptFile: settings.SystemPromptFile,
+		ModelVerbosity: verbosity, Connection: connectionIDToProto(settings.Connection),
+		ModelCapabilities:  modelCapabilitiesToProto(settings.ModelCapabilities),
+		ModelContextWindow: window, SystemPromptFile: settings.SystemPromptFile,
 		TimeoutSeconds: timeout, VerboseOutput: settings.VerboseOutput,
 	}, nil
 }
@@ -295,15 +294,37 @@ func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (confi
 	if err != nil {
 		return config.ReviewerSettings{}, err
 	}
+	connection, err := connectionIDFromProto(message.Connection)
+	if err != nil {
+		return config.ReviewerSettings{}, err
+	}
 	return config.ReviewerSettings{
 		Frequency: message.Frequency, Model: message.Model, ThinkingLevel: message.ThinkingLevel,
-		ModelVerbosity: verbosity, ProviderOverride: message.ProviderOverride,
-		OpenAIBaseURL: message.OpenaiBaseUrl, ModelCapabilities: modelCapabilitiesFromProto(message.ModelCapabilities),
-		ProviderCapabilities: providerCapabilitiesFromProto(message.ProviderCapabilities),
-		ModelContextWindow:   int(message.ModelContextWindow), Auth: message.Auth,
-		SystemPromptFile: message.SystemPromptFile, TimeoutSeconds: int(message.TimeoutSeconds),
+		ModelVerbosity: verbosity, Connection: connection,
+		ModelCapabilities:  modelCapabilitiesFromProto(message.ModelCapabilities),
+		ModelContextWindow: int(message.ModelContextWindow),
+		SystemPromptFile:   message.SystemPromptFile, TimeoutSeconds: int(message.TimeoutSeconds),
 		VerboseOutput: message.VerboseOutput,
 	}, nil
+}
+
+func connectionIDToProto(id *config.ConnectionID) *string {
+	if id == nil {
+		return nil
+	}
+	value := string(*id)
+	return &value
+}
+
+func connectionIDFromProto(raw *string) (*config.ConnectionID, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	id, err := config.ParseConnectionID(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {

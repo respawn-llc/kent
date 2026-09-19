@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -17,6 +18,8 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/toolspec"
+
+	"github.com/BurntSushi/toml"
 )
 
 const (
@@ -27,6 +30,7 @@ const (
 var testSessionStores sync.Map
 
 func newTestPlanner(cfg config.App, containerDir string, storeOptions ...session.StoreOption) Planner {
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
 	return Planner{
 		Config:                   cfg,
 		ContainerDir:             containerDir,
@@ -74,9 +78,9 @@ func createTestSessionInContainer(t *testing.T, containerDir, workspaceContainer
 	return store
 }
 
-func applyRunPromptOverridesNoWarnings(t *testing.T, plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State) SessionPlan {
+func applyRunPromptOverridesNoWarnings(t *testing.T, plan SessionPlan, overrides serverapi.RunPromptOverrides) SessionPlan {
 	t.Helper()
-	updated, warnings, err := ApplyRunPromptOverrides(plan, overrides, authState)
+	updated, warnings, err := ApplyRunPromptOverrides(plan, overrides)
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverrides: %v", err)
 	}
@@ -139,7 +143,7 @@ func testPlannerForPlan(plan SessionPlan) (Planner, error) {
 	return Planner{ContainerDir: filepath.Dir(store.Dir())}, nil
 }
 
-func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State) (SessionPlan, []string, error) {
+func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOverrides) (SessionPlan, []string, error) {
 	planner, err := testPlannerForPlan(plan)
 	if err != nil {
 		return SessionPlan{}, nil, err
@@ -148,10 +152,10 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 	if store == nil {
 		return SessionPlan{}, nil, fmt.Errorf("no test store registered for session %q", plan.Descriptor.SessionID())
 	}
-	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, authState, RunPromptOverrideOptions{}, applyDerivedModelContextBudgetOverrides)
+	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, RunPromptOverrideOptions{}, applyDerivedModelContextBudgetOverrides)
 }
 
-func ApplyRunPromptOverridesWithOptions(plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State, options RunPromptOverrideOptions) (SessionPlan, []string, error) {
+func ApplyRunPromptOverridesWithOptions(plan SessionPlan, overrides serverapi.RunPromptOverrides, options RunPromptOverrideOptions) (SessionPlan, []string, error) {
 	planner, err := testPlannerForPlan(plan)
 	if err != nil {
 		return SessionPlan{}, nil, err
@@ -160,7 +164,7 @@ func ApplyRunPromptOverridesWithOptions(plan SessionPlan, overrides serverapi.Ru
 	if store == nil {
 		return SessionPlan{}, nil, fmt.Errorf("no test store registered for session %q", plan.Descriptor.SessionID())
 	}
-	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, authState, options, applyDerivedModelContextBudgetOverrides)
+	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, options, applyDerivedModelContextBudgetOverrides)
 }
 
 func ApplyPreparedRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOverrides, prepared PreparedRunPromptOverrides) (SessionPlan, []string, error) {
@@ -183,13 +187,13 @@ func ApplyPreparedRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPr
 	)
 }
 
-func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
+func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides serverapi.RunPromptOverrides, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
 	planner, err := testPlannerForPlan(plan)
 	if err != nil {
 		return SessionPlan{}, nil, err
 	}
 	store := testStoreForPlanForOverride(plan)
-	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, authState, options, applyBudget)
+	return planner.applyRunPromptOverridesWithBudgetApplier(plan, store, overrides, options, applyBudget)
 }
 
 func testStoreForPlanForOverride(plan SessionPlan) *session.Store {
@@ -211,9 +215,7 @@ func loadLaunchConfigWithHome(t *testing.T, workspace string, configLines ...str
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(config.PersistenceRootEnvName, filepath.Join(home, config.ConfigDirName))
-	if len(configLines) > 0 {
-		writeHomeConfig(t, home, strings.Join(configLines, "\n"))
-	}
+	writeHomeConfig(t, home, strings.Join(configLines, "\n"))
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -223,11 +225,28 @@ func loadLaunchConfigWithHome(t *testing.T, workspace string, configLines ...str
 
 func writeHomeConfig(t *testing.T, home, contents string) {
 	t.Helper()
+	document := make(map[string]any)
+	if _, err := toml.Decode(contents, &document); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := document["connection"]; !present {
+		document["connection"] = "test"
+		connections, _ := document["connections"].(map[string]any)
+		if connections == nil {
+			connections = make(map[string]any)
+		}
+		connections["test"] = map[string]any{"protocol": "responses", "endpoint": "https://api.openai.com/v1"}
+		document["connections"] = connections
+	}
+	var encoded bytes.Buffer
+	if err := toml.NewEncoder(&encoded).Encode(document); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+	if err := os.WriteFile(configPath, encoded.Bytes(), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 }

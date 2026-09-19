@@ -1,236 +1,93 @@
 package authservice
 
 import (
-	"context"
-	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
-	"time"
 
+	"core/internal/testharness/httpclient"
 	"core/server/auth"
-	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	"core/shared/serverapi"
-
-	"google.golang.org/protobuf/types/known/emptypb"
+	"core/shared/textutil"
 )
 
-func TestCompleteBootstrapConfiguresAPIKeyWhenAuthNotReady(t *testing.T) {
-	service, store := newTestAuthBootstrapService(auth.EmptyState())
+func authServiceResolver(t *testing.T, manager *auth.Manager, lookup func(string) (string, bool)) *ConnectionResolver {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
+connection = "work"
+[connections.work]
+protocol = "chatgpt-codex"
+[connections.personal]
+protocol = "chatgpt-codex"
+[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+[connections.api]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+environment_variable = "SERVER_KEY"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return NewConnectionResolver(root, manager, lookup)
+}
 
-	resp, err := service.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: bootstrapTestString("server-key"),
+func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
+	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+	if err := manager.SaveOAuth(t.Context(), "personal", auth.OAuthMethod{AccessToken: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	var exchanges atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token" {
+			t.Errorf("unexpected OAuth endpoint %s", r.URL.Path)
+		}
+		call := exchanges.Add(1)
+		if call == 3 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"access_token":"work-%d","refresh_token":"refresh","token_type":"Bearer","expires_in":3600}`, call)
+	}))
+	defer server.Close()
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewBootstrapService(authServiceResolver(t, manager, nil), auth.OpenAIOAuthOptions{
+		HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
+			copy := r.Clone(r.Context())
+			copy.URL.Scheme, copy.URL.Host = target.Scheme, target.Host
+			return server.Client().Transport.RoundTrip(copy)
+		})},
 	})
-
-	if err != nil {
-		t.Fatalf("CompleteBootstrap: %v", err)
+	request := &authpb.CompleteBootstrapRequest{
+		ConnectionId: textutil.Value("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
+		DeviceAuthorizationCode: textutil.Value("grant"), DeviceCodeVerifier: textutil.Value("verifier"),
 	}
-	if !resp.AuthReady {
-		t.Fatal("expected auth ready after bootstrap completion")
+	for attempt := 1; attempt <= 3; attempt++ {
+		request.Force = attempt > 1
+		result, err := service.CompleteBootstrap(t.Context(), request)
+		if attempt == 3 {
+			if err == nil {
+				t.Fatal("rejected OAuth exchange reported success")
+			}
+		} else if err != nil || !result.AuthReady || result.ConnectionId != "work" {
+			t.Fatalf("sign-in attempt %d: %+v, %v", attempt, result, err)
+		}
+		state, err := manager.Load(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Connections["personal"].AccessToken != "personal" || state.Connections["work"].AccessToken != fmt.Sprintf("work-%d", min(attempt, 2)) {
+			t.Fatal("sign-in changed another connection or replaced credentials after failure")
+		}
 	}
-	if resp.GetMethodType() != string(auth.MethodAPIKey) {
-		t.Fatalf("method type = %q, want %q", resp.GetMethodType(), auth.MethodAPIKey)
-	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("stored method = %+v, want server-key", state.Method)
-	}
-}
-
-func TestCompleteBootstrapReturnsSuccessWithoutOverwriteWhenAuthAlreadyReady(t *testing.T) {
-	service, store := newTestAuthBootstrapService(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "server-key"},
-		},
-	})
-
-	resp, err := service.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: bootstrapTestString("server-key-2"),
-	})
-
-	if err != nil {
-		t.Fatalf("CompleteBootstrap: %v", err)
-	}
-	if !resp.AuthReady {
-		t.Fatal("expected ready auth to return successful no-op")
-	}
-	if resp.GetMethodType() != string(auth.MethodAPIKey) {
-		t.Fatalf("method type = %q, want %q", resp.GetMethodType(), auth.MethodAPIKey)
-	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("stored method = %+v, want original server-key", state.Method)
-	}
-}
-
-func TestCompleteBootstrapNoneClearsAuthWhenAuthOptional(t *testing.T) {
-	service, store := newTestAuthBootstrapServiceWithSettings(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "server-key"},
-		},
-	}, config.Settings{OpenAIBaseURL: "http://127.0.0.1:8080/v1"})
-
-	resp, err := service.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE})
-	if err != nil {
-		t.Fatalf("CompleteBootstrap none: %v", err)
-	}
-	if !resp.AuthReady {
-		t.Fatal("expected optional auth skip to be ready")
-	}
-	if resp.MethodType != nil {
-		t.Fatalf("no-auth method type = %q, want absent", *resp.MethodType)
-	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if state.Method.Type != auth.MethodNone {
-		t.Fatalf("stored method = %+v, want none", state.Method)
-	}
-	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("env preference = %q, want no-auth preference", state.EnvAPIKeyPreference)
-	}
-}
-
-func TestCompleteBootstrapNoneSavesNoAuthPreferenceWhenAuthRequired(t *testing.T) {
-	service, store := newTestAuthBootstrapService(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "server-key"},
-		},
-	})
-
-	resp, err := service.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE})
-	if err != nil {
-		t.Fatalf("CompleteBootstrap none: %v", err)
-	}
-	if resp.AuthReady {
-		t.Fatal("did not expect no-auth preference to satisfy required startup readiness")
-	}
-	if resp.MethodType != nil {
-		t.Fatalf("no-auth method type = %q, want absent", *resp.MethodType)
-	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if !state.IsNoAuthSelected() {
-		t.Fatalf("stored state = %+v, want no-auth preference", state)
-	}
-	if !resp.NoAuthSelected {
-		t.Fatalf("NoAuthSelected = false, want true")
-	}
-}
-
-func TestGetBootstrapStatusReportsPersistedNoAuthSelection(t *testing.T) {
-	service, _ := newTestAuthBootstrapService(auth.State{
-		Scope:               auth.ScopeGlobal,
-		Method:              auth.Method{Type: auth.MethodNone},
-		EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
-	})
-
-	resp, err := service.GetBootstrapStatus(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("GetBootstrapStatus: %v", err)
-	}
-	if resp.AuthReady {
-		t.Fatal("did not expect no-auth selection to satisfy required startup readiness")
-	}
-	if !resp.NoAuthSelected {
-		t.Fatal("expected bootstrap status to report persisted no-auth selection")
-	}
-}
-
-func TestGetBootstrapStatusDoesNotReportEmptyStateAsNoAuthSelection(t *testing.T) {
-	service, _ := newTestAuthBootstrapService(auth.EmptyState())
-
-	resp, err := service.GetBootstrapStatus(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("GetBootstrapStatus: %v", err)
-	}
-	if resp.NoAuthSelected {
-		t.Fatal("empty state must not be reported as explicit no-auth selection")
-	}
-}
-
-func TestAcknowledgeNoAuthIsNonMutating(t *testing.T) {
-	initial := auth.State{
-		Scope:               auth.ScopeGlobal,
-		Method:              auth.Method{Type: auth.MethodNone},
-		EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
-	}
-	service, store := newTestAuthBootstrapService(initial)
-
-	resp, err := service.AcknowledgeNoAuth(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("AcknowledgeNoAuth: %v", err)
-	}
-	if resp.AuthReady {
-		t.Fatal("did not expect acknowledged no-auth to satisfy raw readiness")
-	}
-	if !resp.NoAuthSelected {
-		t.Fatal("expected no-auth acknowledgement response")
-	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if state != initial {
-		t.Fatalf("stored state mutated: %+v, want %+v", state, initial)
-	}
-}
-
-func TestAcknowledgeNoAuthReportsReadyRealAuthWithoutNoAuthSelection(t *testing.T) {
-	service, _ := newTestAuthBootstrapService(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "server-key"},
-		},
-	})
-
-	resp, err := service.AcknowledgeNoAuth(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("AcknowledgeNoAuth: %v", err)
-	}
-	if !resp.AuthReady || resp.NoAuthSelected {
-		t.Fatalf("ack response = %+v, want real-auth ready without no-auth selection", resp)
-	}
-}
-
-func TestAcknowledgeNoAuthRejectsMissingAuthAndNoAuthSelection(t *testing.T) {
-	service, _ := newTestAuthBootstrapService(auth.EmptyState())
-
-	_, err := service.AcknowledgeNoAuth(context.Background(), &emptypb.Empty{})
-	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
-		t.Fatalf("AcknowledgeNoAuth error = %v, want ErrServerAuthRequired", err)
-	}
-}
-
-func newTestAuthBootstrapService(initial auth.State) (*BootstrapService, *auth.MemoryStore) {
-	return newTestAuthBootstrapServiceWithSettings(initial, config.Settings{Model: "gpt-5"})
-}
-
-func newTestAuthBootstrapServiceWithSettings(initial auth.State, settings config.Settings) (*BootstrapService, *auth.MemoryStore) {
-	store := auth.NewMemoryStore(initial)
-	manager := auth.NewManager(store, nil, func() time.Time {
-		return time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
-	})
-	return NewBootstrapService(manager, auth.OpenAIOAuthOptions{}, settings), store
-}
-
-func bootstrapTestString(value string) *string {
-	return &value
 }

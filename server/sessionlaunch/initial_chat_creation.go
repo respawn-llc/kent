@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
@@ -54,15 +53,7 @@ func (s *Service) prepareInitialChatCreation(
 	app config.App,
 	creation InitialChatCreation,
 ) (*session.ChatDraftState, error) {
-	authState := auth.EmptyState()
-	if s.authStates != nil {
-		var err error
-		authState, err = s.authStates.StoredState(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	catalog, err := launch.PrepareChatAgentCatalog(app, authState, false)
+	catalog, err := launch.PrepareChatAgentCatalog(app, false)
 	if err != nil {
 		return nil, err
 	}

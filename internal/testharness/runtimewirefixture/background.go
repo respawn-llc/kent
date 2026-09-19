@@ -24,7 +24,7 @@ func BackgroundCompletionEventWithOutput(id string, ownerSessionID string, root 
 		panic(fmt.Sprintf("write background shell fixture output: %v", err))
 	}
 	releasePath := filepath.Join(root, id+".fixture-release")
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(root, shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		panic(fmt.Sprintf("create background shell manager fixture: %v", err))
 	}

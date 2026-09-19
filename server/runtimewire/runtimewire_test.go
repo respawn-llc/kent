@@ -50,7 +50,19 @@ func requiredRuntimeWireTestOptions(options RuntimeWiringOptions) RuntimeWiringO
 	options.QuestionsEnabled = textutil.Value(true)
 	options.AutoCompactionEnabled = textutil.Value(true)
 	options.MainWorkspaceRoot = options.FilesystemContext.Access.ExecutionTargetRoot.LexicalPath
+	if options.GlobalConfigDir == "" {
+		options.GlobalConfigDir = options.MainWorkspaceRoot
+	}
 	return options
+}
+
+func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, eventLog session.MaterializedEventLog, active config.Settings, enabled []toolspec.ID, manager *auth.Manager, logger Logger, background *shelltool.Manager, options RuntimeWiringOptions) (*RuntimeWiring, error) {
+	t.Helper()
+	if options.GlobalConfigDir == "" {
+		options.GlobalConfigDir = t.TempDir()
+	}
+	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
+	return NewRuntimeWiringWithBackground(store, eventLog, active, enabled, manager, logger, background, options)
 }
 
 func TestRuntimeWiringRequiresEffectiveSessionSettings(t *testing.T) {
@@ -59,7 +71,7 @@ func TestRuntimeWiringRequiresEffectiveSessionSettings(t *testing.T) {
 		"Auto-compaction": {QuestionsEnabled: textutil.Value(true)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := NewRuntimeWiringWithBackground(nil, session.MaterializedEventLog{}, config.Settings{}, nil, nil, nil, nil, options); err == nil {
+			if _, err := newTestRuntimeWiringWithBackground(t, nil, session.MaterializedEventLog{}, config.Settings{}, nil, nil, nil, nil, options); err == nil {
 				t.Fatalf("runtime wiring accepted missing effective %s setting", name)
 			}
 		})
@@ -165,7 +177,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 	})
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 	active.Debug = true
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -173,8 +185,8 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client, GlobalConfigDir: t.TempDir()}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client, GlobalConfigDir: t.TempDir()}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -1096,7 +1108,7 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 
 func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := shelltool.NewManager(
+	manager, err := shelltool.NewManager(t.TempDir(),
 		shelltool.WithMinimumExecToBgTime(50*time.Millisecond),
 		shelltool.WithPostprocessor(runtimeWirePostprocessor(t, config.ShellPostprocessingModeBuiltin, nil)),
 	)
@@ -1242,7 +1254,7 @@ func TestRuntimeWiringExecCommandUsesEffectiveBuiltinInsteadOfBootstrapNone(t *t
 	background := newRuntimeWireShellManager(t, runtimeWirePostprocessor(t, config.ShellPostprocessingModeNone, nil))
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -1250,8 +1262,8 @@ func TestRuntimeWiringExecCommandUsesEffectiveBuiltinInsteadOfBootstrapNone(t *t
 		nil,
 		nil,
 		background,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: &runtimewireCaptureClient{}}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: &runtimewireCaptureClient{}}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -1279,7 +1291,7 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 	effectiveHookPath := runtimeWireHookScript(t, effectiveHook)
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeUser, &effectiveHookPath)
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -1287,8 +1299,8 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 		nil,
 		nil,
 		background,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, rootA), Client: &runtimewireCaptureClient{}}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, rootA), Client: &runtimewireCaptureClient{}}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -1333,7 +1345,7 @@ func runtimeWirePostprocessor(t *testing.T, mode config.ShellPostprocessingMode,
 		path := runtimeWireHookScript(t, *hookReplacement)
 		hookPath = &path
 	}
-	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: mode, HookPath: hookPath})
+	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: mode, HookPath: hookPath, PersistenceRoot: t.TempDir()})
 	if err != nil {
 		t.Fatalf("new postprocess runner: %v", err)
 	}
@@ -1348,7 +1360,7 @@ func runtimeWireHookScript(t *testing.T, replacement string) string {
 
 func newRuntimeWireShellManager(t *testing.T, runner *postprocess.Runner) *shelltool.Manager {
 	t.Helper()
-	manager, err := shelltool.NewManager(
+	manager, err := shelltool.NewManager(t.TempDir(),
 		shelltool.WithMinimumExecToBgTime(250*time.Millisecond),
 		shelltool.WithPostprocessor(runner),
 	)
@@ -1544,13 +1556,11 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 		t.Fatalf("create store: %v", err)
 	}
 
-	_, err = NewRuntimeWiringWithBackground(
+	_, err = newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
 			Model:              "",
-			ProviderOverride:   "openai",
-			OpenAIBaseURL:      "http://example.test/v1",
 			ModelContextWindow: 272_000,
 			Timeouts: config.Timeouts{
 				ModelRequestSeconds: 1,
@@ -1558,11 +1568,11 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		[]toolspec.ID{toolspec.ToolExecCommand},
-		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, nil),
+		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil),
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}))
+
 	if !errors.Is(err, runtime.ErrModelRequired) {
 		t.Fatalf("expected runtime.ErrModelRequired, got %v", err)
 	}

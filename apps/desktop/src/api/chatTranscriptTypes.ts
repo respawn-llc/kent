@@ -349,6 +349,7 @@ export interface ChatTranscriptPayloadByKind {
     StepID?: string | null;
     Detail: string;
   }>;
+  connection_replaced: Readonly<{ PreviousID: string; CurrentID: string }>;
   live_run_finished: Readonly<{
     Status: "completed" | "interrupted" | "failed";
     ResultKind: "assistant_final_answer" | "no_final_answer";

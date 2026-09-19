@@ -20,13 +20,14 @@ import (
 	"core/shared/toolspec"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type configuredDaemonFixture struct {
@@ -123,10 +124,10 @@ func startConfiguredDaemonFixture(
 	t *testing.T,
 	workspace string,
 	request serverstartup.Request,
-	authHandler serverstartup.AuthHandler,
+	authHandler authInteractor,
 ) *configuredDaemonFixture {
 	t.Helper()
-	daemon, err := serverstartup.StartServeServer(context.Background(), request, authHandler, autoOnboarding)
+	daemon, err := serverstartup.StartServeServer(context.Background(), request, autoOnboarding)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -279,7 +280,8 @@ func TestStartupReadinessAllowsActivatedNoAuthOnboarding(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{}, nil)
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

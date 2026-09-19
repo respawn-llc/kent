@@ -2,7 +2,6 @@ package launch
 
 import (
 	"context"
-	"core/server/auth"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
@@ -30,7 +29,7 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 		Source:              loaded.Source,
 	}, store, filepath.Dir(store.Dir()))
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"}, auth.EmptyState())
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"})
 	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
 		t.Fatalf("model = %q, want gpt-5.4-mini", updated.ActiveSettings.Model)
 	}
@@ -52,7 +51,7 @@ func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testi
 		settings.PreSubmitCompactionLeadTokens = 1_000
 	}
 
-	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, auth.EmptyState(), RunPromptOverrideOptions{}, applier)
+	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, RunPromptOverrideOptions{}, applier)
 	if err == nil {
 		t.Fatal("expected derived context window below minimum to fail")
 	}

@@ -169,23 +169,27 @@ func captureSessionRequest(
 			activeSources = resolved.Source.Sources
 		}
 	}
-	authStore := auth.NewEnvAPIKeyOverrideStore(
-		auth.NewFileStore(config.GlobalAuthConfigPath(cfg)),
-		os.LookupEnv,
-	)
+	authStore := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
 	authState, err := authStore.Load(ctx)
 	if err != nil {
 		return capturedRequest{}, fmt.Errorf("load auth state: %w", err)
 	}
 
-	caps, forceProviderContract, err := resolveInspectionProviderCapabilities(authState, activeSettings, meta.Locked, providerOverride)
+	caps, forceProviderContract, err := resolveInspectionProviderCapabilities(activeSettings, meta.Locked, providerOverride)
 	if err != nil {
 		return capturedRequest{}, fmt.Errorf("resolve provider capabilities: %w", err)
 	}
 	if err := validateOpenAIResponsesInspectionProvider(caps); err != nil {
 		return capturedRequest{}, err
 	}
-	mode := llm.OpenAIAuthModeForAuthState(authState)
+	definition, err := activeSettings.SelectedConnection()
+	if err != nil {
+		return capturedRequest{}, err
+	}
+	mode := llm.OpenAIAuthMode{IsOAuth: definition.Protocol == config.ConnectionChatGPT}
+	if activeSettings.Connection != nil {
+		mode.AccountID = authState.Connections[*activeSettings.Connection].AccountID
+	}
 	if workflowPrompt == nil {
 		target, targetErr := md.ResolveSessionExecutionTarget(ctx, sessionID)
 		if targetErr != nil {
@@ -211,7 +215,7 @@ func captureSessionRequest(
 		eventLog,
 		activeSettings,
 		activeToolIDs,
-		auth.NewManager(authStore, nil, nil),
+		auth.NewManager(authStore, nil),
 		nil,
 		runtimewire.RuntimeWiringOptions{
 			MainWorkspaceRoot:                   *bootstrap.MainWorkspaceRoot,
@@ -298,8 +302,7 @@ func captureSessionRequest(
 
 func loadSessionConfig(bootstrap launch.BootstrapPlan, persistenceRoot string) (config.App, error) {
 	options := config.LoadOptions{
-		ConfigRoot:    persistenceRoot,
-		OpenAIBaseURL: bootstrap.OpenAIBaseURL,
+		ConfigRoot: persistenceRoot,
 	}
 	if strings.TrimSpace(bootstrap.WorkspaceRoot) == "" {
 		return config.LoadGlobal(options)
@@ -326,8 +329,8 @@ func resolvePersistedWorkflowInspection(ctx context.Context, app config.App, met
 	return workflowrunner.BuildPersistedWorkflowInspection(ctx, app, store, workflowStore, awareness)
 }
 
-func resolveInspectionProviderCapabilities(authState auth.State, active config.Settings, locked *session.LockedContract, providerOverride string) (llm.ProviderCapabilities, bool, error) {
-	resolved, err := llm.ResolveRuntimeProviderCapabilities(authState, active)
+func resolveInspectionProviderCapabilities(active config.Settings, locked *session.LockedContract, providerOverride string) (llm.ProviderCapabilities, bool, error) {
+	resolved, err := llm.ResolveRuntimeProviderCapabilities(active)
 	if err != nil {
 		return llm.ProviderCapabilities{}, false, err
 	}
@@ -339,7 +342,7 @@ func resolveInspectionProviderCapabilities(authState auth.State, active config.S
 		caps.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 		return caps, true, nil
 	}
-	if caps, ok := llm.ProviderCapabilitiesFromLockedOrOverride(locked, active.ProviderCapabilities); ok {
+	if caps, ok := llm.ProviderCapabilitiesFromLocked(locked); ok {
 		caps.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 		return caps, false, nil
 	}

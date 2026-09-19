@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"sync"
 	"testing"
@@ -78,9 +79,8 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	}
 
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
 	settings.Model = "gpt-5"
-	settings.OpenAIBaseURL = "http://127.0.0.1:1/v1"
+	settings = testsetup.ProviderSettings(settings)
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspaceRoot,
 		workspaceRoot,

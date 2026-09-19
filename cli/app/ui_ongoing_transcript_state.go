@@ -99,6 +99,12 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 		return m.reconcileTranscriptWorktreeTransitionOutcome(message.Event.GetWorktreeTransitionOutcome())
 	case *transcriptpb.Event_OperationalDiagnostic:
 		return m.applyTranscriptOperationalDiagnostic(message.Event.GetOperationalDiagnostic())
+	case *transcriptpb.Event_ConnectionReplaced:
+		replacement := message.Event.GetConnectionReplaced()
+		return m.sendTransientStatusWithNoticeID(
+			fmt.Sprintf("Connection %s is unavailable; using %s.", replacement.PreviousId, replacement.CurrentId),
+			uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "",
+		)
 	}
 	return nil
 }

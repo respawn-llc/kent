@@ -55,7 +55,6 @@ type Remote struct {
 	attachIntent   *remoteAttachmentIntent
 	attachment     *remoteAttachment
 	expectedRootID atomic.Value // string; empty disables root validation
-	noAuthAck      atomic.Bool
 	closed         atomic.Bool
 }
 
@@ -172,72 +171,6 @@ func (c *Remote) rootID() string {
 	return ""
 }
 
-func (c *Remote) EnableNoAuthBootstrapAcknowledgement(ctx context.Context) error {
-	if c == nil {
-		return errors.New("remote client is required")
-	}
-	resp, err := c.AcknowledgeNoAuth(ctx, &emptypb.Empty{})
-	if err != nil {
-		c.noAuthAck.Store(false)
-		return err
-	}
-	if resp.NoAuthSelected {
-		c.noAuthAck.Store(true)
-		return nil
-	}
-	c.noAuthAck.Store(false)
-	if resp.AuthReady {
-		return nil
-	}
-	return serverapi.ErrServerAuthRequired
-}
-
-func (c *Remote) DisableNoAuthBootstrapAcknowledgement() {
-	if c != nil {
-		c.noAuthAck.Store(false)
-	}
-}
-
-func (c *Remote) NoAuthBootstrapAcknowledgementEnabled() bool {
-	return c != nil && c.noAuthAck.Load()
-}
-
-func (c *Remote) acknowledgeNoAuthOnConn(ctx context.Context, conn rpcwire.Conn) error {
-	if c == nil || !c.noAuthAck.Load() {
-		return nil
-	}
-	result := &authpb.AcknowledgeNoAuthResult{}
-	if err := callBinaryRPC(
-		ctx,
-		conn,
-		"auth-acknowledge-no-auth",
-		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "AcknowledgeNoAuth"),
-		&emptypb.Empty{},
-		result,
-	); err != nil {
-		if errors.Is(err, serverapi.ErrServerAuthRequired) {
-			c.noAuthAck.Store(false)
-		}
-		return err
-	}
-	if result.GetError() != nil {
-		err := authGeneratedError(result.GetError().Code, result.GetError().GetInternalFailure())
-		if errors.Is(err, serverapi.ErrServerAuthRequired) {
-			c.noAuthAck.Store(false)
-		}
-		return err
-	}
-	resp := result.GetSuccess()
-	if resp.NoAuthSelected {
-		return nil
-	}
-	c.noAuthAck.Store(false)
-	if resp.AuthReady {
-		return nil
-	}
-	return serverapi.ErrServerAuthRequired
-}
-
 func (c *Remote) GetReadiness(ctx context.Context, req *emptypb.Empty) (*serverpb.GetReadinessSuccess, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(serverpb.File_kent_api_server_server_proto, "ServerService", "GetReadiness"),
@@ -316,7 +249,7 @@ func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, request
 	return resp, c.callDedicated(ctx, requestID, method, req, &resp)
 }
 
-func (c *Remote) GetBootstrapStatus(ctx context.Context, req *emptypb.Empty) (*authpb.BootstrapStatus, error) {
+func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetBootstrapStatus"),
 		req,
@@ -337,22 +270,7 @@ func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBoot
 	if err != nil {
 		return nil, err
 	}
-	if resp.GetNoAuthSelected() {
-		c.noAuthAck.Store(true)
-	} else if resp.GetAuthReady() {
-		c.noAuthAck.Store(false)
-	}
 	return resp, nil
-}
-
-func (c *Remote) AcknowledgeNoAuth(ctx context.Context, req *emptypb.Empty) (*authpb.NoAuthAcknowledgement, error) {
-	return callGeneratedBinary(c, ctx,
-		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "AcknowledgeNoAuth"),
-		req,
-		&authpb.AcknowledgeNoAuthResult{},
-		func(failure *authpb.AcknowledgeNoAuthError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
-		})
 }
 
 func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error) {

@@ -31,14 +31,14 @@ func TestCompactionEnablesAstraImageHandlerInExistingRuntime(t *testing.T) {
 	active.Model = "gpt-6-astra"
 	active.ThinkingLevel = "medium"
 	active.CompactionMode = "local"
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store, materializedRuntimeWireEventLog(t, store), active,
 		[]toolspec.ID{toolspec.ToolViewImage}, nil, nil, nil,
 		requiredRuntimeWireTestOptions(RuntimeWiringOptions{
 			FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client,
 			GlobalConfigDir: t.TempDir(),
-		}),
-	)
+		}))
+
 	if err != nil {
 		t.Fatal(err)
 	}

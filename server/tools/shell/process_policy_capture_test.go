@@ -385,11 +385,9 @@ func replacementRunner(t *testing.T, replacement string) *postprocess.Runner {
 
 func newManagerWithPostprocessor(t *testing.T, runner *postprocess.Runner) *Manager {
 	t.Helper()
-	manager, err := NewManager(
-		WithMinimumExecToBgTime(50*time.Millisecond),
+	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(50*time.Millisecond),
 		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
-		WithPostprocessor(runner),
-	)
+		WithPostprocessor(runner))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

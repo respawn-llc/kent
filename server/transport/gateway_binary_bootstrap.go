@@ -28,11 +28,9 @@ func registerBootstrapGatewayBinaryBindings(bindings map[string]gatewayBinaryBin
 		registerBootstrapUnary(bindings, serverService, "GetUpdateStatus", gatewayBinaryPreCoreOrdinary,
 			func() *emptypb.Empty { return &emptypb.Empty{} }, invokeBinaryUpdateStatus, binaryUpdateStatusFailure),
 		registerBootstrapUnary(bindings, authService, "GetBootstrapStatus", gatewayBinaryPreCoreExclusive,
-			func() *emptypb.Empty { return &emptypb.Empty{} }, invokeBinaryAuthBootstrapStatus, binaryAuthFailure),
+			func() *authpb.GetBootstrapStatusRequest { return &authpb.GetBootstrapStatusRequest{} }, invokeBinaryAuthBootstrapStatus, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "CompleteBootstrap", gatewayBinaryPreCoreExclusive,
 			func() *authpb.CompleteBootstrapRequest { return &authpb.CompleteBootstrapRequest{} }, invokeBinaryAuthCompleteBootstrap, binaryAuthFailure),
-		registerBootstrapUnary(bindings, authService, "AcknowledgeNoAuth", gatewayBinaryPreCoreExclusive,
-			func() *emptypb.Empty { return &emptypb.Empty{} }, invokeBinaryAuthAcknowledgeNoAuth, binaryAuthFailure),
 		registerBootstrapUnary(bindings, authService, "GetStatus", gatewayBinaryPreCoreExclusive,
 			func() *authpb.GetStatusRequest { return &authpb.GetStatusRequest{} }, invokeBinaryAuthStatus, binaryAuthFailure),
 		registerBootstrapUnary(bindings, onboardingService, "Finalize", gatewayBinaryPreCoreOrdinary,
@@ -105,7 +103,7 @@ func invokeBinaryAuthBootstrapStatus(
 	g *Gateway,
 	ctx context.Context,
 	_ *connectionState,
-	message *emptypb.Empty,
+	message *authpb.GetBootstrapStatusRequest,
 ) (*authpb.BootstrapStatus, error) {
 	client := g.deps.AuthBootstrapClient()
 	if client == nil {
@@ -122,7 +120,7 @@ func invokeBinaryAuthBootstrapStatus(
 func invokeBinaryAuthCompleteBootstrap(
 	g *Gateway,
 	ctx context.Context,
-	state *connectionState,
+	_ *connectionState,
 	message *authpb.CompleteBootstrapRequest,
 ) (*authpb.BootstrapCompletion, error) {
 	client := g.deps.AuthBootstrapClient()
@@ -133,25 +131,6 @@ func invokeBinaryAuthCompleteBootstrap(
 	if err != nil {
 		return nil, err
 	}
-	state.noAuthAccepted = success.GetNoAuthSelected()
-	return success, nil
-}
-
-func invokeBinaryAuthAcknowledgeNoAuth(
-	g *Gateway,
-	ctx context.Context,
-	state *connectionState,
-	message *emptypb.Empty,
-) (*authpb.NoAuthAcknowledgement, error) {
-	client := g.deps.AuthBootstrapClient()
-	if client == nil {
-		return nil, serverapi.ErrServerAuthRequired
-	}
-	success, err := client.AcknowledgeNoAuth(ctx, message)
-	if err != nil {
-		return nil, err
-	}
-	state.noAuthAccepted = success.GetNoAuthSelected()
 	return success, nil
 }
 

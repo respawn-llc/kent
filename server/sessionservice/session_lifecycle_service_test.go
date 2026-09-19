@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/metadata"
 	"core/server/session"
@@ -24,6 +25,7 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -728,7 +730,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	activateSettings.Model = "gpt-5.4"
 	activateSettings.ThinkingLevel = "medium"
 	activateSettings.Reviewer.Frequency = "off"
-	activateSettings.OpenAIBaseURL = "http://127.0.0.1:1/v1"
+	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	activation, err := runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID:             forkID.String(),
@@ -854,13 +856,8 @@ func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
 
 func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testing.T) {
 	currentID := runtimeids.NewSessionID()
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil, time.Now)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
@@ -890,13 +887,8 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 }
 
 func TestServiceResolveTransitionLogoutReturnsStableDirective(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil, time.Now)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 	req := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId:  proto.String(runtimeids.NewSessionID().String()),

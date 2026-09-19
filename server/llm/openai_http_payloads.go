@@ -59,6 +59,9 @@ func (t *HTTPTransport) buildDispatchPayload(
 }
 
 func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
+	if err := validateRetainedConnectionContext(request.Items, b.capabilities); err != nil {
+		return responses.ResponseNewParams{}, err
+	}
 	input, err := buildResponsesInput(request.Items)
 	if err != nil {
 		return responses.ResponseNewParams{}, err
@@ -114,6 +117,37 @@ func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode O
 		out.Text = textConfig
 	}
 	return out, nil
+}
+
+func validateRetainedConnectionContext(items []ResponseItem, capabilities ProviderCapabilities) error {
+	for _, item := range items {
+		switch item.Type {
+		case ResponseItemTypeReasoning:
+			if capabilities.SupportsReasoningEncrypted {
+				continue
+			}
+			encrypted := item.EncryptedContent
+			if len(item.Raw) != 0 {
+				var reasoning struct {
+					EncryptedContent *string `json:"encrypted_content"`
+				}
+				if err := json.Unmarshal(item.Raw, &reasoning); err != nil {
+					return fmt.Errorf("decode retained reasoning for compatibility validation: %w", err)
+				}
+				encrypted = reasoning.EncryptedContent
+			}
+			if encrypted != nil {
+				return &RetainedContextCompatibilityError{ItemType: item.Type}
+			}
+		case ResponseItemTypeCompaction:
+			// Native compaction support describes producing checkpoints, not
+			// consuming every checkpoint format. Unknown compatibility is sent.
+			if !capabilities.SupportsResponsesAPI {
+				return &RetainedContextCompatibilityError{ItemType: item.Type}
+			}
+		}
+	}
+	return nil
 }
 
 func (b openAIRequestPayloadBuilder) prepareToolControls(request OpenAIRequest) (openAIPayloadToolControls, error) {

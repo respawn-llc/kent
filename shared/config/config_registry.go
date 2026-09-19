@@ -194,6 +194,13 @@ var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
+		connectionsSetting{},
+		newConnectionReference("connection",
+			func(state *settingsState, value *ConnectionID) { state.Settings.Connection = value },
+			func(state settingsState) *ConnectionID { return state.Settings.Connection }),
+		newConnectionReference("reviewer.connection",
+			func(state *settingsState, value *ConnectionID) { state.Settings.Reviewer.Connection = value },
+			func(state settingsState) *ConnectionID { return state.Settings.Reviewer.Connection }),
 		newStringSetting("model", defaultModel,
 			func(state *settingsState, value string) { state.Settings.Model = value },
 			func(state settingsState) string { return state.Settings.Model },
@@ -282,13 +289,6 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{}),
-		newStringSetting("provider_override", "",
-			func(state *settingsState, value string) { state.Settings.ProviderOverride = value },
-			func(state settingsState) string { return state.Settings.ProviderOverride },
-			"KENT_PROVIDER_OVERRIDE",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.ProviderOverride) },
-			func(raw string) string { return strings.ToLower(strings.TrimSpace(raw)) },
-			settingDocOptions{cliOption: "--provider-override"}),
 		rootOnlySetting[string]{newStringSetting("provider_identifier", Command,
 			func(state *settingsState, value string) { state.Settings.ProviderIdentifier = value },
 			func(state settingsState) string { return state.Settings.ProviderIdentifier },
@@ -296,78 +296,6 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{allowEmptyString: true})},
-		newStringSetting("openai_base_url", "",
-			func(state *settingsState, value string) { state.Settings.OpenAIBaseURL = value },
-			func(state settingsState) string { return state.Settings.OpenAIBaseURL },
-			"KENT_OPENAI_BASE_URL",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.OpenAIBaseURL) },
-			nil,
-			settingDocOptions{cliOption: "--openai-base-url"}),
-		newStringSetting("provider_capabilities.provider_id", "",
-			func(state *settingsState, value string) { state.Settings.ProviderCapabilities.ProviderID = value },
-			func(state settingsState) string { return state.Settings.ProviderCapabilities.ProviderID },
-			"KENT_PROVIDER_CAPABILITIES_PROVIDER_ID",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_responses_api", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsResponsesAPI = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsResponsesAPI },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_responses_compact", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsResponsesCompact = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsResponsesCompact },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_prompt_cache_key", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsPromptCacheKey = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsPromptCacheKey },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_native_web_search", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsNativeWebSearch = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsNativeWebSearch },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_reasoning_encrypted", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsReasoningEncrypted = value
-			},
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.SupportsReasoningEncrypted },
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_server_side_context_edit", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsServerSideContextEdit = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.ProviderCapabilities.SupportsServerSideContextEdit
-			},
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.supports_provider_verbosity", false,
-			func(state *settingsState, value bool) {
-				state.Settings.ProviderCapabilities.SupportsProviderVerbosity = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.ProviderCapabilities.SupportsProviderVerbosity
-			},
-			"KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("provider_capabilities.is_openai_first_party", false,
-			func(state *settingsState, value bool) { state.Settings.ProviderCapabilities.IsOpenAIFirstParty = value },
-			func(state settingsState) bool { return state.Settings.ProviderCapabilities.IsOpenAIFirstParty },
-			"KENT_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY",
-			settingDocOptions{commented: true}),
 		newBoolSetting("store", false,
 			func(state *settingsState, value bool) { state.Settings.Store = value },
 			func(state settingsState) bool { return state.Settings.Store },
@@ -575,30 +503,6 @@ func newSettingsRegistry() settingsRegistry {
 					return "<inherits model_verbosity when unset>"
 				},
 			}),
-		newStringSetting("reviewer.provider_override", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.ProviderOverride = value },
-			func(state settingsState) string { return state.Settings.Reviewer.ProviderOverride },
-			"KENT_REVIEWER_PROVIDER_OVERRIDE",
-			nil,
-			func(raw string) string { return strings.ToLower(strings.TrimSpace(raw)) },
-			settingDocOptions{
-				omitInTOML: true,
-				defaultValue: func(settingsState) any {
-					return "<inherits provider_override when unset>"
-				},
-			}),
-		newStringSetting("reviewer.openai_base_url", "",
-			func(state *settingsState, value string) { state.Settings.Reviewer.OpenAIBaseURL = value },
-			func(state settingsState) string { return state.Settings.Reviewer.OpenAIBaseURL },
-			"KENT_REVIEWER_OPENAI_BASE_URL",
-			nil,
-			nil,
-			settingDocOptions{
-				omitInTOML: true,
-				defaultValue: func(settingsState) any {
-					return "<inherits openai_base_url when unset>"
-				},
-			}),
 		newBoolSetting("reviewer.model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = value
@@ -615,85 +519,6 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs },
 			"KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
 			settingDocOptions{commented: true}),
-		newStringSetting("reviewer.provider_capabilities.provider_id", "",
-			func(state *settingsState, value string) {
-				state.Settings.Reviewer.ProviderCapabilities.ProviderID = value
-			},
-			func(state settingsState) string { return state.Settings.Reviewer.ProviderCapabilities.ProviderID },
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID",
-			nil,
-			nil,
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_responses_api", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_responses_compact", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_prompt_cache_key", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_native_web_search", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_reasoning_encrypted", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_server_side_context_edit", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.supports_provider_verbosity", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = value
-			},
-			func(state settingsState) bool {
-				return state.Settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity
-			},
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY",
-			settingDocOptions{commented: true}),
-		newBoolSetting("reviewer.provider_capabilities.is_openai_first_party", false,
-			func(state *settingsState, value bool) {
-				state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = value
-			},
-			func(state settingsState) bool { return state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty },
-			"KENT_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY",
-			settingDocOptions{commented: true}),
 		newIntSetting("reviewer.model_context_window", 0,
 			func(state *settingsState, value int) { state.Settings.Reviewer.ModelContextWindow = value },
 			func(state settingsState) int { return state.Settings.Reviewer.ModelContextWindow },
@@ -705,13 +530,6 @@ func newSettingsRegistry() settingsRegistry {
 					return "<inherits model_context_window when unset>"
 				},
 			}),
-		newStringSetting("reviewer.auth", "inherit",
-			func(state *settingsState, value string) { state.Settings.Reviewer.Auth = value },
-			func(state settingsState) string { return state.Settings.Reviewer.Auth },
-			"KENT_REVIEWER_AUTH",
-			nil,
-			normalizeReviewerAuth,
-			settingDocOptions{}),
 		newOptionalStringSetting("reviewer.system_prompt_file",
 			func(state *settingsState, value *string) { state.Settings.Reviewer.SystemPromptFile = value },
 			func(state settingsState) *string { return state.Settings.Reviewer.SystemPromptFile },
@@ -742,11 +560,7 @@ func newSettingsRegistry() settingsRegistry {
 		settings: settings,
 		validators: []settingsValidationRule{
 			{validateModelNotEmpty, []string{"model"}},
-			{validateProviderOverrideRequiresModel, []string{"provider_override", "model"}},
-			{validateProviderOverrideValue, []string{"provider_override"}},
 			{validateProviderIdentifier, []string{"provider_identifier"}},
-			{validateOpenAIBaseURL, []string{"provider_override", "openai_base_url"}},
-			{validateProviderCapabilitiesProviderID, providerCapabilityKeys},
 			{validateModelVerbosity, []string{"model_verbosity"}},
 			{validateTheme, []string{"theme"}},
 			{validateNotificationMethod, []string{"notification_method"}},

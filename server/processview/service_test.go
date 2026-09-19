@@ -79,7 +79,7 @@ type processViewFixture struct {
 
 func newProcessViewFixture(t *testing.T) processViewFixture {
 	t.Helper()
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

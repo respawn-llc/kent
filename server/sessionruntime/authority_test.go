@@ -1702,7 +1702,7 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse session id: %v", err)
 	}
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(20 * time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(20*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}

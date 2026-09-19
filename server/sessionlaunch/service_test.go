@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
@@ -25,29 +24,6 @@ import (
 	"core/shared/toolspec"
 )
 
-type failingAuthStateReader struct{}
-
-type nonRefreshingAuthStateReader struct {
-	loaded       auth.State
-	current      auth.State
-	loadCalls    int
-	currentCalls int
-}
-
-func (r *nonRefreshingAuthStateReader) Load(context.Context) (auth.State, error) {
-	r.loadCalls++
-	return r.loaded, nil
-}
-
-func (r *nonRefreshingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
-	r.currentCalls++
-	return r.current, nil
-}
-
-func (r *nonRefreshingAuthStateReader) StoredState(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
 var serviceTestPersistence = sessiontest.NewPersistence()
 
 func createLaunchTestSession(t *testing.T, containerDir, name, workspace string) *session.Store {
@@ -57,136 +33,6 @@ func createLaunchTestSession(t *testing.T, containerDir, name, workspace string)
 		t.Fatalf("create session: %v", err)
 	}
 	return store
-}
-
-func (failingAuthStateReader) Load(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
-func (failingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
-	return auth.State{}, errors.New("auth unavailable")
-}
-
-func (failingAuthStateReader) StoredState(context.Context) (auth.State, error) {
-	return auth.EmptyState(), nil
-}
-
-func TestPlanLaunchSessionResolvesEffectiveAuthAfterFinalNamedRoleSelection(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	cfg.Settings.Subagents = map[string]config.SubagentRole{
-		"worker": {
-			Settings: func() config.Settings {
-				settings := cfg.Settings
-				settings.Model = "worker-model"
-				settings.OpenAIBaseURL = "https://compatible.example/v1"
-				settings.ThinkingLevel = "high"
-				settings.Reviewer.Model = "worker-model"
-				settings.Reviewer.ThinkingLevel = "high"
-				settings.Subagents = nil
-				return settings
-			}(),
-			Sources: map[string]config.Origin{
-				"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
-
-				"openai_base_url": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}},
-
-				"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
-			},
-		},
-	}
-	containerDir := t.TempDir()
-	reader := &nonRefreshingAuthStateReader{
-		loaded:  auth.State{Method: auth.Method{Type: auth.MethodAPIKey}},
-		current: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(reader)
-	role := "worker"
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:      launch.ModeHeadless,
-		Intent:    serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-		Overrides: serverapi.RunPromptOverrides{AgentRole: &role},
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeLocal {
-		t.Fatalf("CompactionMode = %q, want API-key compatible-provider local fallback; refreshing OAuth would select native", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 1 || reader.currentCalls != 1 {
-		t.Fatalf("auth calls Load/CurrentState = %d/%d, want non-refreshing policy read after existing readiness read", reader.loadCalls, reader.currentCalls)
-	}
-}
-
-func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	containerDir := t.TempDir()
-	store := createLaunchTestSession(t, containerDir, "workspace-a", workspace)
-	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model: cfg.Settings.Model,
-	}); err != nil {
-		t.Fatalf("MarkModelDispatchLocked: %v", err)
-	}
-	reader := &nonRefreshingAuthStateReader{
-		loaded:  auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-		current: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(reader)
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeNative {
-		t.Fatalf("CompactionMode = %q, want OAuth provider-native mode", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 1 {
-		t.Fatalf("effective auth Load calls = %d, want 1", reader.loadCalls)
-	}
-}
-
-func TestPlanLaunchSessionSkipsEffectiveAuthForExplicitProviderCapabilities(t *testing.T) {
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.Settings.CompactionMode = config.CompactionModeNative
-	cfg.Settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:               "custom",
-		SupportsResponsesCompact: false,
-	}
-	reader := &nonRefreshingAuthStateReader{
-		loaded: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-	}
-	service := newSessionLaunchTestService(cfg, t.TempDir()).WithAuthStateReader(reader)
-
-	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
-		Mode:   launch.ModeInteractive,
-		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if result.Plan.ActiveSettings.CompactionMode != config.CompactionModeLocal {
-		t.Fatalf("CompactionMode = %q, want explicit-capability local fallback", result.Plan.ActiveSettings.CompactionMode)
-	}
-	if reader.loadCalls != 0 {
-		t.Fatalf("effective auth Load calls = %d, want 0", reader.loadCalls)
-	}
 }
 
 func sessionLaunchStringPtr(value string) *string {
@@ -260,7 +106,7 @@ func TestPlanLaunchSessionReturnsPlanWithoutRegisteringStore(t *testing.T) {
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: persistenceRoot,
-		Settings:        config.Settings{Model: "gpt-5", OpenAIBaseURL: "http://config.local/v1"},
+		Settings:        testsetup.WithResponsesProvider(config.Settings{Model: "gpt-5"}, "http://config.local/v1"),
 	}, containerDir)
 
 	resp, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -273,8 +119,9 @@ func TestPlanLaunchSessionReturnsPlanWithoutRegisteringStore(t *testing.T) {
 	if resp.Plan.Descriptor.SessionID().String() == "" {
 		t.Fatal("expected session id")
 	}
-	if resp.Plan.ActiveSettings.OpenAIBaseURL != "http://config.local/v1" {
-		t.Fatalf("active OpenAI base URL = %q, want http://config.local/v1", resp.Plan.ActiveSettings.OpenAIBaseURL)
+	definition, err := resp.Plan.ActiveSettings.SelectedConnection()
+	if err != nil || definition.Endpoint == nil || *definition.Endpoint != "http://config.local/v1" {
+		t.Fatalf("active connection = %+v, %v", definition, err)
 	}
 }
 
@@ -901,7 +748,7 @@ func TestPlanLaunchSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) 
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: t.TempDir(),
 		Settings:        config.Settings{Model: "gpt-5.6-sol"},
-	}, containerDir).WithAuthStateReader(failingAuthStateReader{})
+	}, containerDir)
 
 	if _, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:      launch.ModeInteractive,
@@ -946,34 +793,6 @@ func TestPlanLaunchSessionCanProjectDefaultRoleBeforeValidation(t *testing.T) {
 	}
 }
 
-func TestPlanLaunchSessionExplicitCurrentAgentProjectsCurrentEndpoint(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	workspace := t.TempDir()
-	persistenceRoot := t.TempDir()
-	containerDir := t.TempDir()
-	store := createLaunchTestSession(t, containerDir, "workspace-a", workspace)
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://old.example/v1"),
-	}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
-	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://new.example/v1"
-	service := newSessionLaunchTestService(cfg, containerDir)
-
-	resp, err := service.PlanLaunchSession(context.Background(), PlanRequest{
-		Mode:      launch.ModeInteractive,
-		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-		Overrides: serverapi.RunPromptOverrides{AgentRole: sessionLaunchStringPtr(config.DefaultSubagentRole)},
-	})
-	if err != nil {
-		t.Fatalf("PlanLaunchSession: %v", err)
-	}
-	if got := resp.Plan.ActiveSettings.OpenAIBaseURL; got != cfg.Settings.OpenAIBaseURL {
-		t.Fatalf("planned base URL = %q, want %q", got, cfg.Settings.OpenAIBaseURL)
-	}
-}
-
 func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
@@ -988,14 +807,8 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 		AutoCompaction: false,
 	})
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "https://api.openai.com/v1"))
 	workerSettings := cfg.Settings
-	workerSettings.ProviderOverride = "openai"
-	workerSettings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
 	workerSettings.Reviewer.Frequency = "all"
 	workerSettings.ThinkingLevel = "  high  "
 	workerSettings.PriorityRequestMode = true
@@ -1016,12 +829,6 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	}
 	service := newSessionLaunchTestService(cfg, containerDir)
 	worker := "worker"
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://previous-agent.example/v1"),
-	}); err != nil {
-		t.Fatalf("seed previous Agent base URL: %v", err)
-	}
-
 	selected, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:      launch.ModeInteractive,
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
@@ -1033,7 +840,6 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	if strings.TrimSpace(selected.Plan.ActiveSettings.ThinkingLevel) != "high" ||
 		selected.Plan.ActiveSettings.Reviewer.Frequency != "all" ||
 		!selected.Plan.ActiveSettings.PriorityRequestMode ||
-		selected.Plan.ActiveSettings.OpenAIBaseURL != "https://api.openai.com/v1" ||
 		!selected.Plan.QuestionsEnabled ||
 		!selected.Plan.AutoCompactionEnabled {
 		t.Fatalf("selected plan = %+v, want complete worker baseline", selected.Plan)
@@ -1074,13 +880,12 @@ func TestPlanLaunchSessionProjectsUnavailableAgentWithCompleteDefaultBaseline(t 
 		t.Fatalf("seed removed Agent: %v", err)
 	}
 	if err := store.SetContinuationContext(session.ContinuationContext{
-		AgentRole:     &removed,
-		OpenAIBaseURL: textutil.Value("https://removed-agent.example/v1"),
+		AgentRole: &removed,
 	}); err != nil {
 		t.Fatalf("seed removed Agent base URL: %v", err)
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.OpenAIBaseURL = "https://api.openai.com/v1"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "https://api.openai.com/v1"))
 	cfg.Settings.Reviewer.Frequency = "edits"
 	cfg.Settings.ThinkingLevel = "medium"
 	cfg.Settings.PriorityRequestMode = false
@@ -1094,8 +899,7 @@ func TestPlanLaunchSessionProjectsUnavailableAgentWithCompleteDefaultBaseline(t 
 	if err != nil {
 		t.Fatalf("PlanLaunchSession repair removed Agent: %v", err)
 	}
-	if repaired.Plan.ActiveSettings.OpenAIBaseURL != "https://api.openai.com/v1" ||
-		repaired.Plan.ActiveSettings.Reviewer.Frequency != "edits" ||
+	if repaired.Plan.ActiveSettings.Reviewer.Frequency != "edits" ||
 		repaired.Plan.ActiveSettings.ThinkingLevel != "medium" ||
 		repaired.Plan.ActiveSettings.PriorityRequestMode ||
 		!repaired.Plan.QuestionsEnabled ||

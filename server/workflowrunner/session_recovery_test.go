@@ -2,6 +2,7 @@ package workflowrunner
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -172,7 +173,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	}
 	settings := loaded.Settings
 	settings.Model = "gpt-5"
-	settings.OpenAIBaseURL = "http://workflow-planning.example/v1"
+	settings = testsetup.ProviderSettings(settings)
 	settings.Reviewer.Frequency = "off"
 	settings.Shell.PostprocessingMode = config.ShellPostprocessingModeNone
 	coderSettings := settings

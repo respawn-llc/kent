@@ -57,11 +57,7 @@ message RunPromptOverrides {
     }
   ];
   optional string model = 2 [(buf.validate.field).string.min_len = 1];
-  optional string provider_override = 3 [
-    (buf.validate.field).string = {
-      in: ["openai", "anthropic"]
-    }
-  ];
+  reserved 3, 8;
   optional string thinking_level = 4 [(buf.validate.field).string.min_len = 1];
   optional string theme = 5 [
     (buf.validate.field).string = {
@@ -70,13 +66,6 @@ message RunPromptOverrides {
   ];
   optional int32 model_timeout_seconds = 6 [(buf.validate.field).int32.gte = 1];
   optional string tools = 7 [(buf.validate.field).string.min_len = 1];
-  optional string openai_base_url = 8 [(buf.validate.field).string.min_len = 1];
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.run_prompt_openai_base_url_provider"
-    message: "openai_base_url requires provider_override=openai or no provider override"
-    expression:
-      "!has(this.openai_base_url) || !has(this.provider_override) || this.provider_override == 'openai'"
-  };
 }
 
 enum ModelVerbosity {
@@ -201,17 +190,14 @@ message WorkflowSettings {
 }
 
 message ReviewerSettings {
-  reserved 11;
+  reserved 5, 6, 8, 10, 11;
   string frequency = 1;
   string model = 2;
   string thinking_level = 3;
   ModelVerbosity model_verbosity = 4 [(buf.validate.field).enum.defined_only = true];
-  string provider_override = 5;
-  string openai_base_url = 6;
   ModelCapabilitiesOverride model_capabilities = 7 [(buf.validate.field).required = true];
-  ProviderCapabilitiesOverride provider_capabilities = 8 [(buf.validate.field).required = true];
   int32 model_context_window = 9 [(buf.validate.field).int32.gte = 40000];
-  string auth = 10;
+  optional string connection = 15 [(buf.validate.field).string.min_len = 1];
   optional string system_prompt_file = 14 [(buf.validate.field).string.min_len = 1];
   int32 timeout_seconds = 12 [(buf.validate.field).int32.gt = 0];
   bool verbose_output = 13;
@@ -341,10 +327,9 @@ message Settings {
     }
   ];
   string web_search = 14;
-  string provider_override = 15;
+  reserved 15, 17, 18;
   string provider_identifier = 16;
-  string openai_base_url = 17;
-  ProviderCapabilitiesOverride provider_capabilities = 18 [(buf.validate.field).required = true];
+  optional string connection = 40 [(buf.validate.field).string.min_len = 1];
   bool store = 19;
   bool allow_non_cwd_edits = 20;
   int32 model_context_window = 21 [(buf.validate.field).int32.gte = 40000];

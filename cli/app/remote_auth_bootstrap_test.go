@@ -11,24 +11,17 @@ import (
 	"core/cli/app/internal/authui"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	"core/shared/serverapi"
-
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type stubAuthBootstrapClient struct {
-	status          *authpb.BootstrapStatus
-	completeReq     *authpb.CompleteBootstrapRequest
-	completeCalls   int
-	completeErr     error
-	completeResp    *authpb.BootstrapCompletion
-	acknowledgeReq  *emptypb.Empty
-	acknowledge     int
-	acknowledgeResp *authpb.NoAuthAcknowledgement
-	acknowledgeErr  error
+	status        *authpb.BootstrapStatus
+	completeReq   *authpb.CompleteBootstrapRequest
+	completeCalls int
+	completeErr   error
+	completeResp  *authpb.BootstrapCompletion
 }
 
-func (c *stubAuthBootstrapClient) GetBootstrapStatus(context.Context, *emptypb.Empty) (*authpb.BootstrapStatus, error) {
+func (c *stubAuthBootstrapClient) GetBootstrapStatus(context.Context, *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	return c.status, nil
 }
 
@@ -43,20 +36,7 @@ func (c *stubAuthBootstrapClient) CompleteBootstrap(_ context.Context, req *auth
 	if c.completeResp != nil {
 		return c.completeResp, nil
 	}
-	method := "oauth"
-	return &authpb.BootstrapCompletion{AuthReady: true, MethodType: &method}, nil
-}
-
-func (c *stubAuthBootstrapClient) AcknowledgeNoAuth(_ context.Context, req *emptypb.Empty) (*authpb.NoAuthAcknowledgement, error) {
-	c.acknowledge++
-	c.acknowledgeReq = req
-	if c.acknowledgeErr != nil {
-		return nil, c.acknowledgeErr
-	}
-	if c.acknowledgeResp != nil {
-		return c.acknowledgeResp, nil
-	}
-	return &authpb.NoAuthAcknowledgement{AuthReady: true}, nil
+	return &authpb.BootstrapCompletion{AuthReady: true, Method: authpb.AuthMethod_AUTH_METHOD_OAUTH, ConnectionId: "test"}, nil
 }
 
 type stubOAuthCallbackListener struct {
@@ -308,123 +288,5 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 	}
 	if flowErr == nil || !errors.Is(flowErr, ErrOAuthStateMismatch) {
 		t.Fatalf("flow error = %v, want oauth state mismatch", flowErr)
-	}
-}
-
-func TestRemoteAuthBootstrapNoAuthSelectionCompletesWithoutRePrompt(t *testing.T) {
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthReady:    false,
-			AuthRequired: true,
-			SupportedModes: []authpb.BootstrapMode{
-				authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
-			},
-		},
-		completeResp:    &authpb.BootstrapCompletion{AuthReady: false, NoAuthSelected: true},
-		acknowledgeResp: &authpb.NoAuthAcknowledgement{AuthReady: false, NoAuthSelected: true},
-	}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls > 1 {
-				t.Fatal("no-auth completion must not re-enter the auth picker")
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if remote.completeReq.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_NONE {
-		t.Fatalf("complete mode = %q, want none", remote.completeReq.Mode)
-	}
-	if remote.acknowledge != 1 {
-		t.Fatalf("acknowledge calls = %d, want 1", remote.acknowledge)
-	}
-}
-
-func TestRemoteAuthBootstrapNoAuthSelectionPropagatesAcknowledgementError(t *testing.T) {
-	ackErr := errors.New("ack failed")
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthReady:      false,
-			AuthRequired:   true,
-			SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_NONE},
-		},
-		completeResp:   &authpb.BootstrapCompletion{AuthReady: false, NoAuthSelected: true},
-		acknowledgeErr: ackErr,
-	}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls > 1 {
-				t.Fatal("acknowledgement failure after persisted no-auth must not re-open the auth picker")
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
-		},
-	}
-
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true)
-	if !errors.Is(err, ackErr) {
-		t.Fatalf("ensureRemoteAuthReady error = %v, want ackErr", err)
-	}
-	if pickerCalls != 1 {
-		t.Fatalf("picker calls = %d, want 1", pickerCalls)
-	}
-}
-
-func TestRemoteAuthBootstrapPersistedNoAuthAcknowledgesWithoutPicker(t *testing.T) {
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthReady:      false,
-			AuthRequired:   true,
-			NoAuthSelected: true,
-			SupportedModes: []authpb.BootstrapMode{
-				authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
-			},
-		},
-		acknowledgeResp: &authpb.NoAuthAcknowledgement{AuthReady: false, NoAuthSelected: true},
-	}
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			t.Fatal("persisted no-auth should not open auth picker")
-			return authMethodPickerResult{}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if remote.acknowledge != 1 {
-		t.Fatalf("acknowledge calls = %d, want 1", remote.acknowledge)
-	}
-	if remote.completeCalls != 0 {
-		t.Fatalf("complete calls = %d, want 0", remote.completeCalls)
-	}
-}
-
-func TestRemoteAuthBootstrapHeadlessDoesNotAcknowledgePersistedNoAuth(t *testing.T) {
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthReady:      false,
-			AuthRequired:   true,
-			NoAuthSelected: true,
-			SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_NONE},
-		},
-		acknowledgeResp: &authpb.NoAuthAcknowledgement{AuthReady: false, NoAuthSelected: true},
-	}
-
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, newHeadlessAuthInteractor(), false)
-	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
-		t.Fatalf("ensureRemoteAuthReady error = %v, want ErrServerAuthRequired", err)
-	}
-	if remote.acknowledge != 0 {
-		t.Fatalf("acknowledge calls = %d, want 0", remote.acknowledge)
-	}
-	if remote.completeCalls != 0 {
-		t.Fatalf("complete calls = %d, want 0", remote.completeCalls)
 	}
 }

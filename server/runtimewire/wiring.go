@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/server/auth"
+	"core/server/authservice"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
@@ -39,6 +40,7 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	Environment                         func(string) (string, bool)
 	MainWorkspaceRoot                   string
 	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
@@ -87,9 +89,21 @@ func NewRuntimeWiringWithBackground(
 	if opts.Client != nil && opts.ClientFactory != nil {
 		return nil, ErrRuntimeClientFactoryConflict
 	}
+	catalog, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: opts.GlobalConfigDir})
+	if err != nil {
+		return nil, err
+	}
+	active.Connections = catalog.Settings.Connections
+	selected, _, err := launch.ResolveSessionConnection(active, store.Meta().ConnectionID)
+	if err != nil {
+		return nil, err
+	}
+	active.Connection = &selected
+	config.InheritReviewerSettings(&active, opts.Sources)
 	shellPostprocessor, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     active.Shell.PostprocessingMode,
-		HookPath: active.Shell.PostprocessHook,
+		PersistenceRoot: opts.GlobalConfigDir,
+		Mode:            active.Shell.PostprocessingMode,
+		HookPath:        active.Shell.PostprocessHook,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile effective shell postprocessor: %w", err)
@@ -104,64 +118,42 @@ func NewRuntimeWiringWithBackground(
 		factoryContext = context.Background()
 	}
 
-	mainProvider := mainProviderRuntimeSettings(active)
-	if resolvedCapabilities, ok := llm.ProviderCapabilitiesFromLockedOrOverride(store.Meta().Locked, active.ProviderCapabilities); ok {
-		mainProvider.ProviderCapabilitiesOverride = &resolvedCapabilities
+	resolver := authservice.NewConnectionResolver(opts.GlobalConfigDir, mgr, opts.Environment)
+	newClient := func(settings config.Settings, purpose RuntimeClientPurpose, factory RuntimeClientFactory) (llm.Client, error) {
+		connection, err := resolver.Resolve(settings)
+		if err != nil {
+			return nil, err
+		}
+		return NewRuntimeClient(factoryContext, factory, RuntimeClientRequest{
+			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
+			EnabledTools: enabledTools, WorkspaceRoot: workingDirectory, Sources: opts.Sources, Connection: connection,
+		})
 	}
 	var client llm.Client
 	if opts.Client != nil {
 		client = opts.Client
-	} else if opts.ClientFactory != nil {
-		client, err = newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeMain, store.Meta().SessionID, active, enabledTools, filesystemContext.Access.WorkingDirectory.LexicalPath, opts.Sources, mainProvider)
-		if err != nil {
-			return nil, err
-		}
 	} else {
-		var mainAuth llm.AuthHeaderProvider
-		if mgr != nil && !strings.EqualFold(strings.TrimSpace(mainProvider.Auth), "none") {
-			mainAuth = mgr
-		}
-		client, err = llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider:                     llm.Provider(strings.TrimSpace(mainProvider.ProviderOverride)),
-			Model:                        mainProvider.Model,
-			Auth:                         mainAuth,
-			HTTPClient:                   llm.NewProviderHTTPClient(mainProvider.OpenAIBaseURL, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
-			OpenAIBaseURL:                mainProvider.OpenAIBaseURL,
-			ModelVerbosity:               string(mainProvider.ModelVerbosity),
-			ProviderIdentifier:           &mainProvider.ProviderIdentifier,
-			Store:                        mainProvider.Store,
-			ContextWindowTokens:          mainProvider.ContextWindowTokens,
-			ProviderCapabilitiesOverride: mainProvider.ProviderCapabilitiesOverride,
-		})
+		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	reviewerProvider := reviewerProviderRuntimeSettings(active)
 	newReviewerClient := func() (llm.Client, error) {
-		if opts.ClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
+		factory := opts.ClientFactory
+		if factory == nil {
+			factory = opts.ReviewerClientFactory
 		}
-		if opts.ReviewerClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ReviewerClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
-		}
-		var reviewerAuth llm.AuthHeaderProvider
-		if mgr != nil && !strings.EqualFold(strings.TrimSpace(reviewerProvider.Auth), "none") {
-			reviewerAuth = mgr
-		}
-		return llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider:                     llm.Provider(strings.TrimSpace(reviewerProvider.ProviderOverride)),
-			Model:                        reviewerProvider.Model,
-			Auth:                         reviewerAuth,
-			HTTPClient:                   llm.NewProviderHTTPClient(reviewerProvider.OpenAIBaseURL, time.Duration(active.Reviewer.TimeoutSeconds)*time.Second),
-			OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
-			ModelVerbosity:               string(reviewerProvider.ModelVerbosity),
-			ProviderIdentifier:           &reviewerProvider.ProviderIdentifier,
-			Store:                        reviewerProvider.Store,
-			ContextWindowTokens:          reviewerProvider.ContextWindowTokens,
-			ProviderCapabilitiesOverride: reviewerProvider.ProviderCapabilitiesOverride,
-		})
+		settings := active
+		settings.Connection = active.Reviewer.Connection
+		settings.Model = active.Reviewer.Model
+		settings.ThinkingLevel = active.Reviewer.ThinkingLevel
+		settings.ModelVerbosity = active.Reviewer.ModelVerbosity
+		settings.ModelContextWindow = active.Reviewer.ModelContextWindow
+		settings.ModelCapabilities = active.Reviewer.ModelCapabilities
+		settings.Timeouts.ModelRequestSeconds = active.Reviewer.TimeoutSeconds
+		settings.Store = false
+		return newClient(settings, RuntimeClientPurposeReviewer, factory)
 	}
 
 	var reviewerClient llm.Client
@@ -172,13 +164,13 @@ func NewRuntimeWiringWithBackground(
 		}
 	}
 
-	providerCapabilitiesOverride := mainProvider.ProviderCapabilitiesOverride
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilitiesOverride = opts.ProviderCapabilitiesOverride
-	}
-	providerCapabilities, err := runtimeClientCapabilities(factoryContext, client, providerCapabilitiesOverride)
+	provider, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
 	if err != nil {
 		return nil, err
+	}
+	providerCapabilities := provider.Capabilities
+	if opts.ProviderCapabilitiesOverride != nil {
+		providerCapabilities = *opts.ProviderCapabilitiesOverride
 	}
 	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
 	var eng *runtime.Engine
@@ -353,43 +345,6 @@ func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(con
 	}, nil
 }
 
-type providerRuntimeSettings struct {
-	Model                        string
-	ProviderOverride             string
-	OpenAIBaseURL                string
-	ModelVerbosity               config.ModelVerbosity
-	ProviderIdentifier           string
-	Store                        bool
-	ContextWindowTokens          int
-	Auth                         string
-	ProviderCapabilitiesOverride *llm.ProviderCapabilities
-}
-
-func mainProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	return providerRuntimeSettings{
-		Model:                        active.Model,
-		ProviderOverride:             active.ProviderOverride,
-		OpenAIBaseURL:                active.OpenAIBaseURL,
-		ModelVerbosity:               active.ModelVerbosity,
-		ProviderIdentifier:           active.ProviderIdentifier,
-		Store:                        active.Store,
-		ContextWindowTokens:          active.ModelContextWindow,
-		Auth:                         "inherit",
-		ProviderCapabilitiesOverride: providerCapabilitiesOverridePtr(active.ProviderCapabilities),
-	}
-}
-
-func runtimeClientCapabilities(ctx context.Context, client llm.Client, override *llm.ProviderCapabilities) (llm.ProviderCapabilities, error) {
-	if override != nil {
-		return *override, nil
-	}
-	provider, ok := client.(llm.ProviderCapabilitiesClient)
-	if !ok {
-		return llm.ProviderCapabilities{}, fmt.Errorf("provider capabilities are unavailable")
-	}
-	return provider.ProviderCapabilities(ctx)
-}
-
 func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]config.Origin, reasoningKey string, visionKey string) session.LockedModelCapabilities {
 	locked := llm.LockedModelCapabilitiesForModel(model, provider)
 	reasoningConfigured := inheritedModelCapabilitySourceConfigured(sources, reasoningKey)
@@ -419,34 +374,6 @@ func inheritedModelCapabilitySourceConfigured(sources map[string]config.Origin, 
 
 func modelCapabilitySourceConfigured(sources map[string]config.Origin, key string) bool {
 	return sources[key].Configured()
-}
-
-func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	reviewer := active.Reviewer
-	reviewerProvider := config.ResolveReviewerProviderSettings(config.Settings{
-		ProviderOverride: active.ProviderOverride,
-		OpenAIBaseURL:    active.OpenAIBaseURL,
-		Reviewer:         reviewer,
-	})
-	return providerRuntimeSettings{
-		Model:                        reviewer.Model,
-		ProviderOverride:             reviewerProvider.ProviderOverride,
-		OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
-		ModelVerbosity:               reviewer.ModelVerbosity,
-		ProviderIdentifier:           active.ProviderIdentifier,
-		Store:                        false,
-		ContextWindowTokens:          reviewer.ModelContextWindow,
-		Auth:                         reviewer.Auth,
-		ProviderCapabilitiesOverride: providerCapabilitiesOverridePtr(reviewer.ProviderCapabilities),
-	}
-}
-
-func providerCapabilitiesOverridePtr(override config.ProviderCapabilitiesOverride) *llm.ProviderCapabilities {
-	caps, ok := llm.ProviderCapabilitiesFromOverride(override)
-	if !ok {
-		return nil
-	}
-	return &caps
 }
 
 func boolRef(v bool) *bool { return &v }

@@ -19,7 +19,8 @@ import { useComposerHistoryActions } from "./ComposerHistoryViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
 import type { QuerySnapshot } from "@/app-facade";
 import type { QueryObserverResult } from "@tanstack/react-query";
-import type { ChatApi, ChatMutationTarget } from "@/api";
+import type { ChatApi, ChatMutationTarget, ChatTranscriptPayloadByKind } from "@/api";
+import { showStatusToast } from "@/ui";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
@@ -79,9 +80,20 @@ export function useChatComposer(options: ChatComposerOptions) {
   const observation = useMemo(
     () => ({
       ...pending.observation,
+      onConnectionReplaced: (replacement: ChatTranscriptPayloadByKind["connection_replaced"]) => {
+        showStatusToast({
+          id: "connection-replaced",
+          tone: "info",
+          title: t("chatComposer.connectionReplaced"),
+          body: t("chatComposer.connectionReplacedBody", {
+            previous: replacement.PreviousID,
+            current: replacement.CurrentID,
+          }),
+        });
+      },
       ...(target.kind === "session" ? chatCompactionFeedback(services, target) : {}),
     }),
-    [pending.observation, services, target],
+    [pending.observation, services, target, t],
   );
   const [picker, setPicker] = useState<
     Readonly<{ kind: "dismissed" }> | Readonly<{ kind: "selecting"; token: string | null }>

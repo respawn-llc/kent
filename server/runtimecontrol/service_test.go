@@ -694,7 +694,6 @@ func newRuntimeControlTestServiceWithFeeds(
 		client = &runtimeControlFakeClient{}
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
 	settings.Reviewer.Frequency = "off"
 	settings.CompactionMode = config.CompactionModeNative
 	if cfg.Model != "" {

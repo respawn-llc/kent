@@ -17,12 +17,8 @@ import (
 
 type providerTurnStateOAuthAuth struct{}
 
-func (providerTurnStateOAuthAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
-}
-
-func (providerTurnStateOAuthAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "account-1", nil
+func (providerTurnStateOAuthAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer token", Mode: llm.OpenAIAuthMode{IsOAuth: true, AccountID: "account-1"}}, nil
 }
 
 func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {

@@ -3,7 +3,6 @@ package sessionservice
 import (
 	"context"
 	"testing"
-	"time"
 
 	"core/server/auth"
 	"core/server/session"
@@ -12,6 +11,7 @@ import (
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -126,13 +126,8 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 }
 
 func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
-	manager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil, time.Now)
+	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	service := newTestSessionLifecycleService(t.TempDir(), manager)
 	currentID := runtimeids.NewSessionID()
 

@@ -24,6 +24,7 @@ var ErrExecutionNoLongerLive = errors.New("exact execution scope is no longer li
 var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
+	Environment       func(string) (string, bool)
 	Debug             bool
 	PersistenceRoot   string
 	AuthManager       *auth.Manager

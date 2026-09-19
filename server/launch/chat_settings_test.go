@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -30,7 +29,6 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5"
 	settings.ThinkingLevel = "medium"
-	settings.ProviderCapabilities.ProviderID = "anthropic"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolExecCommand: true,
 		toolspec.ToolViewImage:   true,
@@ -66,7 +64,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 			AgentCallable: false,
 		},
 	}
-	catalog, err := PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), auth.EmptyState(), true)
+	catalog, err := PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
@@ -85,7 +83,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		Settings: config.Settings{ThinkingLevel: " "},
 		Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 	}
-	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), auth.EmptyState(), true)
+	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
 	var typed *serverapi.ChatSettingsAgentPreparationError
 	if !errors.As(err, &typed) ||
 		typed.Agent != "broken" ||

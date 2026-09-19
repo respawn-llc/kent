@@ -39,6 +39,7 @@ export type {
 export type ChatRuntimeApi = Pick<ChatApi, "getMainView" | "getTranscriptPage" | "subscribeTranscript">;
 export type ChatRuntimeHost = Readonly<{
   logger: AppLogger;
+  onConnectionReplaced?(replacement: ChatTranscriptPayloadByKind["connection_replaced"]): void;
   onHumanInputInterrupted?(items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"]): void;
   onPendingWorkHydrated?(sessionID: string): void;
   onPendingWorkChanged?(): void;
@@ -305,6 +306,8 @@ export class ChatRuntimeOwner {
         this.#host.onHumanInputInterrupted?.(effect.items);
       } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
+      } else if (effect.kind === "connection-replaced") {
+        this.#host.onConnectionReplaced?.(effect.replacement);
       } else if (effect.kind === "pending-work-hydrated") {
         this.#host.onPendingWorkHydrated?.(effect.sessionID);
       } else if (effect.kind === "pending-work-changed") {

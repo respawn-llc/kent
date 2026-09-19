@@ -24,11 +24,11 @@ func TestRuntimeClientFactoryCreatesMainAndReviewerClients(t *testing.T) {
 	var providerIdentifiers []string
 	factory := RuntimeClientFactoryFunc(func(_ context.Context, req RuntimeClientRequest) (llm.Client, error) {
 		purposes = append(purposes, req.Purpose)
-		providerIdentifiers = append(providerIdentifiers, req.ProviderSettings.ProviderIdentifier)
+		providerIdentifiers = append(providerIdentifiers, req.ActiveSettings.ProviderIdentifier)
 		return &runtimewireCaptureClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
@@ -43,8 +43,8 @@ func TestRuntimeClientFactoryCreatesMainAndReviewerClients(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: factory}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: factory}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRuntimeClientFactoryCreatesMainAndReviewerClients(t *testing.T) {
 func TestRuntimeClientFactoryRejectsDirectClientOverride(t *testing.T) {
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "factory-conflict")
-	_, err := NewRuntimeWiringWithBackground(
+	_, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{Model: "gpt-5", ModelContextWindow: 200000, Timeouts: config.Timeouts{ModelRequestSeconds: 1}},
@@ -72,8 +72,8 @@ func TestRuntimeClientFactoryRejectsDirectClientOverride(t *testing.T) {
 			FilesystemContext: runtimeWireFilesystemContext(t, root),
 			Client:            &runtimewireCaptureClient{},
 			ClientFactory:     RuntimeClientFactoryFunc(func(context.Context, RuntimeClientRequest) (llm.Client, error) { return nil, nil }),
-		}),
-	)
+		}))
+
 	if !errors.Is(err, ErrRuntimeClientFactoryConflict) {
 		t.Fatalf("error = %v, want ErrRuntimeClientFactoryConflict", err)
 	}
@@ -91,7 +91,7 @@ func TestReviewerRuntimeClientFactoryCanPairWithDirectMainClient(t *testing.T) {
 		return &runtimewireCaptureClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("review"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
@@ -109,8 +109,8 @@ func TestReviewerRuntimeClientFactoryCanPairWithDirectMainClient(t *testing.T) {
 			FilesystemContext:     runtimeWireFilesystemContext(t, root),
 			Client:                &runtimewireCaptureClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}},
 			ReviewerClientFactory: factory,
-		}),
-	)
+		}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRuntimeClientFactoryReceivesActivationContext(t *testing.T) {
 		return &runtimewireCaptureClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
@@ -146,8 +146,8 @@ func TestRuntimeClientFactoryReceivesActivationContext(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Context: ctx, ClientFactory: factory}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Context: ctx, ClientFactory: factory}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -159,12 +159,11 @@ func TestRuntimeClientFactoryErrorDoesNotFallBackToProvider(t *testing.T) {
 	store := newRuntimeWireSession(t, root, "factory-error")
 	wantErr := errors.New("factory failed")
 	calls := 0
-	_, err := NewRuntimeWiringWithBackground(
+	_, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
 			Model:              "",
-			ProviderOverride:   "openai",
 			ModelContextWindow: 200000,
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
@@ -176,8 +175,8 @@ func TestRuntimeClientFactoryErrorDoesNotFallBackToProvider(t *testing.T) {
 		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: RuntimeClientFactoryFunc(func(context.Context, RuntimeClientRequest) (llm.Client, error) {
 			calls++
 			return nil, wantErr
-		})}),
-	)
+		})}))
+
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want factory error", err)
 	}
@@ -189,7 +188,7 @@ func TestRuntimeClientFactoryErrorDoesNotFallBackToProvider(t *testing.T) {
 	}
 }
 
-func TestResumedMainClientUsesLockedProviderVerbosityForBothRequestPaths(t *testing.T) {
+func TestResumedMainClientUsesActualConnectionCapabilitiesForDispatch(t *testing.T) {
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "locked-provider-verbosity")
 	lockedVerbosity := true
@@ -214,24 +213,11 @@ func TestResumedMainClientUsesLockedProviderVerbosityForBothRequestPaths(t *test
 	t.Cleanup(func() { _ = recorder.Stop() })
 
 	var mainClient llm.Client
-	factory := RuntimeClientFactoryFunc(func(_ context.Context, req RuntimeClientRequest) (llm.Client, error) {
+	factory := RuntimeClientFactoryFunc(func(ctx context.Context, req RuntimeClientRequest) (llm.Client, error) {
 		if req.Purpose != RuntimeClientPurposeMain {
 			t.Fatalf("factory purpose = %v, want main", req.Purpose)
 		}
-		caps := req.ProviderSettings.ProviderCapabilitiesOverride
-		if caps == nil || !caps.SupportsProviderVerbosity {
-			t.Fatalf("main client capabilities = %+v, want locked verbosity support", caps)
-		}
-		client, err := llm.NewProviderClient(llm.ProviderClientOptions{
-			Provider:                     llm.Provider(req.ProviderSettings.ProviderOverride),
-			Model:                        req.ProviderSettings.Model,
-			Auth:                         nil,
-			OpenAIBaseURL:                req.ProviderSettings.OpenAIBaseURL,
-			ModelVerbosity:               string(req.ProviderSettings.ModelVerbosity),
-			Store:                        req.ProviderSettings.Store,
-			ContextWindowTokens:          req.ProviderSettings.ContextWindowTokens,
-			ProviderCapabilitiesOverride: caps,
-		})
+		client, err := NewRuntimeClient(ctx, nil, req)
 		if err != nil {
 			return nil, err
 		}
@@ -239,30 +225,27 @@ func TestResumedMainClientUsesLockedProviderVerbosityForBothRequestPaths(t *test
 		return client, nil
 	})
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
-			Model:              "operator-alias",
-			ProviderOverride:   "openai",
-			OpenAIBaseURL:      recorder.URL(),
+			Model:      "operator-alias",
+			Connection: textutil.Value(config.ConnectionID("local")),
+			Connections: map[config.ConnectionID]config.ProviderConnection{
+				"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value(recorder.URL())},
+			},
 			ModelVerbosity:     config.ModelVerbosityHigh,
 			ModelContextWindow: 200000,
-			ProviderCapabilities: config.ProviderCapabilitiesOverride{
-				ProviderID:                "custom-provider",
-				SupportsResponsesAPI:      true,
-				SupportsProviderVerbosity: false,
-			},
-			Reviewer: config.ReviewerSettings{Frequency: "off"},
-			Timeouts: config.Timeouts{ModelRequestSeconds: 1},
-			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Reviewer:           config.ReviewerSettings{Frequency: "off"},
+			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
+			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 		nil,
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: factory}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: factory}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -290,7 +273,7 @@ func TestResumedMainClientUsesLockedProviderVerbosityForBothRequestPaths(t *test
 		var payload struct {
 			Text map[string]string `json:"text"`
 		}
-		if err := json.Unmarshal(call.Body, &payload); err != nil || payload.Text["verbosity"] != "high" {
+		if err := json.Unmarshal(call.Body, &payload); err != nil || payload.Text["verbosity"] != "" {
 			t.Fatalf("%s request verbosity = %q, %v", call.Route, payload.Text["verbosity"], err)
 		}
 	}

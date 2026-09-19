@@ -430,7 +430,6 @@ func cloneContinuationContext(in *ContinuationContext) *ContinuationContext {
 		return nil
 	}
 	copyContext := *in
-	copyContext.OpenAIBaseURL = textutil.Pointer(in.OpenAIBaseURL)
 	copyContext.AgentRole = textutil.Pointer(in.AgentRole)
 	return &copyContext
 }
@@ -560,6 +559,9 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	}
 	if opts.InheritContinuation {
 		child.meta.Continuation = cloneContinuationContext(sourceMeta.Continuation)
+		if kind == SessionCreationSourcePreviousSession {
+			child.meta.ConnectionID = textutil.Pointer(sourceMeta.ConnectionID)
+		}
 	} else {
 		child.meta.Continuation = nil
 	}

@@ -62,7 +62,7 @@ func newDormantMainViewTestService(
 		staticExecutionTargetResolver{target: target},
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
 		app: config.App{Settings: settings},
-	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+	})
 }
 
 func TestValidateSessionTranscriptPageResponseUsesInvariantFailurePolicy(t *testing.T) {
@@ -238,7 +238,7 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 		staticExecutionTargetResolver{target: target},
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
 		app: config.App{Settings: settings},
-	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+	})
 
 	response, err := service.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
 		SessionId: store.Meta().SessionID,

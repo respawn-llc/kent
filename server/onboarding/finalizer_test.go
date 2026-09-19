@@ -75,7 +75,6 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 		{
 			name: "known model large context level thinking verbosity true ask supervisor override native compaction",
 			req: &onboardingpb.FinalizeRequest{
-				MainProvider:  &onboardingpb.ProviderChoice{ProviderOverride: &providerOverride, OpenaiBaseUrl: &openAIBaseURL},
 				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4-mini")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE},
 				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")},
@@ -163,9 +162,6 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 			}
 			if tc.want.reviewerModel != nil && (cfg.Settings.Reviewer.Model != *tc.want.reviewerModel || cfg.Settings.Reviewer.ThinkingLevel != *tc.want.reviewerThinking) {
 				t.Fatalf("reviewer model/thinking = %q/%q, want %q/%q", cfg.Settings.Reviewer.Model, cfg.Settings.Reviewer.ThinkingLevel, *tc.want.reviewerModel, *tc.want.reviewerThinking)
-			}
-			if tc.want.providerOverride != nil && (cfg.Settings.ProviderOverride != *tc.want.providerOverride || cfg.Settings.OpenAIBaseURL != *tc.want.openAIBaseURL) {
-				t.Fatalf("provider settings = %q/%q, want %q/%q", cfg.Settings.ProviderOverride, cfg.Settings.OpenAIBaseURL, *tc.want.providerOverride, *tc.want.openAIBaseURL)
 			}
 			if tc.want.modelTimeout != nil && cfg.Settings.Timeouts.ModelRequestSeconds != *tc.want.modelTimeout {
 				t.Fatalf("model timeout = %d, want %d", cfg.Settings.Timeouts.ModelRequestSeconds, *tc.want.modelTimeout)

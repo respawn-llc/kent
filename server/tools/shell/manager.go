@@ -20,6 +20,7 @@ import (
 )
 
 type Manager struct {
+	persistenceRoot      string
 	mu                   sync.Mutex
 	nextID               int
 	entries              sync.Map
@@ -67,8 +68,11 @@ func WithPostprocessor(runner *postprocess.Runner) ManagerOption {
 	}
 }
 
-func NewManager(opts ...ManagerOption) (*Manager, error) {
-	defaultPostprocessor, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error) {
+	if persistenceRoot == "" {
+		return nil, errors.New("server persistence root is required for shell execution")
+	}
+	defaultPostprocessor, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin, PersistenceRoot: persistenceRoot})
 	if err != nil {
 		return nil, fmt.Errorf("compile default shell postprocessor: %w", err)
 	}
@@ -77,6 +81,7 @@ func NewManager(opts ...ManagerOption) (*Manager, error) {
 		return nil, fmt.Errorf("create background shell temp dir: %w", err)
 	}
 	mgr := &Manager{
+		persistenceRoot:      persistenceRoot,
 		nextID:               initialProcessID,
 		tempDir:              tempDir,
 		minimumExecToBgTime:  defaultMinimumExecToBgTime,
@@ -168,6 +173,10 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	ownerRunID := strings.TrimSpace(req.OwnerRunID)
 	ownerStepID := strings.TrimSpace(req.OwnerStepID)
 	cmd.Env = tools.EnrichShellEnvForInvocation(os.Environ(), ownerSessionID, ownerRunID, ownerStepID)
+	cmd.Env, err = tools.FilterCredentialEnvironment(m.persistenceRoot, cmd.Env)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("prepare shell environment: %w", err)
+	}
 	prepareManagedExec(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

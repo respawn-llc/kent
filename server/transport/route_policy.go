@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"strings"
 
-	"core/server/auth"
 	rpccontract "core/shared/apicontract"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -160,24 +160,14 @@ func (e routePolicyExecutor) serverAuthReady(ctx context.Context, connection *co
 	if !g.deps.ServerAuthRequired() {
 		return true, nil
 	}
-	if g.deps.AuthManager() == nil {
+	if g.deps.AuthBootstrapClient() == nil {
 		return false, nil
 	}
-	state, err := g.deps.AuthManager().Load(ctx)
+	status, err := g.deps.AuthBootstrapClient().GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{})
 	if err != nil {
 		return false, err
 	}
-	if auth.EvaluateStartupGate(state).Ready {
-		return true, nil
-	}
-	if connection != nil && connection.noAuthAccepted {
-		stored, err := g.deps.AuthManager().StoredState(ctx)
-		if err != nil {
-			return false, err
-		}
-		return stored.IsNoAuthSelected(), nil
-	}
-	return false, nil
+	return status.AuthReady, nil
 }
 
 func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {

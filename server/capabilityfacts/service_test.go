@@ -6,9 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	"core/server/onboardingimports"
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
@@ -61,11 +60,9 @@ func TestServiceProjectsModelCatalogAndUnknownFallback(t *testing.T) {
 }
 
 func TestServiceProjectsProviderFactsAndExplicitProviders(t *testing.T) {
-	settings := config.Settings{
-		Model:            "gpt-5.6-sol",
-		ProviderOverride: "openai",
-		OpenAIBaseURL:    "https://api.compatible.example/v1",
-	}
+	settings := testsetup.WithResponsesProvider(config.Settings{
+		Model: "gpt-5.6-sol",
+	}, "https://api.compatible.example/v1")
 	service := NewService(Options{Config: testConfig(t, settings)})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{ExplicitLlmProviderIds: []string{"openai", "OPENAI"}})
@@ -111,14 +108,15 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := NewService(Options{Config: testConfig(t, config.Settings{
-				Model: "operator-alias",
-				ProviderCapabilities: config.ProviderCapabilitiesOverride{
-					ProviderID:                "custom-provider",
-					IsOpenAIFirstParty:        tt.isOpenAIFirstParty,
-					SupportsProviderVerbosity: tt.supportsProviderVerbosity,
-				},
-			})})
+			settings := testsetup.ProviderSettings(config.Settings{Model: "operator-alias"})
+			definition := settings.Connections[*settings.Connection]
+			definition.Capabilities = config.ProviderCapabilitiesOverride{
+				ProviderID:                "custom-provider",
+				IsOpenAIFirstParty:        tt.isOpenAIFirstParty,
+				SupportsProviderVerbosity: tt.supportsProviderVerbosity,
+			}
+			settings.Connections[*settings.Connection] = definition
+			service := NewService(Options{Config: testConfig(t, settings)})
 
 			resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
 			if err != nil {
@@ -142,11 +140,10 @@ func TestServiceRejectsUnsupportedExplicitProvider(t *testing.T) {
 
 func TestServiceProjectsDefaults(t *testing.T) {
 	service := NewService(Options{Config: testConfig(t, config.Settings{
-		Model:            "custom-model",
-		ProviderOverride: "openai",
-		ThinkingLevel:    "ultra",
-		ModelVerbosity:   config.ModelVerbosityHigh,
-		CompactionMode:   config.CompactionModeNative,
+		Model:          "custom-model",
+		ThinkingLevel:  "ultra",
+		ModelVerbosity: config.ModelVerbosityHigh,
+		CompactionMode: config.CompactionModeNative,
 	})})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -167,8 +164,7 @@ func TestServiceProjectsDefaults(t *testing.T) {
 		t.Fatalf("compaction default = %q", resp.Defaults.CompactionMode)
 	}
 	service = NewService(Options{Config: testConfig(t, config.Settings{
-		Model:            "custom-model",
-		ProviderOverride: "openai",
+		Model: "custom-model",
 	})})
 	resp, err = service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
 	if err != nil {
@@ -245,38 +241,6 @@ func TestServiceProjectsHomeResolutionFailureAsImportErrorFact(t *testing.T) {
 	}
 }
 
-func TestServiceUsesSavedAuthWithoutRefreshingPreAuthFacts(t *testing.T) {
-	state := auth.EmptyState()
-	state.Method.Type = auth.MethodOAuth
-	state.Method.OAuth = &auth.OAuthMethod{
-		AccessToken:  "stale-token",
-		RefreshToken: "refresh-token",
-		TokenType:    "Bearer",
-		Expiry:       time.Now().Add(-time.Hour),
-		AccountID:    "account",
-	}
-	refresher := auth.NewOAuthRefresher(
-		time.Now,
-		time.Second,
-		func(context.Context, auth.Method) (auth.Method, error) {
-			return auth.Method{}, errors.New("refresh must not run for capability facts")
-		},
-	)
-	service := NewService(Options{
-		Config:      testConfig(t, config.Settings{Model: "gpt-5.6-sol"}),
-		AuthManager: auth.NewManager(auth.NewMemoryStore(state), refresher, time.Now),
-	})
-
-	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
-	if err != nil {
-		t.Fatalf("GetCapabilityFacts: %v", err)
-	}
-
-	if resp.Providers.CurrentEffective == nil || resp.Providers.CurrentEffective.LlmProviderId != "chatgpt-codex" {
-		t.Fatalf("current provider = %+v, want chatgpt-codex", resp.Providers.CurrentEffective)
-	}
-}
-
 func testConfig(t *testing.T, settings config.Settings) config.App {
 	t.Helper()
 	return testConfigAt(t.TempDir(), settings)
@@ -292,7 +256,7 @@ func knownModelFact(facts []*capabilitypb.ModelFact, modelID string) *capability
 }
 
 func testConfigAt(root string, settings config.Settings) config.App {
-	return config.App{PersistenceRoot: root, Settings: settings}
+	return config.App{PersistenceRoot: root, Settings: testsetup.ProviderSettings(settings)}
 }
 
 func writeProviderSkill(t *testing.T, home string, providerHome string, sourceDir string, dirName string, name string) {

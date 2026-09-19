@@ -15,11 +15,8 @@ import (
 
 type serveCommandServer = ServeServer
 
-var startServeServer = func(ctx context.Context, req serverstartup.Request, authHandler serverstartup.AuthHandler, onboardingHandler serverstartup.OnboardingHandler) (serveCommandServer, error) {
-	return serverstartup.StartServeServer(ctx, req, authHandler, onboardingHandler)
-}
-var newServeStartupHandlers = func() (serverstartup.AuthHandler, serverstartup.OnboardingHandler) {
-	return serverstartup.NewHeadlessHandlers(nil)
+var startServeServer = func(ctx context.Context, req serverstartup.Request, onboardingHandler serverstartup.OnboardingHandler) (serveCommandServer, error) {
+	return serverstartup.StartServeServer(ctx, req, onboardingHandler)
 }
 
 func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -46,11 +43,9 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx = installServiceShutdownTrigger(ctx)
-	authHandler, onboardingHandler := newServeStartupHandlers()
 	server, err := startServeServer(ctx, serverstartup.Request{
-		AllowUnauthenticated: true,
-		LoadOptions:          brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
-	}, authHandler, onboardingHandler)
+		LoadOptions: brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
+	}, serverstartup.HeadlessOnboarding)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, context.Canceled) {

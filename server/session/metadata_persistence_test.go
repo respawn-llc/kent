@@ -9,7 +9,37 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"core/shared/config"
 )
+
+func TestSessionConnectionBindingSurvivesReopen(t *testing.T) {
+	persistence := &testSessionMetadata{records: map[string]PersistedSessionRecord{}}
+	root := t.TempDir()
+	options := []StoreOption{WithPersistenceObserver(persistence), WithPersistedSessionResolver(persistence)}
+	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID(config.ConnectionID("work")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "original-model"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(store.Dir(), options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := reopened.Meta()
+	if meta.ConnectionID == nil || *meta.ConnectionID != "work" || meta.Locked.Model != "original-model" {
+		t.Fatalf("saved connection and model contract = %+v", meta)
+	}
+	*meta.ConnectionID = "mutated-copy"
+	if *reopened.Meta().ConnectionID != "work" {
+		t.Fatal("snapshot mutation changed the saved binding")
+	}
+}
 
 type stubPersistedSessionResolver struct {
 	record PersistedSessionRecord

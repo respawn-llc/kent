@@ -14,6 +14,7 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -31,7 +32,6 @@ type remoteConnectionSetup struct {
 	attachmentIntent           *remoteAttachmentIntent
 	additionalAttachmentIntent *remoteAttachmentIntent
 	expectation                *remoteConnectionExpectation
-	acknowledgeNoAuth          func(context.Context, rpcwire.Conn) error
 }
 
 func (s remoteConnectionSetup) run(ctx context.Context, conn rpcwire.Conn) (remoteConnectionState, error) {
@@ -41,11 +41,6 @@ func (s remoteConnectionSetup) run(ctx context.Context, conn rpcwire.Conn) (remo
 	}
 	if s.expectation != nil {
 		if err := validateIdentityRoot(s.expectation.rootID, identity); err != nil {
-			return remoteConnectionState{}, err
-		}
-	}
-	if s.acknowledgeNoAuth != nil {
-		if err := s.acknowledgeNoAuth(ctx, conn); err != nil {
 			return remoteConnectionState{}, err
 		}
 	}

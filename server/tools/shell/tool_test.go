@@ -106,7 +106,7 @@ func newBackgroundTestManager(t *testing.T) *Manager {
 
 func newShellTestManager(t *testing.T, minimumExecToBackground time.Duration, options ...ManagerOption) *Manager {
 	t.Helper()
-	manager, err := NewManager(append([]ManagerOption{
+	manager, err := NewManager(t.TempDir(), append([]ManagerOption{
 		WithMinimumExecToBgTime(minimumExecToBackground),
 		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
 	}, options...)...)
@@ -969,7 +969,7 @@ func TestExecCommandClampsShortYieldTime(t *testing.T) {
 	const clampedForegroundWindow = 2 * time.Second
 
 	workspace := t.TempDir()
-	manager, err := NewManager(WithMinimumExecToBgTime(clampedForegroundWindow))
+	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(clampedForegroundWindow))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

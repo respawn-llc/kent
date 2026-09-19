@@ -436,6 +436,11 @@ const eventProjections: {
       Detail: value.detail,
     },
   }),
+  connectionReplaced: (value, sequence) => ({
+    sequence,
+    kind: "connection_replaced",
+    payload: { PreviousID: value.previousId, CurrentID: value.currentId },
+  }),
   liveRunFinished: (value, sequence) => ({
     sequence,
     kind: "live_run_finished",

@@ -14,7 +14,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
-	"core/server/authservice"
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
 	askquestion "core/server/tools"
@@ -39,7 +38,6 @@ func readyMemoryAuthHandler() memoryAuthHandler {
 
 func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
 	state := apiKeyMemoryAuthState(key)
-	state.UpdatedAt = time.Now().UTC()
 	return memoryAuthHandler{state: state}
 }
 
@@ -48,13 +46,8 @@ func apiKeyMemoryAuthHandlerWithoutTimestamp(key string) memoryAuthHandler {
 }
 
 func apiKeyMemoryAuthState(key string) auth.State {
-	return auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: key},
-		},
-	}
+	return auth.EmptyState()
+
 }
 
 func saveReadyAppAuthState(t *testing.T, workspace string) {
@@ -162,14 +155,6 @@ func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
 	return auth.NewMemoryStore(h.state)
 }
 
-func (memoryAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (memoryAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
-}
-
 func (h memoryAuthHandler) LookupEnv(key string) string {
 	if h.lookupEnv != nil {
 		return h.lookupEnv(key)
@@ -225,7 +210,8 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -263,7 +249,8 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

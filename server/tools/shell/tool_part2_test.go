@@ -222,7 +222,7 @@ func TestExecCommandClosesStdinForNonInteractiveProcess(t *testing.T) {
 }
 
 func TestManagerCloseKillsRunningProcesses(t *testing.T) {
-	manager, err := NewManager(WithMinimumExecToBgTime(50*time.Millisecond), WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond))
+	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(50*time.Millisecond), WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

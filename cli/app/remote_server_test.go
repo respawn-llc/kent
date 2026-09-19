@@ -26,7 +26,8 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string, allowUnauthentic
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  allowUnauthenticated,
-	}, authHandler, autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}

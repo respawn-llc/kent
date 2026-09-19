@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
@@ -19,9 +19,13 @@ import (
 func TestInspectionResolvesNativeSupportOutsideLockedContract(t *testing.T) {
 	for _, endpoint := range []string{"", "https://proxy.example/v1"} {
 		for _, override := range []string{"", "openai"} {
-			caps, _, err := resolveInspectionProviderCapabilities(auth.EmptyState(), config.Settings{
-				Model: "gpt-6-astra", OpenAIBaseURL: endpoint,
-			}, &session.LockedContract{
+			settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-astra"})
+			if endpoint != "" {
+				definition := settings.Connections[*settings.Connection]
+				definition.Endpoint = &endpoint
+				settings.Connections[*settings.Connection] = definition
+			}
+			caps, _, err := resolveInspectionProviderCapabilities(settings, &session.LockedContract{
 				Model:            "gpt-6-astra",
 				ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
 			}, override)
@@ -69,6 +73,7 @@ type captureSessionFixture struct {
 func newCaptureSessionFixture(t *testing.T, legacy bool) captureSessionFixture {
 	t.Helper()
 	persistenceRoot := t.TempDir()
+	testsetup.WriteProviderSettings(t, persistenceRoot, config.DefaultOnboardingSettings())
 	workspaceRoot := t.TempDir()
 	metadataStore, err := metadata.Open(persistenceRoot)
 	if err != nil {

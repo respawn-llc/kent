@@ -241,11 +241,9 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 	}
 	message := &sessionlaunchpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
 	setOptionalNonblank(&message.Model, overrides.Model)
-	setOptionalNonblank(&message.ProviderOverride, overrides.ProviderOverride)
 	setOptionalNonblank(&message.ThinkingLevel, overrides.ThinkingLevel)
 	setOptionalNonblank(&message.Theme, overrides.Theme)
 	setOptionalNonblank(&message.Tools, overrides.Tools)
-	setOptionalNonblank(&message.OpenaiBaseUrl, overrides.OpenAIBaseURL)
 	if overrides.ModelTimeoutSeconds != 0 {
 		value, err := Int32(overrides.ModelTimeoutSeconds, "model timeout seconds")
 		if err != nil {
@@ -261,13 +259,11 @@ func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (s
 		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
 	}
 	overrides := serverapi.RunPromptOverrides{
-		AgentRole:        clonePointer(message.AgentRole),
-		Model:            dereference(message.Model),
-		ProviderOverride: dereference(message.ProviderOverride),
-		ThinkingLevel:    dereference(message.ThinkingLevel),
-		Theme:            dereference(message.Theme),
-		Tools:            dereference(message.Tools),
-		OpenAIBaseURL:    dereference(message.OpenaiBaseUrl),
+		AgentRole:     clonePointer(message.AgentRole),
+		Model:         dereference(message.Model),
+		ThinkingLevel: dereference(message.ThinkingLevel),
+		Theme:         dereference(message.Theme),
+		Tools:         dereference(message.Tools),
 	}
 	if message.ModelTimeoutSeconds != nil {
 		overrides.ModelTimeoutSeconds = int(*message.ModelTimeoutSeconds)

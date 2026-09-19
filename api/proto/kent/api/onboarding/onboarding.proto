@@ -92,26 +92,6 @@ enum CancelPhase {
   CANCEL_PHASE_IMPORTING = 4;
 }
 
-message ProviderChoice {
-  optional string provider_override = 1 [
-    (buf.validate.field).string = {in: ["openai", "anthropic"]},
-    (buf.validate.field).cel = {
-      id: "kent.onboarding.provider_override.trimmed"
-      message: "provider_override must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-  optional string openai_base_url = 2 [(buf.validate.field).string.min_len = 1];
-
-  option (buf.validate.message).cel = {
-    id: "kent.onboarding.provider_choice"
-    message: "provider choice requires provider_override or openai_base_url and only OpenAI may use openai_base_url"
-    expression:
-      "(has(this.provider_override) || has(this.openai_base_url)) && "
-      "(!has(this.openai_base_url) || !has(this.provider_override) || this.provider_override == 'openai')"
-  };
-}
-
 message ModelChoice {
   ModelKind kind = 1 [
     (buf.validate.field).enum = {
@@ -253,7 +233,7 @@ message FinalizeRequest {
       not_in: [0]
     }
   ];
-  ProviderChoice main_provider = 2;
+  reserved 2;
   ModelChoice model = 3;
   ContextWindowChoice context_window = 4;
   ThinkingChoice thinking = 5;

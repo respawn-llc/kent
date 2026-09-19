@@ -183,7 +183,6 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	}
 	if agentChanged {
 		continuation.AgentRole = textutil.Pointer(next.AgentRole)
-		continuation.OpenAIBaseURL = nil
 	}
 	currentMeta.Continuation, err = NormalizeContinuationContext(*continuation)
 	if err != nil {

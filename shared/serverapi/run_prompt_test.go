@@ -44,9 +44,6 @@ func TestRunPromptOverridesRolePresenceAndAuth(t *testing.T) {
 			if got := tt.overrides.HasAgentRoleOverride(); got != tt.wantRole {
 				t.Fatalf("HasAgentRoleOverride = %t, want %t", got, tt.wantRole)
 			}
-			if got := tt.overrides.NeedsAuthState(); got != tt.wantAuth {
-				t.Fatalf("NeedsAuthState = %t, want %t", got, tt.wantAuth)
-			}
 			role, err := tt.overrides.AgentRoleOverride()
 			if err != nil {
 				t.Fatalf("AgentRoleOverride: %v", err)

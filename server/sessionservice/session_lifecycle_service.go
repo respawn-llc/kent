@@ -254,7 +254,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	thinking, err := launch.ResolveForkThinking(ctx, app, store.Meta(), s.authManager, false)
+	thinking, err := launch.ResolveForkThinking(app, store.Meta(), false)
 	if err != nil {
 		return nil, err
 	}

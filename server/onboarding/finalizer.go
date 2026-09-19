@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"core/server/auth"
 	"core/server/llm"
 	"core/server/onboardingimports"
 	"core/shared/config"
@@ -117,9 +116,6 @@ func (f *Finalizer) Finalize(ctx context.Context, req *onboardingpb.FinalizeRequ
 func projectSettings(req *onboardingpb.FinalizeRequest) (config.Settings, map[string]bool, error) {
 	settings := config.DefaultOnboardingSettings()
 	preserved := map[string]bool{}
-	if req.MainProvider != nil {
-		applyMainProvider(&settings, req.MainProvider)
-	}
 	effectiveModel := settings.Model
 	if req.Model != nil {
 		model, err := modelChoiceValue(req.Model)
@@ -212,15 +208,6 @@ func projectSettings(req *onboardingpb.FinalizeRequest) (config.Settings, map[st
 		preserved = nil
 	}
 	return settings, preserved, nil
-}
-
-func applyMainProvider(settings *config.Settings, choice *onboardingpb.ProviderChoice) {
-	if choice.ProviderOverride != nil {
-		settings.ProviderOverride = strings.ToLower(strings.TrimSpace(*choice.ProviderOverride))
-	}
-	if choice.OpenaiBaseUrl != nil {
-		settings.OpenAIBaseURL = strings.TrimSpace(*choice.OpenaiBaseUrl)
-	}
 }
 
 func modelChoiceValue(choice *onboardingpb.ModelChoice) (string, error) {
@@ -402,7 +389,7 @@ func onboardingToolID(value onboardingpb.ToolID) (toolspec.ID, error) {
 }
 
 func supportsNativeCompaction(settings config.Settings, model string) bool {
-	caps, err := llm.ResolveRuntimeProviderCapabilities(auth.EmptyState(), settings)
+	caps, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return false
 	}
@@ -410,7 +397,7 @@ func supportsNativeCompaction(settings config.Settings, model string) bool {
 }
 
 func supportsVerbosity(settings config.Settings, model string) bool {
-	caps, err := llm.ResolveRuntimeProviderCapabilities(auth.EmptyState(), settings)
+	caps, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return llm.SupportsVerbosityModel(model)
 	}

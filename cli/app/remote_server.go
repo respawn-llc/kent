@@ -1,19 +1,17 @@
 package app
 
-import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-
 import (
 	"context"
-	"errors"
-
 	"core/cli/app/internal/remoteattach"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"errors"
+
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/protocol"
 	"core/shared/theme"
-
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type remoteAppServer struct {
@@ -207,7 +205,7 @@ func (s *remoteAppServer) Reauthenticate(ctx context.Context, interactor authInt
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}
-	status, err := s.remote.GetBootstrapStatus(ctx, &emptypb.Empty{})
+	status, err := s.remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{ConnectionId: (*string)(s.cfg.Settings.Connection)})
 	if err != nil {
 		return err
 	}

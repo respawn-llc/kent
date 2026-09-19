@@ -1,4 +1,6 @@
 export const chatComposerEnglish = {
+  connectionReplaced: "Provider connection changed",
+  connectionReplacedBody: "{{previous}} is unavailable; using {{current}}.",
   commands: {
     loading: "Loading commands",
     review: "Review changes in a fresh conversation",

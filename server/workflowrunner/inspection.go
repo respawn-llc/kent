@@ -144,11 +144,11 @@ func persistedInspectionCompletionMode(plan launch.SessionPlan, input workflowst
 		ShellAvailable:         toolIDEnabled(plan.EnabledTools, "exec_command"),
 	}
 	if workflowCompletionModeNeedsProviderCapabilities(selection) {
-		caps, ok := llm.ProviderCapabilitiesFromLockedOrOverride(plan.Locked, plan.ActiveSettings.ProviderCapabilities)
-		if !ok {
-			return "", errors.New("persisted workflow inspection requires a locked or configured provider capability contract for completion mode selection")
+		provider, err := llm.ResolveEffectiveProviderCapabilities(plan.Locked, plan.ActiveSettings)
+		if err != nil {
+			return "", err
 		}
-		selection.ProviderCapabilities = caps
+		selection.ProviderCapabilities = provider.Capabilities
 	}
 	mode, err := workflowruntime.SelectCompletionMode(selection)
 	if err != nil {

@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
@@ -110,15 +110,14 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}))
 	defer provider.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{Method: auth.Method{
-		Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"},
-	}}), nil, time.Now)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Settings.Model = "gpt-5"
-	cfg.Settings.OpenAIBaseURL = provider.URL
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{}
 	cfg.Settings.MaxSubagentDepth = 2
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
@@ -136,7 +135,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 				CwdRelpath:       ".",
 				EffectiveWorkdir: workspace,
 			}},
-		}).WithAuthStateReader(authManager),
+		}),
 		RuntimeAuthority: authority,
 		PromptHistory:    history,
 	})

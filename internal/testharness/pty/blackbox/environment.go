@@ -186,12 +186,6 @@ func (e *IsolatedEnvironment) BindProject() (returnErr error) {
 			returnErr = fmt.Errorf("close standalone project API: %w", err)
 		}
 	}()
-	acknowledgeContext, cancelAcknowledge := context.WithTimeout(context.Background(), controlRequestWait)
-	err = remote.EnableNoAuthBootstrapAcknowledgement(acknowledgeContext)
-	cancelAcknowledge()
-	if err != nil {
-		return fmt.Errorf("acknowledge standalone no-auth setup: %w", err)
-	}
 	createContext, cancelCreate := context.WithTimeout(context.Background(), controlRequestWait)
 	created, err := remote.CreateProject(createContext, &projectpb.CreateProjectRequest{
 		DisplayName:   "PTY Harness",

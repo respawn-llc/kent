@@ -127,8 +127,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	settings.ProviderOverride = "openai"
-	settings.OpenAIBaseURL = "http://127.0.0.1:1/v1"
+	settings = testsetup.ProviderSettings(settings)
 	questionCall := int32(1)
 	releaseReviewer := make(chan struct{})
 	release := sync.OnceFunc(func() { close(releaseReviewer) })

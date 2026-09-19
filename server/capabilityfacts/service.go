@@ -7,7 +7,6 @@ import (
 	"math"
 	"strings"
 
-	"core/server/auth"
 	"core/server/llm"
 	"core/server/onboardingimports"
 	"core/shared/clientui"
@@ -27,19 +26,17 @@ const (
 )
 
 type Options struct {
-	Config      config.App
-	AuthManager *auth.Manager
-	HomeDir     string
+	Config  config.App
+	HomeDir string
 }
 
 type Service struct {
-	cfg         config.App
-	authManager *auth.Manager
-	homeDir     string
+	cfg     config.App
+	homeDir string
 }
 
 func NewService(opts Options) *Service {
-	return &Service{cfg: opts.Config, authManager: opts.AuthManager, homeDir: opts.HomeDir}
+	return &Service{cfg: opts.Config, homeDir: opts.HomeDir}
 }
 
 func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
@@ -100,15 +97,7 @@ func normalizedProviderIDs(values []string) []string {
 }
 
 func (s *Service) currentProviderFacts(ctx context.Context) (llm.ProviderCapabilities, error) {
-	authState := auth.EmptyState()
-	if s.authManager != nil {
-		loaded, err := s.authManager.Load(ctx)
-		if err != nil {
-			return llm.ProviderCapabilities{}, fmt.Errorf("load stored auth state for capability facts: %w", err)
-		}
-		authState = loaded
-	}
-	return llm.ResolveRuntimeProviderCapabilities(authState, s.cfg.Settings)
+	return llm.ResolveRuntimeProviderCapabilities(s.cfg.Settings)
 }
 
 func explicitProviderFacts(providerIDs []string) ([]*capabilitypb.ProviderFact, error) {

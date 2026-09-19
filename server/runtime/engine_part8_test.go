@@ -203,7 +203,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 
 func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	store := mustCreateTestSession(t)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

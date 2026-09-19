@@ -87,7 +87,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
 }
 
-func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler serverstartup.AuthHandler) func() {
+func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler authInteractor) func() {
 	t.Helper()
 	releasePortProbe := reserveAppTestServerPort(t)
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
@@ -96,7 +96,8 @@ func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: openAIBaseURL != "",
-	}, authHandler, autoOnboarding)
+	}, autoOnboarding)
+
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}

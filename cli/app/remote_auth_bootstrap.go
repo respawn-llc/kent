@@ -14,7 +14,6 @@ import (
 	"core/shared/serverapi"
 
 	"github.com/charmbracelet/lipgloss"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -26,12 +25,11 @@ func ensureRemoteAuthReady(ctx context.Context, remote apicontract.AuthBootstrap
 	if remote == nil {
 		return errors.New("auth bootstrap client is required")
 	}
-	status, err := remote.GetBootstrapStatus(ctx, &emptypb.Empty{})
+	status, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{ConnectionId: (*string)(settings.Connection)})
 	if err != nil {
 		return err
 	}
 	if status.AuthReady {
-		disableRemoteNoAuth(remote)
 		return nil
 	}
 	if interactor == nil {
@@ -41,18 +39,13 @@ func ensureRemoteAuthReady(ctx context.Context, remote apicontract.AuthBootstrap
 		return nil
 	}
 	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
-		if status.NoAuthSelected {
-			return enableRemoteNoAuth(ctx, remote)
-		}
 		return interactive.completeRemoteAuthBootstrap(ctx, remote, settings, status, false)
 	}
-	apiKey := strings.TrimSpace(interactor.LookupEnv("OPENAI_API_KEY"))
-	if apiKey == "" {
-		return serverapi.ErrServerAuthRequired
+	if status.Method != authpb.AuthMethod_AUTH_METHOD_API_KEY {
+		return fmt.Errorf("connection %s requires sign-in: %w", status.ConnectionId, serverapi.ErrServerAuthRequired)
 	}
 	resp, err := remote.CompleteBootstrap(ctx, &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: &apiKey,
+		Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ConnectionId: &status.ConnectionId,
 	})
 	if err != nil {
 		return err
@@ -60,7 +53,6 @@ func ensureRemoteAuthReady(ctx context.Context, remote apicontract.AuthBootstrap
 	if !resp.AuthReady {
 		return serverapi.ErrServerAuthRequired
 	}
-	disableRemoteNoAuth(remote)
 	return nil
 }
 
@@ -70,7 +62,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 	}
 	req := authInteraction{
 		Theme:        string(settings.Theme),
-		HasEnvAPIKey: strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY")) != "",
+		HasEnvAPIKey: status.Method == authpb.AuthMethod_AUTH_METHOD_API_KEY,
 	}
 	for {
 		choice, err := i.chooseMethod(req)
@@ -83,53 +75,22 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 			continue
 		}
 		completeReq.Force = force
+		completeReq.ConnectionId = &status.ConnectionId
 		resp, err := remote.CompleteBootstrap(ctx, completeReq)
 		if err != nil {
 			req.FlowErr = err
 			continue
 		}
-		if completeReq.Mode == authpb.BootstrapMode_BOOTSTRAP_MODE_NONE && resp.NoAuthSelected {
-			if err := enableRemoteNoAuth(ctx, remote); err != nil {
-				return err
-			}
-			i.printAuthSection(req.Theme, "Server Auth Skipped", []string{lipgloss.NewStyle().Foreground(uiPalette(req.Theme).muted).Faint(true).Render("Kent will proceed without configured server auth.")})
+		if resp.Method == authpb.AuthMethod_AUTH_METHOD_NONE {
+			i.printAuthSection(req.Theme, "Connection", []string{fmt.Sprintf("%s does not require sign-in.", resp.ConnectionId)})
 			return nil
 		}
 		if !resp.AuthReady {
 			req.FlowErr = serverapi.ErrServerAuthRequired
 			continue
 		}
-		disableRemoteNoAuth(remote)
 		i.printAuthSection(req.Theme, "Server Auth Ready", []string{lipgloss.NewStyle().Foreground(uiPalette(req.Theme).muted).Faint(true).Render("Kent configured auth on the server.")})
 		return nil
-	}
-}
-
-type remoteNoAuthAcknowledgementEnabler interface {
-	EnableNoAuthBootstrapAcknowledgement(context.Context) error
-}
-
-type remoteNoAuthAcknowledgementDisabler interface {
-	DisableNoAuthBootstrapAcknowledgement()
-}
-
-func enableRemoteNoAuth(ctx context.Context, remote apicontract.AuthBootstrapService) error {
-	if enabler, ok := remote.(remoteNoAuthAcknowledgementEnabler); ok {
-		return enabler.EnableNoAuthBootstrapAcknowledgement(ctx)
-	}
-	resp, err := remote.AcknowledgeNoAuth(ctx, &emptypb.Empty{})
-	if err != nil {
-		return err
-	}
-	if resp.NoAuthSelected || resp.AuthReady {
-		return nil
-	}
-	return serverapi.ErrServerAuthRequired
-}
-
-func disableRemoteNoAuth(remote apicontract.AuthBootstrapService) {
-	if disabler, ok := remote.(remoteNoAuthAcknowledgementDisabler); ok {
-		disabler.DisableNoAuthBootstrapAcknowledgement()
 	}
 }
 
@@ -145,11 +106,7 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	case authMethodChoiceSkip:
 		return &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE}, nil
 	case authMethodChoiceEnvAPIKey:
-		apiKey := strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY"))
-		if apiKey == "" {
-			return nil, errors.New("OPENAI_API_KEY is not available")
-		}
-		return &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ApiKey: &apiKey}, nil
+		return &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY}, nil
 	case authMethodChoiceBrowserAuto:
 		return i.collectRemoteBrowserAuto(ctx, oauthOpts, theme)
 	case authMethodChoiceDevice:
