@@ -30,7 +30,6 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
-  reserved 3;
 }
 
 enum AttentionNotificationKind {
@@ -250,8 +249,6 @@ message ConfiguredExecutionTargetUnavailableDetails {
 }
 
 message InterruptedCurrentNodeDetails {
-  reserved 5, 6;
-  reserved "setup_recovery", "configured_execution_target_unavailable_with_setup_recovery";
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -643,7 +640,6 @@ message ResolvedAttentionNotification {
 }
 
 message AttentionNotificationEvent {
-  reserved 2, 6;
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991

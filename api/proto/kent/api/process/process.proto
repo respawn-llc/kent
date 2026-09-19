@@ -12,7 +12,6 @@ import "kent/api/shared/foundation.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/process;processpb";
 
 message BackgroundProcess {
-  reserved 12, 13, 14;
 
   string id = 1 [(buf.validate.field).string.min_len = 1];
   string owner_session_id = 2 [(buf.validate.field).string.min_len = 1];

@@ -77,7 +77,6 @@ message ApprovalState {
 
 message Notification {
   NotificationID id = 1 [(buf.validate.field).required = true];
-  reserved 2;
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
@@ -103,7 +102,6 @@ message Notification {
 }
 
 message Resolved {
-  reserved 1;
   NotificationID id = 2 [(buf.validate.field).required = true];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
@@ -112,7 +110,6 @@ message Resolved {
 }
 
 message NotificationEvent {
-  reserved 4;
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
@@ -133,7 +130,6 @@ message SubscribeRequest {
       expression: "this.trim() != ''"
     }
   ];
-  reserved 2;
 }
 
 message StartError {

@@ -175,8 +175,6 @@ message WorkflowSessionStatus {
 }
 
 message Status {
-  reserved 11;
-  reserved "last_committed_assistant_final_answer";
 
   string reviewer_frequency = 1 [(buf.validate.field).string.min_len = 1];
   bool reviewer_enabled = 2;
