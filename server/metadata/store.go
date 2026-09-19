@@ -675,16 +675,6 @@ func updateSessionExecutionTarget(ctx context.Context, q *sqlitegen.Queries, upd
 	return nil
 }
 
-func (s *Store) DeleteFailedSessionCreationRecordByID(ctx context.Context, sessionID string) error {
-	if s == nil || s.db == nil {
-		return errors.New("metadata store is required")
-	}
-	if _, err := s.queries.DeleteSessionRecordByID(ctx, strings.TrimSpace(sessionID)); err != nil {
-		return fmt.Errorf("delete session record: %w", err)
-	}
-	return nil
-}
-
 type WorkspaceUnlinkRuntimeBlocker func(ctx context.Context, sessionIDs []string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, func(), error)
 
 func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]string, error) {
