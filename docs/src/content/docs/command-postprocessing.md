@@ -5,6 +5,8 @@ description: Configure Kent's shell command post-processing and ship your own ho
 
 Kent post-processes shell command output before it is shown to the model to normalize output, reduce command noise, and add useful execution context.
 
+Command execution, background polling, and shell errors return plaintext to the model. Commands you run yourself enter model context as user messages containing the command and its formatted output. The transcript shows a compact shell entry; expand it in detail mode to inspect the full text.
+
 ## Config
 
 Configure command post-processing under `[shell]` in `~/.kent/config.toml`:

@@ -1463,7 +1463,7 @@ func (h *heldRuntimeShell) Call(ctx context.Context, call tools.Call) (tools.Res
 		return tools.Result{
 			CallID: call.ID,
 			Name:   toolspec.ToolExecCommand,
-			Output: []byte(`{"output":"done"}`),
+			Output: []byte(`"done"`),
 		}, nil
 	case <-ctx.Done():
 		return tools.Result{}, context.Cause(ctx)

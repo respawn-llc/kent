@@ -21,6 +21,7 @@ func transcriptNoticeMessageType(value llm.MessageType) (transcriptpb.NoticeMess
 		llm.MessageTypeHandoffFutureMessage:           transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE,
 		llm.MessageTypeReviewerFeedback:               transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK,
 		llm.MessageTypeBackgroundNotice:               transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE,
+		llm.MessageTypeUserShellCommand:               transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_USER_SHELL_COMMAND,
 		llm.MessageTypeCustomToolCallOutput:           transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
 		llm.MessageTypeCompactionPreservedUserMessage: transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_PRESERVED_USER_MESSAGE,
 		llm.MessageTypeHeadlessMode:                   transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE,

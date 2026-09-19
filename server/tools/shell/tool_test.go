@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,16 +25,23 @@ import (
 func decodeStringToolOutput(t *testing.T, result tools.Result) string {
 	t.Helper()
 	var out string
-	if err := json.Unmarshal(result.Output, &out); err == nil {
-		return out
-	}
-	var wrapped struct {
-		Output string `json:"output"`
-	}
-	if err := json.Unmarshal(result.Output, &wrapped); err != nil {
+	if err := json.Unmarshal(result.Output, &out); err != nil {
 		t.Fatalf("decode string output: %v", err)
 	}
-	return wrapped.Output
+	return out
+}
+
+func assertShellError(t *testing.T, result tools.Result, call tools.Call, message string) {
+	t.Helper()
+	if !result.IsError || result.Terminal || result.CallID != call.ID || result.Name != call.Name {
+		t.Fatalf("unexpected error result: %+v", result)
+	}
+	if output := decodeStringToolOutput(t, result); output != message {
+		t.Fatalf("error output = %q, want %q", output, message)
+	}
+	if result.Summary == nil || *result.Summary != message {
+		t.Fatalf("error summary = %v, want %q", result.Summary, message)
+	}
 }
 
 type shellToolCaller interface {
@@ -60,15 +66,6 @@ func callExecCommand(t *testing.T, tool *ExecCommandTool, id string, input map[s
 func callWriteStdin(t *testing.T, tool *WriteStdinTool, id string, input map[string]any) tools.Result {
 	t.Helper()
 	return callShellTestTool(t, tool, id, toolspec.ToolWriteStdin, input)
-}
-
-func decodeWriteStdinToolOutput(t *testing.T, result tools.Result) writeStdinOutput {
-	t.Helper()
-	var output writeStdinOutput
-	if err := json.Unmarshal(result.Output, &output); err != nil {
-		t.Fatalf("decode write_stdin output: %v", err)
-	}
-	return output
 }
 
 func waitForManagerCount(t *testing.T, manager *Manager, want int, timeout time.Duration) {
@@ -173,15 +170,11 @@ func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *te
 	if managerErr == nil {
 		t.Fatal("expected empty workdir manager error")
 	}
-	want := tools.ErrorResultWith(call, managerErr.Error(), marshalNoHTMLEscape)
-
 	got, err := execTool.Call(context.Background(), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("exec_command result = %#v, want %#v", got, want)
-	}
+	assertShellError(t, got, call, managerErr.Error())
 	if _, err := os.Stat(filepath.Join(serverCWD, "exec-command-empty-default-side-effect")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("empty default workdir command side effect = %v, want os.ErrNotExist", err)
 	}
@@ -253,10 +246,7 @@ func TestExecCommandWorkdirValidationErrors(t *testing.T) {
 				t.Fatalf("exec_command call returned transport error: %v", err)
 			}
 			wantMessage := strings.Join([]string{resolved, tt.reason, existingWorkingDirectoryHint}, " ")
-			want := tools.ErrorResultWith(call, wantMessage, marshalNoHTMLEscape)
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("exec_command result = %#v, want %#v", got, want)
-			}
+			assertShellError(t, got, call, wantMessage)
 			if _, err := os.Stat(sideEffect); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("command side effect = %v, want os.ErrNotExist", err)
 			}
@@ -618,20 +608,11 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 			if poll.CompletedBackgroundSessionID == nil || *poll.CompletedBackgroundSessionID != sessionID {
 				t.Fatalf("completion provenance = %v, want session %d", poll.CompletedBackgroundSessionID, sessionID)
 			}
-			output := decodeWriteStdinToolOutput(t, poll)
-			if output.BackgroundSessionID != sessionID {
-				t.Fatalf("background session ID = %d, want %d", output.BackgroundSessionID, sessionID)
+			if poll.PresentationDelta == nil || poll.PresentationDelta.ShellExitCode == nil ||
+				*poll.PresentationDelta.ShellExitCode != tt.wantExitCode {
+				t.Fatalf("completion presentation = %+v, want exit code %d", poll.PresentationDelta, tt.wantExitCode)
 			}
-			if output.BackgroundRunning {
-				t.Fatal("expected terminal polling response")
-			}
-			if !output.Backgrounded {
-				t.Fatal("expected terminal polling response to preserve backgrounded lifecycle")
-			}
-			if output.BackgroundExitCode == nil || *output.BackgroundExitCode != tt.wantExitCode {
-				t.Fatalf("background exit code = %v, want %d", output.BackgroundExitCode, tt.wantExitCode)
-			}
-			if output.Output == "" {
+			if decodeStringToolOutput(t, poll) == "" {
 				t.Fatal("terminal polling response must contain non-empty presentation")
 			}
 			waitForManagerCount(t, manager, 0, time.Second)
@@ -676,20 +657,15 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 		if !rejected.IsError {
 			t.Fatalf("expected %s request to fail, got %+v", test.name, rejected)
 		}
-		var envelope struct {
-			Error string `json:"error"`
-		}
-		if err := json.Unmarshal(rejected.Output, &envelope); err != nil {
-			t.Fatalf("decode rejected write_stdin output: %v", err)
-		}
-		if envelope.Error == "" {
+		message := decodeStringToolOutput(t, rejected)
+		if message == "" {
 			t.Fatal("expected rejected write_stdin error value")
 		}
 		if rejected.Summary == nil || *rejected.Summary == "" {
 			t.Fatal("expected rejected write_stdin summary")
 		}
-		if *rejected.Summary != envelope.Error {
-			t.Fatalf("rejected summary = %q, want error value %q", *rejected.Summary, envelope.Error)
+		if *rejected.Summary != message {
+			t.Fatalf("rejected summary = %q, want error value %q", *rejected.Summary, message)
 		}
 	}
 
@@ -750,10 +726,7 @@ func TestWriteStdinCancellationReportsActiveProcess(t *testing.T) {
 			t.Fatalf("expected write_stdin error result, got %+v", pollResult)
 		}
 		pollErr := &PollingCanceledError{SessionID: result.SessionID, Active: true}
-		want := tools.ErrorResultWith(pollCall, formatToolCallErrorDecoration("write_stdin", pollErr.Error()), marshalNoHTMLEscape)
-		if !reflect.DeepEqual(pollResult, want) {
-			t.Fatalf("write_stdin result = %#v, want %#v", pollResult, want)
-		}
+		assertShellError(t, pollResult, pollCall, formatToolCallErrorDecoration("write_stdin", pollErr.Error()))
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for canceled write_stdin")
 	}
@@ -804,10 +777,7 @@ func TestExecCommandCancellationReturnsUndecoratedBaseError(t *testing.T) {
 		if completed.err != nil {
 			t.Fatalf("exec_command call returned transport error: %v", completed.err)
 		}
-		want := tools.ErrorResultWith(call, canceledByUserMessage, marshalNoHTMLEscape)
-		if !reflect.DeepEqual(completed.result, want) {
-			t.Fatalf("exec_command result = %#v, want %#v", completed.result, want)
-		}
+		assertShellError(t, completed.result, call, canceledByUserMessage)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for canceled exec_command")
 	}
@@ -843,15 +813,11 @@ func TestExecCommandReturnsClosedManagerErrorUnchanged(t *testing.T) {
 	if managerErr == nil {
 		t.Fatal("expected closed manager error")
 	}
-	want := tools.ErrorResultWith(call, managerErr.Error(), marshalNoHTMLEscape)
-
 	got, err := execTool.Call(context.Background(), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("exec_command result = %#v, want %#v", got, want)
-	}
+	assertShellError(t, got, call, managerErr.Error())
 }
 
 func TestManagerWriteStdinCancellationPreservesContextCanceled(t *testing.T) {
@@ -1059,15 +1025,14 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 		t.Fatalf("poll took too long: %s", elapsed)
 	}
 
-	var payload writeStdinOutput
-	if err := json.Unmarshal(pollResult.Output, &payload); err != nil {
-		t.Fatalf("decode write_stdin output: %v", err)
+	if pollResult.CompletedBackgroundSessionID != nil {
+		t.Fatalf("running session reported completed: %v", pollResult.CompletedBackgroundSessionID)
 	}
-	if !payload.BackgroundRunning {
-		t.Fatalf("expected session to still be running after requested poll window, got %+v", payload)
+	if decodeStringToolOutput(t, pollResult) == "" {
+		t.Fatal("running polling response must contain presentation")
 	}
-	if !payload.Backgrounded {
-		t.Fatalf("expected session to remain backgrounded, got %+v", payload)
+	if snapshot, err := manager.Snapshot("1000"); err != nil || !snapshot.Running {
+		t.Fatalf("expected session to still be running: %+v, %v", snapshot, err)
 	}
 	waitForManagerCount(t, manager, 0, 2*time.Second)
 }
@@ -1115,11 +1080,12 @@ func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {
 			if elapsed > 2*time.Second {
 				t.Fatalf("write_stdin took too long: %s", elapsed)
 			}
-			output := decodeWriteStdinToolOutput(t, result)
-			if output.BackgroundRunning || !output.Backgrounded ||
-				output.BackgroundExitCode == nil || *output.BackgroundExitCode != 0 {
-				t.Fatalf("completed whitespace input output = %+v", output)
+			if result.CompletedBackgroundSessionID == nil || *result.CompletedBackgroundSessionID != 1000 ||
+				result.PresentationDelta == nil || result.PresentationDelta.ShellExitCode == nil ||
+				*result.PresentationDelta.ShellExitCode != 0 {
+				t.Fatalf("completed whitespace input result = %+v", result)
 			}
+			decodeStringToolOutput(t, result)
 			waitForManagerCount(t, manager, 0, time.Second)
 		})
 	}
@@ -1228,10 +1194,13 @@ func TestWriteStdinSendsInputToInteractiveProcess(t *testing.T) {
 	if stdinResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(stdinResult.Output))
 	}
-	stdinOutput := decodeWriteStdinToolOutput(t, stdinResult)
-	if stdinOutput.BackgroundSessionID != 1000 || stdinOutput.BackgroundRunning || !stdinOutput.Backgrounded ||
-		stdinOutput.BackgroundExitCode == nil || *stdinOutput.BackgroundExitCode != 0 || stdinOutput.Output == "" {
-		t.Fatalf("completed interactive write_stdin output = %+v", stdinOutput)
+	if stdinResult.CompletedBackgroundSessionID == nil || *stdinResult.CompletedBackgroundSessionID != 1000 ||
+		stdinResult.PresentationDelta == nil || stdinResult.PresentationDelta.ShellExitCode == nil ||
+		*stdinResult.PresentationDelta.ShellExitCode != 0 {
+		t.Fatalf("completed interactive write_stdin result = %+v", stdinResult)
+	}
+	if !strings.Contains(decodeStringToolOutput(t, stdinResult), "hello app") {
+		t.Fatalf("interactive output missing: %s", stdinResult.Output)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
 }

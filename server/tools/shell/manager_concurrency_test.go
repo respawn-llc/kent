@@ -2,7 +2,6 @@ package shell
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -101,13 +100,7 @@ func TestExecCommandConcurrentLimitIsRecoverableToolError(t *testing.T) {
 	if !rejected.IsError || rejected.Terminal {
 		t.Fatalf("expected non-terminal tool error: %+v", rejected)
 	}
-	var output struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(rejected.Output, &output); err != nil {
-		t.Fatal(err)
-	}
-	if output.Error == "" {
+	if decodeStringToolOutput(t, rejected) == "" {
 		t.Fatal("model-visible error is empty")
 	}
 }

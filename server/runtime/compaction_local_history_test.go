@@ -145,6 +145,15 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 				ID:    "compaction-tool-call",
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"pwd"}`),
+			}, {
+				ID:    "compaction-stdin-call",
+				Name:  string(toolspec.ToolWriteStdin),
+				Input: json.RawMessage(`{"session_id":1}`),
+			}, {
+				ID:          "compaction-patch-call",
+				Name:        string(toolspec.ToolPatch),
+				Custom:      true,
+				CustomInput: textutil.Value("patch"),
 			}},
 		},
 		{
@@ -159,14 +168,17 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
 		},
 	}}
+	firstRejectedCalls := client.responses[0].ToolCalls
+	secondRejectedCall := client.responses[1].ToolCalls[0]
 	engine := mustNewTestEngine(
 		t,
 		store,
 		client,
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: probe,
-		}),
+		newTestToolRegistry(t,
+			tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: probe},
+			tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: probe},
+			tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: probe},
+		),
 		Config{Model: "gpt-5", CompactionMode: "local"},
 	)
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
@@ -191,12 +203,13 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 	}
 	assertRequestsPreserveCacheIdentity(t, client.calls[0], client.calls[1])
 	assertRequestsPreserveCacheIdentity(t, client.calls[1], client.calls[2])
-	if !requestHasCompactionToolError(client.calls[1], "compaction-tool-call") {
-		t.Fatalf("manual local compaction retry omitted the synthetic tool error: %+v", client.calls[1].Items)
+	for _, call := range firstRejectedCalls {
+		assertRequestHasCompactionToolError(t, client.calls[1], call)
+		if repairRequestHasToolOutput(client.calls[0].Items, call.ID) {
+			t.Fatal("compaction rejection mutated the previously sent request")
+		}
 	}
-	if !requestHasCompactionToolError(client.calls[2], "second-compaction-tool-call") {
-		t.Fatalf("manual local compaction second retry omitted the synthetic tool error: %+v", client.calls[2].Items)
-	}
+	assertRequestHasCompactionToolError(t, client.calls[2], secondRejectedCall)
 	feedbackCount := 0
 	for _, entry := range engine.ChatSnapshot().Entries {
 		if entry.Role == string(transcript.EntryRoleDeveloperErrorFeedback) {
@@ -212,19 +225,16 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 	}
 }
 
-func requestHasCompactionToolError(request llm.Request, callID string) bool {
+func assertRequestHasCompactionToolError(t *testing.T, request llm.Request, call llm.ToolCall) {
+	t.Helper()
 	for _, item := range request.Items {
-		if item.Type != llm.ResponseItemTypeFunctionCallOutput || item.CallID == nil || *item.CallID != callID {
+		if item.Type != llm.ToolOutputItemType(call.Custom) || item.CallID == nil || *item.CallID != call.ID {
 			continue
 		}
-		var payload struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(item.Output, &payload) == nil && payload.Error == localCompactionToolsDisabledMessage {
-			return true
-		}
+		assertSyntheticFailureOutput(t, item.Output, call.Name, localCompactionToolsDisabledMessage)
+		return
 	}
-	return false
+	t.Fatalf("compaction retry omitted the synthetic error for %q", call.ID)
 }
 
 func TestManualCompactionDisabledWhenModeNone(t *testing.T) {

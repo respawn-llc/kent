@@ -698,7 +698,9 @@ func mustNewFakeToolEngine(t *testing.T, store *session.Store, client llm.Client
 
 func mustNewExecTestEngine(t *testing.T, store *session.Store, client llm.Client, cfg Config) *Engine {
 	t.Helper()
-	return mustNewFakeToolEngine(t, store, client, cfg, toolspec.ToolExecCommand)
+	return mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON("done")},
+	}), cfg)
 }
 
 func mustNewHandoffTestEngine(t *testing.T, store *session.Store, client llm.Client, cfg Config) *Engine {

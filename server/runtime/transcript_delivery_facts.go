@@ -342,10 +342,15 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 				detail,
 			)}
 		}
-		if msg.Content == nil || strings.TrimSpace(*msg.Content) == "" {
+		entry, visible := visibleUserTranscriptEntry(msg)
+		if !visible {
 			return nil
 		}
-		return []TranscriptCommittedRowFact{{Kind: TranscriptCommittedRowFactUser, Visibility: transcript.EntryVisibilityOngoing, User: &TranscriptUserRowFact{Text: *msg.Content}}}
+		fact, visible := transcriptCommittedRowFactFromChatEntry(entry)
+		if !visible {
+			return nil
+		}
+		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
 		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {

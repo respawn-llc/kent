@@ -390,7 +390,7 @@ func (h *closeEngineBeforeResultReportHandler) Call(
 	return tools.Result{
 		CallID: call.ID,
 		Name:   call.Name,
-		Output: json.RawMessage(`{"ok":true}`),
+		Output: json.RawMessage(`"ok"`),
 	}, nil
 }
 

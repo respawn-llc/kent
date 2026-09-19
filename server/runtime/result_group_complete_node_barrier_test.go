@@ -188,7 +188,7 @@ func TestCompleteNodeOperationalFailureDoesNotConsumeProtocolBudget(t *testing.T
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
 
-	result, err := (&defaultToolExecutor{engine: engine}).executeCompleteNodeTool(
+	result, err := engine.executeCompleteNodeTool(
 		context.Background(),
 		stepID,
 		llm.ToolCall{

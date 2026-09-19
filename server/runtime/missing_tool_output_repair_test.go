@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,9 +76,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 	if completion == nil || !completion.IsError {
 		t.Fatalf("missing synthetic error completion: %+v", completion)
 	}
-	if !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
-		t.Fatalf("live generation repair selected the wrong typed disposition: %s", completion.Output)
-	}
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
 	if warning == nil ||
 		warning.ToolOutputRepair == nil ||
 		warning.ToolOutputRepair.Kind != transcript.ToolOutputRepairLiveProviderRejection ||
@@ -159,7 +156,8 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	if outputKind != session.ToolOutputKindCustom {
 		t.Fatalf("normal generation output kind = %q, want custom", outputKind)
 	}
-	if !completion.IsError || !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
+	if !completion.IsError {
 		t.Fatalf("normal generation live disposition = error:%t output:%s", completion.IsError, completion.Output)
 	}
 	if warnings := typedLiveRepairWarnings(t, store); len(warnings) != 1 {
@@ -399,9 +397,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		t.Fatal("repaired compaction retry did not preserve the call with its synthetic output")
 	}
 	_, completion := repairCompletionRecord(t, store, "missing")
-	if !bytes.Equal(completion.Output, missingToolOutputInterruptedOutput) {
-		t.Fatalf("live compaction repair selected the wrong typed disposition: %s", completion.Output)
-	}
+	assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputInterruptedMessage)
 }
 
 func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T) {

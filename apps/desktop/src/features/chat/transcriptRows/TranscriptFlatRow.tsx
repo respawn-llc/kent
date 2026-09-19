@@ -20,7 +20,7 @@ export function TranscriptFlatRow({
   defaultExpanded: boolean;
   icon: ReactNode;
   iconTone: TranscriptFlatRowIconTone;
-  summary: string;
+  summary: ReactNode;
 }>) {
   const { t } = useTranslation();
   return (

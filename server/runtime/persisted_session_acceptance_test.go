@@ -272,8 +272,8 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		if outputKind != wantKind {
 			t.Fatalf("crash repair output kind for %q = %q, want %q", call.ID, outputKind, wantKind)
 		}
-		if !completion.IsError ||
-			!bytes.Equal(completion.Output, missingToolOutputUnavailableOutput) {
+		assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputUnavailableMessage)
+		if !completion.IsError {
 			t.Fatalf(
 				"crash repair for %q = error:%t output:%s",
 				call.ID,
@@ -504,8 +504,8 @@ func runPersistedEffectRecoveryCase(
 					fixture.outputKind,
 				)
 			}
-			if !completion.IsError ||
-				!bytes.Equal(completion.Output, missingToolOutputUnavailableOutput) {
+			assertSyntheticFailureOutput(t, completion.Output, completion.Name, missingToolOutputUnavailableMessage)
+			if !completion.IsError {
 				t.Fatalf(
 					"%s recovered neutral completion = error:%t output:%s",
 					toolID,

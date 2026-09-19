@@ -51,6 +51,7 @@ const (
 	MessageTypeHandoffFutureMessage           = clientui.MessageTypeHandoffFutureMessage
 	MessageTypeReviewerFeedback               = clientui.MessageTypeReviewerFeedback
 	MessageTypeBackgroundNotice               = clientui.MessageTypeBackgroundNotice
+	MessageTypeUserShellCommand               = clientui.MessageTypeUserShellCommand
 	MessageTypeCustomToolCallOutput           = clientui.MessageTypeCustomToolCallOutput
 	MessageTypeCompactionPreservedUserMessage = clientui.MessageTypeCompactionPreservedUserMessage
 	MessageTypeHeadlessMode                   = clientui.MessageTypeHeadlessMode

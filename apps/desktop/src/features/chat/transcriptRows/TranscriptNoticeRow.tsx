@@ -32,14 +32,24 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
         policy.body.kind === "markdown" ? (
           <StaticMarkdown value={policy.body.text} />
         ) : (
-          <p className="chat-transcript-row-body">{policy.body.text}</p>
+          <p
+            className={`chat-transcript-row-body${notice.MessageType === "user_shell_command" ? " font-mono" : ""}`}
+          >
+            {policy.body.text}
+          </p>
         )
       }
       copyText={policy.copyText}
       defaultExpanded={policy.defaultExpanded}
       icon={<Icon className="size-4" />}
       iconTone={policy.iconTone}
-      summary={policy.summary}
+      summary={
+        notice.MessageType === "user_shell_command" ? (
+          <span className="font-mono">{policy.summary}</span>
+        ) : (
+          policy.summary
+        )
+      }
     />
   );
 }

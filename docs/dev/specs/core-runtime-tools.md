@@ -86,6 +86,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Command Execution
 
+- A user-run shell command must execute without invoking the model and must enter model context as a User Message, not as an assistant Tool Call or tool output.
+- The User Message must contain `User ran a shell command:`, a newline, `<command>` followed by the command and `</command>`, a newline, and the shell tool's plaintext result. Failures must retain their plaintext diagnostics.
+- A user-run shell command must appear as a compact shell command in ongoing and collapsed transcript views. Its full User Message text and output must appear only in expanded Desktop or expanded detail views. It must not become a prompt-history entry or a Rollback Target.
 - `exec_command` is the only model-facing command-execution tool. It uses the user's login shell without a TTY, inherits the parent environment, adds non-interactive technical environment values, and combines stdout and stderr into one unlabelled stream.
 - Before launching a command, Kent must resolve a non-empty selected Working Directory to a normalized absolute path and verify that the path exists and is a directory.
 - If a non-empty selected Working Directory does not exist, Kent must not launch the command and must return `<normalized absolute path> does not exist, so the shell command was not executed. Please select an existing working directory`.
@@ -137,6 +140,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Tool Output And Failure Behavior
 
+- `exec_command` and `write_stdin` must return model-visible plaintext for execution, polling, and error results. Polling must use the same shell-output formatting as command execution; process lifecycle metadata must not wrap that text in a model-visible JSON object.
 - Kent truncates large tool output for model context with standardized head/tail content and truncation metadata. The threshold is configurable and applies after command post-processing.
 - Foreground shell output is evaluated after sanitization, post-processing, warnings, truncation, and presentation trimming. Whitespace-only content is no output.
 - Each `shell` and `write_stdin` call independently applies the oversized-output guard after output processing and ordinary truncation. The guard carries no state between calls.

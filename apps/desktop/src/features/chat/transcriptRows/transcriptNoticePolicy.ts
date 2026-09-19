@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Server,
   Settings,
+  Terminal,
   TriangleAlert,
   Workflow,
   Wrench,
@@ -177,6 +178,7 @@ function noticeDefaultExpanded(
   notice: TranscriptNotice,
   visibility: ChatTranscriptCommittedRow["Visibility"],
 ): boolean {
+  if (notice.MessageType === "user_shell_command") return false;
   if (isKnownDeveloperContext(notice) || notice.Reason === "compaction") return false;
   if (notice.Diagnostic?.Code === "reviewer_suggestions") return false;
   if (notice.MessageType === "error_feedback") return true;
@@ -223,6 +225,8 @@ function noticeMessageTypeIcon(notice: TranscriptNotice): LucideIcon | undefined
       return undefined;
     case "error_feedback":
       return CircleX;
+    case "user_shell_command":
+      return Terminal;
     case "compaction_soon_reminder":
       return TriangleAlert;
     case "worktree_mode":

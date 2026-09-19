@@ -186,7 +186,7 @@ func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion
 	if pollA.IsError {
 		t.Fatalf("runtime A polling error: %s", string(pollA.Output))
 	}
-	if got := decodeWriteStdinToolOutput(t, pollA).Output; !strings.Contains(got, "RUNTIME_A") {
+	if got := decodeStringToolOutput(t, pollA); !strings.Contains(got, "RUNTIME_A") {
 		t.Fatalf("runtime A polling output = %q, want captured hook output", got)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
@@ -279,7 +279,7 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 	if poll.IsError {
 		t.Fatalf("raw polling error: %s", string(poll.Output))
 	}
-	if got := decodeWriteStdinToolOutput(t, poll).Output; !strings.Contains(got, "\x1b[32mlate\x1b[0m") {
+	if got := decodeStringToolOutput(t, poll); !strings.Contains(got, "\x1b[32mlate\x1b[0m") {
 		t.Fatalf("raw polling output = %q, want original ANSI", got)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
@@ -340,7 +340,7 @@ func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 	if pollA.IsError {
 		t.Fatalf("cross-runtime polling error: %s", string(pollA.Output))
 	}
-	if got := decodeWriteStdinToolOutput(t, pollA).Output; !strings.Contains(got, "RUNTIME_A") {
+	if got := decodeStringToolOutput(t, pollA); !strings.Contains(got, "RUNTIME_A") {
 		t.Errorf("cross-runtime polling output = %q, want process A captured policy", got)
 	}
 
