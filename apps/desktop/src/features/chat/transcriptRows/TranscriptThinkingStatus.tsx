@@ -14,7 +14,7 @@ export function TranscriptThinkingStatus({
       {presentation === null ? null : (
         <motion.div
           key="status"
-          className="flex min-w-0 items-start gap-[var(--space-2)] rounded-[var(--radius-m)] bg-[var(--color-island-1)] p-[var(--space-2)] text-sm text-[var(--color-on-background)]"
+          className="flex min-w-0 items-start gap-[var(--space-2)] p-[var(--space-2)] text-sm text-[var(--color-on-background)]"
           initial={false}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: reducedMotion ? 0 : "var(--space-2)" }}

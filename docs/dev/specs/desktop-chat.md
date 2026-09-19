@@ -4,6 +4,7 @@
 
 - Chat must support non-Git workspaces. Confirmed absence of a Git repository must produce an empty Git Worktree inventory, not a whole-Chat failure. Genuine Git inspection failures must remain observable errors.
 - Transcript rows must use compact, consistent spacing, including skill guidance, developer context, and Goal nudges.
+- Message bubbles must have horizontal inset aligned with the collapsed-row icon column rather than touching the transcript edge. Working/Thinking Status must be a flat, background-free spinner-and-text row.
 
 - Desktop Sessions and Chat are thin remote-control surfaces. The Kent server is authoritative for Sessions, project and workspace scope, runtime activity, transcript history, ordinary Session drafts, Pending Work, prompts, goals, processes, worktrees, and durable state. Desktop owns the one best-effort locally saved New Chat text value before a Session exists.
 - Desktop provides the session-browser and chat capabilities available in the terminal product unless this specification explicitly excludes a capability.
@@ -195,7 +196,7 @@
 - Desktop does not show relative age or refresh timestamp labels on a timer.
 - A committed message without committed time omits the timestamp without a placeholder or warning.
 - A live assistant message has no footer. The committed message receives Copy when it resolves.
-- Consecutive user or assistant messages must use tighter spacing and small, nearly squared inner joining corners on their matching side. Their outer corners must remain rounded. Messages remain separate islands.
+- Message bubbles must use the Respawn corner pattern: the user bottom-right and assistant bottom-left corners are always small; the corresponding top corner is also small when the preceding message has the same role. Other corners remain rounded. Consecutive same-role messages use tighter spacing and remain separate islands. Bubbles use a compact minimum size adapted from Respawn's 40-unit height; the Copy icon uses the timestamp's muted color.
 - Tools, diagnostics, context, and notices use flat transcript rows rather than message islands. Transcript content opens no duplicate detail surfaces; its full content is available through expansion.
 - Contextual destinations adapt between shifted and overlay presentation. Processes and Goal are the defined Chat destinations. Session settings use a non-modal popover from the composer Settings chip, not a contextual destination.
 
@@ -221,6 +222,7 @@
 - The Settings chip opens the established chip-anchored non-modal popover and uses its standard placement and collision behavior. The popover may overlay the editor.
 - Composer controls must appear inside the island in this order: Settings/model, Worktree, Goal, active Processes, flexible space, Context usage, Stop when applicable, Send. Goal, Processes, Stop, and Send must not truncate. When space is insufficient, leading controls must wrap onto preceding lines while Stop and Send stay together at the bottom right. Goal must match the other composer chips' height.
 - Only the model name in the Settings chip must start-ellipsize when space is insufficient; its role and Thinking labels remain readable.
+- Settings, Worktree, Goal and Processes must remain grouped at the left; only the trailing Context and action group is right-aligned. Worktree must use available space without an arbitrary width cap that truncates its label when room remains.
 - The Context usage circle must use the same success-to-warning-to-error gradient as the detailed usage bar.
 - The popover uses a max-capped width and scrolls internally when its contents exceed the available height.
 - The main body has no title or section labels. Settings appear as one unsectioned control group in this order: Agent, Supervisor, Thinking when supported, Fast mode when supported, Questions, Auto-compaction; then one subtle divider and session facts. The facts appear as `To parent chat`, Task navigation, and Session ID when present.
