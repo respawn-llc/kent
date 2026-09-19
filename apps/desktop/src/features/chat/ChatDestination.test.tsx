@@ -114,6 +114,45 @@ it("preserves editing before a workspace resolves and admits no early actions", 
   expect(view.result.current.composer.text).toBe("before workspace");
 });
 
+it("hides Processes discovery until adoption while rejecting typed activation without creating a Session", async () => {
+  const view = setup();
+  await waitFor(() => {
+    expect(view.result.current.settings.kind).toBe("ready-new-chat");
+  });
+  act(() => {
+    view.result.current.composer.edit("/ps");
+  });
+  expect(view.result.current.composer.suggestions).toEqual([]);
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  expect(view.steer).not.toHaveBeenCalled();
+  expect(view.result.current.target?.kind).toBe("new_chat");
+  view.steer.mockResolvedValue({
+    sessionID: "created-session",
+    outcome: {
+      kind: "accepted",
+      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      diagnostic: null,
+    },
+  });
+  act(() => {
+    view.result.current.composer.edit("create Session");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  await waitFor(() => {
+    expect(view.result.current.target?.kind).toBe("session");
+  });
+  act(() => {
+    view.result.current.composer.edit("/ps");
+  });
+  expect(view.result.current.composer.suggestions).toMatchObject([
+    { token: "/ps", execution: { kind: "direct" } },
+  ]);
+});
+
 it("keeps New Chat draft persistence after a local command without materializing a Session", async () => {
   const view = setup();
   await waitFor(() => {

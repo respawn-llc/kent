@@ -68,13 +68,16 @@ export function useChatDestination({
     aliases: [],
     description: t("processes.title"),
     preview: null,
-    execution: {
-      kind: "direct",
-      send: async () => {
-        openProcesses();
-        return { kind: "local" };
-      },
-    },
+    execution:
+      target?.kind === "session"
+        ? {
+            kind: "direct",
+            send: async () => {
+              openProcesses();
+              return { kind: "local" };
+            },
+          }
+        : { kind: "unavailable", notify: openProcesses },
   };
   const selection = useAtomValue(model.selection);
   const adoptAction = useAtomSet(model.adopt);

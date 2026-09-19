@@ -1,5 +1,18 @@
 import { composerSuggestions, resolveComposerCommand } from "./composerCommands";
 
+it("keeps unavailable commands recognized without offering them for discovery", () => {
+  const notify = vi.fn();
+  const command = {
+    token: "/unavailable",
+    aliases: [],
+    description: null,
+    preview: null,
+    execution: { kind: "unavailable", notify } as const,
+  };
+  expect(composerSuggestions("/", [command])).toEqual([]);
+  expect(resolveComposerCommand(command.token, [command])).toEqual({ kind: "unavailable", notify });
+});
+
 it.each(["  ", "\t "])("recognizes the first command token after leading %j", (leading) => {
   expect(
     resolveComposerCommand(`${leading}/hidden\t arguments `, [
