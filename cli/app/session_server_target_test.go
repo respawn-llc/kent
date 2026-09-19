@@ -209,7 +209,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		AllowUnauthenticated:  true,
 	}, auth.EmptyState())
 
@@ -394,7 +394,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
 	}, apiKeyAuthState("test-key"))
@@ -538,7 +538,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: true,
 	}, apiKeyAuthState("test-key"))

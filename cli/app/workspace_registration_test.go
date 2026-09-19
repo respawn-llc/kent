@@ -100,7 +100,7 @@ func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL
 	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: openAIBaseURL != "",
 	}, authState)

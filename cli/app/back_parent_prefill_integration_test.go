@@ -37,7 +37,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
@@ -91,7 +91,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "source-project-model",
+		LoadOptions:           config.LoadOptions{Model: "source-project-model"},
 	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)

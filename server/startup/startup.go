@@ -18,12 +18,6 @@ type Request struct {
 	WorkspaceRootExplicit bool
 	AllowUnauthenticated  bool
 	SessionID             string
-	Model                 string
-	ProviderOverride      string
-	ThinkingLevel         string
-	Theme                 string
-	ModelTimeoutSeconds   int
-	Tools                 string
 	OpenAIBaseURL         string
 	OpenAIBaseURLExplicit bool
 	LoadOptions           config.LoadOptions
@@ -95,23 +89,12 @@ func coreOptionsForBootstrap(req serverbootstrap.Request, rootLease *core.RootLo
 }
 
 func buildRequest(req Request) serverbootstrap.Request {
-	loadOptions := req.LoadOptions
-	if loadOptions == (config.LoadOptions{}) {
-		loadOptions = config.LoadOptions{
-			Model:               req.Model,
-			ProviderOverride:    req.ProviderOverride,
-			ThinkingLevel:       req.ThinkingLevel,
-			Theme:               req.Theme,
-			ModelTimeoutSeconds: req.ModelTimeoutSeconds,
-			Tools:               req.Tools,
-		}
-	}
 	return serverbootstrap.Request{
 		WorkspaceRoot:         req.WorkspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             req.SessionID,
 		OpenAIBaseURL:         req.OpenAIBaseURL,
 		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
-		LoadOptions:           loadOptions,
+		LoadOptions:           req.LoadOptions,
 	}
 }

@@ -34,7 +34,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		OpenAIBaseURL:         model.URL(),
 		OpenAIBaseURLExplicit: true,
 	}, apiKeyAuthState("test-key"))
@@ -81,7 +81,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 	}, apiKeyAuthState("test-key"))
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 

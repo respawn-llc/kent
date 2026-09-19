@@ -10,6 +10,7 @@ import (
 	"core/cli/app/internal/projectbinding"
 	serverstartup "core/server/startup"
 	"core/shared/clientui"
+	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -23,7 +24,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	defer fakeResponses.Close()
 
 	srv, err := startAppTestServer(t, serverstartup.Request{
-		Model:                "gpt-5",
+		LoadOptions:          config.LoadOptions{Model: "gpt-5"},
 		AllowUnauthenticated: true,
 	}, auth.EmptyState())
 	if err != nil {
@@ -91,7 +92,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5.4",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5.4"},
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
 	}, apiKeyAuthState("test-key"))
@@ -151,7 +152,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
 		OpenAIBaseURL:         model.URL(),
 		OpenAIBaseURLExplicit: true,
 	}, apiKeyAuthState("test-key"))
