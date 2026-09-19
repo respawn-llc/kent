@@ -83,7 +83,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) string { return "" }, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

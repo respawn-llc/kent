@@ -407,6 +407,7 @@ func TestRemoteAuthBootstrapPersistedNoAuthAcknowledgesWithoutPicker(t *testing.
 }
 
 func TestRemoteAuthBootstrapHeadlessDoesNotAcknowledgePersistedNoAuth(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
 	remote := &stubAuthBootstrapClient{
 		status: &authpb.BootstrapStatus{
 			AuthReady:      false,

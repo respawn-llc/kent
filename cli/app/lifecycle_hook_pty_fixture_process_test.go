@@ -49,7 +49,7 @@ func runLifecycleHookPTYFixtureProcess(
 	if processConfig.ServerMode == appfixture.LifecycleServerModeLocal {
 		startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
 			t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-		), readyMemoryAuthHandler())
+		), apiKeyAuthState("test-key"))
 	}
 
 	server, err := startSessionServer(ctx, options, interactor, true)
@@ -292,7 +292,7 @@ func runLifecycleHookServerFixtureProcess(
 	}
 	startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
 		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-	), readyMemoryAuthHandler())
+	), apiKeyAuthState("test-key"))
 	if err := appfixture.WriteLifecycleServerProcessReady(
 		processConfig.ReadyPath,
 		appfixture.LifecycleServerProcessReady{PID: os.Getpid()},

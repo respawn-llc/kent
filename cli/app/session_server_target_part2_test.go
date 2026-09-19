@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/server/auth"
 	"io"
 	"strings"
 	"testing"
@@ -21,10 +22,10 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	fakeResponses, hits := newNoAuthFakeResponsesServer(t, []string{"rebound no-auth reply"})
 	defer fakeResponses.Close()
 
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		Model:                "gpt-5",
 		AllowUnauthenticated: true,
-	}, memoryAuthHandler{})
+	}, auth.EmptyState())
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 		Model:                 "gpt-5.4",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 
 	server := fixture.attachRemoteSessionServer(t, Options{
 		WorkspaceRoot:         workspace,
@@ -153,9 +154,9 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         model.URL(),
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 
-	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote prompt round trip")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 

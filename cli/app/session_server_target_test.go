@@ -5,6 +5,7 @@ import (
 	"core/cli/app/internal/startupconfig"
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
+	"core/server/auth"
 	"core/server/llm"
 	"core/server/metadata"
 	serverstartup "core/server/startup"
@@ -123,11 +124,11 @@ func startConfiguredDaemonFixture(
 	t *testing.T,
 	workspace string,
 	request serverstartup.Request,
-	authHandler serverstartup.AuthHandler,
+	authState auth.State,
 ) *configuredDaemonFixture {
 	t.Helper()
 	writeAppTestSettings(t)
-	daemon, err := serverstartup.StartServeServer(context.Background(), request, authHandler)
+	daemon, err := startAppTestServer(t, request, authState)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -210,7 +211,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{})
+	}, auth.EmptyState())
 
 	pickerCalls := 0
 	firstInteractor := &interactiveAuthInteractor{
@@ -276,11 +277,11 @@ func TestStartupReadinessAllowsActivatedNoAuthOnboarding(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{})
+	}, auth.EmptyState())
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -361,8 +362,8 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{AllowUnauthenticated: true}, readyMemoryAuthHandler())
-	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{AllowUnauthenticated: true}, apiKeyAuthState("test-key"))
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
@@ -396,7 +397,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
 	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test daemon environment cwd")
@@ -540,7 +541,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	fixture.daemon = configured.daemon
 	fixture.serverA = configured.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspaceA, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 

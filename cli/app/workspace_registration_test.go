@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
+	"core/server/auth"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/projectview"
@@ -89,20 +90,20 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.P
 }
 
 func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
-	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
+	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyAuthState("test-key"))
 }
 
-func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler serverstartup.AuthHandler) func() {
+func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authState auth.State) func() {
 	t.Helper()
 	writeAppTestSettings(t)
 	releasePortProbe := reserveAppTestServerPort(t)
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: openAIBaseURL != "",
-	}, authHandler)
+	}, authState)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}

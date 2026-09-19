@@ -93,7 +93,10 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func(
 	return AuthSupport{
 		OAuthOptions: oauthOpts,
 		AuthManager: auth.NewManager(
-			store,
+			auth.NewEnvAPIKeyOverrideStore(store, func(key string) (string, bool) {
+				value := lookupEnv(key)
+				return value, strings.TrimSpace(value) != ""
+			}),
 			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
 		),
 	}, nil

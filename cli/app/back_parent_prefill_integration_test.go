@@ -34,11 +34,11 @@ func appStringPointer(value string) *string {
 
 func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}
@@ -88,11 +88,11 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	bindingB := mustRegisterAppBinding(t, sourceConfig.PersistenceRoot, workspaceB)
 
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "source-project-model",
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}

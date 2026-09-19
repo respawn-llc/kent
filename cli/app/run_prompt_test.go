@@ -14,7 +14,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
-	"core/server/authservice"
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
 	askquestion "core/server/tools"
@@ -28,20 +27,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-type memoryAuthHandler struct {
-	state     auth.State
-	lookupEnv func(string) string
-}
-
-func readyMemoryAuthHandler() memoryAuthHandler {
-	return apiKeyMemoryAuthHandler("in-memory-test-key")
-}
-
-func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
-	return memoryAuthHandler{state: apiKeyMemoryAuthState(key)}
-}
-
-func apiKeyMemoryAuthState(key string) auth.State {
+func apiKeyAuthState(key string) auth.State {
 	return auth.State{
 		Scope: auth.ScopeGlobal,
 		Method: auth.Method{
@@ -55,7 +41,7 @@ func saveReadyAppAuthState(t *testing.T, workspace string) {
 	t.Helper()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	if err := store.Save(context.Background(), readyMemoryAuthHandler().state); err != nil {
+	if err := store.Save(context.Background(), apiKeyAuthState("test-key")); err != nil {
 		t.Fatalf("save auth state: %v", err)
 	}
 }
@@ -152,23 +138,17 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	}
 }
 
-func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
-	return auth.NewMemoryStore(h.state)
-}
-
-func (memoryAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (memoryAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
-}
-
-func (h memoryAuthHandler) LookupEnv(key string) string {
-	if h.lookupEnv != nil {
-		return h.lookupEnv(key)
+func startAppTestServer(t *testing.T, req serverstartup.Request, state auth.State) (*serverstartup.ServeServer, error) {
+	t.Helper()
+	t.Setenv("OPENAI_API_KEY", "")
+	cfg, err := config.LoadGlobal(req.LoadOptions)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return ""
+	if err := auth.NewFileStore(config.GlobalAuthConfigPath(cfg)).Save(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	return serverstartup.StartServeServer(context.Background(), req)
 }
 
 func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
@@ -200,13 +180,13 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
 	defer fakeResponses.Close()
 
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -238,13 +218,13 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"override reply"})
 	defer overrideResponses.Close()
 
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	}, apiKeyAuthState("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

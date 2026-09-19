@@ -55,11 +55,8 @@ func (s *ServeServer) Config() config.App {
 var localSocketListener = listenLocalSocket
 var errStartupControlSurfaceNotRequired = errors.New("startup control surface is not required")
 
-func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler) (*ServeServer, error) {
-	if authHandler == nil {
-		return nil, errors.New("auth handler is required")
-	}
-	bootstrapReq := buildRequest(req, authHandler)
+func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
+	bootstrapReq := buildRequest(req)
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
@@ -67,16 +64,16 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler)
 	}
 	cfg := resolved.Config
 	if cfg.Source.SettingsFileExists() {
-		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler)
+		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated)
 		if err != nil {
 			return nil, err
 		}
 		return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
 	}
-	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq, authHandler)
+	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq)
 	if err != nil {
 		if errors.Is(err, errStartupControlSurfaceNotRequired) {
-			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated, authHandler)
+			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated)
 			if coreErr != nil {
 				return nil, coreErr
 			}
@@ -87,7 +84,7 @@ func StartServeServer(ctx context.Context, req Request, authHandler AuthHandler)
 	return &ServeServer{deps: deps, cfg: cfg}, nil
 }
 
-func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request, authHandler AuthHandler) (config.App, *startupGatewayDependencies, error) {
+func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request) (config.App, *startupGatewayDependencies, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		return config.App{}, nil, err
@@ -107,7 +104,7 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 		_ = rootLease.Close()
 		return config.App{}, nil, errStartupControlSurfaceNotRequired
 	}
-	store := authHandler.WrapStore(auth.NewFileStore(config.GlobalAuthConfigPath(cfg)))
+	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
 	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.LookupEnv, bootstrapReq.Now)
 	if err != nil {
 		_ = rootLease.Close()

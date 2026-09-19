@@ -13,12 +13,6 @@ import (
 	"syscall"
 )
 
-type serveCommandServer = ServeServer
-
-var startServeServer = func(ctx context.Context, req serverstartup.Request, authHandler serverstartup.AuthHandler) (serveCommandServer, error) {
-	return serverstartup.StartServeServer(ctx, req, authHandler)
-}
-
 func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if stdout == nil {
 		stdout = io.Discard
@@ -43,11 +37,10 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx = installServiceShutdownTrigger(ctx)
-	authHandler := serverstartup.NewHeadlessAuthHandler(nil)
-	server, err := startServeServer(ctx, serverstartup.Request{
+	server, err := serverstartup.StartServeServer(ctx, serverstartup.Request{
 		AllowUnauthenticated: true,
 		LoadOptions:          brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
-	}, authHandler)
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, context.Canceled) {

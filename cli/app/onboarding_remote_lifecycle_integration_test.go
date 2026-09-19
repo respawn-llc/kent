@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/server/auth"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,11 +223,11 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	t.Helper()
 	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	srv, err := startAppTestServer(t, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{})
+	}, auth.EmptyState())
 	if err != nil {
 		t.Fatalf("start server: %v", err)
 	}

@@ -29,28 +29,27 @@ type Request struct {
 	LoadOptions           config.LoadOptions
 }
 
-type AuthHandler interface {
-	WrapStore(base auth.Store) auth.Store
-	NeedsInteraction(req authservice.FlowInteractionRequest) bool
-	Interact(ctx context.Context, req authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error)
-	LookupEnv(key string) string
-}
-
-func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler) (*core.Core, error) {
+func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config
-	store := authHandler.WrapStore(auth.NewFileStore(config.GlobalAuthConfigPath(cfg)))
+	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
 	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.LookupEnv, bootstrapReq.Now)
 	if err != nil {
 		return nil, err
 	}
 	if requireAuth {
-		if err := authservice.EnsureFlowReady(ctx, authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings.Theme, bootstrapReq.LookupEnv, authservice.StartupAuthRequired(cfg.Settings), false, authHandler); err != nil {
+		state, err := authSupport.AuthManager.Load(ctx)
+		if err != nil {
 			return nil, err
+		}
+		if authservice.StartupAuthRequired(cfg.Settings) {
+			if err := auth.EnsureStartupReady(state); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if !cfg.Source.SettingsFileExists() {
@@ -95,7 +94,7 @@ func coreOptionsForBootstrap(req serverbootstrap.Request, rootLease *core.RootLo
 	}
 }
 
-func buildRequest(req Request, authHandler AuthHandler) serverbootstrap.Request {
+func buildRequest(req Request) serverbootstrap.Request {
 	loadOptions := req.LoadOptions
 	if loadOptions == (config.LoadOptions{}) {
 		loadOptions = config.LoadOptions{
@@ -113,7 +112,6 @@ func buildRequest(req Request, authHandler AuthHandler) serverbootstrap.Request 
 		SessionID:             req.SessionID,
 		OpenAIBaseURL:         req.OpenAIBaseURL,
 		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
-		LookupEnv:             authHandler.LookupEnv,
 		LoadOptions:           loadOptions,
 	}
 }

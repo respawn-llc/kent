@@ -137,7 +137,7 @@ func runSecondClientLiveControlsActiveRun(
 	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.State{
 		Scope:  auth.ScopeGlobal,
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, nil)
+	}), func(string) string { return "" }, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
