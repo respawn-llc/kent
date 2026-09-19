@@ -204,6 +204,7 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {

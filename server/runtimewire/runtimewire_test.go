@@ -386,6 +386,7 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   filesystemContext,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -451,6 +452,7 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   filesystemContext,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -531,6 +533,7 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 		configRoot:        configRoot,
 		mainWorkspaceRoot: originalWorkspace,
 	}
+	testsetup.WriteProviderSettings(t, configRoot, config.Settings{})
 	if err := store.EnsureDurable(); err != nil {
 		t.Fatalf("materialize store: %v", err)
 	}
@@ -731,7 +734,7 @@ func TestRuntimewireGeneratedWritePolicyDefaultGuidanceAndSiblingFallthrough(t *
 	if err := os.MkdirAll(siblingRoot, 0o755); err != nil {
 		t.Fatalf("mkdir sibling root: %v", err)
 	}
-	registry, _ := newRuntimeWireToolRegistryWithConfig(t, workspace, "", true, toolspec.ToolPatch)
+	registry, _ := newRuntimeWireToolRegistryWithConfig(t, workspace, defaultRoot, true, toolspec.ToolPatch)
 	patchHandler, ok := registry.Get(toolspec.ToolPatch)
 	if !ok {
 		t.Fatal("expected patch handler")
@@ -900,6 +903,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   initial,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -979,6 +983,7 @@ func TestReplaceFilesystemContextReplacesMutationManagedWorktreePolicyWithoutRes
 	initial := runtimewirefixture.FilesystemContext(t, currentRoot)
 	binding, _, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   initial,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1022,6 +1027,7 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   runtimewirefixture.FilesystemContext(t, rootA),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1627,15 +1633,22 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			}
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
+			active = testsetup.ProviderSettings(active)
+			definition := active.Connections[*active.Connection]
+			definition.Capabilities = config.ProviderCapabilitiesOverride{
+				ProviderID: test.providerID, SupportsResponsesAPI: true,
+				IsOpenAIFirstParty: caps.IsOpenAIFirstParty,
+			}
+			active.Connections[*active.Connection] = definition
 			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
 				sources["model_capabilities.supports_vision_inputs"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_vision_inputs"}}
 
 			}
-			wiring, err := NewRuntimeWiring(
+			wiring, err := newTestRuntimeWiringWithBackground(t,
 				store, materializedRuntimeWireEventLog(t, store), active,
-				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil,
+				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil, nil,
 				requiredRuntimeWireTestOptions(RuntimeWiringOptions{
 					Client: client, Sources: sources,
 					FilesystemContext: runtimeWireFilesystemContext(t, root),
@@ -1751,6 +1764,7 @@ func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Log
 	t.Helper()
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   runtimewirefixture.FilesystemContext(t, workspace),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             enabled,
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1786,6 +1800,7 @@ func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.I
 	t.Helper()
 	binding, _, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
 		FilesystemContext:   runtimewirefixture.FilesystemContext(t, workspace),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             enabled,
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,

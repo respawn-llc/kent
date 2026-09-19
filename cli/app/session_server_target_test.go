@@ -12,8 +12,6 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
-	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/protocol"
 	"core/shared/serverapi"
@@ -26,8 +24,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type configuredDaemonFixture struct {
@@ -124,7 +120,6 @@ func startConfiguredDaemonFixture(
 	t *testing.T,
 	workspace string,
 	request serverstartup.Request,
-	authHandler authInteractor,
 ) *configuredDaemonFixture {
 	t.Helper()
 	daemon, err := serverstartup.StartServeServer(context.Background(), request, autoOnboarding)
@@ -202,15 +197,16 @@ func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.Se
 
 func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	fakeResponses, hits := newNoAuthFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
+	fakeResponses, hits := newFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{})
+	})
 
 	pickerCalls := 0
 	firstInteractor := &interactiveAuthInteractor{
@@ -230,7 +226,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("first startSessionServer: %v", err)
 	}
-	_, firstRuntimePlan := prepareAppRuntimePlanWithOpenAIBaseURL(t, firstServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, fakeResponses.URL, io.Discard, "test remote no-auth runtime")
+	_, firstRuntimePlan := prepareAppRuntimePlan(t, firstServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote no-auth runtime")
 	firstSubmission, err := submitRuntimeClientForTest(t, firstRuntimePlan.Wiring.runtimeClient, "hello after no auth")
 	requireQueuedAppTestUserTurn(t, firstSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -258,7 +254,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 		t.Fatalf("second startSessionServer: %v", err)
 	}
 	t.Cleanup(func() { closeInteractiveSessionServer(t, secondServer) })
-	_, secondRuntimePlan := prepareAppRuntimePlanWithOpenAIBaseURL(t, secondServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, fakeResponses.URL, io.Discard, "test remote persisted no-auth runtime")
+	_, secondRuntimePlan := prepareAppRuntimePlan(t, secondServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote persisted no-auth runtime")
 	secondSubmission, err := submitRuntimeClientForTest(t, secondRuntimePlan.Wiring.runtimeClient, "hello after persisted no auth")
 	requireQueuedAppTestUserTurn(t, secondSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -269,72 +265,6 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	closeRuntimeLaunchPlan(t, secondRuntimePlan)
 	if hits.Load() != 2 {
 		t.Fatalf("expected fake LLM calls twice, got %d", hits.Load())
-	}
-}
-
-func TestStartupReadinessAllowsActivatedNoAuthOnboarding(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  true,
-	}, nil)
-
-	if err != nil {
-		t.Fatalf("serve.Start: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-
-	var remote *client.Remote
-	deadline := time.Now().Add(5 * time.Second)
-	var attachErr error
-	for remote == nil && time.Now().Before(deadline) {
-		remote, attachErr = attachConfiguredStartupRemote(context.Background(), cfg)
-		if remote == nil {
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-	if remote == nil {
-		t.Fatalf("attach configured startup remote: %v", attachErr)
-	}
-	defer func() { _ = remote.Close() }()
-	bootstrap, err := remote.CompleteBootstrap(context.Background(), &authpb.CompleteBootstrapRequest{
-		Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
-	})
-	if err != nil {
-		t.Fatalf("CompleteAuthBootstrap: %v", err)
-	}
-	if !bootstrap.NoAuthSelected {
-		t.Fatalf("bootstrap response = %+v, want no-auth selection", bootstrap)
-	}
-	if err := remote.EnableNoAuthBootstrapAcknowledgement(context.Background()); err != nil {
-		t.Fatalf("EnableNoAuthBootstrapAcknowledgement: %v", err)
-	}
-
-	selectedTheme := onboardingpb.Theme_THEME_DARK
-	_, err = remote.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		Theme: &selectedTheme,
-		CommandsImport: &onboardingpb.ImportSelection{
-			Mode: onboardingpb.ImportMode_IMPORT_MODE_NONE,
-		},
-	})
-	if err != nil {
-		t.Fatalf("FinalizeOnboarding: %v", err)
-	}
-	readinessResponse, err := remote.GetReadiness(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("GetReadiness: %v", err)
-	}
-	readiness := readinessResponse.GetReadiness()
-	if readiness.GetReady() {
-		t.Fatal("no-auth startup readiness must remain false while server-managed auth is absent")
-	}
-	if !startupReadinessAllowsSession(remote, readiness) {
-		t.Fatalf("activated no-auth readiness must allow startup: %+v", readiness)
 	}
 }
 
@@ -358,12 +288,13 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 	if err != nil {
 		t.Fatalf("LoadGlobal: %v", err)
 	}
+	testsetup.WriteProviderSettings(t, glob.PersistenceRoot, testsetup.ProviderSettings(glob.Settings))
 	if _, err := metadata.RegisterBinding(context.Background(), glob.PersistenceRoot, workspace); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{AllowUnauthenticated: true}, readyMemoryAuthHandler())
-	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
@@ -390,14 +321,15 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	})
+
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
 	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test daemon environment cwd")
@@ -413,7 +345,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	if hits.Load() != 1 {
 		t.Fatalf("expected daemon-backed llm call once, got %d", hits.Load())
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, fakeResponses.URL, plan.SessionID)
+	store := openAuthoritativeWorkspaceSessionStore(t, workspace, plan.SessionID)
 	messages, err := readStoredMessages(store)
 	if err != nil {
 		t.Fatalf("readStoredMessages: %v", err)
@@ -534,14 +466,15 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	t.Setenv("HOME", t.TempDir())
 	registerAppWorkspace(t, workspaceA)
 	registerAppWorkspace(t, workspaceB)
+	cfg := loadAppTestConfig(t, workspaceA, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
 
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         openAIBaseURL,
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"))
+	})
+
 	fixture.daemon = configured.daemon
 	fixture.serverA = configured.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspaceA, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 

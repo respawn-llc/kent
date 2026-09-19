@@ -42,7 +42,7 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 }
 
 func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
-	support, err := BuildRuntimeSupport(config.App{Settings: config.Settings{
+	support, err := BuildRuntimeSupport(config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{
 		ShellOutputMaxChars:    321,
 		BGShellsOutput:         config.BGShellsOutputVerbose,
 		MinimumExecToBgSeconds: 1,

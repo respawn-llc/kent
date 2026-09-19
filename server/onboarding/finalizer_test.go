@@ -53,15 +53,11 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 		reviewerModel    *string
 		reviewerThinking *string
 		compaction       config.CompactionMode
-		providerOverride *string
-		openAIBaseURL    *string
 		modelTimeout     *int
 		disabledSkill    *string
 	}
 	trueValue := true
 	falseValue := false
-	providerOverride := "openai"
-	openAIBaseURL := "https://api.openai.com/v1"
 	modelTimeout := 123
 	requestModelTimeout := uint32(modelTimeout)
 	reviewerModel := "gpt-5.4"
@@ -73,12 +69,11 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 		want want
 	}{
 		{
-			name: "known model large context level thinking verbosity true ask supervisor override native compaction",
+			name: "known model large context level thinking true ask supervisor override local compaction",
 			req: &onboardingpb.FinalizeRequest{
 				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4-mini")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE},
 				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")},
-				Verbosity:     ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
 				AskQuestion:   &trueValue,
 				ToolOverrides: []*onboardingpb.ToolOverride{
 					{Id: onboardingpb.ToolID_TOOL_ID_EDIT, Enabled: true},
@@ -89,7 +84,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 					Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4")},
 					Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("xhigh")},
 				},
-				Compaction:          ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
+				Compaction:          ptr(onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL),
 				ModelTimeoutSeconds: &requestModelTimeout,
 				DisabledSkillNames:  []string{" API   Result "},
 			},
@@ -98,14 +93,12 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				window:           400_000,
 				threshold:        380_000,
 				thinking:         "high",
-				verbosity:        config.ModelVerbosityHigh,
+				verbosity:        config.ModelVerbosityLow,
 				enabledTools:     map[toolspec.ID]bool{toolspec.ToolAskQuestion: true, toolspec.ToolEdit: true, toolspec.ToolPatch: false},
 				supervisor:       "all",
 				reviewerModel:    &reviewerModel,
 				reviewerThinking: &reviewerThinking,
-				compaction:       config.CompactionModeNative,
-				providerOverride: &providerOverride,
-				openAIBaseURL:    &openAIBaseURL,
+				compaction:       config.CompactionModeLocal,
 				modelTimeout:     &modelTimeout,
 				disabledSkill:    &disabledSkill,
 			},
@@ -219,22 +212,6 @@ func TestFinalizerRejectsUnsupportedVerbosityForSelectedModel(t *testing.T) {
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
 		t.Fatalf("error = %v, want invalid_request", err)
-	}
-}
-
-func TestFinalizerAcceptsProviderDefaultVerbosityForCustomOpenAIModel(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
-	verbosity := onboardingpb.Verbosity_VERBOSITY_HIGH
-	if _, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
-		Verbosity: &verbosity,
-	}); err != nil {
-		t.Fatalf("Finalize: %v", err)
-	}
-	cfg := loadFinalizedConfig(t, root)
-	if cfg.Settings.ModelVerbosity != config.ModelVerbosityHigh {
-		t.Fatalf("model verbosity = %q, want high", cfg.Settings.ModelVerbosity)
 	}
 }
 
@@ -612,24 +589,6 @@ func TestFinalizerRejectsNativeCompactionForSelectedNonOpenAIModel(t *testing.T)
 	details := finalizeErr.Details.(serverapi.OnboardingInvalidRequestDetails)
 	if len(details.FieldErrors) != 1 || details.FieldErrors[0].Field != "compaction" || details.FieldErrors[0].Code != "unsupported_for_provider" {
 		t.Fatalf("field errors = %+v", details.FieldErrors)
-	}
-}
-
-func TestFinalizerAcceptsNativeCompactionForDefaultOpenAICustomModel(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
-	finalizer := newTestFinalizer(t, root, home)
-	native := onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE
-
-	if _, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		Model:      &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("unknown-custom-model")},
-		Compaction: &native,
-	}); err != nil {
-		t.Fatalf("Finalize: %v", err)
-	}
-	cfg := loadFinalizedConfig(t, root)
-	if cfg.Settings.CompactionMode != config.CompactionModeNative {
-		t.Fatalf("compaction mode = %q, want native", cfg.Settings.CompactionMode)
 	}
 }
 

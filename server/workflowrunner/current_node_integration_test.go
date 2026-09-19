@@ -1441,6 +1441,10 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 		}),
 		ScriptedFinalAnswer("done"),
 	)
+	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
@@ -3869,6 +3873,7 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 			if err := os.WriteFile(filepath.Join(incoming.PersistenceRoot, "config.toml"), []byte(file.String()), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			testsetup.WriteProviderSettings(t, incoming.PersistenceRoot, incoming.Settings)
 			var err error
 			incoming, err = config.Load(f.workspace, f.workspace, config.LoadOptions{ConfigRoot: incoming.PersistenceRoot})
 			if err != nil {

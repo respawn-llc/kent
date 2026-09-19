@@ -35,9 +35,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -616,11 +614,10 @@ func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSup
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 	if ready {
-		if _, err := authSupport.AuthManager.SwitchMethod(context.Background(), auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}, true); err != nil {
-			t.Fatalf("SwitchMethod: %v", err)
+		if err := authSupport.AuthManager.SaveOAuth(context.Background(), "test", auth.OAuthMethod{
+			AccessToken: "test-token",
+		}); err != nil {
+			t.Fatalf("SaveOAuth: %v", err)
 		}
 	}
 	return authSupport
@@ -632,9 +629,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-5"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		OwnerID:               "gateway-test-owner",
@@ -667,9 +662,7 @@ func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) servera
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-5"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		ActiveSettings:        settings,
@@ -1304,119 +1297,27 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
+func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	updateStatusMethod := serverpb.File_kent_api_server_server_proto.Services().
-		ByName("ServerService").Methods().ByName("GetUpdateStatus")
-	var updateStatusResult serverpb.GetUpdateStatusResult
-	callGatewayDescriptor(t, conn, "update-status-before-auth", updateStatusMethod, &emptypb.Empty{}, &updateStatusResult)
-	if failure := updateStatusResult.GetError(); failure == nil ||
-		failure.Code != "auth_required" ||
-		failure.GetAuthRequired() == nil {
-		t.Fatalf("Get Update Status before auth = %+v, want auth_required", &updateStatusResult)
-	}
-
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	runRequest, err := protoapi.RunPromptRequestToProto(serverapi.RunPromptRequest{Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), Prompt: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var runResult runpromptpb.Result
-	callGatewayDescriptor(t, conn, "run-1", runpromptpb.File_kent_api_run_prompt_run_prompt_proto.Services().ByName("RunService").Methods().ByName("Prompt"), runRequest, &runResult)
-	if runResult.GetError().GetAuthRequired() == nil {
-		t.Fatalf("run.prompt error = %+v, want auth required", &runResult)
-	}
-
-	apiKey := "server-key"
-	callGatewayAuthCompleteBootstrap(t, conn, "complete-1", &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: &apiKey,
+	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{
+		ConnectionId: proto.String("test"),
+		Mode:         authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
 	})
-	status := callGatewayAuthBootstrapStatus(t, conn, "status-2")
-	if !status.AuthReady {
-		t.Fatal("expected bootstrap completion to configure server auth")
-	}
-	state, err := authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method: %+v", state.Method)
-	}
-
-	secondAPIKey := "server-key-2"
-	secondComplete := callGatewayAuthCompleteBootstrap(t, conn, "complete-2", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ApiKey: &secondAPIKey})
-	if !secondComplete.AuthReady || secondComplete.GetMethodType() != string(auth.MethodAPIKey) {
-		t.Fatalf("unexpected second CompleteBootstrap result: %+v", secondComplete)
-	}
-	state, err = authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState after second complete: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method after retry: %+v", state.Method)
-	}
-}
-
-func TestGatewayAuthBootstrapNoneAuthorizesSameConnectionOnly(t *testing.T) {
-	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-
-	conn := dialGateway(t, server)
-	defer func() { _ = conn.Close() }()
-	handshakeGateway(t, conn)
-	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, conn, "plan-before-no-auth", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("Session Plan before no-auth = %+v, want auth_required", result.GetError())
-	}
-
-	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE})
-	if complete.AuthReady || !complete.NoAuthSelected {
-		t.Fatalf("CompleteBootstrap none = %+v, want not ready and no-auth selected", complete)
+	if !complete.AuthReady || complete.Method != authpb.AuthMethod_AUTH_METHOD_NONE {
+		t.Fatalf("CompleteBootstrap auth-less = %+v", complete)
 	}
 
 	plan := callGatewaySessionPlan(t, conn, "plan-after-no-auth", gatewaySessionPlanRequest(t))
 	target := gatewaySessionExecutionTarget(t, conn, "main-view-after-no-auth", plan.Plan.SessionId)
 	if strings.TrimSpace(target.EffectiveWorkdir) == "" {
 		t.Fatalf("typed session target after no-auth has empty effective workdir: %+v", target)
-	}
-}
-
-func TestGatewayPersistedNoAuthDoesNotAuthorizeFreshConnectionsWithoutAck(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	store := createGatewayAuthoritativeSession(t, appCore)
-	defer server.Close()
-	if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{Type: auth.MethodNone}, auth.EnvAPIKeyPreferencePreferSaved, true, true); err != nil {
-		t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
-	}
-
-	control := dialGateway(t, server)
-	defer func() { _ = control.Close() }()
-	handshakeGateway(t, control)
-	requireGatewayProjectAttachment(t, control, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, control, "plan-fresh-no-ack", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("fresh Session Plan = %+v, want auth_required", result.GetError())
-	}
-
-	subscription := dialGateway(t, server)
-	defer func() { _ = subscription.Close() }()
-	handshakeGateway(t, subscription)
-	requireGatewayProjectAttachment(t, subscription, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	requireGatewaySessionAttachment(t, subscription, "attach-session", store.Meta().SessionID)
-	var result transcriptpb.SubscribeResult
-	callGatewayDescriptor(t, subscription, "subscribe-fresh-no-ack",
-		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
-		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
-	if result.GetError().GetAuthRequired() == nil {
-		t.Fatalf("fresh session transcript subscribe = %+v, want auth required", &result)
 	}
 }
 

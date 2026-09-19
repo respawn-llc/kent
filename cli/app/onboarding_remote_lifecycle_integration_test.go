@@ -14,11 +14,18 @@ import (
 	"time"
 
 	"core/internal/testharness/pty"
-	serverstartup "core/server/startup"
+	"core/internal/testharness/testsetup"
+	"core/server/auth"
+	"core/server/bootstrap"
+	"core/server/core"
+	"core/server/onboarding"
+	"core/server/transport"
+	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/theme"
 )
@@ -218,37 +225,50 @@ type gatedOnboardingServer struct {
 	server *httptest.Server
 }
 
+type onboardingLifecycleDependencies struct {
+	*core.Core
+	finalizer *onboarding.Finalizer
+}
+
+func (d onboardingLifecycleDependencies) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
+	return d.finalizer
+}
+
 func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	t.Helper()
 	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-	}, nil)
-
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
+	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
-		t.Fatalf("start server: %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
-	stopServing := serveAppServer(t, srv)
-	t.Cleanup(stopServing)
-
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		remote, attachErr := attachConfiguredStartupRemote(context.Background(), cfg)
-		if attachErr == nil {
-			if err := remote.Close(); err != nil {
-				t.Fatalf("close readiness remote: %v", err)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("wait for onboarding server: %v", attachErr)
-		}
-		time.Sleep(10 * time.Millisecond)
+	runtimeSupport, err := bootstrap.BuildRuntimeSupport(cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	gate := newOnboardingRPCGate(config.ServerRPCURL(cfg))
+	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	appCore, err := core.New(cfg, authSupport, runtimeSupport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appCore.Close() })
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspace,
+		SettingsPath: cfg.Source.File(config.FileGlobal).Path, HomeDir: os.Getenv("HOME"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := transport.NewGateway(onboardingLifecycleDependencies{Core: appCore, finalizer: finalizer}, protocol.ServerIdentity{
+		ProtocolVersion: protocol.Version, ServerID: "onboarding-lifecycle-test", PID: os.Getpid(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := httptest.NewServer(gateway.Handler())
+	t.Cleanup(upstream.Close)
+	gate := newOnboardingRPCGate("ws" + upstream.URL[len("http"):])
 	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gate.Handler))
 	t.Cleanup(server.Close)
 	return &gatedOnboardingServer{

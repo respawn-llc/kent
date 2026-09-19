@@ -79,7 +79,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	if err := os.WriteFile(
 		filepath.Join(workspaceB, config.ConfigDirName, "config.toml"),
-		[]byte("model = \"target-project-model\"\nprovider_override = \"openai\"\nthinking_level = \"high\"\n"),
+		[]byte("model = \"target-project-model\"\nthinking_level = \"high\"\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write target workspace config: %v", err)

@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -454,6 +455,7 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 
 func newLockedRoleOverridePlan(t *testing.T, workspace string, settings config.Settings, source config.SourceReport, persistedRole *string, locked session.LockedContract) SessionPlan {
 	t.Helper()
+	settings = testsetup.ProviderSettings(settings)
 	store := createTestSession(t, workspace)
 	if persistedRole != nil {
 		if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: persistedRole}); err != nil {
@@ -1152,8 +1154,10 @@ func TestApplyPreparedRunPromptOverridesRejectsPersistedFastUnsupportedByActiveP
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.6-sol\"",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://example.test/v1\"",
+		"connection = \"custom\"",
+		"[connections.custom]",
+		"protocol = \"responses\"",
+		"endpoint = \"https://example.test/v1\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	store := testStoreForPlan(t, plan)
@@ -1296,7 +1300,10 @@ func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"openai_base_url = \"https://example.test/v1\"",
+		"connection = \"custom\"",
+		"[connections.custom]",
+		"protocol = \"responses\"",
+		"endpoint = \"https://example.test/v1\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 

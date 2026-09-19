@@ -143,9 +143,6 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
     return result(state, { effects: [{ kind: "pending-work-restored", restoration: event.payload }] });
   if (event.kind === "prompt") return admitPrompt(state, event.payload);
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
-  if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
-  if (event.kind === "session_status") return metadataResult(state, statusMetadata(event.payload));
-  if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
   if (event.kind === "compaction_status") return admitCompaction(state, event.payload);
   if (event.kind === "goal_status") return result(state, { goalFact: goalFactFromTranscript(event.payload) });
   if (event.kind === "human_input_interrupted") {
@@ -161,6 +158,13 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
   if (event.kind === "connection_replaced") {
     return result(state, { effects: [{ kind: "connection-replaced", replacement: event.payload }] });
   }
+  return admitMetadataEvent(state, event);
+}
+
+function admitMetadataEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
+  if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
+  if (event.kind === "session_status") return metadataResult(state, statusMetadata(event.payload));
+  if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
   return result(state);
 }
 

@@ -172,6 +172,7 @@ func createPersistedSession(t *testing.T) (string, string, *session.Store) {
 func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot string) (config.App, *metadata.Store, metadata.Binding, *session.Store) {
 	t.Helper()
 	cfg := config.App{PersistenceRoot: t.TempDir(), WorkspaceRoot: workspaceRoot}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, config.DefaultOnboardingSettings())
 	store, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)

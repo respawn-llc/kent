@@ -556,7 +556,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		return &sessionRuntimeTestLLMClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{RuntimeClientFactory: factory})
-	settings := config.DefaultOnboardingSettings()
+	settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 40
 	settings.CompactionMode = config.CompactionModeNative
@@ -999,7 +999,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model:              "gpt-5",
 			ThinkingLevel:      "medium",
 			ModelContextWindow: 200000,
@@ -1007,7 +1007,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
 		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
@@ -1132,11 +1132,11 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	activation, err := fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID: fixture.store.Meta().SessionID, OwnerID: "interactive-owner",
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
@@ -1299,7 +1299,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model:                  "gpt-5",
 			ThinkingLevel:          "medium",
 			ModelContextWindow:     200000,
@@ -1308,7 +1308,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 			Reviewer:               config.ReviewerSettings{Frequency: "off"},
 			Timeouts:               config.Timeouts{ModelRequestSeconds: 1},
 			Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolExecCommand)},
 		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
@@ -1421,6 +1421,7 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	appCfg.Settings = testsetup.WriteProviderSettings(t, appCfg.PersistenceRoot, appCfg.Settings)
 	metadataStore := testsetup.OpenStore(t, appCfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), appCfg.WorkspaceRoot)
 	if err != nil {

@@ -2,6 +2,7 @@ package sessionlaunch
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"testing"
 
 	"core/server/launch"
@@ -36,7 +37,7 @@ func TestServiceMapsTypedLaunchIntents(t *testing.T) {
 		Config: config.App{
 			WorkspaceRoot:   "/tmp/workspace-a",
 			PersistenceRoot: persistenceRoot,
-			Settings:        config.Settings{Model: "gpt-5"},
+			Settings:        testsetup.ProviderSettings(config.Settings{Model: "gpt-5"}),
 		},
 		ContainerDir:             containerDir,
 		StoreOptions:             persistence.Options(),

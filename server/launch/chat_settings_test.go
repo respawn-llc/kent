@@ -69,10 +69,10 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
 	choices := catalog.Choices()
-	if len(choices) != 2 || choices[0].Role != "default" || choices[1].Role != "worker" {
+	if len(choices) != 3 || choices[0].Role != "default" || choices[1].Role != "fast" || choices[2].Role != "worker" {
 		t.Fatalf("choices = %+v", choices)
 	}
-	worker := choices[1]
+	worker := choices[2]
 	if worker.Model != "worker-model" || worker.Thinking != "high" ||
 		!worker.CustomSystemPrompt || !worker.CustomCapabilities || worker.AgentCallable ||
 		!slices.Equal(worker.Tools, []string{"exec_command", "view_image"}) {

@@ -2,6 +2,7 @@ package sessionlaunch
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"testing"
 	"time"
 
@@ -67,14 +68,14 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: workspace,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, config.Settings{
 			Model:              "gpt-5",
 			ModelContextWindow: 200_000,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Shell: config.ShellSettings{
 				PostprocessingMode: config.ShellPostprocessingModeNone,
 			},
-		},
+		}),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext:     filesystemContext,

@@ -618,21 +618,6 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 	return resolved, effectiveSource, nil
 }
 
-func shouldApplyPersistedContinuationBaseURL(base config.Settings, roleName *string) bool {
-	if roleName == nil {
-		return true
-	}
-	lookup := config.LookupSubagentRole(base, *roleName)
-	if lookup.Status == config.SubagentRoleLookupInvalid {
-		return true
-	}
-	if lookup.Status == config.SubagentRoleLookupMissing {
-		return false
-	}
-	_, hasRoleBaseURL := lookup.Role.Sources["openai_base_url"]
-	return !hasRoleBaseURL
-}
-
 func persistedRoleProviderID(settings config.Settings) (string, error) {
 	capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {

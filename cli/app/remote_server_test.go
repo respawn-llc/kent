@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
 	"core/shared/client"
 	"core/shared/config"
@@ -19,9 +19,15 @@ type remoteAuthTestFixture struct {
 	config config.App
 }
 
-func startRemoteAuthTestFixture(t *testing.T, workspace string, allowUnauthenticated bool, authHandler memoryAuthHandler) remoteAuthTestFixture {
+func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFixture {
 	t.Helper()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	cfg.Settings = testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1")
+	keyName := "REMOTE_TEST_KEY"
+	definition := cfg.Settings.Connections[*cfg.Settings.Connection]
+	definition.EnvironmentVariable = &keyName
+	cfg.Settings.Connections[*cfg.Settings.Connection] = definition
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	daemon, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
@@ -43,18 +49,18 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string, allowUnauthentic
 
 func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("OPENAI_API_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace, true, memoryAuthHandler{state: auth.EmptyState()})
+	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
 	if err := fixture.server.Reauthenticate(context.Background(), newHeadlessAuthInteractor(), false); err != nil {
 		t.Fatalf("Reauthenticate: %v", err)
 	}
 
-	state, err := fixture.daemon.AuthManager().StoredState(context.Background())
+	state, err := fixture.daemon.AuthManager().Load(context.Background())
 	if err != nil {
 		t.Fatalf("StoredState: %v", err)
 	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "reauthed-key" {
-		t.Fatalf("unexpected stored auth state: %+v", state.Method)
+	if len(state.Connections) != 0 {
+		t.Fatalf("environment key was persisted: %+v", state)
 	}
 	if _, err := os.Stat(config.GlobalAuthConfigPath(fixture.config)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected client auth file to remain absent, got %v", err)
@@ -63,17 +69,11 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 
 func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("OPENAI_API_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"))
+	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
 
 	pickerCalls := 0
 	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(key string) string {
-			if key == "OPENAI_API_KEY" {
-				return "reauthed-key"
-			}
-			return ""
-		},
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 			pickerCalls++
 			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
@@ -86,18 +86,19 @@ func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testi
 	if pickerCalls != 1 {
 		t.Fatalf("expected remote /login to open auth picker once, got %d", pickerCalls)
 	}
-	state, err := fixture.daemon.AuthManager().StoredState(context.Background())
+	state, err := fixture.daemon.AuthManager().Load(context.Background())
 	if err != nil {
 		t.Fatalf("StoredState: %v", err)
 	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "reauthed-key" {
-		t.Fatalf("expected forced remote reauth to replace auth, got %+v", state.Method)
+	if len(state.Connections) != 0 {
+		t.Fatalf("environment key was persisted: %+v", state)
 	}
 }
 
 func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("ready-key"))
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
 
 	interactor := &interactiveAuthInteractor{
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
@@ -110,29 +111,23 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 		t.Fatalf("EnsureAuthReady: %v", err)
 	}
 
-	state, err := fixture.daemon.AuthManager().StoredState(context.Background())
+	state, err := fixture.daemon.AuthManager().Load(context.Background())
 	if err != nil {
 		t.Fatalf("StoredState: %v", err)
 	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "ready-key" {
-		t.Fatalf("expected startup validation to preserve ready auth, got %+v", state.Method)
+	if len(state.Connections) != 0 {
+		t.Fatalf("environment key was persisted: %+v", state)
 	}
 }
 
 func TestRemoteLoginTransitionWaitsForAuthChoiceWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("OPENAI_API_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace, false, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"))
+	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
 
 	pickerEntered := make(chan struct{})
 	releasePicker := make(chan struct{})
 	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(key string) string {
-			if key == "OPENAI_API_KEY" {
-				return "reauthed-key"
-			}
-			return ""
-		},
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 			close(pickerEntered)
 			<-releasePicker
@@ -167,11 +162,11 @@ func TestRemoteLoginTransitionWaitsForAuthChoiceWhenServerAuthAlreadyReady(t *te
 		t.Fatal("login transition did not finish after auth choice")
 	}
 
-	state, err := fixture.daemon.AuthManager().StoredState(context.Background())
+	state, err := fixture.daemon.AuthManager().Load(context.Background())
 	if err != nil {
 		t.Fatalf("StoredState: %v", err)
 	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "reauthed-key" {
-		t.Fatalf("expected remote login transition to replace auth after choice, got %+v", state.Method)
+	if len(state.Connections) != 0 {
+		t.Fatalf("environment key was persisted: %+v", state)
 	}
 }

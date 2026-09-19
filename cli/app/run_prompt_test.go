@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
 	askquestion "core/server/tools"
@@ -26,38 +25,6 @@ import (
 
 	"golang.org/x/net/websocket"
 )
-
-type memoryAuthHandler struct {
-	state     auth.State
-	lookupEnv func(string) string
-}
-
-func readyMemoryAuthHandler() memoryAuthHandler {
-	return apiKeyMemoryAuthHandler("in-memory-test-key")
-}
-
-func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
-	state := apiKeyMemoryAuthState(key)
-	return memoryAuthHandler{state: state}
-}
-
-func apiKeyMemoryAuthHandlerWithoutTimestamp(key string) memoryAuthHandler {
-	return memoryAuthHandler{state: apiKeyMemoryAuthState(key)}
-}
-
-func apiKeyMemoryAuthState(key string) auth.State {
-	return auth.EmptyState()
-
-}
-
-func saveReadyAppAuthState(t *testing.T, workspace string) {
-	t.Helper()
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	if err := store.Save(context.Background(), readyMemoryAuthHandler().state); err != nil {
-		t.Fatalf("save auth state: %v", err)
-	}
-}
 
 func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
 	home := newAppTestHome(t)
@@ -100,7 +67,6 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"worktree reply"})
 	defer fakeResponses.Close()
@@ -112,8 +78,6 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 		WorkspaceRoot:             worktree,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
 		Model:                     "gpt-5",
-		OpenAIBaseURL:             fakeResponses.URL,
-		OpenAIBaseURLExplicit:     true,
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -131,7 +95,6 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 
 func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
 	defer fakeResponses.Close()
@@ -140,8 +103,6 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 		WorkspaceRoot:             workspace,
 		WorkspaceContextSessionID: "stale-env-session",
 		Model:                     "gpt-5",
-		OpenAIBaseURL:             fakeResponses.URL,
-		OpenAIBaseURLExplicit:     true,
 	}, "hello from stale context", 0, nil)
 	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("error = %v, want missing session rejection", err)
@@ -149,17 +110,6 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	if hits.Load() != 0 {
 		t.Fatalf("expected no llm calls, got %d", hits.Load())
 	}
-}
-
-func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
-	return auth.NewMemoryStore(h.state)
-}
-
-func (h memoryAuthHandler) LookupEnv(key string) string {
-	if h.lookupEnv != nil {
-		return h.lookupEnv(key)
-	}
-	return ""
 }
 
 var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
@@ -199,17 +149,16 @@ func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
 	defer fakeResponses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
 	}, autoOnboarding)
 
 	if err != nil {
@@ -235,59 +184,10 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 
 }
 
-func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-
-	defaultResponses, defaultHits := newFakeResponsesServer(t, []string{"daemon default"})
-	defer defaultResponses.Close()
-	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"override reply"})
-	defer overrideResponses.Close()
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         defaultResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, autoOnboarding)
-
-	if err != nil {
-		t.Fatalf("serve.Start: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-
-	waitForConfiguredRunPromptDaemon(t, workspace)
-
-	result, err := RunPrompt(context.Background(), Options{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         overrideResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, "hello through override", 0, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if result.Result != "override reply" {
-		t.Fatalf("result = %q, want %q", result.Result, "override reply")
-	}
-	if overrideHits.Load() != 1 {
-		t.Fatalf("expected override llm call once, got %d", overrideHits.Load())
-	}
-	if defaultHits.Load() != 0 {
-		t.Fatalf("expected daemon default llm endpoint unused, got %d", defaultHits.Load())
-	}
-
-}
-
 func TestStartRunPromptClientWithoutServerRequiresRunningServer(t *testing.T) {
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
-	saveReadyAppAuthState(t, workspace)
 
 	// kent run is a pure client: with no server running it cannot start one of
 	// its own, so it must fail with the "server required" error.

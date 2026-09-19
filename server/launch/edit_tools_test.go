@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"core/internal/testharness/testsetup"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -27,7 +28,7 @@ func TestActiveToolIDsDynamicDefaultChoosesPatchForGPTModels(t *testing.T) {
 }
 
 func TestActiveToolIDsDynamicDefaultChoosesEditForNonGPTModels(t *testing.T) {
-	settings := validLaunchSettings("claude-sonnet-4.5")
+	settings := testsetup.WithResponsesProvider(validLaunchSettings("claude-sonnet-4.5"), "http://127.0.0.1:1/v1")
 	source := defaultToolSources()
 
 	ids, err := ActiveToolIDsForPlan(settings, source, nil)
@@ -176,7 +177,7 @@ func defaultToolSources() config.SourceReport {
 }
 
 func validLaunchSettings(model string) config.Settings {
-	return config.Settings{
+	return testsetup.ProviderSettings(config.Settings{
 		Model:                            model,
 		ThinkingLevel:                    "medium",
 		NotificationMethod:               "auto",
@@ -201,7 +202,7 @@ func validLaunchSettings(model string) config.Settings {
 			toolspec.ToolPatch: true,
 			toolspec.ToolEdit:  false,
 		},
-	}
+	})
 }
 
 func containsTool(ids []toolspec.ID, target toolspec.ID) bool {

@@ -40,6 +40,7 @@ func sessionLaunchStringPtr(value string) *string {
 }
 
 func newSessionLaunchTestService(cfg config.App, containerDir string) *Service {
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
 	return NewService(launch.Planner{
 		Config:                   cfg,
 		ContainerDir:             containerDir,
@@ -738,6 +739,7 @@ func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = persistenceRoot
+	cfg.Settings = testsetup.WriteProviderSettings(t, persistenceRoot, cfg.Settings)
 	return cfg
 }
 

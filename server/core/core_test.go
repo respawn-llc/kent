@@ -523,7 +523,7 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	}
 }
 
-func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *testing.T) {
+func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
@@ -542,6 +542,15 @@ func TestSessionChatSettingsPreparationUsesPersistedPromptFacingEndpoint(t *test
 	}
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
+	compatibleID := brand.ConnectionID("compatible")
+	endpoint := "http://127.0.0.1:1/v1"
+	resolved.Config.Settings.Connections[compatibleID] = brand.ProviderConnection{
+		Protocol: brand.ConnectionResponses, Endpoint: &endpoint,
+	}
+	testsetup.WriteProviderSettings(t, persistenceRoot, resolved.Config.Settings)
+	if err := store.SetConnectionID(compatibleID); err != nil {
+		t.Fatal(err)
+	}
 
 	prepared, err := (sessionChatSettingsPreparationResolver{
 		metadataStore:   appCore.MetadataStore(),

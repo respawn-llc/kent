@@ -127,7 +127,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	settings = testsetup.ProviderSettings(settings)
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	questionCall := int32(1)
 	releaseReviewer := make(chan struct{})
 	release := sync.OnceFunc(func() { close(releaseReviewer) })

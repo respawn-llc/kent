@@ -173,7 +173,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	}
 	settings := loaded.Settings
 	settings.Model = "gpt-5"
-	settings = testsetup.ProviderSettings(settings)
+	settings = testsetup.WriteProviderSettings(t, persistenceRoot, settings)
 	settings.Reviewer.Frequency = "off"
 	settings.Shell.PostprocessingMode = config.ShellPostprocessingModeNone
 	coderSettings := settings

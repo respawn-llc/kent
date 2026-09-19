@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -687,6 +688,7 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	authSupport := newGatewayTestAuthSupport(t, true)
+	resolvedA.Config.Settings = testsetup.WriteProviderSettings(t, resolvedA.Config.PersistenceRoot, resolvedA.Config.Settings)
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
 	if err != nil {
 		t.Fatalf("BuildRuntimeSupport: %v", err)

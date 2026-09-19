@@ -2,6 +2,7 @@ package sessionservice
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"fmt"
 	"os"
@@ -232,11 +233,11 @@ func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client)
 	t.Helper()
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: f.sourceBinding.CanonicalRoot,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, f.metadata.PersistenceRoot(), config.Settings{
 			Model:    "gpt-5",
 			Reviewer: config.ReviewerSettings{Frequency: "off"},
 			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {

@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -694,6 +695,8 @@ func newRuntimeControlTestServiceWithFeeds(
 		client = &runtimeControlFakeClient{}
 	}
 	settings := config.DefaultOnboardingSettings()
+	root := t.TempDir()
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
 	settings.CompactionMode = config.CompactionModeNative
 	if cfg.Model != "" {
@@ -739,7 +742,7 @@ func newRuntimeControlTestServiceWithFeeds(
 		t.Fatalf("new authority runtime plan: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: t.TempDir(),
+		PersistenceRoot: root,
 		StoreOptions:    append(runtimeControlTestSessionPersistence.Options(), opts...),
 		EventFeed:       eventFeed,
 		PromptFeed:      promptFeed,

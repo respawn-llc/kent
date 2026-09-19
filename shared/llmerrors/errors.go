@@ -97,9 +97,9 @@ func (e *ProviderSelectionError) Error() string {
 	}
 	model := strings.TrimSpace(e.Model)
 	if model == "" {
-		return "could not determine which provider/auth path to use; set provider_override or openai_base_url"
+		return "could not resolve provider access; select a named connection with the connection setting"
 	}
-	return fmt.Sprintf("could not determine which provider/auth path to use for model %q; set provider_override or openai_base_url", model)
+	return fmt.Sprintf("could not resolve provider access for model %q; select a named connection with the connection setting", model)
 }
 
 func (e *ProviderSelectionError) Unwrap() error {
@@ -267,7 +267,7 @@ func authenticationFailedWarning(provider string, statusCode int) string {
 		label = "API"
 	}
 	if statusCode > 0 {
-		return fmt.Sprintf("Authentication failed with %s (HTTP %d). Run /login or check OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Kent auth.", label, statusCode)
+		return fmt.Sprintf("Authentication failed with %s (HTTP %d). Run /login for the selected connection or check its configured environment variable on the server and restart after changing the server environment.", label, statusCode)
 	}
-	return fmt.Sprintf("Authentication failed with %s. Run /login or check OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Kent auth.", label)
+	return fmt.Sprintf("Authentication failed with %s. Run /login for the selected connection or check its configured environment variable on the server and restart after changing the server environment.", label)
 }

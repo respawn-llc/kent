@@ -1213,6 +1213,22 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	if providerCalls.Load() != 3 {
 		t.Fatalf("provider calls = %d, want three explicit operations", providerCalls.Load())
 	}
+	keyName := "RUNPROMPT_BOUND_CONNECTION_KEY"
+	t.Setenv(keyName, "")
+	definition := cfg.Settings.Connections[connectionID]
+	definition.EnvironmentVariable = &keyName
+	cfg.Settings.Connections[connectionID] = definition
+	testsetup.WriteProviderSettings(t, root, cfg.Settings)
+	if _, err := client.RunPrompt(context.Background(), request, nil); err == nil {
+		t.Fatal("missing credential must fail the bound connection")
+	}
+	reopened, err := session.Open(store.Dir(), persistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved := reopened.Meta().ConnectionID; saved == nil || *saved != connectionID || providerCalls.Load() != 3 {
+		t.Fatalf("credential failure changed binding or dispatched: binding=%v calls=%d", saved, providerCalls.Load())
+	}
 }
 
 func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {

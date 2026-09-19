@@ -300,22 +300,33 @@ export class ChatRuntimeOwner {
 
   #applyHostEffects(effects: readonly ChatProjectionHostEffect[]): void {
     for (const effect of effects) {
-      if (effect.kind === "compaction") {
+      if (
+        effect.kind === "pending-work-hydrated" ||
+        effect.kind === "pending-work-changed" ||
+        effect.kind === "pending-work-restored"
+      ) {
+        this.#applyPendingWorkEffect(effect);
+      } else if (effect.kind === "compaction") {
         this.#applyCompactionFeedback(effect.feedback);
       } else if (effect.kind === "human-input-interrupted") {
         this.#host.onHumanInputInterrupted?.(effect.items);
       } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
-      } else if (effect.kind === "connection-replaced") {
-        this.#host.onConnectionReplaced?.(effect.replacement);
-      } else if (effect.kind === "pending-work-hydrated") {
-        this.#host.onPendingWorkHydrated?.(effect.sessionID);
-      } else if (effect.kind === "pending-work-changed") {
-        this.#host.onPendingWorkChanged?.();
       } else {
-        this.#host.onPendingWorkRestored?.(effect.restoration);
+        this.#host.onConnectionReplaced?.(effect.replacement);
       }
     }
+  }
+
+  #applyPendingWorkEffect(
+    effect: Extract<
+      ChatProjectionHostEffect,
+      { kind: "pending-work-hydrated" | "pending-work-changed" | "pending-work-restored" }
+    >,
+  ): void {
+    if (effect.kind === "pending-work-hydrated") this.#host.onPendingWorkHydrated?.(effect.sessionID);
+    else if (effect.kind === "pending-work-changed") this.#host.onPendingWorkChanged?.();
+    else this.#host.onPendingWorkRestored?.(effect.restoration);
   }
 
   #applyCompactionFeedback(

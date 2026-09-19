@@ -48,6 +48,8 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1"))
 	return home, workspace
 }
 
@@ -84,18 +86,14 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.P
 }
 
 func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
-	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
-}
-
-func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler authInteractor) func() {
 	t.Helper()
 	releasePortProbe := reserveAppTestServerPort(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         openAIBaseURL,
-		OpenAIBaseURLExplicit: openAIBaseURL != "",
 	}, autoOnboarding)
 
 	if err != nil {
@@ -166,21 +164,6 @@ func prepareAppRuntimePlan(t *testing.T, server launchPlannerServer, req session
 	if err != nil {
 		t.Fatalf("PlanSession: %v", err)
 	}
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, diagnosticWriter, startLogLine)
-	if err != nil {
-		t.Fatalf("PrepareRuntime: %v", err)
-	}
-	return plan, runtimePlan
-}
-
-func prepareAppRuntimePlanWithOpenAIBaseURL(t *testing.T, server launchPlannerServer, req sessionLaunchRequest, openAIBaseURL string, diagnosticWriter io.Writer, startLogLine string) (sessionLaunchPlan, *runtimeLaunchPlan) {
-	t.Helper()
-	planner := newSessionLaunchPlanner(server)
-	plan, err := planner.PlanSession(context.Background(), req)
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	plan.ActiveSettings.OpenAIBaseURL = openAIBaseURL
 	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, diagnosticWriter, startLogLine)
 	if err != nil {
 		t.Fatalf("PrepareRuntime: %v", err)

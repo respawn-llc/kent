@@ -7,6 +7,7 @@ import (
 	"core/server/core"
 	"core/server/session"
 	remoteclient "core/shared/client"
+	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
@@ -128,6 +129,13 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 		t.Fatalf("ResolveConfig: %v", err)
 	}
 	authSupport := newGatewayTestAuthSupport(t, ready)
+	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
+	if !ready {
+		resolved.Config.Settings.Connections[*resolved.Config.Settings.Connection] = config.ProviderConnection{
+			Protocol: config.ConnectionChatGPT,
+		}
+	}
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, resolved.Config.Settings)
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
 	if err != nil {
 		t.Fatalf("BuildRuntimeSupport: %v", err)

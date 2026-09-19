@@ -21,6 +21,8 @@ import (
 	"core/internal/testharness/pty/analyzer"
 	"core/shared/client"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+
+	"github.com/BurntSushi/toml"
 )
 
 const cleanupRetryWait = 500 * time.Millisecond
@@ -83,9 +85,6 @@ func newIsolatedEnvironment(serverBinary string, operations []RequiredOperation,
 	if len(config) == 0 {
 		config = harnessConfigTemplate
 	}
-	if err := os.WriteFile(filepath.Join(root, "config.toml"), config, 0o600); err != nil {
-		return fail(fmt.Errorf("copy harness config template: %w", err))
-	}
 	for _, file := range fixture.WorkspaceFiles {
 		if !filepath.IsLocal(file.Path) || filepath.Clean(file.Path) == "." {
 			return fail(fmt.Errorf("workspace fixture path must be local: %q", file.Path))
@@ -104,11 +103,29 @@ func newIsolatedEnvironment(serverBinary string, operations []RequiredOperation,
 	}
 	environment.Workspace = workspace
 	environment.Stub = stub
+	var document map[string]any
+	if _, err := toml.Decode(string(config), &document); err != nil {
+		return fail(fmt.Errorf("decode harness config: %w", err))
+	}
+	selected, selectedOK := document["connection"].(string)
+	connections, connectionsOK := document["connections"].(map[string]any)
+	connection, connectionOK := connections[selected].(map[string]any)
+	if !selectedOK || !connectionsOK || !connectionOK {
+		return fail(errors.New("harness config requires a selected named connection"))
+	}
+	connection["endpoint"] = stub.URL()
+	var encoded bytes.Buffer
+	if err := toml.NewEncoder(&encoded).Encode(document); err != nil {
+		return fail(fmt.Errorf("encode harness config: %w", err))
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), encoded.Bytes(), 0o600); err != nil {
+		return fail(fmt.Errorf("write harness config: %w", err))
+	}
 	host, port, err := reserveLoopbackPort()
 	if err != nil {
 		return fail(err)
 	}
-	server, err := startServer(serverBinary, root, host, port, stub.URL())
+	server, err := startServer(serverBinary, root, host, port)
 	if err != nil {
 		return fail(err)
 	}
@@ -258,7 +275,7 @@ func (s *ServerHandle) ForceKill() error {
 	return killServerProcessGroup(s.cmd)
 }
 
-func startServer(binary string, root string, host string, port int, stubURL string) (*ServerHandle, error) {
+func startServer(binary string, root string, host string, port int) (*ServerHandle, error) {
 	preflightContext, cancelPreflight := context.WithTimeout(context.Background(), preflightWait)
 	preflightOutput, preflightErr := exec.CommandContext(preflightContext, binary, "--version").CombinedOutput()
 	cancelPreflight()
@@ -266,7 +283,7 @@ func startServer(binary string, root string, host string, port int, stubURL stri
 		return nil, fmt.Errorf("preflight standalone server binary: %w: %s", preflightErr, string(preflightOutput))
 	}
 	cmd := exec.Command(binary, "serve", "--persistence-root", root)
-	environment, err := serverEnvironment(filepath.Join(root, "server-home"), root, host, port, stubURL)
+	environment, err := serverEnvironment(filepath.Join(root, "server-home"), root, host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -324,13 +341,12 @@ func clientEnvironment(home string, root string, host string, port int) ([]strin
 	)
 }
 
-func serverEnvironment(home string, root string, host string, port int, modelURL string) ([]string, error) {
+func serverEnvironment(home string, root string, host string, port int) ([]string, error) {
 	environment, err := baseEnvironment(home, root, host, port)
 	if err != nil {
 		return nil, err
 	}
 	return appendEnvironment(environment,
-		"KENT_OPENAI_BASE_URL="+modelURL,
 		"GOMAXPROCS=1",
 	)
 }
