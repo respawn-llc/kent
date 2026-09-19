@@ -42,14 +42,14 @@
 }
 
 .chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
-.chat-composer-settings > div > *,
+.chat-composer-settings > div > button,
 .chat-composer-actions > * {
   animation: surface-reveal var(--motion-normal);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
-  .chat-composer-settings > div > *,
+  .chat-composer-settings > div > button,
   .chat-composer-actions > * {
     animation: none;
   }
