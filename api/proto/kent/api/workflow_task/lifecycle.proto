@@ -6,6 +6,8 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
@@ -1038,6 +1040,14 @@ message SessionListError {
 message LabelsUpdateError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     LabelErrorDetails label = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "label"}];

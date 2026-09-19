@@ -338,6 +338,9 @@
 - Worktree enter and leave for an Active Session Runtime return the Worktree Operation acknowledgement before an active Agent Step or the transition finishes.
 - Human-readable `worktree enter` and `worktree leave` confirm acceptance without printing the Worktree Operation ID.
 - Worktree `--json` includes the Worktree Operation ID.
+- Worktree JSON responses must use snake_case field names, including `operation_id` for enter and leave acknowledgements.
+- Worktree JSON must retain lowercase kind values and the explicit topology `variant` discriminator.
+- Worktree JSON must preserve its field structure and absent, null, and default-value behavior independently of the server API encoding.
 
 ## Task Observation
 

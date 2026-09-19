@@ -6,6 +6,8 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/project/project.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -268,29 +270,6 @@ message ExecutionTargetConfiguration {
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_definition.execution_target_configuration"
-    message: "custom_ref is required only for custom_ref mode"
-    expression:
-      "(this.mode == 4 && has(this.custom_ref)) || "
-      "(this.mode != 4 && !has(this.custom_ref))"
-  };
-}
-
-message DraftExecutionTargetConfiguration {
-  ExecutionTargetMode mode = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  optional string custom_ref = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_definition.draft_execution_target_custom_ref_trimmed"
-      message: "custom_ref must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_definition.draft_execution_target_configuration"
     message: "custom_ref is allowed only for custom_ref mode"
     expression: "this.mode == 4 || !has(this.custom_ref)"
   };
@@ -677,7 +656,7 @@ message GraphMetadata {
       expression: "this == this.trim()"
     }
   ];
-  optional DraftExecutionTargetConfiguration execution_target_policy = 3;
+  optional ExecutionTargetConfiguration execution_target_policy = 3;
 }
 
 message GraphSaveConfirmation {
@@ -1380,6 +1359,14 @@ message CreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1397,6 +1384,14 @@ message CreateAndLinkProjectError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1418,6 +1413,14 @@ message UpdateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1439,6 +1442,10 @@ message ListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1456,6 +1463,10 @@ message GetError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1477,6 +1488,14 @@ message ProjectLinkError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1502,6 +1521,10 @@ message ProjectLinksListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1523,6 +1546,14 @@ message SetDefaultProjectLinkError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1548,6 +1579,14 @@ message UnlinkProjectError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1569,6 +1608,10 @@ message DeletePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1590,6 +1633,14 @@ message DeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1611,6 +1662,10 @@ message ValidateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1632,6 +1687,14 @@ message ValidateScriptPathError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1653,6 +1716,10 @@ message GraphValidateDraftError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1674,6 +1741,10 @@ message GraphDeriveWiringError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1695,6 +1766,10 @@ message GraphSavePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1716,6 +1791,14 @@ message GraphSaveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1737,6 +1820,10 @@ message ProjectLabelCatalogError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1758,6 +1845,14 @@ message ProjectLabelCreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidNameDetails invalid_name = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_name"
@@ -1791,6 +1886,14 @@ message ProjectLabelRenameError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidNameDetails invalid_name = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_name"
@@ -1824,6 +1927,14 @@ message ProjectLabelDeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelNotFoundDetails label_not_found = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "label_not_found"
@@ -1849,6 +1960,14 @@ message ProjectLabelReorderError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidMutationDetails invalid_mutation = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_mutation"

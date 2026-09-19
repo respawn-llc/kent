@@ -9,6 +9,15 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+func TestWorkflowCustomRefDraftCanBeSavedWithoutRef(t *testing.T) {
+	policy := &workflowdefinitionpb.ExecutionTargetConfiguration{
+		Mode: workflowdefinitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,
+	}
+	if err := Validate(policy); err != nil {
+		t.Fatalf("saveable custom-ref Draft: %v", err)
+	}
+}
+
 func TestWorkflowValidationCodeRoundTripsThroughGeneratedContract(t *testing.T) {
 	code := workflowdefinitionpb.ValidationErrorCode_VALIDATION_ERROR_CODE_SESSION_TRANSITION_MISSING
 	const placeholder = ".Params.review.session_id"

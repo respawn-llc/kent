@@ -31,7 +31,6 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/worktreecontract"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"mvdan.cc/sh/v3/shell"
 )
 
@@ -124,15 +123,35 @@ func TestWorktreeCommandExplicitProjectList(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("list exit %d: %s", code, &stderr)
 	}
-	var response worktreepb.WorkspaceListSuccess
-	if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
+	var response struct {
+		WorkspaceID string `json:"workspace_id"`
+		Worktrees   []struct {
+			Topology struct {
+				Variant       string `json:"variant"`
+				MainWorkspace struct {
+					Git map[string]json.RawMessage `json:"git"`
+				} `json:"main_workspace"`
+			} `json:"topology"`
+			Projection struct {
+				IsCurrent bool `json:"is_current"`
+			} `json:"projection"`
+		} `json:"worktrees"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.WorkspaceId != f.b.WorkspaceID {
-		t.Fatalf("workspace = %s, want %s", response.WorkspaceId, f.b.WorkspaceID)
+	if response.WorkspaceID != f.b.WorkspaceID {
+		t.Fatalf("workspace = %s, want %s", response.WorkspaceID, f.b.WorkspaceID)
 	}
 	for _, entry := range response.Worktrees {
-		if entry.Projection.GetIsCurrent() {
+		if entry.Topology.Variant != "main_workspace" {
+			t.Fatalf("main workspace topology = %q", entry.Topology.Variant)
+		}
+		git := entry.Topology.MainWorkspace.Git
+		if string(git["locked_reason"]) != "null" || string(git["bare"]) != "false" {
+			t.Fatalf("Git facts lost null/default fields: %s", out.Bytes())
+		}
+		if entry.Projection.IsCurrent {
 			t.Fatal("explicit listing marked caller")
 		}
 	}
@@ -177,28 +196,28 @@ func TestWorktreeCommandListSelection(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("list exit %d: %s", code, &stderr)
 			}
-			var entries []*worktreepb.ListEntry
+			var entries []worktreeListEntryJSON
 			var workspace string
 			if tc.marker {
-				var response worktreepb.ListSuccess
-				if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
+				var response worktreeListJSONOutput
+				if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 					t.Fatal(err)
 				}
-				if response.Target.WorkspaceId == nil {
+				if response.Target.WorkspaceID == nil {
 					t.Fatal("Session Worktree target omitted its Workspace")
 				}
-				workspace, entries = *response.Target.WorkspaceId, response.Worktrees
+				workspace, entries = *response.Target.WorkspaceID, response.Worktrees
 			} else {
-				var response worktreepb.WorkspaceListSuccess
-				if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
+				var response worktreeWorkspaceListJSONOutput
+				if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 					t.Fatal(err)
 				}
-				workspace, entries = response.WorkspaceId, response.Worktrees
+				workspace, entries = response.WorkspaceID, response.Worktrees
 			}
 			if workspace != tc.workspace {
 				t.Fatalf("workspace = %s, want %s", workspace, tc.workspace)
 			}
-			if len(entries) != 1 || entries[0].Projection.GetIsCurrent() != tc.marker {
+			if len(entries) != 1 || entries[0].Projection.IsCurrent != tc.marker {
 				t.Fatalf("unexpected current projection: %v", entries)
 			}
 		})
@@ -212,8 +231,8 @@ func TestWorktreeCommandSessionlessCreate(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("create exit %d: %s", code, &stderr)
 	}
-	var response worktreepb.CreateSuccess
-	if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
+	var response worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
 	if response.Target != nil {
@@ -269,14 +288,14 @@ func TestWorktreeCommandCrossProjectCreate(t *testing.T) {
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("create exit %d: %s", code, &stderr)
 			}
-			var response worktreepb.CreateSuccess
-			if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
+			var response worktreeCreateJSONOutput
+			if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 				t.Fatal(err)
 			}
-			if response.Target.GetWorkspaceId() != f.a.WorkspaceID || response.Target.GetEffectiveWorkdir() != before.EffectiveWorkdir {
+			if *response.Target.WorkspaceID != f.a.WorkspaceID || response.Target.EffectiveWorkdir != before.EffectiveWorkdir {
 				t.Fatalf("caller location lost: %v", response.Target)
 			}
-			record, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), response.Worktree.Topology.GetRegistered().Kent.WorktreeId)
+			record, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), response.Worktree.Topology.Registered.Kent.WorktreeID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -399,12 +418,12 @@ func TestWorktreeCommandCrossProjectDelete(t *testing.T) {
 				name     string
 				flags    []string
 				unmerged bool
-				outcome  worktreepb.BranchCleanupOutcomeKind
+				outcome  string
 			}{
-				{name: "retain", outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED},
-				{name: "safe", flags: []string{"--delete-branch"}, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED},
-				{name: "safe-unmerged", flags: []string{"--delete-branch"}, unmerged: true, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED},
-				{name: "force", flags: []string{"--delete-branch", "--force-delete-branch"}, unmerged: true, outcome: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED},
+				{name: "retain", outcome: "not_requested"},
+				{name: "safe", flags: []string{"--delete-branch"}, outcome: "deleted"},
+				{name: "safe-unmerged", flags: []string{"--delete-branch"}, unmerged: true, outcome: "retained"},
+				{name: "force", flags: []string{"--delete-branch", "--force-delete-branch"}, unmerged: true, outcome: "deleted"},
 			} {
 				t.Run(fmt.Sprintf("%t/%s/%s", agent, binding.WorkspaceID, policy.name), func(t *testing.T) {
 					if agent {
@@ -422,11 +441,11 @@ func TestWorktreeCommandCrossProjectDelete(t *testing.T) {
 					if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 						t.Fatalf("create exit %d: %s", code, &stderr)
 					}
-					var created worktreepb.CreateSuccess
-					if err := protojson.Unmarshal(out.Bytes(), &created); err != nil {
+					var created worktreeCreateJSONOutput
+					if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 						t.Fatal(err)
 					}
-					facts := created.Worktree.Topology.GetRegistered()
+					facts := created.Worktree.Topology.Registered
 					if policy.unmerged {
 						testsetup.RunGit(t, facts.Git.CanonicalRoot, "commit", "--allow-empty", "-m", "unmerged work")
 					}
@@ -438,29 +457,30 @@ func TestWorktreeCommandCrossProjectDelete(t *testing.T) {
 					}
 					args = append([]string{command, "--json"}, selectors...)
 					args = append(args, policy.flags...)
-					args = append(args, facts.Kent.WorktreeId)
+					args = append(args, facts.Kent.WorktreeID)
 					if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 						t.Fatalf("delete exit %d: %s", code, &stderr)
 					}
-					var result worktreepb.DeleteSuccess
-					if err := protojson.Unmarshal(out.Bytes(), &result); err != nil {
+					var result worktreeDeleteJSONOutput
+					if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 						t.Fatal(err)
 					}
-					if result.GetCleanup().GetKind() != policy.outcome {
-						t.Fatalf("cleanup = %v, want %v", result.GetCleanup(), policy.outcome)
+					if result.Cleanup.Kind != policy.outcome {
+						t.Fatalf("cleanup = %v, want %v", result.Cleanup, policy.outcome)
 					}
-					if policy.outcome == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED &&
-						(result.GetCleanup().GetBranchName() != branch || result.GetCleanup().GetDiagnostic() == "") {
-						t.Fatalf("retained cleanup omitted branch or diagnostic: %v", result.GetCleanup())
+					if policy.outcome == "retained" &&
+						(result.Cleanup.BranchName == nil || *result.Cleanup.BranchName != branch ||
+							result.Cleanup.Diagnostic == nil || *result.Cleanup.Diagnostic == "") {
+						t.Fatalf("retained cleanup omitted branch or diagnostic: %v", result.Cleanup)
 					}
 					if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
 						t.Fatalf("worktree directory remains: %v", err)
 					}
-					if _, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), facts.Kent.WorktreeId); !errors.Is(err, sql.ErrNoRows) {
+					if _, err := f.core.MetadataStore().GetWorktreeRecordByID(context.Background(), facts.Kent.WorktreeID); !errors.Is(err, sql.ErrNoRows) {
 						t.Fatalf("worktree record remains: %v", err)
 					}
 					branchRef := testsetup.RunGit(t, binding.CanonicalRoot, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
-					deleted := policy.outcome == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED
+					deleted := policy.outcome == "deleted"
 					if !deleted && strings.TrimSpace(branchRef) != "refs/heads/"+branch {
 						t.Fatalf("retained branch missing: %q", branchRef)
 					}
@@ -487,11 +507,11 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	if code := worktreeSubcommand([]string{"create", "--project", f.b.ProjectID, "--json", "protected"}, &out, &stderr); code != 0 {
 		t.Fatalf("create exit %d: %s", code, &stderr)
 	}
-	var created worktreepb.CreateSuccess
-	if err := protojson.Unmarshal(out.Bytes(), &created); err != nil {
+	var created worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	facts := created.Worktree.Topology.GetRegistered()
+	facts := created.Worktree.Topology.Registered
 	cfg, err := config.Load(f.a.CanonicalRoot, f.a.CanonicalRoot, config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -503,12 +523,12 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 	preview, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
 		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &f.sessionID),
-		Selector: facts.Kent.WorktreeId,
+		Selector: facts.Kent.WorktreeID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Cleanliness.Kind != worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN || preview.DeletionSelector != facts.Kent.WorktreeId {
+	if preview.Cleanliness.Kind != worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN || preview.DeletionSelector != facts.Kent.WorktreeID {
 		t.Fatalf("wrong preview: %v", preview)
 	}
 	if err := os.WriteFile(filepath.Join(facts.Git.CanonicalRoot, "dirty"), []byte("keep"), 0o644); err != nil {
@@ -525,10 +545,10 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	gitBefore := testsetup.RunGit(t, f.b.CanonicalRoot, "worktree", "list", "--porcelain")
 	branchesBefore := testsetup.RunGit(t, f.b.CanonicalRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
 	for _, args := range [][]string{
-		{"delete", "--project", f.b.ProjectID, facts.Kent.WorktreeId},
-		{"delete", "--project", f.b.ProjectID, "--force-delete-branch", "--force", facts.Kent.WorktreeId},
-		{"delete", "--project", "missing", "--force", facts.Kent.WorktreeId},
-		{"delete", "--project", f.b.ProjectID, "--workspace", f.a.WorkspaceID, "--force", facts.Kent.WorktreeId},
+		{"delete", "--project", f.b.ProjectID, facts.Kent.WorktreeID},
+		{"delete", "--project", f.b.ProjectID, "--force-delete-branch", "--force", facts.Kent.WorktreeID},
+		{"delete", "--project", "missing", "--force", facts.Kent.WorktreeID},
+		{"delete", "--project", f.b.ProjectID, "--workspace", f.a.WorkspaceID, "--force", facts.Kent.WorktreeID},
 		{"delete", "--project", f.b.ProjectID, "--force", "missing"},
 		{"delete", "--project", f.b.ProjectID, "--force", f.b.CanonicalRoot},
 		{"create", "--project", "missing", "must-not-exist"},
@@ -562,7 +582,7 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := worktreeSubcommand([]string{"delete", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeId}, &out, &stderr); code != 0 {
+	if code := worktreeSubcommand([]string{"delete", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeID}, &out, &stderr); code != 0 {
 		t.Fatalf("authorized dirty deletion exit %d: %s", code, &stderr)
 	}
 	if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
@@ -596,8 +616,8 @@ func TestWorktreeCommandLeaveWithSession(t *testing.T) {
 	if code := worktreeSubcommand([]string{"create", "--json", "leave-target"}, &out, &stderr); code != 0 {
 		t.Fatalf("create exit %d: %s", code, &stderr)
 	}
-	var created worktreepb.CreateSuccess
-	if err := protojson.Unmarshal(out.Bytes(), &created); err != nil {
+	var created worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
 	for _, agent := range []bool{false, true} {
@@ -608,7 +628,7 @@ func TestWorktreeCommandLeaveWithSession(t *testing.T) {
 			err := f.core.MetadataStore().UpdateSessionExecutionTarget(context.Background(), metadata.SessionExecutionTargetUpdate{
 				SessionID:  f.sessionID,
 				Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: f.a.WorkspaceID},
-				Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: created.Worktree.Topology.GetRegistered().Kent.WorktreeId},
+				Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: created.Worktree.Topology.Registered.Kent.WorktreeID},
 				CwdRelpath: ".",
 			})
 			if err != nil {
@@ -623,11 +643,13 @@ func TestWorktreeCommandLeaveWithSession(t *testing.T) {
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("leave exit %d: %s", code, &stderr)
 			}
-			var ack worktreepb.ScheduledAcknowledgement
-			if err := protojson.Unmarshal(out.Bytes(), &ack); err != nil {
+			var ack struct {
+				OperationID string `json:"operation_id"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &ack); err != nil {
 				t.Fatal(err)
 			}
-			if ack.OperationId == "" {
+			if ack.OperationID == "" {
 				t.Fatal("leave omitted operation acknowledgement")
 			}
 			testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
@@ -637,6 +659,28 @@ func TestWorktreeCommandLeaveWithSession(t *testing.T) {
 				}
 				return target.WorkspaceId != nil && *target.WorkspaceId == f.a.WorkspaceID && target.Worktree == nil
 			}, "leave did not return the Session to its main Workspace")
+			out.Reset()
+			stderr.Reset()
+			if code := worktreeSubcommand([]string{"status", "--session", f.sessionID, "--json"}, &out, &stderr); code != 0 {
+				t.Fatalf("status exit %d: %s", code, &stderr)
+			}
+			var status struct {
+				Target struct {
+					WorkspaceID string          `json:"workspace_id"`
+					Worktree    json.RawMessage `json:"worktree"`
+				} `json:"target"`
+				Worktree struct {
+					RecordedRoot string `json:"recorded_root"`
+				} `json:"worktree"`
+				Problems []json.RawMessage `json:"problems"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+				t.Fatal(err)
+			}
+			if status.Target.WorkspaceID != f.a.WorkspaceID || string(status.Target.Worktree) != "null" ||
+				status.Worktree.RecordedRoot != f.a.CanonicalRoot || status.Problems == nil || len(status.Problems) != 0 {
+				t.Fatalf("status JSON lost main Workspace facts or null/empty semantics: %s", out.Bytes())
+			}
 		})
 	}
 }
