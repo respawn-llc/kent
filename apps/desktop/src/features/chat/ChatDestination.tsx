@@ -52,17 +52,6 @@ export function ChatDestination(
     <div className="flex min-w-0 items-center gap-[var(--space-1)]">
       {openingPending && openingVisible && <Spinner size="sm" testID="chat-opening-controls" />}
       {"settingsChip" in settings ? settings.settingsChip : null}
-      {destination.workspace !== null && (
-        <ChatWorkspaceChip
-          catalog={destination.workspaceCatalog}
-          open={destination.workspaceOpen}
-          setOpen={destination.setWorkspaceOpen}
-          selected={destination.workspace}
-          pending={destination.firstActionPending}
-          loading={false}
-          select={destination.selectWorkspace}
-        />
-      )}
     </div>
   );
   return (
@@ -140,16 +129,29 @@ function ChatDestinationShell({
             editorRef={destination.editorRef}
             settings={destination.settings}
             settingsChip={chips}
-            underControls={
-              <div className="chat-under-controls flex min-w-0 flex-wrap items-center gap-[var(--space-2)] pt-[var(--space-2)]">
-                {shownGoal !== null && <GoalAffordance goal={shownGoal} onActivate={destination.openGoal} />}
-                {target !== null && (
-                  <ChatProcessesChip key={target.sessionID} target={target} count={activeProcessCount} />
+            controls={
+              <>
+                {destination.workspace !== null && (
+                  <div className="chat-composer-worktree">
+                    <ChatWorkspaceChip
+                      catalog={destination.workspaceCatalog}
+                      open={destination.workspaceOpen}
+                      setOpen={destination.setWorkspaceOpen}
+                      selected={destination.workspace}
+                      pending={destination.firstActionPending}
+                      loading={false}
+                      select={destination.selectWorkspace}
+                    />
+                  </div>
                 )}
                 {target !== null && (
                   <WorktreeControl sessionID={target.sessionID} target={executionTarget} query={worktrees} />
                 )}
-              </div>
+                {shownGoal !== null && <GoalAffordance goal={shownGoal} onActivate={destination.openGoal} />}
+                {target !== null && (
+                  <ChatProcessesChip key={target.sessionID} target={target} count={activeProcessCount} />
+                )}
+              </>
             }
           />
         )}

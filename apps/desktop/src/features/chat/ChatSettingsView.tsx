@@ -142,6 +142,7 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
                 }}
               >
                 <SegmentedControl
+                  size="compact"
                   ariaLabel={t("chatSettings.supervisor")}
                   disabled={reason(supervisor.editability) !== undefined}
                   onValueActivate={(value) => {

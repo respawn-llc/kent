@@ -1,7 +1,7 @@
 import { AlertTriangle, GitBranch } from "lucide-react";
 import type { ChatExecutionTarget } from "@/api";
 import { useOwnedSidebarRoots } from "@/app-facade";
-import { Button } from "@/ui";
+import { InteractiveChip } from "@/ui";
 import type { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
 
@@ -18,8 +18,8 @@ export function WorktreeControl({
   const label = target === null ? null : worktreeTarget(target, query.data);
   if (label?.title === undefined) return null;
   return (
-    <div className="min-w-0">
-      <Button
+    <div className="chat-composer-worktree">
+      <InteractiveChip
         className="flex max-w-full items-center gap-[var(--space-2)] text-sm"
         onClick={(event) => {
           const returnFocus = event.currentTarget;
@@ -28,15 +28,14 @@ export function WorktreeControl({
             if (outcome === "closed" && returnFocus.isConnected) returnFocus.focus();
           });
         }}
-        variant={label.warning ? "warning" : "ghost"}
       >
         {label.warning ? (
-          <AlertTriangle className="shrink-0" size={16} />
+          <AlertTriangle className="shrink-0 text-[var(--color-warning)]" size={16} />
         ) : (
           <GitBranch className="shrink-0" size={16} />
         )}
         <span className="truncate">{label.title}</span>
-      </Button>
+      </InteractiveChip>
     </div>
   );
 }

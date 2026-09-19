@@ -137,7 +137,7 @@
 - On context, notice, Reviewer, Diagnostic, and Ask Question rows, successful Copy crossfades its icon to a green checkmark and returns to the Copy icon after two idle seconds. Copy success creates no notification; Copy failure uses Sonner.
 - `/ps` must open the current Session's Processes destination in the shared contextual sidebar. It must be unavailable before New Chat creates a Session and must not create a Session.
 - Processes must list only the selected Session's processes. It is a single dense list with no detail view, inline output insertion, or log view. It preserves server ordering and shows state, process identifier, age, working-directory basename, one-line command, and latest nonempty output line.
-- When the current Session has active background processes continuously for 3 seconds, Chat must show a `PS {{count}}` chip immediately to the right of Goal in the under-composer row. Activating the chip must open that Session's Processes sidebar. The chip must disappear when the active count reaches zero.
+- When the current Session has active background processes continuously for 3 seconds, Chat must show a `PS {{count}}` chip immediately to the right of Goal inside the composer. Activating the chip must open that Session's Processes sidebar. The chip must disappear when the active count reaches zero.
 - The process count must come from Session transcript hydration and background-activity updates. Chat must not poll for processes while the Processes destination is closed. Observation loss must retain the last known count until explicit transcript Retry replaces it.
 - Process termination needs no confirmation. It disables repeated activation and shows stopping while pending. Only killable processes show the accessible terminate action. Processes refreshes automatically; stale rows remain visible if refresh fails, with notification feedback. Loading, failure with Retry, and empty states use the standard compact list states.
 - The terminate action is always visible for a killable process and absent for every other process.
@@ -216,9 +216,12 @@
 
 ## Session Settings And Drafts
 
-- The settings trigger is one action chip inside the composer with a small leading gear icon followed by `<role>: <model> <thinking> ⚡`, with the secondary-tone zap icon omitted in normal mode. Role and separators use the normal action-chip font; model and Thinking use secondary-opacity monospace. When Thinking is unsupported, its value is omitted. The one-line composed summary is one truncation unit and middle-truncates as a whole when space is constrained; Desktop does not prioritize model or role truncation separately. Hover or focus reveals the complete summary. Separate setting chips are not part of ordinary Chat.
+- The settings trigger is one action chip inside the composer with a small leading gear icon followed by `<role>: <model> <thinking> ⚡`, with the secondary-tone zap icon omitted in normal mode. Role and separators use the normal action-chip font; model and Thinking use secondary-opacity monospace. When Thinking is unsupported, its value is omitted. Hover or focus reveals the complete summary. Separate setting chips are not part of ordinary Chat.
 - The Settings chip is left-aligned in the composer's bottom controls row as its first visible chip. The future attachment action remains hidden.
-- The Settings chip opens the established anchored non-modal popover and uses its standard placement and collision behavior.
+- The Settings chip opens the established chip-anchored non-modal popover and uses its standard placement and collision behavior. The popover may overlay the editor.
+- Composer controls must appear inside the island in this order: Settings/model, Worktree, Goal, active Processes, flexible space, Context usage, Stop when applicable, Send. Goal, Processes, Stop, and Send must not truncate. When space is insufficient, leading controls must wrap onto preceding lines while Stop and Send stay together at the bottom right. Goal must match the other composer chips' height.
+- Only the model name in the Settings chip must start-ellipsize when space is insufficient; its role and Thinking labels remain readable.
+- The Context usage circle must use the same success-to-warning-to-error gradient as the detailed usage bar.
 - The popover uses a max-capped width and scrolls internally when its contents exceed the available height.
 - The main body has no title or section labels. Settings appear as one unsectioned control group in this order: Agent, Supervisor, Thinking when supported, Fast mode when supported, Questions, Auto-compaction; then one subtle divider and session facts. The facts appear as `To parent chat`, Task navigation, and Session ID when present.
 - `To parent chat` opens the preceding Session at its newest content. A workflow-linked Chat shows its Task short ID, which opens Task Detail. Parent-agent lineage, Workflow identifiers, workspace, worktree, branch, compaction mode, and compaction count are not ordinary Chat facts.
@@ -362,7 +365,7 @@
 ## Goal
 
 - Goal is a Session control, not a Session setting.
-- The left side of the under-composer control row always contains one Goal affordance. An active Goal uses a primary-colored Goal chip. A paused, completed, or absent Goal uses a neutral `Goal` affordance. Activating it opens the existing Goal when present or Goal creation when absent.
+- The composer control row always contains one Goal affordance. An active Goal uses a primary-colored Goal chip. A paused, completed, or absent Goal uses a neutral `Goal` affordance. Activating it opens the existing Goal when present or Goal creation when absent.
 - The control label is always `Goal`. It shows no objective preview or state text; its primary or neutral treatment communicates whether Goal work is active.
 - The control shows a target icon before `Goal`. It never becomes icon-only.
 - Desktop has no `/goal` command. The visible Goal affordance and Goal sidebar are its only Goal entry path.
@@ -397,7 +400,7 @@
 - Goal status uses a primary-colored circle-dot icon and label for Active, a warning-colored pause-in-circle icon and label for Paused, and a success-colored checkmark icon and label for Complete.
 - The relative period shows `0 min` below one minute, `N min` below one hour, `HhMm` below one day, and `DdHhMm` from one day onward. It omits zero-value units, keeps days unbounded, and refreshes once per minute.
 - If an already-hydrated Goal observation fails, the mounted destination must close that observation, replace its own page with Error and an explicit Retry action, retain its destination-owned draft, and become idle. It must not replace Chat, automatically replace or retry the observation, or show the previous Goal page while waiting for explicit Retry. Retry starts a fresh destination observation with sequence-1 hydration; it does not depend on transcript recovery or replay a prior result.
-- The under-composer Goal affordance reads only the current Chat projection. Destination hydration, updates, unresolved or accepted optimism, mutation responses, close, and reopen never update that affordance directly.
+- The composer Goal affordance reads only the current Chat projection. Destination hydration, updates, unresolved or accepted optimism, mutation responses, close, and reopen never update that affordance directly.
 - Goal objective drafting copies Task Description reconciliation and destination lifetime. A clean draft follows that destination's Goal observation. A dirty draft remains unchanged while the destination stays alive. Save submits the draft, and the Goal subscription remains the saved-state authority. Closing or navigating away from the sidebar or relaunching Desktop discards an unsaved Goal draft; Desktop adds no server-owned Goal-editor draft.
 - Workflow-controlled Sessions use the same Goal affordance and sidebar as every other Session. Goal mutation admission follows the retained-Workflow rule in [Core Runtime Tools](core-runtime-tools.md).
 - In New Chat, Goal Save invokes one intent-level Goal operation. The server resolves the shared New Chat target, establishes the ordinary Session, and then invokes ordinary Goal Set without a client-visible Create prerequisite.
@@ -439,7 +442,7 @@
 - A Session owned by a Workflow Task uses the same Worktree affordance, sidebar, and mutations as an ordinary Session.
 - Switching a Task-owned Session changes that Session's execution target. It does not replace or rewrite the Task's locked Execution Target.
 - Workflow Task and Worktree safety rules remain authoritative. Desktop does not bypass a blocker that protects a Worktree referenced by a non-terminal Task.
-- The under-composer control row contains one Worktree affordance that identifies the Session's current concise execution target.
+- The composer control row contains one Worktree affordance that identifies the Session's current concise execution target.
 - For a branch-backed worktree, the affordance shows the branch name. For a detached or otherwise non-branch worktree, it shows the Kent worktree display name. For the main workspace, it shows the workspace name.
 - When the current target is missing or inaccessible, the affordance preserves that recorded target name and adds warning iconography and semantic warning treatment. It does not replace the identity with generic warning copy.
 - For a missing or inaccessible Worktree, the affordance must show the recorded Kent display name, including when the Worktree was branch-backed.
@@ -450,7 +453,7 @@
 - The Worktree list must use Tab and Shift+Tab to navigate enabled actions and Enter or Space to activate the focused action. Row text must not be a separate interactive focus stop.
 - Opening Worktree creation moves focus to `Branch or ref`.
 - Escape closes the list-launched delete popup back to the list, returns creation to the list, and closes the list-level sidebar.
-- Closing Worktree restores focus to the under-composer Worktree control when that control opened it, or to the composer when a slash command opened it.
+- Closing Worktree restores focus to the composer Worktree control when that control opened it, or to the editor when a slash command opened it.
 - The Worktree sidebar opens directly to one management list. It has no overview landing page, cards, tabs, or nested Manage screen.
 - The sidebar header has a primary icon-only `+` action for creating a worktree.
 - The sidebar header has a secondary icon-only Refresh action beside `+`.
@@ -471,7 +474,7 @@
 - The Worktree sidebar remains dismissible while the immediate Switch request is pending.
 - Dismissing the sidebar does not cancel the Switch request.
 - A successful Switch acknowledgement closes the Worktree sidebar immediately.
-- Desktop does not optimistically change the current target. The under-composer control and selected list row change only after the authoritative target update arrives.
+- Desktop does not optimistically change the current target. The composer Worktree control and selected list row change only after the authoritative target update arrives.
 - A Session identity update that reports no name clears the displayed Session name. If it omits execution-target details, it does not clear or replace the displayed target.
 - For an Active Session Runtime, the server accepts the target change without waiting for it to finish.
 - An accepted Active-Runtime target change remains visible in Pending Work until it starts.
@@ -627,7 +630,7 @@
 
 - Send must remain icon-only. It must not show an ordinary enabled-action tooltip or an error-diagnostic tooltip. Disabled-state tooltips must remain.
 - Each page must own its server-read failures and show its Error state with Retry. A sidebar destination is an independent page; its failures must not replace Chat or another page. Pages must not signal errors outside themselves through callbacks, navigation events, or event buses.
-- Chat Settings, saved draft, Pending Work, and under-composer Worktree-label read failures must use whole-Chat Error with Retry. This includes failed refreshes with retained data. Workspace-selector initial and refresh failures must use Chat's Error state; virtualized Workspace pagination failures must retain their boundary Retry.
+- Chat Settings, saved draft, Pending Work, and composer Worktree-label read failures must use whole-Chat Error with Retry. This includes failed refreshes with retained data. Workspace-selector initial and refresh failures must use Chat's Error state; virtualized Workspace pagination failures must retain their boundary Retry.
 - Widget-local server-error presentations must not be added. Virtualized pagination failures must use the list's small boundary Retry control. Transcript hydration and observation retain their transcript-local recovery behavior below.
 - Failed server-changing actions must use Sonner without inline, popup, or form-level server-error presentation, except the typed field validation specified in Worktree creation. Validation performed before a request must remain at its field or control.
 - Reads performed within a write command must follow that command's write-error handling. A command deletion-preview failure must use Sonner and must not replace Chat.

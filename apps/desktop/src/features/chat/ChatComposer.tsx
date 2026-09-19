@@ -27,7 +27,7 @@ import "./chatComposer.css";
 export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
   settingsChip?: ReactNode;
-  underControls?: ReactNode;
+  controls?: ReactNode;
   availableHeight: number | null;
   onHeightChange(height: number): void;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
@@ -36,7 +36,7 @@ export type ChatComposerProps = Readonly<{
 export function ChatComposer({
   settings,
   settingsChip,
-  underControls,
+  controls,
   availableHeight,
   onHeightChange,
   editorRef,
@@ -121,9 +121,9 @@ export function ChatComposer({
           settings={settings}
           settingsChip={settingsChip}
           stoppable={stoppable}
+          controls={controls}
         />
       </Island>
-      {underControls}
     </div>
   );
 }
@@ -191,11 +191,13 @@ function ComposerControls({
   settings,
   settingsChip,
   stoppable,
+  controls,
 }: Readonly<{
   composer: Composer;
   settings: ChatSettingsFeature;
   settingsChip?: ReactNode;
   stoppable: boolean;
+  controls?: ReactNode;
 }>) {
   const { t } = useTranslation();
   const send = (
@@ -217,35 +219,38 @@ function ComposerControls({
   );
   return (
     <div className="chat-composer-controls">
-      <div className="min-w-0 flex-1">
+      <div className="chat-composer-settings">
         {settingsChip ?? ("settingsChip" in settings ? settings.settingsChip : null)}
       </div>
-      {composer.target?.kind === "session" && (
-        <SessionChatContext compact={composer.compact} settings={settings} />
-      )}
-      {stoppable && (
-        <IconTooltipButton
-          label={t("chatComposer.stop")}
-          onClick={() => {
-            composer.pending.stop();
-          }}
-          size="icon-sm"
-        >
-          {composer.pending.stopPending ? <Spinner size="sm" /> : <Square size={15} />}
-        </IconTooltipButton>
-      )}
-      {composer.canSubmit ? (
-        send
-      ) : (
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">{send}</span>
-            </TooltipTrigger>
-            <TooltipContent>{composerSendLabel(composer, t)}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
+      {controls}
+      <div className="chat-composer-actions">
+        {composer.target?.kind === "session" && (
+          <SessionChatContext compact={composer.compact} settings={settings} />
+        )}
+        {stoppable && (
+          <IconTooltipButton
+            label={t("chatComposer.stop")}
+            onClick={() => {
+              composer.pending.stop();
+            }}
+            size="icon-sm"
+          >
+            {composer.pending.stopPending ? <Spinner size="sm" /> : <Square size={15} />}
+          </IconTooltipButton>
+        )}
+        {composer.canSubmit ? (
+          send
+        ) : (
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">{send}</span>
+              </TooltipTrigger>
+              <TooltipContent>{composerSendLabel(composer, t)}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
     </div>
   );
 }

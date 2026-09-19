@@ -15,6 +15,7 @@ function ActiveProcessesChip({ target, count }: Readonly<{ target: ChatSessionTa
   return (
     <InteractiveChip
       size="default"
+      className="shrink-0 whitespace-nowrap"
       onClick={(event) => {
         const origin = event.currentTarget;
         void roots

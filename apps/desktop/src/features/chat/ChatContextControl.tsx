@@ -133,20 +133,14 @@ function ContextMeter({
   return (
     <>
       <span>{presentation?.usedPercent ?? 0}%</span>
-      <svg className="chat-context-circle" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="8" stroke="var(--color-outline)" strokeWidth="2" />
-        <circle
+      <span className="chat-context-circle chat-context-ring-track">
+        <span
           className="chat-context-ring"
-          cx="10"
-          cy="10"
-          r="8"
-          pathLength="1"
-          stroke="var(--color-secondary)"
-          strokeWidth="2"
-          strokeDasharray={`${(presentation?.extent ?? 0).toString()} 1`}
-          transform="rotate(-90 10 10)"
+          style={{
+            maskImage: `conic-gradient(black ${((presentation?.extent ?? 0) * 360).toString()}deg, transparent 0)`,
+          }}
         />
-      </svg>
+      </span>
     </>
   );
 }

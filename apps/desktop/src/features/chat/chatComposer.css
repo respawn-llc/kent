@@ -6,16 +6,6 @@
   padding: var(--space-3);
 }
 
-.chat-under-controls > * {
-  animation: surface-reveal var(--motion-normal);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-under-controls > * {
-    animation: none;
-  }
-}
-
 .chat-composer-input {
   position: relative;
   display: flex;
@@ -45,9 +35,30 @@
 
 .chat-composer-controls {
   display: flex;
+  flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
+}
+
+.chat-composer-settings {
+  min-width: min(12rem, 100%);
+  flex: 1 1 12rem;
+  max-width: 100%;
+}
+
+.chat-composer-worktree {
+  flex: 0 1 10rem;
+  min-width: min(6rem, 100%);
+  max-width: 100%;
+}
+
+.chat-composer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 .chat-composer-sheet {

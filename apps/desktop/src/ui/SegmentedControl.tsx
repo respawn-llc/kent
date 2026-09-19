@@ -10,6 +10,7 @@ export type SegmentedControlOption<Value extends string> = Readonly<{
 }>;
 
 export type SegmentedControlProps<Value extends string> = Readonly<{
+  size?: "default" | "compact";
   ariaLabel: string;
   className?: string | undefined;
   disabled?: boolean;
@@ -27,6 +28,7 @@ export function SegmentedControl<Value extends string>({
   onValueChange,
   options,
   value,
+  size = "default",
 }: SegmentedControlProps<Value>) {
   const optionValues = new Set<Value>();
   let selectedSegment: Readonly<{
@@ -48,17 +50,24 @@ export function SegmentedControl<Value extends string>({
   if (selectedSegment.option.disabled === true) {
     throw new Error(`Segmented control "${ariaLabel}" cannot select disabled value "${value}".`);
   }
+  const padding = size === "compact" ? "3px" : "var(--space-1)";
   const indicatorStyle = {
+    top: padding,
+    bottom: padding,
+    left: padding,
     transform: `translateX(${(selectedSegment.index * 100).toString()}%)`,
-    width: `calc((100% - (var(--space-1) * 2)) / ${options.length.toString()})`,
+    width: `calc((100% - (${padding} * 2)) / ${options.length.toString()})`,
   } satisfies CSSProperties;
   return (
     <RadioGroupPrimitive.Root
       aria-label={ariaLabel}
       className={cx(
         "app-region-no-drag relative inline-grid h-[var(--space-6)] min-w-0 grid-flow-col auto-cols-fr rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-1)]",
+        size === "compact" &&
+          "data-[size=compact]:h-[22px] data-[size=compact]:p-[3px] [&>button]:min-w-8 [&>button]:px-[6px]",
         className,
       )}
+      data-size={size}
       disabled={disabled}
       onValueChange={(nextValue) => {
         const option = options.find((candidate) => candidate.value === nextValue);
@@ -72,7 +81,7 @@ export function SegmentedControl<Value extends string>({
     >
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute top-[var(--space-1)] bottom-[var(--space-1)] left-[var(--space-1)] rounded-[calc(var(--radius-m)-var(--space-1))] bg-[var(--color-island-3)] transition-[transform,width] duration-[var(--motion-fast)] ease-out motion-reduce:transition-none"
+        className="pointer-events-none absolute rounded-[calc(var(--radius-m)-var(--space-1))] bg-[var(--color-island-3)] transition-[transform,width] duration-[var(--motion-fast)] ease-out motion-reduce:transition-none"
         style={indicatorStyle}
       />
       {options.map((option) => (
