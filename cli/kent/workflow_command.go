@@ -298,6 +298,11 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	}
 	offsetValue := int64(*offset)
 	limitValue := int32(*limit)
+	request := &pb.ListRequest{Offset: &offsetValue, Limit: &limitValue}
+	if err := protoapi.Validate(request); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
 		var projectID *string
 		if projectProvided {
@@ -308,7 +313,8 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			}
 			projectID = &resolved
 		}
-		response, err := listWorkflowPage(context.Background(), remote, &pb.ListRequest{Offset: &offsetValue, Limit: &limitValue, ProjectId: projectID})
+		request.ProjectId = projectID
+		response, err := listWorkflowPage(context.Background(), remote, request)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1

@@ -24,6 +24,20 @@ func TestWorkflowVersionSafeIntegerBoundary(t *testing.T) {
 	}
 }
 
+func TestWorkflowPaginationSafeIntegerBoundary(t *testing.T) {
+	for _, offset := range []int64{0, 2147483648, 9007199254740991, 9007199254740992, 9223372036854775807} {
+		for _, message := range []proto.Message{
+			&workflowdefinitionpb.ListRequest{Offset: &offset},
+			&workflowdefinitionpb.ListSuccess{NextOffset: &offset},
+		} {
+			err := Validate(message)
+			if (err == nil) != (offset <= 9007199254740991) {
+				t.Errorf("%T offset %d: unexpected validation result: %v", message, offset, err)
+			}
+		}
+	}
+}
+
 func TestWorkflowCustomRefDraftCanBeSavedWithoutRef(t *testing.T) {
 	policy := &workflowdefinitionpb.ExecutionTargetConfiguration{
 		Mode: workflowdefinitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,

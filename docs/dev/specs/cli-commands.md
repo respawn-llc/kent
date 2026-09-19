@@ -430,7 +430,9 @@
 - Task Search pagination is defined by the Task Search section.
 - Every other paginated Workflow and Task command uses zero-based `--offset` and `--limit`.
 - These commands expose neither page tokens nor page numbers.
-- An omitted offset starts at the beginning. Any non-negative offset is accepted. A negative offset is invalid.
+- An omitted offset starts at the beginning. A negative offset is invalid.
+- Workflow pagination must accept offsets from 0 through 9,007,199,254,740,991 and reject larger values. Workflow continuation offsets must remain within this range.
+- Task pagination accepts any non-negative offset.
 - `--limit` defaults to 100 and accepts 1 through 100.
 - Callers may change the limit between requests.
 - An offset at or beyond the current end succeeds with the command's empty-result output and no next offset.

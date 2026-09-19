@@ -6,6 +6,7 @@ import { ReadinessSeverity, ServerService } from "@app/server-api-contract/gen/k
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
 import { protocolVersion } from "./jsonRpcSocket";
+import { encodeDescriptorCall } from "./descriptorRpc";
 import { canonicalBoardFilter } from "./workflowBoardFilters";
 import {
   workflowBoundaryGraphIDs as boundaryGraphIDs,
@@ -29,8 +30,15 @@ const appliedStartResponse = {
   },
 } as const;
 describe("ApiClient", () => {
-  it("preserves full-width Workflow pagination cursors", async () => {
-    const offset = 9007199254740992n;
+  it("rejects Workflow offsets above the safe-integer ceiling at the binary boundary", () => {
+    const method = wf.WorkflowDefinitionService.method.list;
+    expect(() =>
+      encodeDescriptorCall(method, create(method.input, { offset: 9007199254740992n }), "offset-boundary"),
+    ).toThrow();
+  });
+
+  it("preserves Workflow pagination cursors through the safe-integer ceiling", async () => {
+    const offset = 9007199254740990n;
     const method = wf.WorkflowDefinitionService.method.list;
     const transport = new FakeRpcTransport([
       {

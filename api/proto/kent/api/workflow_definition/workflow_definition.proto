@@ -880,7 +880,10 @@ message GetSuccess {
 }
 
 message ListRequest {
-  optional int64 offset = 1 [(buf.validate.field).int64.gte = 0];
+  optional int64 offset = 1 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 9007199254740991
+  }];
   optional int32 limit = 2 [(buf.validate.field).int32 = {
     gte: 1
     lte: 100
@@ -896,7 +899,10 @@ message ListRequest {
 message ListSuccess {
   repeated WorkflowRecord workflows = 1 [(buf.validate.field).repeated.max_items = 100];
   optional string project_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional int64 next_offset = 3 [(buf.validate.field).int64.gte = 0];
+  optional int64 next_offset = 3 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 9007199254740991
+  }];
 }
 
 message GetRequest {

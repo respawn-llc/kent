@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,6 +45,12 @@ func TestWorkflowValidateDefaultsToExecution(t *testing.T) {
 	if err := json.Unmarshal(defaultOut.Bytes(), &implicit); err != nil {
 		t.Fatalf("default validation: %v; stderr=%s", err, &stderr)
 	}
+	// Independent validations may enumerate graph diagnostics in different orders.
+	for _, result := range []*workflowValidationJSON{&explicit, &implicit} {
+		slices.SortFunc(result.Errors, func(a, b serverapi.WorkflowValidationError) int {
+			return strings.Compare(a.Code, b.Code)
+		})
+	}
 	if defaultCode != explicitCode || !reflect.DeepEqual(implicit, explicit) {
 		t.Fatalf("default validation = %+v (%d), explicit execution = %+v (%d)", implicit, defaultCode, explicit, explicitCode)
 	}
@@ -51,7 +58,7 @@ func TestWorkflowValidateDefaultsToExecution(t *testing.T) {
 
 func TestWorkflowListAcceptsLargeBeyondEndOffsets(t *testing.T) {
 	newWorktreeCommandFixture(t)
-	for _, offset := range []string{"2147483648", "9223372036854775807"} {
+	for _, offset := range []string{"2147483648", "9007199254740991"} {
 		t.Run(offset, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 0 {
@@ -63,6 +70,21 @@ func TestWorkflowListAcceptsLargeBeyondEndOffsets(t *testing.T) {
 			}
 			if response.Workflows == nil || len(response.Workflows) != 0 || response.NextOffset != nil {
 				t.Fatalf("beyond-end output = %+v", response)
+			}
+		})
+	}
+}
+
+func TestWorkflowListRejectsOffsetsAboveSafeIntegerRange(t *testing.T) {
+	newWorktreeCommandFixture(t)
+	for _, offset := range []string{"9007199254740992", "9223372036854775807"} {
+		t.Run(offset, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 2 {
+				t.Fatalf("out-of-range offset exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+			}
+			if stdout.Len() != 0 || stderr.Len() == 0 {
+				t.Fatalf("invalid input must report an error without a result: stdout=%s, stderr=%s", &stdout, &stderr)
 			}
 		})
 	}
