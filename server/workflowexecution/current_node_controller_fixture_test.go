@@ -978,6 +978,7 @@ func newCurrentNodeQuestionFixtureWithPromptFeed(
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	appCfg.Settings = testsetup.WriteProviderSettings(t, appCfg.PersistenceRoot, appCfg.Settings)
 	metadataStore := testsetup.OpenStore(t, appCfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), appCfg.WorkspaceRoot)
 	if err != nil {

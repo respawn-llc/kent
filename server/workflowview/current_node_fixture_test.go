@@ -110,6 +110,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {

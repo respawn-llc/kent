@@ -2,6 +2,7 @@ package chatmutation
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"path/filepath"
 	"testing"
 
@@ -102,6 +103,7 @@ func newPlacementFixture(t *testing.T) (config.App, *metadata.Store, *session.St
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	store, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatal(err)

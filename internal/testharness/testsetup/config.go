@@ -36,7 +36,7 @@ func WithResponsesProvider(settings config.Settings, endpoint string) config.Set
 	return settings
 }
 
-func WriteProviderSettings(t *testing.T, root string, settings config.Settings) config.Settings {
+func WriteProviderSettings(t testing.TB, root string, settings config.Settings) config.Settings {
 	t.Helper()
 	settings = ProviderSettings(settings)
 	path := filepath.Join(root, "config.toml")
