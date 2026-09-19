@@ -95,9 +95,9 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
       <ChatSettingsChip {...summary} />
       <PopoverContent
         align="start"
-        className="w-96 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
+        className="w-96 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
       >
-        <div className="min-h-0 overflow-y-auto text-sm">
+        <div className="min-h-0 min-w-0 overflow-y-auto text-sm">
           {view === "agents"
             ? agents.map((agent) => (
                 <ChatSettingsAgentRow
@@ -151,8 +151,8 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
                     activate({ kind: "supervisor", value });
                   }}
                   options={[
-                    { value: "edits", label: t("chatSettings.supervisorEdits") },
                     { value: "all", label: t("chatSettings.supervisorAlways") },
+                    { value: "edits", label: t("chatSettings.supervisorEdits") },
                     { value: "off", label: t("chatSettings.supervisorOff") },
                   ]}
                   value={supervisor.value}
