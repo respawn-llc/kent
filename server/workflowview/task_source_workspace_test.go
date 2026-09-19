@@ -74,6 +74,7 @@ func TestTaskSourceWithoutHistoricalFactsUsesDefault(t *testing.T) {
 }
 
 func TestTaskSourceRejectsInvalidHistoricalFacts(t *testing.T) {
+	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
 	f := newCurrentNodeViewFixture(t, false)
 	started := f.startTask(t, "Invalid source")
 	for _, payload := range []string{`{"source_workspace_snapshot":{}}`, `{"source_workspace_snapshot":null}`} {
@@ -89,6 +90,15 @@ func TestTaskSourceRejectsInvalidHistoricalFacts(t *testing.T) {
 		}); err == nil {
 			t.Error("Board accepted invalid historical facts")
 		}
+		t.Run(payload, func(t *testing.T) {
+			t.Setenv("KENT_INVARIANT_MODE", "panic")
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid historical facts did not fail fast")
+				}
+			}()
+			_, _ = f.detail.GetTask(f.ctx, string(started.task.ID))
+		})
 	}
 }
 

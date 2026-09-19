@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/server/metadata/sqlitegen"
+	"core/shared/invariant"
 )
 
 func (s *Store) ResolveSessionProjectID(ctx context.Context, sessionID string) (string, error) {
@@ -36,14 +37,18 @@ func ResolveProjectSourceWorkspaceID(ctx context.Context, q projectSourceWorkspa
 		return "", err
 	}
 	if strings.TrimSpace(primaryWorkspaceID) == "" {
-		return "", fmt.Errorf("project %q has no default Workspace", projectID)
+		err := fmt.Errorf("project %q has no default Workspace", projectID)
+		invariant.NewPolicy().Check(false, invariant.FailureDiagnostic(invariant.ScopeReadModelPublication, "resolve Project default Workspace", err))
+		return "", err
 	}
 	primaryWorkspace, err := q.GetWorkspaceByID(ctx, primaryWorkspaceID)
 	if err != nil {
 		return "", err
 	}
 	if primaryWorkspace.ProjectID != projectID {
-		return "", fmt.Errorf("project %q default Workspace belongs to another Project", projectID)
+		err := fmt.Errorf("project %q default Workspace belongs to another Project", projectID)
+		invariant.NewPolicy().Check(false, invariant.FailureDiagnostic(invariant.ScopeReadModelPublication, "resolve Project default Workspace", err))
+		return "", err
 	}
 	return primaryWorkspace.ID, nil
 }

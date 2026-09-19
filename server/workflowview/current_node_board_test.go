@@ -24,6 +24,7 @@ func TestBoardProjectRejectsMissingProject(t *testing.T) {
 }
 
 func TestBoardProjectRejectsBrokenDefault(t *testing.T) {
+	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
 	fixture := newCurrentNodeViewFixture(t, false)
 	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, "UPDATE projects SET primary_workspace_id = '' WHERE id = ?", fixture.binding.ProjectID); err != nil {
 		t.Fatal(err)
@@ -34,6 +35,16 @@ func TestBoardProjectRejectsBrokenDefault(t *testing.T) {
 	}); err == nil {
 		t.Fatal("Board accepted a broken default")
 	}
+	t.Setenv("KENT_INVARIANT_MODE", "panic")
+	defer func() {
+		if recover() == nil {
+			t.Error("broken default did not fail fast")
+		}
+	}()
+	_, _ = fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
+		ProjectID:   fixture.binding.ProjectID,
+		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+	})
 }
 
 func TestBoardProjectCountsAllAttachedWorkspaces(t *testing.T) {
