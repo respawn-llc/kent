@@ -29,6 +29,35 @@ const appliedStartResponse = {
   },
 } as const;
 describe("ApiClient", () => {
+  it("preserves full-width Workflow pagination cursors", async () => {
+    const offset = 9007199254740992n;
+    const method = wf.WorkflowDefinitionService.method.list;
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: method,
+        result: create(method.output, {
+          outcome: {
+            case: "success",
+            value: {
+              workflows: [
+                {
+                  id: "11111111-1111-4111-8111-111111111111",
+                  name: "Workflow",
+                  version: 1n,
+                  executionTargetPolicy: { mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE },
+                },
+              ],
+              nextOffset: offset + 1n,
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    expect((await client.listWorkflows({ offset, limit: 1 })).nextOffset).toBe(offset + 1n);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({ offset, limit: 1 });
+  });
+
   it("parses readiness and sends mutation params through typed method boundary", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -428,7 +457,7 @@ describe("ApiClient", () => {
                   },
                 },
               ],
-              nextOffset: 10,
+              nextOffset: 10n,
             },
           },
         }),
@@ -496,9 +525,9 @@ describe("ApiClient", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(
-      client.listWorkflows({ offset: 0, limit: 10, projectID: "project-1", query: "ship" }),
+      client.listWorkflows({ offset: 0n, limit: 10, projectID: "project-1", query: "ship" }),
     ).resolves.toMatchObject({
-      nextOffset: 10,
+      nextOffset: 10n,
       workflows: [
         {
           id: "11111111-1111-4111-8111-111111111111",
@@ -536,7 +565,7 @@ describe("ApiClient", () => {
     expect(transport.descriptorCalls).toContainEqual({
       descriptor: wf.WorkflowDefinitionService.method.list,
       request: create(wf.WorkflowDefinitionService.method.list.input, {
-        offset: 0,
+        offset: 0n,
         limit: 10,
         projectId: "project-1",
         query: "ship",

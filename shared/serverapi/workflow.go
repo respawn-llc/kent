@@ -1588,7 +1588,7 @@ func (r WorkflowTaskListItem) Validate() error {
 
 func (r WorkflowTaskCreateRequest) ValidateRPC() error {
 	if err := validateLabelIDs("label_ids", r.LabelIDs); err != nil {
-		return workflowLabelRPCValidationError(err, r.ProjectID, "", false)
+		return workflowTaskLabelRPCValidationError(err, r.ProjectID)
 	}
 	return r.Validate()
 }

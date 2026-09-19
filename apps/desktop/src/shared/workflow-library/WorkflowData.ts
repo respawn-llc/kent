@@ -15,7 +15,7 @@ export function useWorkflowPages(query = "", enabled = true) {
       queryKey: queryKeys.workflows(query),
       queryFn: async ({ pageParam }) =>
         api.listWorkflows({ offset: pageParam, limit: workflowPageSize, query }),
-      initialPageParam: 0,
+      initialPageParam: 0n,
       getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
       enabled,
     });

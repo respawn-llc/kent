@@ -515,18 +515,19 @@ message SelectorApplicability {
 }
 
 message DerivedNodeWiring {
-  string node_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Draft validation also projects authored identities that are not valid yet.
+  string node_id = 1;
   repeated OutputField possible_provision_fields = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField join_output_fields = 3 [(buf.validate.field).repeated.max_items = 200];
 }
 
 message DerivedTransitionGroupWiring {
-  string transition_group_id = 1 [(buf.validate.field).string.min_len = 1];
+  string transition_group_id = 1;
   repeated OutputField required_provision_fields = 2 [(buf.validate.field).repeated.max_items = 200];
 }
 
 message DerivedEdgeWiring {
-  string edge_id = 1 [(buf.validate.field).string.min_len = 1];
+  string edge_id = 1;
   repeated InputBinding input_bindings = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField required_provision_fields = 3 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField required_provider_fields = 4 [(buf.validate.field).repeated.max_items = 200];
@@ -879,7 +880,7 @@ message GetSuccess {
 }
 
 message ListRequest {
-  optional int32 offset = 1 [(buf.validate.field).int32.gte = 0];
+  optional int64 offset = 1 [(buf.validate.field).int64.gte = 0];
   optional int32 limit = 2 [(buf.validate.field).int32 = {
     gte: 1
     lte: 100
@@ -895,7 +896,7 @@ message ListRequest {
 message ListSuccess {
   repeated WorkflowRecord workflows = 1 [(buf.validate.field).repeated.max_items = 100];
   optional string project_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional int32 next_offset = 3 [(buf.validate.field).int32.gte = 0];
+  optional int64 next_offset = 3 [(buf.validate.field).int64.gte = 0];
 }
 
 message GetRequest {

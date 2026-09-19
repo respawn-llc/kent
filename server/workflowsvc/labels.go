@@ -167,67 +167,7 @@ func workflowProjectLabel(record workflowstore.ProjectLabelRecord) *pb.ProjectLa
 	}
 }
 
-type workflowLabelErrorScope struct {
-	projectID *string
-	taskID    *string
-}
-
-func workflowLabelError(err error, scope workflowLabelErrorScope) error {
-	var nameErr *label.NameError
-	if errors.As(err, &nameErr) {
-		field := "name"
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonInvalidName,
-			ProjectID: scope.projectID,
-			Field:     &field,
-		}
-	}
-	var conflictErr workflowstore.ProjectLabelNameConflictError
-	if errors.As(err, &conflictErr) {
-		projectID := conflictErr.ProjectID
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonNameConflict,
-			ProjectID: &projectID,
-		}
-	}
-	var limitErr workflowstore.ProjectLabelLimitError
-	if errors.As(err, &limitErr) {
-		projectID := limitErr.ProjectID
-		limit := limitErr.Limit
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonCatalogLimit,
-			ProjectID: &projectID,
-			Limit:     &limit,
-		}
-	}
-	var projectLabelNotFound workflowstore.ProjectLabelNotFoundError
-	if errors.As(err, &projectLabelNotFound) {
-		projectID := projectLabelNotFound.ProjectID
-		labelID := projectLabelNotFound.LabelID
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonLabelNotFound,
-			ProjectID: &projectID,
-			LabelID:   &labelID,
-		}
-	}
-	var orderErr workflowstore.ProjectLabelOrderError
-	if errors.As(err, &orderErr) {
-		projectID := orderErr.ProjectID
-		field := "label_ids"
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonInvalidMutation,
-			ProjectID: &projectID,
-			Field:     &field,
-		}
-	}
-	var taskNotFound workflowstore.TaskLabelTaskNotFoundError
-	if errors.As(err, &taskNotFound) {
-		taskID := taskNotFound.TaskID
-		return &serverapi.WorkflowLabelError{
-			Reason: serverapi.WorkflowLabelErrorReasonTaskNotFound,
-			TaskID: &taskID,
-		}
-	}
+func workflowTaskLabelError(err error, projectID string) error {
 	var labelNotFound workflowstore.TaskLabelNotFoundError
 	if errors.As(err, &labelNotFound) {
 		labelID := labelNotFound.LabelID
@@ -253,7 +193,6 @@ func workflowLabelError(err error, scope workflowLabelErrorScope) error {
 		field := mutationErr.Field
 		return &serverapi.WorkflowLabelError{
 			Reason:  serverapi.WorkflowLabelErrorReasonInvalidMutation,
-			TaskID:  scope.taskID,
 			LabelID: mutationErr.LabelID,
 			Field:   &field,
 			Limit:   mutationErr.Limit,
@@ -262,7 +201,7 @@ func workflowLabelError(err error, scope workflowLabelErrorScope) error {
 	if errors.Is(err, serverapi.ErrProjectNotFound) {
 		return &serverapi.WorkflowLabelError{
 			Reason:    serverapi.WorkflowLabelErrorReasonProjectNotFound,
-			ProjectID: scope.projectID,
+			ProjectID: &projectID,
 		}
 	}
 	return err

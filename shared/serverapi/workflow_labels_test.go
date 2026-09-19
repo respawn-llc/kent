@@ -587,12 +587,8 @@ func TestWorkflowLabelProjectionDTOsExposeNamesOnlyForTaskListRows(t *testing.T)
 
 func TestWorkflowLabelErrorRoundTripsEveryTypedFailure(t *testing.T) {
 	for _, source := range []*WorkflowLabelError{
-		{Reason: WorkflowLabelErrorReasonInvalidName, ProjectID: workflowLabelStringPointer("project-1"), Field: workflowLabelStringPointer("name")},
-		{Reason: WorkflowLabelErrorReasonNameConflict, ProjectID: workflowLabelStringPointer("project-1")},
-		{Reason: WorkflowLabelErrorReasonCatalogLimit, ProjectID: workflowLabelStringPointer("project-1"), Limit: workflowLabelIntPointer(WorkflowLabelMaxIDs)},
 		{Reason: WorkflowLabelErrorReasonProjectNotFound, ProjectID: workflowLabelStringPointer("project-1")},
 		{Reason: WorkflowLabelErrorReasonLabelNotFound, LabelID: workflowLabelStringPointer(workflowLabelIDAlpha)},
-		{Reason: WorkflowLabelErrorReasonTaskNotFound, TaskID: workflowLabelStringPointer("task-1")},
 		{Reason: WorkflowLabelErrorReasonWrongProject, ProjectID: workflowLabelStringPointer("project-1"), LabelID: workflowLabelStringPointer(workflowLabelIDAlpha)},
 		{Reason: WorkflowLabelErrorReasonInvalidFilter, Field: workflowLabelStringPointer("label_filter.label_ids")},
 		{Reason: WorkflowLabelErrorReasonInvalidMutation, Field: workflowLabelStringPointer("add_label_ids")},
@@ -616,8 +612,6 @@ func TestWorkflowLabelErrorRoundTripsEveryTypedFailure(t *testing.T) {
 		"noncanonical label":    `{"type":"workflow_label_error","reason":"label_not_found","label_id":"11111111-1111-4111-8111-111111111111 "}`,
 		"wrong project missing": `{"type":"workflow_label_error","reason":"wrong_project","label_id":"` + workflowLabelIDAlpha + `"}`,
 		"invalid filter field":  `{"type":"workflow_label_error","reason":"invalid_filter","field":" "}`,
-		"catalog limit":         `{"type":"workflow_label_error","reason":"catalog_limit","project_id":"project-1","limit":0}`,
-		"unexpected context":    `{"type":"workflow_label_error","reason":"name_conflict","project_id":"project-1","task_id":"task-1"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			decoded := DecodeWorkflowLabelError(json.RawMessage(payload), "fallback")
@@ -630,10 +624,6 @@ func TestWorkflowLabelErrorRoundTripsEveryTypedFailure(t *testing.T) {
 }
 
 func workflowLabelStringPointer(value string) *string {
-	return &value
-}
-
-func workflowLabelIntPointer(value int) *int {
 	return &value
 }
 

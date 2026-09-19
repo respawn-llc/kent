@@ -34,7 +34,7 @@ const (
 type workflowListOutput struct {
 	Workflows  []workflowRecordJSON `json:"workflows"`
 	ProjectID  *string              `json:"project_id,omitempty"`
-	NextOffset *int32               `json:"next_offset,omitempty"`
+	NextOffset *int64               `json:"next_offset,omitempty"`
 }
 
 // workflowNodeOutput is the machine-readable shape of `workflow node add/update --json`.
@@ -296,11 +296,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	offsetValue, err := protoapi.Int32(*offset, "offset")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
+	offsetValue := int64(*offset)
 	limitValue := int32(*limit)
 	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
 		var projectID *string
@@ -991,7 +987,7 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 
 func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow validate", stderr, workflowValidateUsage)
-	mode := fs.String("mode", string(pb.ValidationMode_WORKFLOW_VALIDATION_MODE_EXECUTION), "validation context: draft|task_creation|execution")
+	mode := fs.String("mode", "execution", "validation context: draft|task_creation|execution")
 	jsonOut := fs.Bool("json", false, "write validation diagnostics as JSON")
 	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow validate requires <uuid>")
 	if !ok {

@@ -143,10 +143,10 @@ describe("JsonRpcWebSocketTransport", () => {
     await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
     errorAck(socket, 3, {
       code: -32031,
-      message: "label name already exists",
+      message: "project not found",
       data: {
         type: "workflow_label_error",
-        reason: "name_conflict",
+        reason: "project_not_found",
         project_id: "project-1",
       },
     });
@@ -158,12 +158,12 @@ describe("JsonRpcWebSocketTransport", () => {
       method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
-        reason: "name_conflict",
+        reason: "project_not_found",
         project_id: "project-1",
       },
     });
     expect(decodeWorkflowLabelError(error)).toMatchObject({
-      reason: "name_conflict",
+      reason: "project_not_found",
       projectID: "project-1",
     });
   });

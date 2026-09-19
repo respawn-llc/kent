@@ -26,6 +26,48 @@ type workflowDeleteStub struct {
 	deleteRequest  *pb.DeleteRequest
 }
 
+func TestWorkflowValidateDefaultsToExecution(t *testing.T) {
+	fixture := newWorktreeCommandFixture(t)
+	created, err := fixture.core.WorkflowClient().CreateWorkflow(t.Context(), &pb.CreateRequest{Name: "Draft"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var explicitOut, defaultOut, stderr bytes.Buffer
+	explicitCode := workflowValidateSubcommand([]string{created.Workflow.Id, "--mode", "execution", "--json"}, &explicitOut, &stderr)
+	var explicit workflowValidationJSON
+	if err := json.Unmarshal(explicitOut.Bytes(), &explicit); err != nil {
+		t.Fatalf("explicit validation: %v; stderr=%s", err, &stderr)
+	}
+	stderr.Reset()
+	defaultCode := workflowValidateSubcommand([]string{created.Workflow.Id, "--json"}, &defaultOut, &stderr)
+	var implicit workflowValidationJSON
+	if err := json.Unmarshal(defaultOut.Bytes(), &implicit); err != nil {
+		t.Fatalf("default validation: %v; stderr=%s", err, &stderr)
+	}
+	if defaultCode != explicitCode || !reflect.DeepEqual(implicit, explicit) {
+		t.Fatalf("default validation = %+v (%d), explicit execution = %+v (%d)", implicit, defaultCode, explicit, explicitCode)
+	}
+}
+
+func TestWorkflowListAcceptsLargeBeyondEndOffsets(t *testing.T) {
+	newWorktreeCommandFixture(t)
+	for _, offset := range []string{"2147483648", "9223372036854775807"} {
+		t.Run(offset, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 0 {
+				t.Fatalf("large beyond-end offset failed (%d): %s", code, &stderr)
+			}
+			var response workflowListOutput
+			if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Workflows == nil || len(response.Workflows) != 0 || response.NextOffset != nil {
+				t.Fatalf("beyond-end output = %+v", response)
+			}
+		})
+	}
+}
+
 type workflowPaginationStub struct {
 	apicontract.WorkflowService
 	request  *pb.ListRequest
@@ -41,7 +83,7 @@ func (s *workflowPaginationStub) ListWorkflows(
 }
 
 func TestWorkflowListPaginationSuccess(t *testing.T) {
-	offset, limit, nextOffset := int32(5), int32(2), int32(7)
+	offset, limit, nextOffset := int64(5), int32(2), int64(7)
 	stub := &workflowPaginationStub{
 		response: &pb.ListSuccess{
 			Workflows:  []*pb.WorkflowRecord{},
@@ -71,7 +113,7 @@ func TestWorkflowListPaginationSuccess(t *testing.T) {
 		t.Fatalf("JSON exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	var output struct {
-		NextOffset *int32            `json:"next_offset"`
+		NextOffset *int64            `json:"next_offset"`
 		Workflows  []json.RawMessage `json:"workflows"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil ||

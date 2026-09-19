@@ -2351,7 +2351,7 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if len(defaultPage.Workflows) != 3 || defaultPage.NextOffset != nil {
 		t.Fatalf("default page = %+v", defaultPage)
 	}
-	zeroOffset := int32(0)
+	zeroOffset := int64(0)
 	limit := int32(2)
 	page1, err := service.ListWorkflows(ctx, &pb.ListRequest{Offset: &zeroOffset, Limit: &limit})
 	if err != nil {
@@ -2367,7 +2367,7 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if len(page2.Workflows) != 1 || page2.NextOffset != nil {
 		t.Fatalf("page2 = %+v", page2)
 	}
-	beyondEnd := int32(3)
+	beyondEnd := int64(3)
 	beyondEndPage, err := service.ListWorkflows(ctx, &pb.ListRequest{Offset: &beyondEnd, Limit: &limit})
 	if err != nil {
 		t.Fatalf("ListWorkflows beyond end: %v", err)

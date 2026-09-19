@@ -4,7 +4,6 @@ import type { Message } from "@app/server-api-contract";
 import type { JsonValue } from "./json";
 import { workflowIDSchema } from "./schemas/workflowID";
 import { labelIDSchema } from "./schemas/workflowLabels";
-import { workflowLabelMaxIDs } from "./workflowLabelContract";
 import { rpcErrorCodes } from "./rpcErrorCodes";
 
 export type RpcErrorInfo = Readonly<{
@@ -257,7 +256,13 @@ const requiredIDSchema = z.string().trim().min(1);
 const workflowLabelErrorDataSchema = z
   .object({
     type: z.literal("workflow_label_error"),
-    reason: z.enum(workflowLabelErrorReasons),
+    reason: z.enum([
+      "project_not_found",
+      "label_not_found",
+      "wrong_project",
+      "invalid_filter",
+      "invalid_mutation",
+    ]),
     project_id: requiredIDSchema.optional(),
     task_id: requiredIDSchema.optional(),
     label_id: labelIDSchema.optional(),
@@ -272,31 +277,11 @@ const workflowLabelErrorDataSchema = z
       }
     };
     switch (data.reason) {
-      case "invalid_name":
-        required("project_id");
-        if (data.field !== "name") {
-          context.addIssue({ code: "custom", message: "field must be name", path: ["field"] });
-        }
-        break;
-      case "name_conflict":
       case "project_not_found":
         required("project_id");
         break;
-      case "catalog_limit":
-        required("project_id");
-        if (data.limit !== workflowLabelMaxIDs) {
-          context.addIssue({
-            code: "custom",
-            message: `limit must be ${String(workflowLabelMaxIDs)}`,
-            path: ["limit"],
-          });
-        }
-        break;
       case "label_not_found":
         required("label_id");
-        break;
-      case "task_not_found":
-        required("task_id");
         break;
       case "wrong_project":
         required("project_id");

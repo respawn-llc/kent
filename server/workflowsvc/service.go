@@ -353,12 +353,9 @@ func (s *Service) ListWorkflows(ctx context.Context, req *pb.ListRequest) (*pb.L
 		}
 		out = append(out, record)
 	}
-	var nextOffset *int32
+	var nextOffset *int64
 	if rows.NextOffset != nil {
-		offset, err := protoapi.Int32(*rows.NextOffset, "next_offset")
-		if err != nil {
-			return nil, err
-		}
+		offset := int64(*rows.NextOffset)
 		nextOffset = &offset
 	}
 	return &pb.ListSuccess{Workflows: out, ProjectId: rows.ProjectID, NextOffset: nextOffset}, nil
@@ -865,7 +862,7 @@ func workflowTaskCreateError(err error, projectID string) error {
 			Reason: serverapi.WorkflowTaskCreateConflictReasonSerialization,
 		}
 	}
-	return workflowLabelError(err, workflowLabelErrorScope{projectID: &projectID})
+	return workflowTaskLabelError(err, projectID)
 }
 
 func workflowTaskStartError(err error) error {

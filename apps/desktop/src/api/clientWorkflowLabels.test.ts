@@ -5,12 +5,35 @@ import { create } from "@app/server-api-contract";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { ContractError } from "./errors";
+import { ContractError, RpcError, WorkflowLabelError } from "./errors";
 import { taskLabelFilterPayload } from "./clientWorkflowLabels";
 const priorityID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const urgentID = "942495c2-5958-4959-8445-94046ad74fbd";
 const smallID = "11111111-1111-4111-8111-111111111111";
 describe("ApiClient workflow labels", () => {
+  it("keeps an unknown label error generic even when it carries a known detail", async () => {
+    const failure = create(wf.ProjectLabelCreateErrorSchema, {
+      code: "future_label_error",
+      detail: { case: "nameConflict", value: { projectId: "project-1" } },
+    });
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: wf.ProjectLabelService.method.create,
+        result: create(wf.ProjectLabelService.method.create.output, {
+          outcome: { case: "error", value: failure },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const error: unknown = await client
+      .createProjectLabel("project-1", "Priority")
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(RpcError);
+    expect(error).not.toBeInstanceOf(WorkflowLabelError);
+    if (!(error instanceof RpcError)) throw new Error("Expected generic RPC error");
+    expect(error.data).toEqual(failure);
+  });
+
   it("loads each Project Task-group definition exactly once", async () => {
     const definitions = [
       { group: "active", status_kinds: ["running", "active"] },

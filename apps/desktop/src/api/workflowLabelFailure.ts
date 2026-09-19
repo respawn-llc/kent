@@ -1,4 +1,4 @@
-import type { DescMethod } from "@app/server-api-contract";
+import { classifyResultFailure, type DescMethod } from "@app/server-api-contract";
 import type {
   ProjectLabelCatalogResult,
   ProjectLabelCreateResult,
@@ -36,6 +36,8 @@ type LabelInfo = Readonly<{
 
 export function throwWorkflowLabelFailure(method: DescMethod, outcome: LabelOutcome): void {
   if (outcome.case !== "error") return;
+  const rpcError = protobufRpcError(method, outcome.value);
+  if (classifyResultFailure(method.output, outcome.value).kind === "generic") throw rpcError;
   const { detail } = outcome.value;
   const info: LabelInfo | undefined =
     detail.case === "label"
@@ -44,7 +46,7 @@ export function throwWorkflowLabelFailure(method: DescMethod, outcome: LabelOutc
         ? { reason: "task_not_found" as const, taskID: detail.value.taskId }
         : projectLabelInfo(detail);
   if (info === undefined) return;
-  throw new WorkflowLabelError(protobufRpcError(method, outcome.value), {
+  throw new WorkflowLabelError(rpcError, {
     reason: info.reason,
     projectID: info.projectID ?? null,
     taskID: info.taskID ?? null,

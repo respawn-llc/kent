@@ -53,7 +53,7 @@ export async function listWorkflows(transport: DescriptorRpcTransport, input: Wo
     await transport.callDescriptor(
       method,
       create(method.input, {
-        offset: input.offset ?? 0,
+        offset: input.offset ?? 0n,
         limit: input.limit ?? workflowPageSize,
         projectId: input.projectID,
         query: input.query ?? "",
