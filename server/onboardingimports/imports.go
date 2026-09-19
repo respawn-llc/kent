@@ -310,8 +310,8 @@ func discoverDirectSkills(providerID ProviderID, root string) ([]Item, error) {
 	items := make([]Item, 0, len(entries))
 	for _, entry := range entries {
 		skillPath := filepath.Join(root, entry.Name(), skillcatalog.SkillFileName)
-		skill, ok := skillcatalog.ParseSkillMetadata(skillPath)
-		if !ok {
+		skill := skillcatalog.InspectSkillAtPath(entry.Name(), skillPath)
+		if !skill.Loaded() {
 			continue
 		}
 		info, err := os.Stat(skillPath)
@@ -369,7 +369,7 @@ func generatedSkillItems(configRoot string, policy brand.SkillPolicy) ([]Item, e
 	}
 	items := make([]Item, 0)
 	for _, skill := range inspections {
-		if skill.SourceKind != skillcatalog.SourceKindGenerated || !skill.Loaded {
+		if skill.SourceKind != skillcatalog.SourceKindGenerated || !skill.Loaded() {
 			continue
 		}
 		sourcePath := filepath.Dir(filepath.FromSlash(skill.Path))
@@ -515,8 +515,8 @@ func existingSkillNames(configRoot string, workspaceRoot *string) (map[string]bo
 			continue
 		}
 		for _, entry := range entries {
-			skill, ok := skillcatalog.ParseSkillMetadata(filepath.Join(root, entry.Name(), skillcatalog.SkillFileName))
-			if ok {
+			skill := skillcatalog.InspectSkillAtPath(entry.Name(), filepath.Join(root, entry.Name(), skillcatalog.SkillFileName))
+			if skill.Loaded() {
 				names[normalizeName(skill.Name)] = true
 			}
 		}

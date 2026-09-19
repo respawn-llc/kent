@@ -36,16 +36,20 @@ func InspectSkills(workspaceRoot, globalConfigDir string, policy config.SkillPol
 		return nil, err
 	}
 	inspections := make([]SkillInspection, 0, len(result.Inspections))
-	for _, inspection := range result.Inspections {
+	for _, inspection := range result.StatusInspections() {
+		var reason string
+		if inspection.Failure != nil {
+			reason = inspection.Failure.Reason
+		}
 		inspections = append(inspections, SkillInspection{
 			Name:        inspection.Name,
 			Description: inspection.Description,
 			Path:        inspection.Path,
 			SourceKind:  string(inspection.SourceKind),
-			Loaded:      inspection.Loaded,
+			Loaded:      inspection.Loaded(),
 			Disabled:    inspection.Disabled,
 			Shadowed:    inspection.Shadowed,
-			Reason:      inspection.Reason,
+			Reason:      reason,
 		})
 	}
 	return inspections, nil
