@@ -70,7 +70,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 		}
 		return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
 	}
-	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq)
+	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq, cfg.PersistenceRoot)
 	if err != nil {
 		if errors.Is(err, errStartupControlSurfaceNotRequired) {
 			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, !req.AllowUnauthenticated)
@@ -84,13 +84,8 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	return &ServeServer{deps: deps, cfg: cfg}, nil
 }
 
-func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request) (config.App, *startupGatewayDependencies, error) {
-	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
-	if err != nil {
-		return config.App{}, nil, err
-	}
-	cfg := resolved.Config
-	rootLease, err := core.AcquireRootLock(cfg.PersistenceRoot)
+func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request, persistenceRoot string) (config.App, *startupGatewayDependencies, error) {
+	rootLease, err := core.AcquireRootLock(persistenceRoot)
 	if err != nil {
 		return config.App{}, nil, err
 	}
@@ -99,7 +94,7 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 		_ = rootLease.Close()
 		return config.App{}, nil, err
 	}
-	cfg = refreshed.Config
+	cfg := refreshed.Config
 	if cfg.Source.SettingsFileExists() {
 		_ = rootLease.Close()
 		return config.App{}, nil, errStartupControlSurfaceNotRequired
