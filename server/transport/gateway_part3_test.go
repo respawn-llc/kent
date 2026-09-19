@@ -614,20 +614,6 @@ func callGatewayAuthCompleteBootstrap(
 	return result.GetSuccess()
 }
 
-func callGatewayAuthAcknowledgeNoAuth(
-	t *testing.T,
-	conn *websocket.Conn,
-	correlation string,
-) *authpb.NoAuthAcknowledgement {
-	t.Helper()
-	var result authpb.AcknowledgeNoAuthResult
-	callGatewayDescriptor(t, conn, correlation, gatewayAuthMethod(t, "AcknowledgeNoAuth"), &emptypb.Empty{}, &result)
-	if result.GetSuccess() == nil {
-		t.Fatalf("AcknowledgeNoAuth failed: %+v", result.GetError())
-	}
-	return result.GetSuccess()
-}
-
 func callGatewayAuthStatus(
 	t *testing.T,
 	conn *websocket.Conn,

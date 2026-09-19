@@ -225,7 +225,6 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  true,
 	}, nil)
 
 	if err != nil {

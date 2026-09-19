@@ -25,7 +25,6 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string, allowUnauthentic
 	daemon, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  allowUnauthenticated,
 	}, autoOnboarding)
 
 	if err != nil {

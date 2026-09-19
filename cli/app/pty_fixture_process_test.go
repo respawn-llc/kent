@@ -131,7 +131,6 @@ func serverStartupRequest(t *testing.T, workspaceRoot, persistenceRoot string) s
 	return serverstartup.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  true,
 		LoadOptions:           config.LoadOptions{ConfigRoot: persistenceRoot},
 	}
 }

@@ -1,14 +1,12 @@
 package sessionview
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -36,17 +34,6 @@ func (r *sessionChatContextWorkspaceResolver) Resolve(workspaceRoot string) (con
 	return app, nil
 }
 
-type sessionChatContextAuthReader struct {
-	state auth.State
-	err   error
-	calls int
-}
-
-func (r *sessionChatContextAuthReader) Load(context.Context) (auth.State, error) {
-	r.calls++
-	return r.state, r.err
-}
-
 func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	executionRoot := t.TempDir()
@@ -64,7 +51,6 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	settings.ContextCompactionThresholdTokens = 75_000
 	settings.CompactionMode = config.CompactionModeLocal
 	resolver := &sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)}
-	authReader := &sessionChatContextAuthReader{}
 	target := availableSessionExecutionTarget(executionRoot)
 	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
 		WithChatContextWorkspaceResolver(resolver)
@@ -87,9 +73,6 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	}
 	if len(resolver.roots) != 1 || resolver.roots[0] != executionRoot {
 		t.Fatalf("resolved roots = %v, want exact execution root %q", resolver.roots, executionRoot)
-	}
-	if authReader.calls != 1 {
-		t.Fatalf("auth Load calls = %d, want 1 for unlocked dormant Session", authReader.calls)
 	}
 }
 
@@ -137,7 +120,6 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 		},
 	}
 	resolver := &sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)}
-	authReader := &sessionChatContextAuthReader{err: errors.New("locked Session must not load current auth")}
 	service := NewService(
 		newTestSessionResolver(store),
 		nil,
@@ -152,9 +134,6 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 		got.AutomaticThresholdTokens != 110_000 ||
 		got.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_LOCAL {
 		t.Fatalf("locked/current result = %+v, want current role budget/mode and preserved provider capabilities", got)
-	}
-	if authReader.calls != 0 {
-		t.Fatalf("locked Session made %d auth loads, want 0", authReader.calls)
 	}
 }
 
@@ -212,7 +191,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 	}
 }
 
-func TestReadDormantSessionChatContextPropagatesLoadAndAuthFailures(t *testing.T) {
+func TestReadDormantSessionChatContextPropagatesLoadFailures(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", t.TempDir())
 	sessionID := sessionChatContextSessionID(t, store)
 	targets := staticExecutionTargetResolver{target: availableSessionExecutionTarget(t.TempDir())}
@@ -224,14 +203,6 @@ func TestReadDormantSessionChatContextPropagatesLoadAndAuthFailures(t *testing.T
 		t.Fatalf("load error = %v, want %v", err, loadErr)
 	}
 
-	authErr := errors.New("auth unavailable")
-	settings := config.DefaultOnboardingSettings()
-	service = NewService(newTestSessionResolver(store), nil, targets).
-		WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)})
-
-	if _, err := service.ReadSessionChatContext(t.Context(), sessionID); !errors.Is(err, authErr) {
-		t.Fatalf("auth error = %v, want %v", err, authErr)
-	}
 }
 
 func sessionChatContextSessionID(t *testing.T, store *session.Store) runtimeids.SessionID {

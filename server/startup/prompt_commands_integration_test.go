@@ -88,23 +88,22 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspaceConfigDir, "config.toml"), []byte(
-		"model = \"gpt-5\"\nopenai_base_url = \""+responseServer.URL()+"\"\n",
+		"model = \"gpt-5\"\n",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, responseServer.URL()))
 	server := startServeTestServer(t, Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		OpenAIBaseURL:         responseServer.URL(),
-		OpenAIBaseURLExplicit: true,
 		LoadOptions: config.LoadOptions{
-			Model:         "gpt-5",
-			OpenAIBaseURL: responseServer.URL(),
+			Model: "gpt-5",
 		},
 	}, envAuthHandler{}, nil)
-	if got := server.Config().Settings.OpenAIBaseURL; got != responseServer.URL() {
-		t.Fatalf("OpenAIBaseURL = %q, want %q", got, responseServer.URL())
+	connection, err := server.Config().Settings.SelectedConnection()
+	if err != nil || connection.Endpoint == nil || *connection.Endpoint != responseServer.URL() {
+		t.Fatalf("selected connection = %+v, error = %v", connection, err)
 	}
 	startServingTestServer(t, server)
 

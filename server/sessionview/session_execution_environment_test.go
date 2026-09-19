@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/worktree"
@@ -107,15 +108,15 @@ func TestSessionExecutionEnvironmentCompleteResponseIsReadOnly(t *testing.T) {
 						Kind:       authpb.ProviderKind_PROVIDER_KIND_OPENAI,
 						Identifier: "openai",
 					},
-					EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_UNSPECIFIED,
-					MethodFacts:   &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
+					ConnectionId: "test",
+					MethodFacts:  &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
 				}},
 			},
 			Subscription: &authpb.SubscriptionFacts{},
 		},
 	}
 	service := NewService(newTestSessionResolver(fixture.store), nil, fixture.metadata).
-		WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}}).
+		WithExecutionEnvironmentConfig(config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})}).
 		WithExecutionEnvironmentAuth(authClient).
 		WithExecutionEnvironmentGit(worktree.NewGitInspector(sessionExecutionEnvironmentGitRunner{
 			output: []byte("worktree " + fixture.workspaceRoot + "\nHEAD abc123\nbranch refs/heads/main\n\n"),
@@ -206,7 +207,7 @@ func TestSessionExecutionEnvironmentBranchProjection(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: test.target}).
-				WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}}).
+				WithExecutionEnvironmentConfig(config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})}).
 				WithExecutionEnvironmentGit(worktree.NewGitInspector(test.runner))
 			response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
 				SessionId: sessionID.String(),
@@ -252,7 +253,7 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 			newTestSessionResolver(store),
 			nil,
 			failingExecutionTargetResolver{err: errors.New("target unavailable")},
-		).WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}})
+		).WithExecutionEnvironmentConfig(config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})})
 		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
 			SessionId: sessionID.String(),
 		})
@@ -279,7 +280,7 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING,
 		}
 		service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: missingTarget}).
-			WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}})
+			WithExecutionEnvironmentConfig(config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})})
 		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
 			SessionId: sessionID.String(),
 		})
@@ -311,7 +312,7 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 	t.Run("auth lookup failure", func(t *testing.T) {
 		authClient := &sessionExecutionEnvironmentAuthClient{err: errors.New("auth unavailable")}
 		service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
-			WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}}).
+			WithExecutionEnvironmentConfig(config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})}).
 			WithExecutionEnvironmentAuth(authClient)
 		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
 			SessionId: sessionID.String(),
@@ -341,10 +342,17 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 
 	t.Run("non kent provider skips global auth", func(t *testing.T) {
 		authClient := &sessionExecutionEnvironmentAuthClient{err: errors.New("must not be called")}
+		store := newSessionViewStore(t, t.TempDir(), "workspace", t.TempDir())
+		sessionID := sessionExecutionEnvironmentSessionID(t, store)
+		if err := store.MarkModelDispatchLocked(session.LockedContract{
+			Model:            "claude-sonnet-4",
+			ProviderContract: session.LockedProviderCapabilities{ProviderID: "anthropic"},
+		}); err != nil {
+			t.Fatal(err)
+		}
 		service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
 			WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{
-				Model:            "claude-sonnet-4",
-				ProviderOverride: "anthropic",
+				Model: "claude-sonnet-4",
 			}}).
 			WithExecutionEnvironmentAuth(authClient)
 		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
@@ -378,7 +386,7 @@ func TestSessionExecutionEnvironmentModelFieldMapping(t *testing.T) {
 		{name: "invalid configuration", app: config.App{Settings: config.Settings{Model: "provider-unknown-model"}}, invalid: true},
 		{
 			name: "locked provider",
-			app:  config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}},
+			app:  config.App{Settings: testsetup.ProviderSettings(config.Settings{Model: "gpt-5.6-sol"})},
 			locked: &session.LockedContract{
 				Model: "claude-sonnet-4",
 				ProviderContract: session.LockedProviderCapabilities{
@@ -390,7 +398,7 @@ func TestSessionExecutionEnvironmentModelFieldMapping(t *testing.T) {
 		},
 		{
 			name:         "legacy partial lock",
-			app:          config.App{Settings: config.Settings{Model: "claude-sonnet-4", ProviderOverride: "anthropic"}},
+			app:          config.App{Settings: config.Settings{Model: "claude-sonnet-4"}},
 			locked:       &session.LockedContract{Model: "gpt-5.6-sol"},
 			wantName:     "gpt-5.6-sol",
 			wantProvider: "openai",

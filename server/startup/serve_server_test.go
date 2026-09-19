@@ -143,7 +143,6 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 		Request{
 			WorkspaceRoot:         workspace,
 			WorkspaceRootExplicit: true,
-			AllowUnauthenticated:  true,
 		},
 
 		nil)
@@ -465,8 +464,13 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 
 func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
 	workspace := newServeWorkspace(t)
+	writeServeSettings(t, os.Getenv("HOME"), `
+connection = "subscription"
+[connections.subscription]
+protocol = "chatgpt-codex"
+`)
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true},
 		envAuthHandler{lookupEnv: func(string) string { return "" }},
 		noopOnboarding,
 	)
@@ -503,7 +507,10 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
 model = "gpt-5"
-openai_base_url = "http://127.0.0.1:11434/v1"
+connection = "local"
+[connections.local]
+protocol = "responses"
+endpoint = "http://127.0.0.1:11434/v1"
 `)
 	configureServeTestServerPort(t)
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
@@ -515,7 +522,7 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 	}
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true},
 		envAuthHandler{lookupEnv: func(string) string { return "" }},
 		noopOnboarding,
 	)
@@ -530,7 +537,7 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 		t.Fatalf("decode readiness body: %v", err)
 	}
 	if body["ready"] != true || body["auth_ready"] != false {
-		t.Fatalf("readiness body = %+v, want ready with unavailable auth", body)
+		t.Fatalf("readiness body = %+v, want ready without credentials", body)
 	}
 }
 
@@ -595,6 +602,12 @@ func TestServeOnboardingHandlerReceivesCapabilityFactsClient(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
+	writeServeSettings(t, home, `
+connection = "local"
+[connections.local]
+protocol = "responses"
+endpoint = "http://127.0.0.1:11434/v1"
+`)
 
 	receivedFacts := false
 	onboarding := OnboardingHandler(func(ctx context.Context, req OnboardingRequest) (config.App, error) {
@@ -608,7 +621,13 @@ func TestServeOnboardingHandlerReceivesCapabilityFactsClient(t *testing.T) {
 		return req.Config, ErrOnboardingRequired
 	})
 
-	startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, onboarding)
+	server, err := StartServeServer(t.Context(), Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, onboarding)
+	if server != nil {
+		t.Cleanup(func() { _ = server.Close() })
+	}
+	if !errors.Is(err, ErrOnboardingRequired) {
+		t.Fatalf("StartServeServer = %v, want handler outcome", err)
+	}
 	if !receivedFacts {
 		t.Fatal("expected onboarding handler to receive capability facts")
 	}
@@ -620,6 +639,10 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
 model = "gpt-5"
+connection = "subscription"
+
+[connections.subscription]
+protocol = "chatgpt-codex"
 
 [subagents.coder]
 model = "coder-model"
@@ -632,7 +655,7 @@ model = "blocked-model"
 	registerServeWorkspace(t, workspace)
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true},
 		envAuthHandler{lookupEnv: func(string) string { return "" }},
 		noopOnboarding,
 	)

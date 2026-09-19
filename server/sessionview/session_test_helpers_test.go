@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/registry"
@@ -66,7 +67,8 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 		t.Fatalf("parse session id: %v", err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
+	root := t.TempDir()
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Model = "gpt-5"
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
@@ -88,7 +90,7 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	}
 	activity := registry.NewRuntimeRegistry()
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   t.TempDir(),
+		PersistenceRoot:   root,
 		StoreOptions:      sessionViewTestPersistence.Options(),
 		ResourceLifecycle: activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
