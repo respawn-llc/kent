@@ -1540,6 +1540,44 @@ func (q *Queries) DeleteWorktreeByID(ctx context.Context, id string) (int64, err
 	return result.RowsAffected()
 }
 
+const filterProjectSessionIDs = `-- name: FilterProjectSessionIDs :many
+SELECT DISTINCT session.id
+FROM json_each(CAST(?1 AS TEXT)) candidate
+CROSS JOIN sessions session
+    INDEXED BY sqlite_autoindex_sessions_1
+    ON session.id = CAST(candidate.value AS TEXT)
+WHERE session.project_id = ?2
+`
+
+type FilterProjectSessionIDsParams struct {
+	SessionIdsJson string
+	ProjectID      string
+}
+
+func (q *Queries) FilterProjectSessionIDs(ctx context.Context, arg FilterProjectSessionIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, filterProjectSessionIDs, arg.SessionIdsJson, arg.ProjectID)
+	err = recordQueryError(ctx, err, filterProjectSessionIDs, 2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := recordQueryError(ctx, rows.Scan(&id), filterProjectSessionIDs, 2); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := recordQueryError(ctx, rows.Close(), filterProjectSessionIDs, 2); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), filterProjectSessionIDs, 2); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getActiveProjectWorkflowLinkByWorkflow = `-- name: GetActiveProjectWorkflowLinkByWorkflow :one
 SELECT
     id,

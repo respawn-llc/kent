@@ -684,6 +684,20 @@ func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]
 	return s.queries.ListProjectSessionIDs(ctx, strings.TrimSpace(projectID))
 }
 
+func (s *Store) FilterProjectSessionIDs(ctx context.Context, projectID string, sessionIDs []string) ([]string, error) {
+	if s == nil || s.queries == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	sessionIDsJSON, err := json.Marshal(sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.queries.FilterProjectSessionIDs(ctx, sqlitegen.FilterProjectSessionIDsParams{
+		ProjectID:      strings.TrimSpace(projectID),
+		SessionIdsJson: string(sessionIDsJSON),
+	})
+}
+
 func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeID string, before *WorktreeSessionCursor) (WorktreeSessionPage, error) {
 	if s == nil || s.queries == nil {
 		return WorktreeSessionPage{}, errors.New("metadata store is required")

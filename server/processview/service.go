@@ -10,7 +10,7 @@ import (
 )
 
 type ProjectSessionMembership interface {
-	ListProjectSessionIDs(ctx context.Context, projectID string) ([]string, error)
+	FilterProjectSessionIDs(ctx context.Context, projectID string, sessionIDs []string) ([]string, error)
 }
 
 type ProcessViewService struct {
@@ -29,7 +29,16 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 	if s.membership == nil {
 		return nil, fmt.Errorf("project session membership is required")
 	}
-	projectSessionIDs, err := s.membership.ListProjectSessionIDs(ctx, req.ProjectId)
+	snapshots := s.processes.List()
+	ownerIDs := make([]string, 0, len(snapshots))
+	owners := make(map[string]struct{}, len(snapshots))
+	for _, snapshot := range snapshots {
+		if _, exists := owners[snapshot.OwnerSessionID]; !exists {
+			owners[snapshot.OwnerSessionID] = struct{}{}
+			ownerIDs = append(ownerIDs, snapshot.OwnerSessionID)
+		}
+	}
+	projectSessionIDs, err := s.membership.FilterProjectSessionIDs(ctx, req.ProjectId, ownerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +46,6 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 	for _, sessionID := range projectSessionIDs {
 		projectSessions[sessionID] = struct{}{}
 	}
-	snapshots := s.processes.List()
 	processes := make([]*processpb.BackgroundProcess, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if _, matchesProject := projectSessions[snapshot.OwnerSessionID]; !matchesProject {

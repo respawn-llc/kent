@@ -2176,6 +2176,14 @@ FROM sessions
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY rowid ASC;
 
+-- name: FilterProjectSessionIDs :many
+SELECT DISTINCT session.id
+FROM json_each(CAST(sqlc.arg(session_ids_json) AS TEXT)) candidate
+CROSS JOIN sessions session
+    INDEXED BY sqlite_autoindex_sessions_1
+    ON session.id = CAST(candidate.value AS TEXT)
+WHERE session.project_id = sqlc.arg(project_id);
+
 -- name: GetProjectDeleteBlockerCounts :one
 SELECT
     CAST((
