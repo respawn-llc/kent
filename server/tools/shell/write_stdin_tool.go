@@ -38,14 +38,6 @@ type WriteStdinTool struct {
 	background           *Manager
 }
 
-type writeStdinOutput struct {
-	Output              string `json:"output"`
-	BackgroundSessionID int    `json:"background_session_id,omitempty"`
-	BackgroundRunning   bool   `json:"background_running,omitempty"`
-	Backgrounded        bool   `json:"backgrounded,omitempty"`
-	BackgroundExitCode  *int   `json:"background_exit_code,omitempty"`
-}
-
 func NewWriteStdinTool(outputLimit int, contextWindowTokens int, background *Manager) *WriteStdinTool {
 	if outputLimit <= 0 {
 		outputLimit = defaultLimit
@@ -59,22 +51,22 @@ func NewWriteStdinTool(outputLimit int, contextWindowTokens int, background *Man
 
 func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	if t.background == nil {
-		return tools.ErrorResultWith(c, "write_stdin is not configured", marshalNoHTMLEscape), nil
+		return ErrorResult(c, "write_stdin is not configured"), nil
 	}
 	var in writeStdinInput
 	if err := json.Unmarshal(c.Input, &in); err != nil {
-		return tools.ErrorResultWith(c, fmt.Sprintf("invalid input: %v", err), marshalNoHTMLEscape), nil
+		return ErrorResult(c, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.SessionID <= 0 {
-		return tools.ErrorResultWith(c, "session_id is required", marshalNoHTMLEscape), nil
+		return ErrorResult(c, "session_id is required"), nil
 	}
 	yieldTime := defaultWriteYieldTime
 	if in.YieldTimeMS != nil {
 		if in.Chars == "" && *in.YieldTimeMS < minimumOutputPollWaitMS {
-			return tools.ErrorResultWith(c, shortOutputPollError, marshalNoHTMLEscape), nil
+			return ErrorResult(c, shortOutputPollError), nil
 		}
 		if in.Chars == "" && *in.YieldTimeMS > maximumOutputPollWaitMS {
-			return tools.ErrorResultWith(c, longOutputPollError, marshalNoHTMLEscape), nil
+			return ErrorResult(c, longOutputPollError), nil
 		}
 		yieldTime = writeStdinYieldDuration(*in.YieldTimeMS)
 	}
@@ -89,10 +81,10 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 		MaxOutputChars: maxChars,
 	})
 	if err != nil {
-		return tools.ErrorResultWith(c, formatToolCallError("write_stdin", err), marshalNoHTMLEscape), nil
+		return ErrorResult(c, formatToolCallError("write_stdin", err)), nil
 	}
 	if strings.TrimSpace(result.ToolError) != "" {
-		return tools.ErrorResultWith(c, formatToolError(result.Warning, result.ToolError), marshalNoHTMLEscape), nil
+		return ErrorResult(c, formatToolError(result.Warning, result.ToolError)), nil
 	}
 	presentation := shellResultPresentationDelta(
 		result.RawOutputRequested,
@@ -100,13 +92,8 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 		false,
 		result.ExitCode,
 	)
-	body, marshalErr := marshalNoHTMLEscape(writeStdinOutput{
-		Output:              formatExecResponse(result),
-		BackgroundSessionID: in.SessionID,
-		BackgroundRunning:   result.Running,
-		Backgrounded:        result.Backgrounded,
-		BackgroundExitCode:  textutil.Pointer(result.ExitCode),
-	})
+	modelVisibleOutput := formatExecResponse(result)
+	body, marshalErr := marshalNoHTMLEscape(modelVisibleOutput)
 	if marshalErr != nil {
 		return tools.Result{}, marshalErr
 	}
@@ -114,7 +101,7 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 	if result.Backgrounded && !result.Running && result.ExitCode != nil {
 		completedBackgroundSessionID = textutil.Value(in.SessionID)
 	}
-	if guarded, ok := t.oversizedOutputGuard.FailedResult(c, in.MaxOutputTokens, string(body), result.OutputPath, presentation); ok {
+	if guarded, ok := t.oversizedOutputGuard.FailedResult(c, in.MaxOutputTokens, modelVisibleOutput, result.OutputPath, presentation); ok {
 		guarded.CompletedBackgroundSessionID = completedBackgroundSessionID
 		return guarded, nil
 	}

@@ -163,9 +163,7 @@ func TestFreshResourceRepairIgnoresStalePendingStartWhileLiveRepairDefers(t *tes
 		t.Fatalf("fresh repair count = %d, want one despite stale pending start", repaired)
 	}
 	_, freshCompletion := repairCompletionRecord(t, freshStore, "fresh")
-	if !bytes.Equal(freshCompletion.Output, missingToolOutputUnavailableOutput) {
-		t.Fatalf("fresh repair selected non-neutral disposition: %s", freshCompletion.Output)
-	}
+	assertSyntheticFailureOutput(t, freshCompletion.Output, freshCompletion.Name, missingToolOutputUnavailableMessage)
 
 	live, liveStore := newDanglingEngine(t, "live")
 	restoreLiveStep := setTestActiveStep(live, stepID)
@@ -265,9 +263,7 @@ func assertFreshResourceRepairOnEngine(
 	if !found || !completion.IsError {
 		t.Fatalf("fresh repair completion for %q = %+v found=%t", callID, completion, found)
 	}
-	if !bytes.Equal(completion.Output, missingToolOutputUnavailableOutput) {
-		t.Fatalf("fresh repair output for %q = %s, want neutral disposition", callID, completion.Output)
-	}
+	assertSyntheticFailureOutput(t, completion.Output, string(completion.Name), missingToolOutputUnavailableMessage)
 	for _, live := range engine.transcriptRuntimeState().LiveToolSnapshot() {
 		if live.ToolCallID == callID {
 			t.Fatalf("fresh repair retained stale live tool start: %+v", live)

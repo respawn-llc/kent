@@ -23,6 +23,7 @@ const (
 	MessageTypeHandoffFutureMessage   MessageType = "handoff_future_message"
 	MessageTypeReviewerFeedback       MessageType = "reviewer_feedback"
 	MessageTypeBackgroundNotice       MessageType = "background_notice"
+	MessageTypeUserShellCommand       MessageType = "user_shell_command"
 	MessageTypeCustomToolCallOutput   MessageType = "custom_tool_call_output"
 	// MessageTypeCompactionPreservedUserMessage retains its legacy serialized
 	// value so existing Session logs remain readable without migration.
