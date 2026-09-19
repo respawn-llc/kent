@@ -70,7 +70,6 @@ func (i Inspection) Loaded() bool {
 }
 
 type Result struct {
-	Roots       []Root
 	Inspections []Inspection
 }
 
@@ -161,25 +160,15 @@ func Discover(opts Options) (Result, error) {
 			inspections[idx].Shadowed = true
 		}
 	}
-	return Result{Roots: roots, Inspections: inspections}, nil
+	return Result{Inspections: inspections}, nil
 }
 
 func DiscoverGenerated(configRoot string, policy brand.SkillPolicy) ([]Inspection, error) {
-	roots, err := Roots("", configRoot)
+	layout, err := prompts.GeneratedLayoutFor(configRoot)
 	if err != nil {
 		return nil, err
 	}
-	var generatedRoot *Root
-	for idx := range roots {
-		if roots[idx].Kind == SourceKindGenerated {
-			generatedRoot = &roots[idx]
-			break
-		}
-	}
-	if generatedRoot == nil {
-		return nil, nil
-	}
-	inspections, err := discoverEmbeddedGenerated(generatedRoot.Path)
+	inspections, err := discoverEmbeddedGenerated(layout.GeneratedSkillsRoot)
 	if err != nil {
 		return nil, err
 	}

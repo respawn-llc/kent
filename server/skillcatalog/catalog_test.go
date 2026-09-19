@@ -21,12 +21,6 @@ func TestDiscoverOrdersRootsAndReadsEmbeddedGeneratedWhenUnseeded(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(result.Roots) != 3 {
-		t.Fatalf("roots = %+v, want global/workspace/generated", result.Roots)
-	}
-	if result.Roots[0].Kind != SourceKindGlobal || result.Roots[1].Kind != SourceKindWorkspace || result.Roots[2].Kind != SourceKindGenerated {
-		t.Fatalf("root order = %+v", result.Roots)
-	}
 	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, globalSkillPath))
 	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, workspaceSkillPath))
 	generatedRoot := filepath.Join(root, ".generated", SkillsDirName)
@@ -57,9 +51,6 @@ func TestDiscoverDisabledSkillNamedEnabledStillEnumeratesCatalog(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
-	}
-	if len(result.Roots) != 2 {
-		t.Fatalf("roots = %+v, want global and generated roots", result.Roots)
 	}
 	disabledPath := canonicalSlashPath(t, enabledPath)
 	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, otherPath))
