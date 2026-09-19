@@ -2,6 +2,9 @@
 
 ## Authority And Scope
 
+- Chat must support non-Git workspaces. Confirmed absence of a Git repository must produce an empty Git Worktree inventory, not a whole-Chat failure. Genuine Git inspection failures must remain observable errors.
+- Transcript rows must use compact, consistent spacing, including skill guidance, developer context, and Goal nudges.
+
 - Desktop Sessions and Chat are thin remote-control surfaces. The Kent server is authoritative for Sessions, project and workspace scope, runtime activity, transcript history, ordinary Session drafts, Pending Work, prompts, goals, processes, worktrees, and durable state. Desktop owns the one best-effort locally saved New Chat text value before a Session exists.
 - Desktop provides the session-browser and chat capabilities available in the terminal product unless this specification explicitly excludes a capability.
 - Session discovery is always scoped to a selected Project; there is no unbounded all-Project session list.
