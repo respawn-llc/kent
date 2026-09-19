@@ -195,21 +195,21 @@ func sessionLaunchStringPtr(value string) *string {
 
 func newSessionLaunchTestService(cfg config.App, containerDir string) *Service {
 	return NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             serviceTestPersistence.Options(),
-		PersistedSessions:        serviceTestPersistence,
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: cfg.WorkspaceRoot},
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      serviceTestPersistence.Options(),
+		PersistedSessions: serviceTestPersistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 	})
 }
 
-type sessionLaunchBoundaryResolver struct{ root string }
+type sessionLaunchProjectResolver struct{}
 
-func (r sessionLaunchBoundaryResolver) ResolveSessionProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error) {
-	return metadata.ProjectWorkspaceBoundary{ProjectID: "test-project", Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: r.root}}}, nil
+func (sessionLaunchProjectResolver) ResolveSessionProjectID(context.Context, string) (string, error) {
+	return "test-project", nil
 }
 
-func (r sessionLaunchBoundaryResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
+func (sessionLaunchProjectResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
 	return nil, nil
 }
 
@@ -366,8 +366,8 @@ func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t
 			session.WithPersistedSessionResolver(persistence),
 			session.WithSessionContextFactWriter(persistence),
 		},
-		PersistedSessions:        persistence,
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: workspace},
+		PersistedSessions: persistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 	})
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
@@ -409,11 +409,11 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 		t.Fatalf("MkdirAll Session container: %v", err)
 	}
 	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        metadataStore,
-		ProjectWorkspaceBoundary: metadataStore,
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: metadataStore,
+		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
 	})
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
@@ -471,11 +471,11 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 	persistence := sessiontest.NewPersistence()
 	reloads := 0
 	service := NewService(launch.Planner{
-		Config:                   stale,
-		ContainerDir:             containerDir,
-		StoreOptions:             persistence.Options(),
-		PersistedSessions:        persistence,
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: workspace},
+		Config:            stale,
+		ContainerDir:      containerDir,
+		StoreOptions:      persistence.Options(),
+		PersistedSessions: persistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 		ReloadConfig: func() (config.App, error) {
 			reloads++
 			return current, nil
@@ -565,10 +565,10 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	}
 	reloads := 0
 	service := NewService(launch.Planner{
-		Config:                   snapshot,
-		ContainerDir:             t.TempDir(),
-		StoreOptions:             serviceTestPersistence.Options(),
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: snapshot.WorkspaceRoot},
+		Config:          snapshot,
+		ContainerDir:    t.TempDir(),
+		StoreOptions:    serviceTestPersistence.Options(),
+		SessionProjects: sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 		ReloadConfig: func() (config.App, error) {
 			reloads++
 			if reloads != 1 {
@@ -702,11 +702,11 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		},
 	}
 	service := NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: meta,
+		SessionProjects:   meta, ManagedWorktreeRoots: meta,
 	})
 	workflowCallerID := workflowCaller.Meta().SessionID
 	workflowCallerRuntimeID := mustSessionLaunchIntentID(t, workflowCallerID)
@@ -746,7 +746,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		}
 		service := NewService(launch.Planner{
 			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
-			PersistedSessions: meta, ProjectWorkspaceBoundary: meta,
+			PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
 		})
 		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
 		_, err := service.PlanLaunchSession(ctx, PlanRequest{

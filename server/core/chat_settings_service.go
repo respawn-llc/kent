@@ -219,7 +219,7 @@ func (s chatSettingsService) sessionSettingsService(
 	if err != nil {
 		return nil, err
 	}
-	boundary, err := store.ResolveSessionProjectWorkspaceBoundary(ctx, sessionID)
+	projectID, err := store.ResolveSessionProjectID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +233,8 @@ func (s chatSettingsService) sessionSettingsService(
 	}
 	return s.core.newSessionLaunchService(projectContext{
 		config:         projectCfg,
-		projectID:      boundary.ProjectID,
+		projectID:      projectID,
 		projectRoot:    effectiveRoot,
-		projectSession: filepath.Join(projectCfg.PersistenceRoot, "projects", boundary.ProjectID, "sessions"),
+		projectSession: filepath.Join(projectCfg.PersistenceRoot, "projects", projectID, "sessions"),
 	}), nil
 }

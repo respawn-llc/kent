@@ -124,7 +124,7 @@ func deleteActivityRuntimePlan(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(workdir, workdir, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(workdir, workdir, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}

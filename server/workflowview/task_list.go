@@ -53,7 +53,7 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 	if err != nil {
 		return serverapi.WorkflowTaskListResponse{}, err
 	}
-	if _, err := l.metadata.GetProjectOverview(ctx, projectID); err != nil {
+	if _, err := l.metadata.GetProjectEditMetadata(ctx, projectID); err != nil {
 		return serverapi.WorkflowTaskListResponse{}, err
 	}
 	labelFilter, err := resolveWorkflowTaskLabelFilter(ctx, l.queries, projectID, req.LabelFilter)
@@ -175,7 +175,7 @@ func (l *TaskList) CountGroups(ctx context.Context, req serverapi.WorkflowProjec
 	if err := req.ValidateRPC(); err != nil {
 		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
 	}
-	if _, err := l.metadata.GetProjectOverview(ctx, req.ProjectID); err != nil {
+	if _, err := l.metadata.GetProjectEditMetadata(ctx, req.ProjectID); err != nil {
 		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
 	}
 	observation, err := l.projection.Observe(nil)

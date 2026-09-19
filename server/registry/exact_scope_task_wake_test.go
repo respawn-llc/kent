@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -84,7 +83,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspaceRoot,
 		workspaceRoot,
-		metadata.ProjectWorkspaceBoundary{ProjectID: "exact-scope-test"},
+		"exact-scope-test",
 	)
 	if err != nil {
 		t.Fatalf("new filesystem context: %v", err)

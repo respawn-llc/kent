@@ -12,7 +12,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"
@@ -1072,7 +1071,7 @@ func (f currentNodeQuestionFixture) startAgentExecutionWithClient(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() askquestion.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}

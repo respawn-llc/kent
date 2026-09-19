@@ -1588,7 +1588,7 @@ func TestMaterializeInitialTaskWorktreeUsesTaskSourceWorkspace(t *testing.T) {
 
 func TestTaskSourceWorkspaceRetainsProjectPrimaryOutsideCollectionLimit(t *testing.T) {
 	env := newServiceTestEnv(t)
-	for index := 0; index < metadata.ProjectWorkspaceCollectionLimit; index++ {
+	for index := 0; index < 500; index++ {
 		if _, err := env.store.AttachWorkspaceToProject(env.ctx, env.binding.ProjectID, t.TempDir()); err != nil {
 			t.Fatalf("AttachWorkspaceToProject %d: %v", index, err)
 		}

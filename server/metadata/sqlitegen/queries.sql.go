@@ -1540,6 +1540,56 @@ func (q *Queries) DeleteWorktreeByID(ctx context.Context, id string) (int64, err
 	return result.RowsAffected()
 }
 
+const findContainingProjectWorkspace = `-- name: FindContainingProjectWorkspace :one
+SELECT p.id AS project_id,
+    w.id AS workspace_id,
+    w.canonical_root_path,
+    w.git_metadata_json,
+    w.created_at_unix_ms,
+    w.updated_at_unix_ms
+FROM projects p
+LEFT JOIN workspaces w ON w.id = (
+    SELECT candidate.id
+    FROM json_each(CAST(?1 AS TEXT)) ancestor
+    JOIN workspaces candidate
+      ON candidate.project_id = p.id
+     AND candidate.canonical_root_path = ancestor.value
+    ORDER BY CAST(ancestor.key AS INTEGER) DESC
+    LIMIT 1
+)
+WHERE p.id = ?2
+LIMIT 1
+`
+
+type FindContainingProjectWorkspaceParams struct {
+	AncestorsJson string
+	ProjectID     string
+}
+
+type FindContainingProjectWorkspaceRow struct {
+	ProjectID         string
+	WorkspaceID       sql.NullString
+	CanonicalRootPath sql.NullString
+	GitMetadataJson   sql.NullString
+	CreatedAtUnixMs   sql.NullInt64
+	UpdatedAtUnixMs   sql.NullInt64
+}
+
+func (q *Queries) FindContainingProjectWorkspace(ctx context.Context, arg FindContainingProjectWorkspaceParams) (FindContainingProjectWorkspaceRow, error) {
+	row := q.db.QueryRowContext(ctx, findContainingProjectWorkspace, arg.AncestorsJson, arg.ProjectID)
+	var i FindContainingProjectWorkspaceRow
+	err := recordQueryError(ctx, row.Scan(
+		&i.ProjectID,
+		&i.WorkspaceID,
+		&i.CanonicalRootPath,
+		&i.GitMetadataJson,
+		&i.CreatedAtUnixMs,
+		&i.UpdatedAtUnixMs,
+	), findContainingProjectWorkspace, 2)
+
+	return i, err
+}
+
 const getActiveProjectWorkflowLinkByWorkflow = `-- name: GetActiveProjectWorkflowLinkByWorkflow :one
 SELECT
     id,
@@ -1787,46 +1837,6 @@ func (q *Queries) GetProjectPrimaryWorkspaceID(ctx context.Context, projectID st
 	err := recordQueryError(ctx, row.Scan(&primary_workspace_id), getProjectPrimaryWorkspaceID, 1)
 
 	return primary_workspace_id, err
-}
-
-const getProjectSummary = `-- name: GetProjectSummary :one
-SELECT
-    p.id,
-    p.display_name,
-    p.project_key,
-    COALESCE(w.canonical_root_path, '') AS root_path,
-    CAST(COALESCE(COUNT(s.project_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM projects p
-LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
-LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-WHERE p.id = ?1
-GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
-LIMIT 1
-`
-
-type GetProjectSummaryRow struct {
-	ID                   string
-	DisplayName          string
-	ProjectKey           string
-	RootPath             string
-	SessionCount         int64
-	LatestActivityUnixMs int64
-}
-
-func (q *Queries) GetProjectSummary(ctx context.Context, projectID string) (GetProjectSummaryRow, error) {
-	row := q.db.QueryRowContext(ctx, getProjectSummary, projectID)
-	var i GetProjectSummaryRow
-	err := recordQueryError(ctx, row.Scan(
-		&i.ID,
-		&i.DisplayName,
-		&i.ProjectKey,
-		&i.RootPath,
-		&i.SessionCount,
-		&i.LatestActivityUnixMs,
-	), getProjectSummary, 1)
-
-	return i, err
 }
 
 const getProjectWorkflowLink = `-- name: GetProjectWorkflowLink :one
@@ -5078,50 +5088,6 @@ func (q *Queries) ListProjectWorkflowTaskActivity(ctx context.Context, projectID
 	return items, nil
 }
 
-const listProjectWorkspaceBoundary = `-- name: ListProjectWorkspaceBoundary :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path
-FROM workspaces w
-WHERE w.project_id = ?1
-ORDER BY w.created_at_unix_ms DESC, w.rowid DESC
-LIMIT ?2
-`
-
-type ListProjectWorkspaceBoundaryParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-}
-
-type ListProjectWorkspaceBoundaryRow struct {
-	ID       string
-	RootPath string
-}
-
-func (q *Queries) ListProjectWorkspaceBoundary(ctx context.Context, arg ListProjectWorkspaceBoundaryParams) ([]ListProjectWorkspaceBoundaryRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspaceBoundary, arg.ProjectID, arg.WorkspaceCollectionLimit)
-	err = recordQueryError(ctx, err, listProjectWorkspaceBoundary, 2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspaceBoundaryRow
-	for rows.Next() {
-		var i ListProjectWorkspaceBoundaryRow
-		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.RootPath), listProjectWorkspaceBoundary, 2); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspaceBoundary, 2); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaceBoundary, 2); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProjectWorkspaceCatalogPage = `-- name: ListProjectWorkspaceCatalogPage :many
 WITH catalog_page AS (
     SELECT
@@ -5187,152 +5153,6 @@ func (q *Queries) ListProjectWorkspaceCatalogPage(ctx context.Context, arg ListP
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaceCatalogPage, 3); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjectWorkspaces = `-- name: ListProjectWorkspaces :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms,
-    w.created_at_unix_ms AS attached_at_unix_ms,
-    w.id AS workspace_order_id
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = ?1
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT ?2
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = ?1
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms, w.created_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, latest_activity_unix_ms DESC, w.created_at_unix_ms ASC, w.rowid ASC
-`
-
-type ListProjectWorkspacesParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-}
-
-type ListProjectWorkspacesRow struct {
-	ID                   string
-	RootPath             string
-	IsPrimary            int64
-	SessionCount         int64
-	LatestActivityUnixMs int64
-	AttachedAtUnixMs     int64
-	WorkspaceOrderID     string
-}
-
-func (q *Queries) ListProjectWorkspaces(ctx context.Context, arg ListProjectWorkspacesParams) ([]ListProjectWorkspacesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspaces, arg.ProjectID, arg.WorkspaceCollectionLimit)
-	err = recordQueryError(ctx, err, listProjectWorkspaces, 2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspacesRow
-	for rows.Next() {
-		var i ListProjectWorkspacesRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.RootPath,
-			&i.IsPrimary,
-			&i.SessionCount,
-			&i.LatestActivityUnixMs,
-			&i.AttachedAtUnixMs,
-			&i.WorkspaceOrderID,
-		), listProjectWorkspaces, 2); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspaces, 2); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspaces, 2); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjectWorkspacesPage = `-- name: ListProjectWorkspacesPage :many
-SELECT
-    w.id,
-    w.canonical_root_path AS root_path,
-    CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END AS is_primary,
-    CAST(COALESCE(COUNT(s.workspace_id), 0) AS INTEGER) AS session_count,
-    COALESCE(MAX(s.updated_at_unix_ms), w.updated_at_unix_ms) AS latest_activity_unix_ms
-FROM workspaces w
-JOIN projects p ON p.id = w.project_id
-LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
-JOIN (
-    SELECT recent.id
-    FROM workspaces recent
-    WHERE recent.project_id = ?1
-    ORDER BY recent.created_at_unix_ms DESC, recent.rowid DESC
-    LIMIT ?2
-) recent_workspaces ON recent_workspaces.id = w.id
-WHERE w.project_id = ?1
-GROUP BY w.id, w.canonical_root_path, p.primary_workspace_id, w.updated_at_unix_ms
-ORDER BY CASE WHEN w.id = p.primary_workspace_id THEN 1 ELSE 0 END DESC, w.created_at_unix_ms DESC, w.rowid DESC
-LIMIT ?4
-OFFSET ?3
-`
-
-type ListProjectWorkspacesPageParams struct {
-	ProjectID                string
-	WorkspaceCollectionLimit int64
-	OffsetRows               int64
-	LimitRows                int64
-}
-
-type ListProjectWorkspacesPageRow struct {
-	ID                   string
-	RootPath             string
-	IsPrimary            int64
-	SessionCount         int64
-	LatestActivityUnixMs int64
-}
-
-func (q *Queries) ListProjectWorkspacesPage(ctx context.Context, arg ListProjectWorkspacesPageParams) ([]ListProjectWorkspacesPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectWorkspacesPage,
-		arg.ProjectID,
-		arg.WorkspaceCollectionLimit,
-		arg.OffsetRows,
-		arg.LimitRows,
-	)
-	err = recordQueryError(ctx, err, listProjectWorkspacesPage, 4)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProjectWorkspacesPageRow
-	for rows.Next() {
-		var i ListProjectWorkspacesPageRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.RootPath,
-			&i.IsPrimary,
-			&i.SessionCount,
-			&i.LatestActivityUnixMs,
-		), listProjectWorkspacesPage, 4); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listProjectWorkspacesPage, 4); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listProjectWorkspacesPage, 4); err != nil {
 		return nil, err
 	}
 	return items, nil

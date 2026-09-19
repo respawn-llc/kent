@@ -58,7 +58,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 	planner := launch.Planner{
 		Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()),
 		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
-		PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, ProjectWorkspaceBoundary: fixture.metadata,
+		PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, SessionProjects: fixture.metadata, ManagedWorktreeRoots: fixture.metadata,
 	}
 	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
 	if err != nil {
@@ -283,7 +283,7 @@ func TestOlderSessionAdoptsToolListAtCompactionBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		planner := launch.Planner{Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()), PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, ProjectWorkspaceBoundary: fixture.metadata}
+		planner := launch.Planner{Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()), PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata, SessionProjects: fixture.metadata, ManagedWorktreeRoots: fixture.metadata}
 		plan, err := planner.PlanSession(t.Context(), launch.SessionRequest{Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id)})
 		if err != nil {
 			t.Fatal(err)
@@ -1101,21 +1101,9 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord foreign workspace: %v", err)
 	}
-	for index := 0; index < metadata.ProjectWorkspaceCollectionLimit; index++ {
+	for index := 0; index < 500; index++ {
 		if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, t.TempDir()); err != nil {
 			t.Fatalf("AttachWorkspaceToProject filler %d: %v", index, err)
-		}
-	}
-	boundary, err := fixture.metadata.ResolveProjectWorkspaceBoundary(context.Background(), binding.ProjectId)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	if len(boundary.Workspaces) != metadata.ProjectWorkspaceCollectionLimit {
-		t.Fatalf("project workspace boundary count = %d, want %d", len(boundary.Workspaces), metadata.ProjectWorkspaceCollectionLimit)
-	}
-	for _, workspace := range boundary.Workspaces {
-		if workspace.CanonicalRoot == foreignRoot {
-			t.Fatal("foreign managed Worktree Workspace was not omitted from bounded Project collection")
 		}
 	}
 	target := filepath.Join(foreignRoot, "foreign.txt")
@@ -1256,9 +1244,10 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	}
 	t.Cleanup(func() { _ = background.Close() })
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		Background:      background,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:     fixture.config.PersistenceRoot,
+		WorkspaceMembership: fixture.metadata,
+		Background:          background,
+		StoreOptions:        fixture.metadata.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -1439,8 +1428,9 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 		t.Fatalf("SetName: %v", err)
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: appCfg.PersistenceRoot,
-		StoreOptions:    metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:     appCfg.PersistenceRoot,
+		WorkspaceMembership: metadataStore,
+		StoreOptions:        metadataStore.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

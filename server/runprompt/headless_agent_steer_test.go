@@ -126,11 +126,11 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   cfg,
-			ContainerDir:             containerDir,
-			StoreOptions:             storeOptions,
-			PersistedSessions:        meta,
-			ProjectWorkspaceBoundary: fixedProjectWorkspaceBoundaryResolver{root: workspace},
+			Config:            cfg,
+			ContainerDir:      containerDir,
+			StoreOptions:      storeOptions,
+			PersistedSessions: meta,
+			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
 			ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
 				WorkspaceRoot:    workspace,
 				CwdRelpath:       ".",

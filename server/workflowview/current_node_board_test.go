@@ -1,6 +1,7 @@
 package workflowview
 
 import (
+	"errors"
 	"testing"
 
 	"core/internal/testharness/testsetup"
@@ -10,6 +11,49 @@ import (
 	"core/server/workflowstore"
 	"core/shared/serverapi"
 )
+
+func TestBoardProjectRejectsMissingProject(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	_, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
+		ProjectID:   "missing-project",
+		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+	})
+	if !errors.Is(err, serverapi.ErrProjectNotFound) {
+		t.Fatalf("missing Project: %v", err)
+	}
+}
+
+func TestBoardProjectRejectsBrokenDefault(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	if _, err := fixture.metadata.DB().ExecContext(fixture.ctx, "UPDATE projects SET primary_workspace_id = '' WHERE id = ?", fixture.binding.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
+		ProjectID:   fixture.binding.ProjectID,
+		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+	}); err == nil {
+		t.Fatal("Board accepted a broken default")
+	}
+}
+
+func TestBoardProjectCountsAllAttachedWorkspaces(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	for i := 0; i < 500; i++ {
+		if _, err := fixture.metadata.AttachWorkspaceToProject(fixture.ctx, fixture.binding.ProjectID, t.TempDir()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
+		ProjectID:   fixture.binding.ProjectID,
+		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.Project.AttachedWorkspaceCount != 501 || board.Project.DefaultWorkspaceID != fixture.binding.WorkspaceID {
+		t.Fatalf("Project facts = %+v", board.Project)
+	}
+}
 
 func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)

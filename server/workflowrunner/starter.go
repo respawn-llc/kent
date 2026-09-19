@@ -957,8 +957,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
 ) (sessionruntime.AgentRuntimePlan, error) {
-	projectWorkspaceBoundary := prepared.plan.ProjectWorkspaceBoundary.Clone()
-	filesystemContext, err := runtimewire.NewFilesystemContext(prepared.root.EffectiveRoot(), prepared.root.EffectiveRoot(), projectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(prepared.root.EffectiveRoot(), prepared.root.EffectiveRoot(), input.Task.ProjectID)
 	if err != nil {
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
@@ -1135,7 +1134,7 @@ func (s *Starter) planCurrentNodeSession(
 			return launch.SessionPlan{}, false, err
 		}
 	}
-	planner := launch.Planner{Config: cfg, ContainerDir: containerDir, StoreOptions: s.storeOptions, PersistedSessions: s.metadata, ExecutionTargets: s.metadata, ProjectWorkspaceBoundary: s.metadata, MetadataStoreOpener: func(string) (launch.MetadataExecutionTargetStore, error) { return s.metadata, nil }}
+	planner := launch.Planner{Config: cfg, ContainerDir: containerDir, StoreOptions: s.storeOptions, PersistedSessions: s.metadata, ExecutionTargets: s.metadata, SessionProjects: s.metadata, ManagedWorktreeRoots: s.metadata, MetadataStoreOpener: func(string) (launch.MetadataExecutionTargetStore, error) { return s.metadata, nil }}
 	plan, err := planner.PlanSession(ctx, launch.SessionRequest{
 		Mode:                                launch.ModeHeadless,
 		Intent:                              intent,

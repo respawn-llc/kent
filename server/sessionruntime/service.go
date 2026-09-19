@@ -185,7 +185,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 	if err := context.Cause(ctx); err != nil {
 		return AgentRuntimePlan{}, err
 	}
-	projectWorkspaceBoundary, err := s.metadataStore.ResolveSessionProjectWorkspaceBoundary(ctx, sessionID)
+	projectID, err := s.metadataStore.ResolveSessionProjectID(ctx, sessionID)
 	if err != nil {
 		return AgentRuntimePlan{}, err
 	}
@@ -200,7 +200,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		root := target.Worktree.Root
 		currentWorktreeRoot = &root
 	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(target.EffectiveWorkdir, executionRoot, projectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(target.EffectiveWorkdir, executionRoot, projectID)
 	if err != nil {
 		return AgentRuntimePlan{}, err
 	}

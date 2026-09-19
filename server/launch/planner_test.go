@@ -603,11 +603,11 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		t.Fatalf("SetWorktreeReminderState parent: %v", err)
 	}
 	planner := Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        metadataStore,
-		ProjectWorkspaceBoundary: metadataStore,
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: metadataStore,
+		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
 	}
 
 	plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -667,15 +667,8 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if !clientui.SessionExecutionTargetsEqual(plan.ExecutionTarget, target) {
 		t.Fatalf("new child plan execution target = %+v, want %+v", plan.ExecutionTarget, target)
 	}
-	foundSibling := false
-	for _, workspace := range plan.ProjectWorkspaceBoundary.Workspaces {
-		if workspace.CanonicalRoot == canonicalSiblingWorkspace {
-			foundSibling = true
-			break
-		}
-	}
-	if !foundSibling {
-		t.Fatalf("interactive plan boundary = %+v, want sibling Workspace %q", plan.ProjectWorkspaceBoundary, canonicalSiblingWorkspace)
+	if plan.ProjectID != binding.ProjectID {
+		t.Fatalf("interactive plan Project = %q, want %q", plan.ProjectID, binding.ProjectID)
 	}
 	reopenedPlan, err := planner.PlanSession(ctx, SessionRequest{
 		Mode:   ModeInteractive,

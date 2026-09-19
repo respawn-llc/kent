@@ -630,12 +630,12 @@ func TestSessionLaunchClientForProjectWorkspaceRejectsInaccessibleProjectRoot(t 
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
-	overview, err := metadataStore.GetProjectOverview(context.Background(), binding.ProjectID)
+	workspace, err := metadataStore.ResolveProjectSourceWorkspace(context.Background(), binding.ProjectID)
 	if err != nil {
-		t.Fatalf("GetProjectOverview: %v", err)
+		t.Fatalf("ResolveProjectSourceWorkspace: %v", err)
 	}
-	if overview.Project.RootPath != binding.CanonicalRoot || overview.Project.Availability != clientui.ProjectAvailabilityInaccessible {
-		t.Fatalf("overview = %+v, want inaccessible root %q", overview.Project, binding.CanonicalRoot)
+	if workspace.CanonicalRootPath != binding.CanonicalRoot || metadata.PathAvailability(workspace.CanonicalRootPath) != clientui.ProjectAvailabilityInaccessible {
+		t.Fatalf("workspace = %+v, want inaccessible root %q", workspace, binding.CanonicalRoot)
 	}
 
 	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})

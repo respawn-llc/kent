@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,10 +9,20 @@ import (
 	"core/server/metadata/sqlitegen"
 )
 
+func (s *Store) ResolveSessionProjectID(ctx context.Context, sessionID string) (string, error) {
+	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(row.ProjectID) == "" {
+		return "", errors.New("Session Project identity is required")
+	}
+	return row.ProjectID, nil
+}
+
 // ResolveProjectSourceWorkspaceID resolves the Project's authoritative source
-// Workspace. The primary Workspace is checked directly so it remains
-// resolvable when it falls outside the bounded Workspace collection.
-func ResolveProjectSourceWorkspaceID(ctx context.Context, q *sqlitegen.Queries, projectID string) (string, error) {
+// Workspace through its exact default attachment.
+func ResolveProjectSourceWorkspaceID(ctx context.Context, q projectSourceWorkspaceQueries, projectID string) (string, error) {
 	if q == nil {
 		return "", errors.New("metadata queries are required")
 	}
@@ -23,35 +32,23 @@ func ResolveProjectSourceWorkspaceID(ctx context.Context, q *sqlitegen.Queries, 
 	}
 
 	primaryWorkspaceID, err := q.GetProjectPrimaryWorkspaceID(ctx, projectID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", err
-	}
-	if err == nil && strings.TrimSpace(primaryWorkspaceID) != "" {
-		primaryWorkspace, workspaceErr := q.GetWorkspaceByID(ctx, strings.TrimSpace(primaryWorkspaceID))
-		if workspaceErr == nil && strings.TrimSpace(primaryWorkspace.ProjectID) == projectID {
-			return strings.TrimSpace(primaryWorkspace.ID), nil
-		}
-		if workspaceErr != nil && !errors.Is(workspaceErr, sql.ErrNoRows) {
-			return "", workspaceErr
-		}
-	}
-
-	workspaces, err := q.ListProjectWorkspaces(ctx, sqlitegen.ListProjectWorkspacesParams{
-		ProjectID:                projectID,
-		WorkspaceCollectionLimit: int64(ProjectWorkspaceCollectionLimit),
-	})
 	if err != nil {
 		return "", err
 	}
-	for _, workspace := range workspaces {
-		if workspace.IsPrimary != 0 && strings.TrimSpace(workspace.ID) != "" {
-			return strings.TrimSpace(workspace.ID), nil
-		}
+	if strings.TrimSpace(primaryWorkspaceID) == "" {
+		return "", fmt.Errorf("project %q has no default Workspace", projectID)
 	}
-	for _, workspace := range workspaces {
-		if strings.TrimSpace(workspace.ID) != "" {
-			return strings.TrimSpace(workspace.ID), nil
-		}
+	primaryWorkspace, err := q.GetWorkspaceByID(ctx, primaryWorkspaceID)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("project %q has no source workspace", projectID)
+	if primaryWorkspace.ProjectID != projectID {
+		return "", fmt.Errorf("project %q default Workspace belongs to another Project", projectID)
+	}
+	return primaryWorkspace.ID, nil
+}
+
+type projectSourceWorkspaceQueries interface {
+	GetProjectPrimaryWorkspaceID(context.Context, string) (string, error)
+	GetWorkspaceByID(context.Context, string) (sqlitegen.Workspace, error)
 }

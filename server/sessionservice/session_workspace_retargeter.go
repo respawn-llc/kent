@@ -27,8 +27,6 @@ import (
 type sessionRetargetMetadata interface {
 	PlanSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetRequest) (metadata.SessionWorkspaceRetargetPlan, error)
 	CommitSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetPlan, time.Time) (metadata.SessionWorkspaceRetargetResult, error)
-	ResolveProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error)
-	ProjectWorkspaceAttached(context.Context, string, string) (bool, error)
 	ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 }
 
@@ -415,21 +413,7 @@ func (s *SessionWorkspaceRetargeter) targetFilesystemContext(
 	var target tools.FilesystemContext
 	var err error
 	if plan.CrossProject() {
-		targetBoundary, boundaryErr := s.metadata.ResolveProjectWorkspaceBoundary(ctx, plan.TargetProject.ID)
-		if boundaryErr != nil {
-			return tools.FilesystemContext{}, boundaryErr
-		}
-		attached, attachedErr := s.metadata.ProjectWorkspaceAttached(ctx, plan.TargetProject.ID, plan.TargetWorkspaceRoot)
-		if attachedErr != nil {
-			return tools.FilesystemContext{}, attachedErr
-		}
-		if !attached {
-			targetBoundary, _, err = targetBoundary.WithWorkspace(metadata.ProjectWorkspace{CanonicalRoot: plan.TargetWorkspaceRoot})
-			if err != nil {
-				return tools.FilesystemContext{}, err
-			}
-		}
-		target, err = runtimewire.NewFilesystemContext(plan.TargetExecutionRoot, plan.TargetExecutionRoot, targetBoundary)
+		target, err = runtimewire.NewFilesystemContext(plan.TargetExecutionRoot, plan.TargetExecutionRoot, plan.TargetProject.ID)
 	} else {
 		managed := previous.ManagedWorktree
 		if managed != nil {

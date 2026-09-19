@@ -2,7 +2,6 @@ package runtimewire
 
 import (
 	"core/prompts"
-	"core/server/metadata"
 	"core/server/runtimewire/toolcontracts"
 	"core/server/tools"
 	askquestion "core/server/tools"
@@ -33,6 +32,7 @@ type Logger interface {
 var errWorkspaceRootRequired = errors.New("workspace root is required")
 
 type LocalToolRuntimeContext struct {
+	WorkspacePermissions            *tools.WorkspacePermissions
 	FilesystemContext               tools.FilesystemContext
 	OwnerSessionID                  string
 	ExecutionCorrelation            *runtimeids.ExecutionCorrelation
@@ -80,6 +80,7 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		}
 		return patchtool.New(
 			ctx.FilesystemContext,
+			patchtool.WithWorkspacePermissions(ctx.WorkspacePermissions),
 			patchtool.WithAllowOutsideWorkspace(ctx.AllowNonCwdEdits),
 			patchtool.WithOutsideWorkspaceApprover(ctx.OutsideWorkspaceEditApprover),
 			patchtool.WithPathDenyPolicy(ctx.EditPathDenyPolicy),
@@ -90,6 +91,7 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		}
 		return edittool.New(
 			ctx.FilesystemContext,
+			edittool.WithWorkspacePermissions(ctx.WorkspacePermissions),
 			edittool.WithAllowOutsideWorkspace(ctx.AllowNonCwdEdits),
 			edittool.WithOutsideWorkspaceApprover(ctx.OutsideWorkspaceEditApprover),
 			edittool.WithPathDenyPolicy(ctx.EditPathDenyPolicy),
@@ -109,6 +111,7 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 			return nil, fmt.Errorf("view_image outside-workspace approver is unavailable")
 		}
 		opts := []readimagetool.Option{
+			readimagetool.WithWorkspacePermissions(ctx.WorkspacePermissions),
 			readimagetool.WithAllowOutsideWorkspace(ctx.AllowNonCwdEdits),
 			readimagetool.WithOutsideWorkspaceApprover(ctx.OutsideWorkspaceReadApprover),
 		}
@@ -165,6 +168,10 @@ func (b *LocalToolRegistryBinding) FilesystemContext() tools.FilesystemContext {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ctx.FilesystemContext.Clone()
+}
+
+func (b *LocalToolRegistryBinding) RetainExecutionTarget(root tools.FilesystemRoot) {
+	b.ctx.WorkspacePermissions.Retain(root)
 }
 
 // BindExecutionCorrelation binds the exact execution scope for subsequently constructed local tool handlers.
@@ -242,6 +249,7 @@ func localRuntimeHandlers(enabled []toolspec.ID, ctx LocalToolRuntimeContext) ([
 }
 
 type LocalToolRegistryOptions struct {
+	WorkspaceMembership      WorkspaceMembership
 	FilesystemContext        tools.FilesystemContext
 	OwnerSessionID           string
 	ExecutionCorrelation     *runtimeids.ExecutionCorrelation
@@ -301,6 +309,7 @@ func NewLocalToolRegistryBinding(opts LocalToolRegistryOptions) (*LocalToolRegis
 		return nil, nil, nil, fmt.Errorf("create local static tool registry: %w", err)
 	}
 	ctx := LocalToolRuntimeContext{
+		WorkspacePermissions:         tools.NewWorkspacePermissions(workspaceRootLookup(opts.WorkspaceMembership, opts.Debug)),
 		FilesystemContext:            opts.FilesystemContext.Clone(),
 		OwnerSessionID:               opts.OwnerSessionID,
 		ExecutionCorrelation:         opts.ExecutionCorrelation,
@@ -313,8 +322,8 @@ func NewLocalToolRegistryBinding(opts LocalToolRegistryOptions) (*LocalToolRegis
 		BackgroundShellManager:       background,
 		ShellPostprocessor:           opts.ShellPostprocessor,
 		TriggerHandoffController:     opts.TriggerHandoffController,
-		OutsideWorkspaceEditApprover: patchOutsideWorkspaceApprover.Approve,
-		OutsideWorkspaceReadApprover: readOutsideWorkspaceApprover.Approve,
+		OutsideWorkspaceEditApprover: patchOutsideWorkspaceApprover,
+		OutsideWorkspaceReadApprover: readOutsideWorkspaceApprover,
 		EditPathDenyPolicy:           editPathDenyPolicy,
 		ViewImageOutsideWorkspaceLogger: readimagetool.OutsideWorkspaceAuditLogger(func(entry readimagetool.OutsideWorkspaceAudit) {
 			if opts.Logger == nil {
@@ -339,29 +348,16 @@ func NewLocalToolRegistryBinding(opts LocalToolRegistryOptions) (*LocalToolRegis
 	return binding, broker, background, nil
 }
 
-func NewFilesystemContext(workdir string, targetRoot string, boundary metadata.ProjectWorkspaceBoundary) (tools.FilesystemContext, error) {
-	normalizedBoundary, err := boundary.Normalize()
-	if err != nil {
-		return tools.FilesystemContext{}, err
+func NewFilesystemContext(workdir string, targetRoot string, projectID string) (tools.FilesystemContext, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return tools.FilesystemContext{}, errors.New("Project identity is required")
 	}
 	working, target, err := validatedFilesystemRoots(workdir, targetRoot)
 	if err != nil {
 		return tools.FilesystemContext{}, err
 	}
-	scope := tools.ProjectWorkspaceScope{ProjectID: normalizedBoundary.ProjectID, Roots: make([]tools.ProjectWorkspaceRoot, 0, len(normalizedBoundary.Workspaces))}
-	for _, workspace := range normalizedBoundary.Workspaces {
-		root := strings.TrimSpace(workspace.CanonicalRoot)
-		resolvedFilesystemRoot, err := secondaryRootForPath(workspace)
-		if err != nil {
-			return tools.FilesystemContext{}, fmt.Errorf("resolve project workspace %q: %w", root, err)
-		}
-		scope.Roots = append(scope.Roots, tools.ProjectWorkspaceRoot{
-			WorkspaceID:    workspace.WorkspaceID,
-			FilesystemRoot: resolvedFilesystemRoot,
-		})
-	}
 	return tools.FilesystemContext{Access: tools.FileAccessScope{
-		WorkingDirectory: working, ExecutionTargetRoot: target, ProjectWorkspace: scope,
+		WorkingDirectory: working, ExecutionTargetRoot: target, ProjectID: projectID,
 	}}, nil
 }
 
@@ -411,15 +407,8 @@ func validateFilesystemContext(context tools.FilesystemContext) error {
 	if err := tools.ValidateFileAccessScope(context.Access); err != nil {
 		return errors.Join(errWorkspaceRootRequired, err)
 	}
-	if strings.TrimSpace(context.Access.ProjectWorkspace.ProjectID) == "" {
+	if strings.TrimSpace(context.Access.ProjectID) == "" {
 		return errors.New("project workspace project id is required")
-	}
-	if len(context.Access.ProjectWorkspace.Roots) > metadata.ProjectWorkspaceCollectionLimit {
-		return fmt.Errorf(
-			"project workspace boundary contains %d roots, maximum is %d",
-			len(context.Access.ProjectWorkspace.Roots),
-			metadata.ProjectWorkspaceCollectionLimit,
-		)
 	}
 	if context.Access.WorkingDirectory.Info == nil || context.Access.ExecutionTargetRoot.Info == nil {
 		return fmt.Errorf("%w: required filesystem root is unavailable", os.ErrNotExist)
@@ -431,24 +420,7 @@ func validateFilesystemContext(context tools.FilesystemContext) error {
 	if !inside {
 		return errors.New("working directory is outside execution target root")
 	}
-	for _, workspace := range context.Access.ProjectWorkspace.Roots {
-		if strings.TrimSpace(workspace.LexicalPath) == "" || strings.TrimSpace(workspace.RealPath) == "" {
-			return errors.New("project workspace filesystem root is invalid")
-		}
-	}
 	return nil
-}
-
-func secondaryRootForPath(workspace metadata.ProjectWorkspace) (tools.FilesystemRoot, error) {
-	root := strings.TrimSpace(workspace.CanonicalRoot)
-	if root == "" {
-		return tools.FilesystemRoot{}, errors.New("filesystem root is required")
-	}
-	resolved, err := trustedRootForPath(root)
-	if err != nil {
-		return tools.FilesystemRoot{}, err
-	}
-	return resolved, nil
 }
 
 func trustedRootForPath(root string) (tools.FilesystemRoot, error) {
