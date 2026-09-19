@@ -36,7 +36,11 @@ export function createChatMessageEditViewModel({
         fork: ChatForkEditInput;
         onSuccess: ChatMessageEditActivation["onSuccess"];
       }>,
-    ) => api.forkEdit(input.target, input.fork),
+    ) => {
+      const sessionID = await api.forkEdit(input.target, input.fork);
+      await api.persistDraft({ projectID: input.target.projectID, sessionID }, input.fork.initialInput, null);
+      return sessionID;
+    },
     retry: false,
     networkMode: "always",
     onSuccess: async (sessionID, input) => {

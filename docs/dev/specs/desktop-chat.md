@@ -212,6 +212,7 @@
 - The child inherits the TUI fork contract: execution context, locked contract, continuation context, worktree-reminder state, previous-Session lineage, and parent-agent ancestry. Goal inheritance follows the Rollback Picker contract.
 - The server names the child `<parent name or Session ID> → edit u<N>`. Desktop adds no naming field.
 - After creation, Chat must navigate through the navigation stack to the child Session at latest and focus its ordinary composer. The child draft must contain the selected original user-message text followed by one blank line and the parent's existing composer draft, preserving both texts verbatim. When the parent draft is empty, Chat must omit the separator. The parent draft must remain unchanged. Editing and submission then use the normal child-Session composer flow.
+- Desktop must persist the captured child draft before navigating to the child. A draft-save failure must leave the parent open with its draft unchanged and show ordinary failure feedback; it must not roll back the created child. The server's ordinary fork transition remains unchanged.
 - Fork failure leaves the operator in the unchanged parent Session and surfaces the authoritative diagnostic through Sonner. Desktop creates no optimistic child route or local fork state.
 - `To parent chat` follows the child's previous-Session lineage and opens the parent at latest. Parent-agent lineage remains omitted from ordinary Chat.
 
