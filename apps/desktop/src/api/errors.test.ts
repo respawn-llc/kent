@@ -101,7 +101,7 @@ describe("workflow label RPC errors", () => {
     const rpcError = new RpcError({
       code: -32031,
       message: "the same display-only message",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
         reason,
@@ -120,12 +120,12 @@ describe("workflow label RPC errors", () => {
     const missing = new RpcError({
       code: -32031,
       message: "generic",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
     });
     const malformed = new RpcError({
       code: -32031,
       message: "generic",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
         reason: "catalog_limit",

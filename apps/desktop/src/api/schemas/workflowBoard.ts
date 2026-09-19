@@ -26,7 +26,6 @@ import type {
   TaskStartResponse,
   WorkflowExecutionTargetSelectionRequirement,
   WorkflowBoard,
-  ProjectWorkflowLink,
 } from "../models";
 import {
   attentionItemSchema,
@@ -44,7 +43,6 @@ import {
   workflowIDSchema,
   workspaceSummarySchema,
 } from "./common";
-import { emptyArray } from "./workflowHelpers";
 import { workflowExecutionTargetSchema } from "./workflowExecutionTarget";
 import { labelIDListSchema } from "./workflowLabels";
 import { taskDependenciesSchema } from "./taskDependencies";
@@ -402,29 +400,6 @@ export const taskApproveResponseSchema: z.ZodType<TaskApproveResponse> = z.discr
     ),
   selectionRequiredResponseSchema,
 ]);
-
-export const projectWorkflowLinksSchema: z.ZodType<readonly ProjectWorkflowLink[]> = z
-  .object({
-    links: z
-      .array(
-        z
-          .object({
-            id: z.string(),
-            project_id: z.string(),
-            workflow_id: workflowIDSchema,
-            default: z.boolean(),
-          })
-          .transform((value) => ({
-            id: value.id,
-            projectID: value.project_id,
-            workflowID: value.workflow_id,
-            isDefault: value.default,
-          })),
-      )
-      .nullish()
-      .transform(emptyArray),
-  })
-  .transform((value) => value.links);
 
 export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
   .object({

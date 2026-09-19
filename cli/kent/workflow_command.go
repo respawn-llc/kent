@@ -14,12 +14,15 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	protoapi "core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/workflowkey"
 
 	"github.com/google/uuid"
+	proto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -29,9 +32,9 @@ const (
 
 // workflowListOutput is the machine-readable shape of `workflow list --json`.
 type workflowListOutput struct {
-	Workflows  []serverapi.WorkflowRecord `json:"workflows"`
-	ProjectID  *string                    `json:"project_id,omitempty"`
-	NextOffset *int                       `json:"next_offset,omitempty"`
+	Workflows  []workflowRecordJSON `json:"workflows"`
+	ProjectID  *string              `json:"project_id,omitempty"`
+	NextOffset *int32               `json:"next_offset,omitempty"`
 }
 
 // workflowNodeOutput is the machine-readable shape of `workflow node add/update --json`.
@@ -174,14 +177,14 @@ func workflowUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, "workflow update requires at least one of --name, --description, or --execution-target")
 		return 2
 	}
-	var targetPolicy *serverapi.WorkflowExecutionTargetConfiguration
+	var targetPolicy *pb.ExecutionTargetConfiguration
 	if flagExplicit(fs, "execution-target") {
 		parsed, err := parseWorkflowExecutionTargetPolicySelector(*executionTargetRaw)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		targetPolicy = &parsed
+		targetPolicy = parsed
 	}
 	selector, err := parseWorkflowSelector(positionals[0])
 	if err != nil {
@@ -194,7 +197,7 @@ func workflowUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		metadata := serverapi.WorkflowGraphMetadata{
+		metadata := &pb.GraphMetadata{
 			Name:                  def.Workflow.Name,
 			Description:           def.Workflow.Description,
 			ExecutionTargetPolicy: targetPolicy,
@@ -207,11 +210,11 @@ func workflowUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-			WorkflowID:      def.Workflow.ID,
+		resp, err := remote.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+			WorkflowId:      def.Workflow.Id,
 			ExpectedVersion: def.Workflow.Version,
-			Metadata:        &metadata,
-			Graph:           serverapi.WorkflowGraphDraftFromDefinition(def),
+			Metadata:        metadata,
+			Graph:           protoapi.WorkflowGraphDraftFromDefinition(def),
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -253,7 +256,7 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: name, Description: *description})
+		resp, err := remote.CreateWorkflow(ctx, &pb.CreateRequest{Name: name, Description: *description})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -293,6 +296,12 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	offsetValue, err := protoapi.Int32(*offset, "offset")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	limitValue := int32(*limit)
 	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
 		var projectID *string
 		if projectProvided {
@@ -303,7 +312,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			}
 			projectID = &resolved
 		}
-		response, err := listWorkflowPage(context.Background(), remote, serverapi.WorkflowListRequest{Offset: offset, Limit: limit, ProjectID: projectID})
+		response, err := listWorkflowPage(context.Background(), remote, &pb.ListRequest{Offset: &offsetValue, Limit: &limitValue, ProjectId: projectID})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -321,7 +330,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 func writeWorkflowListResponse(
 	stdout io.Writer,
 	stderr io.Writer,
-	response serverapi.WorkflowListResponse,
+	response *pb.ListSuccess,
 	expected workflowListExpectedScope,
 	jsonOut bool,
 ) int {
@@ -330,26 +339,26 @@ func writeWorkflowListResponse(
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if err := validateWorkflowListProjectMetadata(expected, response.ProjectID, workflows); err != nil {
+	if err := validateWorkflowListProjectMetadata(expected, response.ProjectId, response.Workflows); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if jsonOut {
 		return writeCommandJSON(stdout, stderr, workflowListOutput{
 			Workflows:  workflows,
-			ProjectID:  response.ProjectID,
+			ProjectID:  response.ProjectId,
 			NextOffset: response.NextOffset,
 		})
 	}
 	for _, workflow := range workflows {
-		if response.ProjectID != nil {
+		if response.ProjectId != nil {
 			fmt.Fprintf(stdout, "%s: %s (v%d; %s; target %s)\n", workflow.ID, workflow.Name, workflow.Version, workflowProjectLinkState(workflow.ProjectLink), workflowExecutionTargetPolicySelector(workflow.ExecutionTargetPolicy))
 			continue
 		}
 		fmt.Fprintf(stdout, "%s: %s (v%d)\n", workflow.ID, workflow.Name, workflow.Version)
 	}
 	if response.NextOffset != nil {
-		if err := writeNextOffset(stderr, *response.NextOffset); err != nil {
+		if err := writeNextOffset(stderr, int(*response.NextOffset)); err != nil {
 			return 1
 		}
 	}
@@ -365,14 +374,14 @@ type workflowListExpectedScope struct {
 	ProjectID *string
 }
 
-func validateWorkflowListProjectMetadata(expected workflowListExpectedScope, responseProjectID *string, workflows []serverapi.WorkflowRecord) error {
+func validateWorkflowListProjectMetadata(expected workflowListExpectedScope, responseProjectID *string, workflows []*pb.WorkflowRecord) error {
 	if expected.ProjectID == nil {
 		if responseProjectID != nil {
 			return fmt.Errorf("global workflow list response unexpectedly contains project_id %q", *responseProjectID)
 		}
 		for _, workflow := range workflows {
 			if workflow.ProjectLink != nil {
-				return fmt.Errorf("global workflow list response workflow %q contains project_link metadata", workflow.ID)
+				return fmt.Errorf("global workflow list response workflow %q contains project_link metadata", workflow.Id)
 			}
 		}
 		return nil
@@ -385,13 +394,13 @@ func validateWorkflowListProjectMetadata(expected workflowListExpectedScope, res
 	}
 	for _, workflow := range workflows {
 		if workflow.ProjectLink == nil {
-			return fmt.Errorf("project workflow list response workflow %q is missing project_link metadata", workflow.ID)
+			return fmt.Errorf("project workflow list response workflow %q is missing project_link metadata", workflow.Id)
 		}
 	}
 	return nil
 }
 
-func workflowProjectLinkState(link *serverapi.WorkflowListProjectLink) string {
+func workflowProjectLinkState(link *workflowListProjectLinkJSON) string {
 	if link.Default {
 		return "default"
 	}
@@ -447,24 +456,42 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		node := serverapi.WorkflowGraphDraftNode{
-			ID:             nodeID,
-			Key:            *key,
-			Kind:           *kind,
-			DisplayName:    *displayName,
-			SubagentRole:   *agent,
-			CompletionMode: *completionMode,
-			ScriptPath:     workflowScriptPathFlagValue(fs, "script-path", *scriptPath),
+		node := &pb.GraphDraftNode{
+			Id:          nodeID,
+			Key:         *key,
+			DisplayName: *displayName,
+			ScriptPath:  workflowScriptPathFlagValue(fs, "script-path", *scriptPath),
+		}
+		node.Kind, err = protoapi.WorkflowNodeKind.Encode(*kind)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if *agent != "" {
+			node.SubagentRole = agent
+		}
+		if *completionMode != "" {
+			mode, err := protoapi.WorkflowCompletionMode.Encode(*completionMode)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			node.CompletionMode = &mode
 		}
 		added, result, err := runWorkflowGraphMutation(ctx, remote, selector, addWorkflowNodeDraftMutation(node))
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: added.ID, Key: added.Key, Kind: added.Kind, ScriptPath: added.ScriptPath, Version: result.Version})
+		projected, err := workflowDocumentNode(added)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
 		}
-		fmt.Fprintf(stdout, "Added %s node `%s` (%s).\n", added.Kind, added.Key, added.ID)
+		if *jsonOut {
+			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: added.Id, Key: added.Key, Kind: projected.Kind, ScriptPath: added.ScriptPath, Version: result.Version})
+		}
+		fmt.Fprintf(stdout, "Added %s node `%s` (%s).\n", projected.Kind, added.Key, added.Id)
 		return 0
 	})
 }
@@ -520,8 +547,13 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+		projected, err := workflowDocumentNode(updated)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, ScriptPath: updated.ScriptPath, Version: result.Version})
+			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: updated.Id, Key: updated.Key, Kind: projected.Kind, ScriptPath: updated.ScriptPath, Version: result.Version})
 		}
 		fmt.Fprintf(stdout, "Updated node `%s`.\n", updated.Key)
 		return 0
@@ -605,17 +637,23 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	parsedAssigneeParam, err := parseWorkflowProtectedParameterFlag(fs, "target-assignee-param", *targetAssigneeParam, "target_assignee")
+	parsedAssigneeParam, err := parseWorkflowProtectedParameterFlag(fs, "target-assignee-param", *targetAssigneeParam, pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	parsedThinkingParam, err := parseWorkflowProtectedParameterFlag(fs, "target-thinking-param", *targetThinkingParam, "target_thinking")
+	parsedThinkingParam, err := parseWorkflowProtectedParameterFlag(fs, "target-thinking-param", *targetThinkingParam, pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_THINKING)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	parsedParameters, err = workflowEdgeParametersForAdd(parsedParameters, parsedAssigneeSelection, parsedThinkingSelection, parsedAssigneeParam, parsedThinkingParam)
+	assigneeCode, assigneeErr := protoapi.WorkflowAssigneeSelection.Encode(parsedAssigneeSelection)
+	thinkingCode, thinkingErr := protoapi.WorkflowThinkingSelection.Encode(parsedThinkingSelection)
+	if err := errors.Join(assigneeErr, thinkingErr); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	parsedParameters, err = workflowEdgeParametersForAdd(parsedParameters, assigneeCode, thinkingCode, parsedAssigneeParam, parsedThinkingParam)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -628,6 +666,11 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	edgeID := uuid.NewString()
 	newTransitionGroupID := uuid.NewString()
 	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+		mode, err := protoapi.WorkflowContextMode.Encode(*contextMode)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		added, result, err := runWorkflowGraphMutation(ctx, remote, selector, addWorkflowEdgeDraftMutation(workflowEdgeAddDraftMutation{
@@ -639,12 +682,12 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 				Value: strings.TrimSpace(*transitionDescription),
 			},
 			TargetNodeKey: *toKey,
-			Edge: serverapi.WorkflowGraphDraftEdge{
-				ID:                edgeID,
+			Edge: &pb.GraphDraftEdge{
+				Id:                edgeID,
 				Key:               *edgeKey,
-				AssigneeSelection: parsedAssigneeSelection,
-				ThinkingSelection: parsedThinkingSelection,
-				ContextMode:       *contextMode,
+				AssigneeSelection: assigneeCode,
+				ThinkingSelection: thinkingCode,
+				ContextMode:       mode,
 				ContextSource:     parsedContextSource,
 				RequiresApproval:  *requiresApproval,
 				PromptTemplate:    *prompt,
@@ -656,9 +699,14 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: added.Edge.ID, TransitionGroupID: added.Group.ID, Key: added.Edge.Key, TransitionID: added.Group.TransitionID, Version: result.Version})
+			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: added.Edge.Id, TransitionGroupID: added.Group.Id, Key: added.Edge.Key, TransitionID: added.Group.TransitionId, Version: result.Version})
 		}
-		fmt.Fprintf(stdout, "Added edge `%s` (%s) on transition `%s`: `%s` → `%s` (%s).\n", added.Edge.Key, added.Edge.ID, added.Group.TransitionID, *fromKey, *toKey, workflowEdgeContextDetail(added.Edge.ContextMode, added.Edge.RequiresApproval, added.Edge.ContextSource))
+		projected, err := workflowDocumentEdge(added.Edge)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Added edge `%s` (%s) on transition `%s`: `%s` → `%s` (%s).\n", added.Edge.Key, added.Edge.Id, added.Group.TransitionId, *fromKey, *toKey, workflowEdgeContextDetail(projected.ContextMode, added.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})
 }
@@ -709,12 +757,12 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		parsedThinkingSelection = &value
 	}
-	assigneeParam, err := parseWorkflowProtectedParameterFlag(fs, "target-assignee-param", *targetAssigneeParam, "target_assignee")
+	assigneeParam, err := parseWorkflowProtectedParameterFlag(fs, "target-assignee-param", *targetAssigneeParam, pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	thinkingParam, err := parseWorkflowProtectedParameterFlag(fs, "target-thinking-param", *targetThinkingParam, "target_thinking")
+	thinkingParam, err := parseWorkflowProtectedParameterFlag(fs, "target-thinking-param", *targetThinkingParam, pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_THINKING)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -723,9 +771,9 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, "use either --param or --clear-params, not both")
 		return 2
 	}
-	var ordinaryParameters *[]serverapi.WorkflowParameter
+	var ordinaryParameters *[]*pb.Parameter
 	if *clearParams {
-		values := []serverapi.WorkflowParameter{}
+		values := []*pb.Parameter{}
 		ordinaryParameters = &values
 	} else if flagExplicit(fs, "param") {
 		values, err := parseWorkflowParameters(params)
@@ -735,14 +783,14 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		ordinaryParameters = &values
 	}
-	var parsedContextSource *serverapi.WorkflowContextSource
+	var parsedContextSource *pb.ContextSource
 	if strings.TrimSpace(*contextSource) != "" {
 		value, err := parseWorkflowContextSourceSelector(*contextSource)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		parsedContextSource = &value
+		parsedContextSource = value
 	}
 	update := workflowEdgeUpdateDraftMutation{
 		EdgeID:                  positionals[1],
@@ -796,9 +844,14 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: updated.Edge.ID, TransitionGroupID: updated.Group.ID, Key: updated.Edge.Key, TransitionID: updated.Group.TransitionID, Version: result.Version})
+			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: updated.Edge.Id, TransitionGroupID: updated.Group.Id, Key: updated.Edge.Key, TransitionID: updated.Group.TransitionId, Version: result.Version})
 		}
-		fmt.Fprintf(stdout, "Updated edge `%s`: `%s` → `%s` (%s).\n", updated.Edge.Key, updated.Group.TransitionID, updated.TargetNodeKey, workflowEdgeContextDetail(updated.Edge.ContextMode, updated.Edge.RequiresApproval, updated.Edge.ContextSource))
+		projected, err := workflowDocumentEdge(updated.Edge)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Updated edge `%s`: `%s` → `%s` (%s).\n", updated.Edge.Key, updated.Group.TransitionId, updated.TargetNodeKey, workflowEdgeContextDetail(projected.ContextMode, updated.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})
 }
@@ -825,14 +878,14 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		workflowID := selector
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		defaultPolicy := serverapi.WorkflowProjectLinkDefaultNever
+		defaultPolicy := pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_NEVER
 		if *defaultLink {
-			defaultPolicy = serverapi.WorkflowProjectLinkDefaultAlways
+			defaultPolicy = pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS
 		}
-		resp, err := remote.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
-			ProjectID:     projectID,
-			WorkflowID:    workflowID,
-			DefaultPolicy: defaultPolicy,
+		resp, err := remote.LinkWorkflowToProject(ctx, &pb.LinkProjectRequest{
+			ProjectId:     projectID,
+			WorkflowId:    workflowID.String(),
+			DefaultPolicy: defaultPolicy.Enum(),
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -875,21 +928,22 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.UnlinkWorkflowFromProject(ctx, serverapi.WorkflowUnlinkProjectRequest{LinkID: link.ID})
+		resp, err := remote.UnlinkWorkflowFromProject(ctx, &pb.UnlinkProjectRequest{LinkId: link.Id})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+		projected := workflowUnlinkForCLI(resp)
 		if !resp.Unlinked {
 			if *jsonOut {
-				writeCommandJSON(stdout, stderr, resp)
+				writeCommandJSON(stdout, stderr, projected)
 				return 1
 			}
-			writeWorkflowUnlinkBlockers(stderr, resp.Blockers)
+			writeWorkflowUnlinkBlockers(stderr, projected.Blockers)
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, resp)
+			return writeCommandJSON(stdout, stderr, projected)
 		}
 		fmt.Fprintf(stdout, "Unlinked workflow %s from project %s.\n", positionals[1], positionals[0])
 		return 0
@@ -917,7 +971,7 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		workflowID := selector
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.SetDefaultProjectWorkflowLink(ctx, serverapi.WorkflowSetDefaultProjectLinkRequest{ProjectID: projectID, WorkflowID: workflowID})
+		resp, err := remote.SetDefaultProjectWorkflowLink(ctx, &pb.SetDefaultProjectLinkRequest{ProjectId: projectID, WorkflowId: workflowID.String()})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -937,7 +991,7 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 
 func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow validate", stderr, workflowValidateUsage)
-	mode := fs.String("mode", string(serverapi.WorkflowValidationModeExecution), "validation context: draft|task_creation|execution")
+	mode := fs.String("mode", string(pb.ValidationMode_WORKFLOW_VALIDATION_MODE_EXECUTION), "validation context: draft|task_creation|execution")
 	jsonOut := fs.Bool("json", false, "write validation diagnostics as JSON")
 	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow validate requires <uuid>")
 	if !ok {
@@ -952,12 +1006,21 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 		workflowID := selector
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.ValidateWorkflow(ctx, serverapi.WorkflowValidateRequest{WorkflowID: workflowID, Mode: serverapi.WorkflowValidationMode(*mode)})
+		modeValue, err := protoapi.WorkflowValidationMode.Encode(*mode)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp = workflowValidationForCLI(resp)
+		response, err := remote.ValidateWorkflow(ctx, &pb.ValidateRequest{WorkflowId: workflowID.String(), Mode: modeValue.Enum()})
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		resp, err := workflowValidationForCLI(response)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		if *jsonOut {
 			exit := writeCommandJSON(stdout, stderr, resp)
 			if exit == 0 && !resp.Valid {
@@ -1027,11 +1090,11 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
 		if *summary {
-			limit := 1
-			persistedWorkflowID := selector
-			response, listErr := listWorkflowPage(context.Background(), remote, serverapi.WorkflowListRequest{
+			limit := int32(1)
+			persistedWorkflowID := selector.String()
+			response, listErr := listWorkflowPage(context.Background(), remote, &pb.ListRequest{
 				Limit:      &limit,
-				WorkflowID: &persistedWorkflowID,
+				WorkflowId: &persistedWorkflowID,
 			})
 			if listErr != nil {
 				fmt.Fprintln(stderr, listErr)
@@ -1046,7 +1109,7 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 				fmt.Fprintln(stderr, projectionErr)
 				return 1
 			}
-			if scopeErr := validateWorkflowListProjectMetadata(workflowListExpectedScope{}, response.ProjectID, workflows); scopeErr != nil {
+			if scopeErr := validateWorkflowListProjectMetadata(workflowListExpectedScope{}, response.ProjectId, response.Workflows); scopeErr != nil {
 				fmt.Fprintln(stderr, scopeErr)
 				return 1
 			}
@@ -1088,13 +1151,13 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	})
 }
 
-func writeWorkflowDefinition(stdout io.Writer, def serverapi.WorkflowDefinition) {
+func writeWorkflowDefinition(stdout io.Writer, def workflowDefinitionJSON) {
 	writeWorkflowSummary(stdout, def.Workflow)
 	writeWorkflowDefinitionNodes(stdout, def.Nodes)
 	writeWorkflowDefinitionTransitions(stdout, def)
 }
 
-func writeWorkflowSummary(stdout io.Writer, workflow serverapi.WorkflowRecord) {
+func writeWorkflowSummary(stdout io.Writer, workflow workflowRecordJSON) {
 	fmt.Fprintf(stdout, "Workflow %q (%s), version %d.\n", workflow.Name, workflow.ID, workflow.Version)
 	if description := strings.TrimSpace(workflow.Description); description != "" {
 		fmt.Fprintf(stdout, "Description: %s\n", description)
@@ -1102,7 +1165,7 @@ func writeWorkflowSummary(stdout io.Writer, workflow serverapi.WorkflowRecord) {
 	fmt.Fprintf(stdout, "Execution target: %s\n", workflowExecutionTargetPolicySelector(workflow.ExecutionTargetPolicy))
 }
 
-func writeWorkflowDefinitionNodes(stdout io.Writer, nodes []serverapi.WorkflowNode) {
+func writeWorkflowDefinitionNodes(stdout io.Writer, nodes []workflowNodeJSON) {
 	fmt.Fprintf(stdout, "\nNodes (%d):\n", len(nodes))
 	for _, node := range nodes {
 		line := fmt.Sprintf("- %s (%s): %s", node.Key, node.Kind, node.DisplayName)
@@ -1115,7 +1178,7 @@ func writeWorkflowDefinitionNodes(stdout io.Writer, nodes []serverapi.WorkflowNo
 
 // workflowNodeAttrs renders node-kind-specific execution attributes worth
 // surfacing in the compact node listing.
-func workflowNodeAttrs(node serverapi.WorkflowNode) string {
+func workflowNodeAttrs(node workflowNodeJSON) string {
 	attrs := make([]string, 0, 2)
 	if role := strings.TrimSpace(node.SubagentRole); role != "" {
 		attrs = append(attrs, "role: "+role)
@@ -1131,9 +1194,9 @@ func workflowNodeAttrs(node serverapi.WorkflowNode) string {
 	return strings.Join(attrs, ", ")
 }
 
-func writeWorkflowDefinitionTransitions(stdout io.Writer, def serverapi.WorkflowDefinition) {
+func writeWorkflowDefinitionTransitions(stdout io.Writer, def workflowDefinitionJSON) {
 	nodeKeyByID := workflowNodeKeyByID(def)
-	edgesByGroup := make(map[string][]serverapi.WorkflowEdge, len(def.TransitionGroups))
+	edgesByGroup := make(map[string][]workflowEdgeJSON, len(def.TransitionGroups))
 	for _, edge := range def.Edges {
 		edgesByGroup[edge.TransitionGroupID] = append(edgesByGroup[edge.TransitionGroupID], edge)
 	}
@@ -1155,7 +1218,7 @@ func writeWorkflowDefinitionTransitions(stdout io.Writer, def serverapi.Workflow
 	}
 }
 
-func writeWorkflowEdgeLine(stdout io.Writer, prefix string, edge serverapi.WorkflowEdge, nodeKeyByID map[string]string) {
+func writeWorkflowEdgeLine(stdout io.Writer, prefix string, edge workflowEdgeJSON, nodeKeyByID map[string]string) {
 	targetKey := workflowNodeKeyOrID(nodeKeyByID, edge.TargetNodeID)
 	detail := workflowEdgeContextDetail(edge.ContextMode, edge.RequiresApproval, edge.ContextSource)
 	fmt.Fprintf(stdout, "%s%s  (edge `%s` %s, %s)\n", prefix, targetKey, edge.Key, edge.ID, detail)
@@ -1163,19 +1226,19 @@ func writeWorkflowEdgeLine(stdout io.Writer, prefix string, edge serverapi.Workf
 	if len(edge.Parameters) > 0 {
 		parameters := make([]string, 0, len(edge.Parameters))
 		for _, param := range edge.Parameters {
-			purpose := workflowParameterPurpose(param)
+			purpose := param.Purpose
 			parameters = append(parameters, fmt.Sprintf("%s (%s)", param.Key, purpose))
 		}
 		fmt.Fprintf(stdout, "    params: %s\n", strings.Join(parameters, ", "))
 	}
 }
 
-func workflowEdgeContextDetail(contextMode string, requiresApproval bool, contextSource serverapi.WorkflowContextSource) string {
+func workflowEdgeContextDetail(contextMode string, requiresApproval bool, source workflowContextSourceJSON) string {
 	detail := contextMode
 	if requiresApproval {
 		detail += ", requires approval"
 	}
-	if source := canonicalAPIContextSource(contextSource); source.Kind == "selected_node" && strings.TrimSpace(source.NodeKey) != "" {
+	if source.Kind == "selected_node" && strings.TrimSpace(source.NodeKey) != "" {
 		detail += ", context from " + strings.TrimSpace(source.NodeKey)
 	} else if source.Kind == "previous_target" {
 		detail += ", context from previous target"
@@ -1185,7 +1248,7 @@ func workflowEdgeContextDetail(contextMode string, requiresApproval bool, contex
 	return detail
 }
 
-func workflowNodeKeyByID(def serverapi.WorkflowDefinition) map[string]string {
+func workflowNodeKeyByID(def workflowDefinitionJSON) map[string]string {
 	nodeKeyByID := make(map[string]string, len(def.Nodes))
 	for _, node := range def.Nodes {
 		nodeKeyByID[node.ID] = node.Key
@@ -1200,23 +1263,27 @@ func workflowNodeKeyOrID(nodeKeyByID map[string]string, nodeID string) string {
 	return strings.TrimSpace(nodeID)
 }
 
-func parseWorkflowContextSourceSelector(raw string) (serverapi.WorkflowContextSource, error) {
+func parseWorkflowContextSourceSelector(raw string) (*pb.ContextSource, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || trimmed == "immediate_source" {
-		return serverapi.WorkflowContextSource{Kind: "immediate_source"}, nil
+		return &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}, nil
 	}
 	if trimmed == "previous_target" || trimmed == "previous_target_or_new" {
-		return serverapi.WorkflowContextSource{Kind: trimmed}, nil
+		kind, err := protoapi.WorkflowContextSourceKind.Encode(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		return &pb.ContextSource{Kind: kind}, nil
 	}
 	prefix := "node:"
 	if strings.HasPrefix(trimmed, prefix) {
 		nodeKey := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
 		if nodeKey == "" {
-			return serverapi.WorkflowContextSource{}, errors.New("context source selector node key is required")
+			return &pb.ContextSource{}, errors.New("context source selector node key is required")
 		}
-		return serverapi.WorkflowContextSource{Kind: "selected_node", NodeKey: nodeKey}, nil
+		return &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_SELECTED_NODE, NodeKey: proto.String(nodeKey)}, nil
 	}
-	return serverapi.WorkflowContextSource{}, fmt.Errorf("context source selector must be immediate_source, previous_target, previous_target_or_new, or node:<node-key>")
+	return &pb.ContextSource{}, fmt.Errorf("context source selector must be immediate_source, previous_target, previous_target_or_new, or node:<node-key>")
 }
 
 // repeatedStringFlag collects a flag that may be supplied multiple times.
@@ -1233,8 +1300,8 @@ func (f *repeatedStringFlag) Set(value string) error {
 // parameters. The source agent of the transition must produce a value for each declared
 // key; transition prompts reference them as {{.Params.<key>}}, and downstream prompts
 // reference guaranteed-prior transitions as {{.Params.<transition_id>.<key>}}.
-func parseWorkflowParameters(raw []string) ([]serverapi.WorkflowParameter, error) {
-	parameters := make([]serverapi.WorkflowParameter, 0, len(raw))
+func parseWorkflowParameters(raw []string) ([]*pb.Parameter, error) {
+	parameters := make([]*pb.Parameter, 0, len(raw))
 	seen := make(map[string]bool, len(raw))
 	for _, entry := range raw {
 		key, description, found := strings.Cut(entry, "=")
@@ -1253,7 +1320,7 @@ func parseWorkflowParameters(raw []string) ([]serverapi.WorkflowParameter, error
 			return nil, fmt.Errorf("parameter key %q is declared more than once", key)
 		}
 		seen[key] = true
-		parameters = append(parameters, serverapi.WorkflowParameter{Key: key, Description: description, Purpose: "ordinary"})
+		parameters = append(parameters, &pb.Parameter{Key: key, Description: description, Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_ORDINARY})
 	}
 	return parameters, nil
 }
@@ -1268,7 +1335,7 @@ func parseWorkflowSelectionMode(field, raw string) (string, error) {
 	}
 }
 
-func parseWorkflowProtectedParameterFlag(fs *flag.FlagSet, name, raw, purpose string) (*serverapi.WorkflowParameter, error) {
+func parseWorkflowProtectedParameterFlag(fs *flag.FlagSet, name, raw string, purpose pb.ParameterPurpose) (*pb.Parameter, error) {
 	if !flagExplicit(fs, name) {
 		return nil, nil
 	}
@@ -1284,30 +1351,30 @@ func parseWorkflowProtectedParameterFlag(fs *flag.FlagSet, name, raw, purpose st
 	if workflowkey.ReservedParameter(key) {
 		return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
 	}
-	return &serverapi.WorkflowParameter{Key: key, Description: description, Purpose: purpose}, nil
+	return &pb.Parameter{Key: key, Description: description, Purpose: purpose}, nil
 }
 
-func cloneWorkflowParameters(parameters []serverapi.WorkflowParameter) []serverapi.WorkflowParameter {
+func cloneWorkflowParameters(parameters []*pb.Parameter) []*pb.Parameter {
 	if len(parameters) == 0 {
 		return nil
 	}
-	return append([]serverapi.WorkflowParameter(nil), parameters...)
+	return append([]*pb.Parameter(nil), parameters...)
 }
 
-func workflowParameterPurpose(parameter serverapi.WorkflowParameter) string {
-	return strings.TrimSpace(parameter.Purpose)
+func workflowParameterPurpose(parameter *pb.Parameter) pb.ParameterPurpose {
+	return parameter.Purpose
 }
 
-func workflowParameterIsProtected(parameter serverapi.WorkflowParameter) bool {
+func workflowParameterIsProtected(parameter *pb.Parameter) bool {
 	switch workflowParameterPurpose(parameter) {
-	case "target_assignee", "target_thinking":
+	case pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE, pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_THINKING:
 		return true
 	default:
 		return false
 	}
 }
 
-func workflowParameterForPurpose(parameters []serverapi.WorkflowParameter, purpose string) (int, bool) {
+func workflowParameterForPurpose(parameters []*pb.Parameter, purpose pb.ParameterPurpose) (int, bool) {
 	for index, parameter := range parameters {
 		if workflowParameterPurpose(parameter) == purpose {
 			return index, true
@@ -1316,21 +1383,21 @@ func workflowParameterForPurpose(parameters []serverapi.WorkflowParameter, purpo
 	return 0, false
 }
 
-func workflowParametersWithProtectedDefaults(parameters []serverapi.WorkflowParameter, assigneeSelection, thinkingSelection string, assignee, thinking *serverapi.WorkflowParameter) ([]serverapi.WorkflowParameter, error) {
+func workflowParametersWithProtectedDefaults(parameters []*pb.Parameter, assigneeSelection pb.AssigneeSelection, thinkingSelection pb.ThinkingSelection, assignee, thinking *pb.Parameter) ([]*pb.Parameter, error) {
 	result := cloneWorkflowParameters(parameters)
 	for _, item := range []struct {
-		selection string
-		purpose   string
-		key       string
-		custom    *serverapi.WorkflowParameter
+		previous bool
+		purpose  pb.ParameterPurpose
+		key      string
+		custom   *pb.Parameter
 	}{
-		{selection: assigneeSelection, purpose: "target_assignee", key: "agent_role", custom: assignee},
-		{selection: thinkingSelection, purpose: "target_thinking", key: "thinking_level", custom: thinking},
+		{previous: assigneeSelection == pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE, purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE, key: "agent_role", custom: assignee},
+		{previous: thinkingSelection == pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_PREVIOUS_NODE, purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_THINKING, key: "thinking_level", custom: thinking},
 	} {
-		if item.selection != "previous_node" {
+		if !item.previous {
 			if item.custom != nil {
 				label := "assignee"
-				if item.purpose == "target_thinking" {
+				if item.purpose == pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_THINKING {
 					label = "thinking"
 				}
 				return nil, fmt.Errorf("target-%s-param requires %s selection previous_node", label, label)
@@ -1339,13 +1406,13 @@ func workflowParametersWithProtectedDefaults(parameters []serverapi.WorkflowPara
 		}
 		if index, exists := workflowParameterForPurpose(result, item.purpose); exists {
 			if item.custom != nil {
-				result[index] = *item.custom
+				result[index] = item.custom
 			}
 			continue
 		}
-		parameter := serverapi.WorkflowParameter{Key: item.key, Purpose: item.purpose}
+		parameter := &pb.Parameter{Key: item.key, Purpose: item.purpose}
 		if item.custom != nil {
-			parameter = *item.custom
+			parameter = item.custom
 		}
 		for _, existing := range result {
 			if existing.Key == parameter.Key {
@@ -1357,12 +1424,12 @@ func workflowParametersWithProtectedDefaults(parameters []serverapi.WorkflowPara
 	return result, nil
 }
 
-func workflowEdgeParametersForAdd(parameters []serverapi.WorkflowParameter, assigneeSelection, thinkingSelection string, assignee, thinking *serverapi.WorkflowParameter) ([]serverapi.WorkflowParameter, error) {
+func workflowEdgeParametersForAdd(parameters []*pb.Parameter, assigneeSelection pb.AssigneeSelection, thinkingSelection pb.ThinkingSelection, assignee, thinking *pb.Parameter) ([]*pb.Parameter, error) {
 	return workflowParametersWithProtectedDefaults(parameters, assigneeSelection, thinkingSelection, assignee, thinking)
 }
 
-func workflowReplaceOrdinaryParameters(existing, replacement []serverapi.WorkflowParameter) []serverapi.WorkflowParameter {
-	result := make([]serverapi.WorkflowParameter, 0, len(existing)+len(replacement))
+func workflowReplaceOrdinaryParameters(existing, replacement []*pb.Parameter) []*pb.Parameter {
+	result := make([]*pb.Parameter, 0, len(existing)+len(replacement))
 	replacementIndex := 0
 	for _, parameter := range existing {
 		if workflowParameterIsProtected(parameter) {
@@ -1378,8 +1445,8 @@ func workflowReplaceOrdinaryParameters(existing, replacement []serverapi.Workflo
 	return result
 }
 
-func workflowClearOrdinaryParameters(existing []serverapi.WorkflowParameter) []serverapi.WorkflowParameter {
-	result := make([]serverapi.WorkflowParameter, 0, len(existing))
+func workflowClearOrdinaryParameters(existing []*pb.Parameter) []*pb.Parameter {
+	result := make([]*pb.Parameter, 0, len(existing))
 	for _, parameter := range existing {
 		if workflowParameterIsProtected(parameter) {
 			result = append(result, parameter)
@@ -1388,7 +1455,7 @@ func workflowClearOrdinaryParameters(existing []serverapi.WorkflowParameter) []s
 	return result
 }
 
-func workflowEdgeParametersForUpdate(existing []serverapi.WorkflowParameter, assigneeSelection, thinkingSelection string, assignee, thinking *serverapi.WorkflowParameter, ordinary []serverapi.WorkflowParameter, clearOrdinary bool) ([]serverapi.WorkflowParameter, error) {
+func workflowEdgeParametersForUpdate(existing []*pb.Parameter, assigneeSelection pb.AssigneeSelection, thinkingSelection pb.ThinkingSelection, assignee, thinking *pb.Parameter, ordinary []*pb.Parameter, clearOrdinary bool) ([]*pb.Parameter, error) {
 	parameters := cloneWorkflowParameters(existing)
 	if clearOrdinary {
 		parameters = workflowClearOrdinaryParameters(parameters)
@@ -1398,36 +1465,36 @@ func workflowEdgeParametersForUpdate(existing []serverapi.WorkflowParameter, ass
 	return workflowParametersWithProtectedDefaults(parameters, assigneeSelection, thinkingSelection, assignee, thinking)
 }
 
-func canonicalAPIContextSource(source serverapi.WorkflowContextSource) serverapi.WorkflowContextSource {
-	if strings.TrimSpace(source.Kind) == "" {
-		return serverapi.WorkflowContextSource{Kind: "immediate_source"}
+func canonicalAPIContextSource(source *pb.ContextSource) *pb.ContextSource {
+	if source == nil {
+		return &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}
 	}
 	return source
 }
 
-func resolveWorkflowDefinition(ctx context.Context, remote apicontract.WorkflowService, selector runtimeids.WorkflowID) (serverapi.WorkflowDefinition, error) {
+func resolveWorkflowDefinition(ctx context.Context, remote apicontract.WorkflowService, selector runtimeids.WorkflowID) (*pb.WorkflowDefinition, error) {
 	getCtx, getCancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer getCancel()
-	resp, err := remote.GetWorkflow(getCtx, serverapi.WorkflowGetRequest{WorkflowID: selector})
+	resp, err := remote.GetWorkflow(getCtx, &pb.GetRequest{WorkflowId: selector.String()})
 	if err != nil {
-		return serverapi.WorkflowDefinition{}, err
+		return &pb.WorkflowDefinition{}, err
 	}
-	if resp.Definition.Workflow.ID != selector {
-		return serverapi.WorkflowDefinition{}, fmt.Errorf(
+	if resp.Definition.Workflow.Id != selector.String() {
+		return &pb.WorkflowDefinition{}, fmt.Errorf(
 			"workflow response identity %q does not match requested workflow %q",
-			resp.Definition.Workflow.ID,
+			resp.Definition.Workflow.Id,
 			selector.String(),
 		)
 	}
 	return resp.Definition, nil
 }
 
-func listWorkflowPage(ctx context.Context, remote apicontract.WorkflowService, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+func listWorkflowPage(ctx context.Context, remote apicontract.WorkflowService, req *pb.ListRequest) (*pb.ListSuccess, error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
 	resp, err := remote.ListWorkflows(rpcCtx, req)
 	if err != nil {
-		return serverapi.WorkflowListResponse{}, err
+		return &pb.ListSuccess{}, err
 	}
 	return resp, nil
 }
@@ -1499,27 +1566,27 @@ func resolveWorkflowProjectLink(
 	workflows apicontract.WorkflowService,
 	projectRef string,
 	selector runtimeids.WorkflowID,
-) (serverapi.ProjectWorkflowLink, error) {
+) (*pb.ProjectWorkflowLink, error) {
 	projectID, err := resolveWorkflowProjectID(ctx, cfg, projects, projectRef)
 	if err != nil {
-		return serverapi.ProjectWorkflowLink{}, err
+		return &pb.ProjectWorkflowLink{}, err
 	}
 	workflowID := selector
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
-	resp, err := workflows.ListProjectWorkflowLinks(rpcCtx, serverapi.WorkflowListProjectLinksRequest{ProjectID: projectID})
+	resp, err := workflows.ListProjectWorkflowLinks(rpcCtx, &pb.ListProjectLinksRequest{ProjectId: projectID})
 	if err != nil {
-		return serverapi.ProjectWorkflowLink{}, err
+		return &pb.ProjectWorkflowLink{}, err
 	}
 	for _, link := range resp.Links {
-		if link.WorkflowID == workflowID {
+		if link.WorkflowId == workflowID.String() {
 			return link, nil
 		}
 	}
-	return serverapi.ProjectWorkflowLink{}, fmt.Errorf("project %s has no active link to workflow %s", projectID, workflowID)
+	return &pb.ProjectWorkflowLink{}, fmt.Errorf("project %s has no active link to workflow %s", projectID, workflowID)
 }
 
-func writeWorkflowUnlinkBlockers(stderr io.Writer, blockers []serverapi.WorkflowUnlinkProjectBlocker) {
+func writeWorkflowUnlinkBlockers(stderr io.Writer, blockers []workflowUnlinkBlockerJSON) {
 	if len(blockers) == 0 {
 		fmt.Fprintln(stderr, "Workflow link was not removed.")
 		return

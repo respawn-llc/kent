@@ -1,7 +1,6 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -53,42 +52,6 @@ func TestResolveWorkflowOffsetWindowPreservesWorkflowErrors(t *testing.T) {
 	_, err := ResolveWorkflowOffsetWindow(&negativeOffset, nil)
 	if !hasWorkflowRequestError(err, "offset", WorkflowRequestErrorInvalidMode) {
 		t.Fatalf("ResolveWorkflowOffsetWindow error = %v, want typed offset error", err)
-	}
-}
-
-func TestWorkflowListPaginationJSONContractUsesNullableOffsets(t *testing.T) {
-	offset := 0
-	limit := 25
-	nextOffset := 25
-	request := WorkflowListRequest{Offset: &offset, Limit: &limit}
-	response := WorkflowListResponse{NextOffset: &nextOffset}
-
-	requestJSON, requestShape := marshalWorkflowJSON[map[string]any](t, request)
-	if requestShape["offset"] != float64(offset) || requestShape["limit"] != float64(limit) {
-		t.Fatalf("request JSON = %s", requestJSON)
-	}
-	if _, exists := requestShape["page_token"]; exists {
-		t.Fatalf("request JSON retains page token: %s", requestJSON)
-	}
-
-	responseJSON, responseShape := marshalWorkflowJSON[map[string]any](t, response)
-	if responseShape["next_offset"] != float64(nextOffset) {
-		t.Fatalf("response JSON = %s", responseJSON)
-	}
-	if _, exists := responseShape["next_page_token"]; exists {
-		t.Fatalf("response JSON retains next page token: %s", responseJSON)
-	}
-
-	absentJSON, err := json.Marshal(WorkflowListResponse{})
-	if err != nil {
-		t.Fatalf("marshal absent response: %v", err)
-	}
-	var absentShape map[string]any
-	if err := json.Unmarshal(absentJSON, &absentShape); err != nil {
-		t.Fatalf("decode absent response: %v", err)
-	}
-	if _, exists := absentShape["next_offset"]; exists {
-		t.Fatalf("absent next offset encoded as a value: %s", absentJSON)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
@@ -337,107 +338,132 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		})
 }
 
-func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowCreateRequest, serverapi.WorkflowCreateResponse](c, ctx, protocol.MethodWorkflowCreate, req)
+func (c *Remote) CreateWorkflow(ctx context.Context, req *workflowpb.CreateRequest) (*workflowpb.CreateSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Create"), req, &workflowpb.CreateResult{},
+		func(failure *workflowpb.CreateError) error {
+			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowCreateAndLinkProjectRequest, serverapi.WorkflowCreateAndLinkProjectResponse](c, ctx, protocol.MethodWorkflowCreateAndLinkProject, req)
+func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req *workflowpb.CreateAndLinkProjectRequest) (*workflowpb.CreateAndLinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "CreateAndLinkProject"), req, &workflowpb.CreateAndLinkProjectResult{},
+		func(failure *workflowpb.CreateAndLinkProjectError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowUpdateRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowUpdate, req)
+func (c *Remote) UpdateWorkflow(ctx context.Context, req *workflowpb.UpdateRequest) (*workflowpb.GetSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Update"), req, &workflowpb.UpdateResult{},
+		func(failure *workflowpb.UpdateError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowListRequest, serverapi.WorkflowListResponse](c, ctx, protocol.MethodWorkflowList, req)
+func (c *Remote) ListWorkflows(ctx context.Context, req *workflowpb.ListRequest) (*workflowpb.ListSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "List"), req, &workflowpb.ListResult{},
+		func(failure *workflowpb.ListError) error {
+			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGetRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowGet, req)
+func (c *Remote) GetWorkflow(ctx context.Context, req *workflowpb.GetRequest) (*workflowpb.GetSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Get"), req, &workflowpb.GetResult{},
+		func(failure *workflowpb.GetError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowLinkProjectRequest, serverapi.WorkflowLinkProjectResponse](c, ctx, protocol.MethodWorkflowLinkProject, req)
+func (c *Remote) LinkWorkflowToProject(ctx context.Context, req *workflowpb.LinkProjectRequest) (*workflowpb.LinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "Link"), req, &workflowpb.LinkProjectResult{},
+		func(failure *workflowpb.ProjectLinkError) error {
+			if failure.GetProjectNotFound() != nil {
+				return projectNotFoundError(failure.GetProjectNotFound())
+			}
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowListProjectLinksRequest, serverapi.WorkflowListProjectLinksResponse](c, ctx, protocol.MethodWorkflowListProjectLinks, req)
+func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req *workflowpb.ListProjectLinksRequest) (*workflowpb.ListProjectLinksSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "List"), req, &workflowpb.ListProjectLinksResult{},
+		func(failure *workflowpb.ProjectLinksListError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowSetDefaultProjectLinkRequest, serverapi.WorkflowSetDefaultProjectLinkResponse](c, ctx, protocol.MethodWorkflowSetDefaultProjectLink, req)
+func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req *workflowpb.SetDefaultProjectLinkRequest) (*workflowpb.SetDefaultProjectLinkSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "SetDefault"), req, &workflowpb.SetDefaultProjectLinkResult{},
+		func(failure *workflowpb.SetDefaultProjectLinkError) error {
+			if failure.GetProjectNotFound() != nil {
+				return projectNotFoundError(failure.GetProjectNotFound())
+			}
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.WorkflowUnlinkProjectRequest) (serverapi.WorkflowUnlinkProjectResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowUnlinkProjectRequest, serverapi.WorkflowUnlinkProjectResponse](c, ctx, protocol.MethodWorkflowUnlinkProject, req)
+func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req *workflowpb.UnlinkProjectRequest) (*workflowpb.UnlinkProjectSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "Unlink"), req, &workflowpb.UnlinkProjectResult{},
+		func(failure *workflowpb.UnlinkProjectError) error {
+			if detail := failure.GetReplacementDefaultInvalid(); detail != nil {
+				return fmt.Errorf("replacement default workflow link is invalid for link %q", detail.LinkId)
+			}
+			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowDeletePreviewRequest, serverapi.WorkflowDeletePreviewResponse](c, ctx, protocol.MethodWorkflowDeletePreview, req)
+func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req *workflowpb.DeletePreviewRequest) (*workflowpb.DeletePreviewSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "DeletePreview"), req, &workflowpb.DeletePreviewResult{},
+		func(failure *workflowpb.DeletePreviewError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowDeleteRequest, serverapi.WorkflowDeleteResponse](c, ctx, protocol.MethodWorkflowDelete, req)
+func (c *Remote) DeleteWorkflow(ctx context.Context, req *workflowpb.DeleteRequest) (*workflowpb.DeleteSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Delete"), req, &workflowpb.DeleteResult{},
+		func(failure *workflowpb.DeleteError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowValidateRequest, serverapi.WorkflowValidateResponse](c, ctx, protocol.MethodWorkflowValidate, req)
+func (c *Remote) ValidateWorkflow(ctx context.Context, req *workflowpb.ValidateRequest) (*workflowpb.ValidateResponse, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Validate"), req, &workflowpb.ValidateResult{},
+		func(failure *workflowpb.ValidateError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) ValidateWorkflowScriptPath(ctx context.Context, req serverapi.WorkflowScriptPathValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowScriptPathValidateRequest, serverapi.WorkflowValidateResponse](c, ctx, protocol.MethodWorkflowScriptPathValidate, req)
+func (c *Remote) ValidateWorkflowScriptPath(ctx context.Context, req *workflowpb.ScriptPathValidateRequest) (*workflowpb.ValidateResponse, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "ValidateScriptPath"), req, &workflowpb.ValidateScriptPathResult{},
+		func(failure *workflowpb.ValidateScriptPathError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphValidateDraftRequest, serverapi.WorkflowGraphValidateDraftResponse](c, ctx, protocol.MethodWorkflowGraphValidateDraft, req)
+func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req *workflowpb.GraphValidateDraftRequest) (*workflowpb.GraphValidateDraftSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "ValidateDraft"), req, &workflowpb.GraphValidateDraftResult{},
+		func(failure *workflowpb.GraphValidateDraftError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphDeriveWiringRequest, serverapi.WorkflowGraphDeriveWiringResponse](c, ctx, protocol.MethodWorkflowGraphDeriveWiring, req)
+func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req *workflowpb.GraphDeriveWiringRequest) (*workflowpb.GraphDeriveWiringSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "DeriveWiring"), req, &workflowpb.GraphDeriveWiringResult{},
+		func(failure *workflowpb.GraphDeriveWiringError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphSavePreviewRequest, serverapi.WorkflowGraphSavePreviewResponse](c, ctx, protocol.MethodWorkflowGraphSavePreview, req)
+func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req *workflowpb.GraphSavePreviewRequest) (*workflowpb.GraphSavePreviewSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "SavePreview"), req, &workflowpb.GraphSavePreviewResult{},
+		func(failure *workflowpb.GraphSavePreviewError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
-func (c *Remote) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowGraphSaveRequest, serverapi.WorkflowGraphSaveResponse](c, ctx, protocol.MethodWorkflowGraphSave, req)
-}
-
-func (c *Remote) CreateWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelCreateRequest) (serverapi.WorkflowProjectLabelCreateResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelCreateRequest, serverapi.WorkflowProjectLabelCreateResponse](c, ctx, protocol.MethodWorkflowProjectLabelCreate, req)
-	return validateWorkflowResponse("create workflow project label", response, err)
-}
-
-func (c *Remote) ListWorkflowProjectLabels(ctx context.Context, req serverapi.WorkflowProjectLabelCatalogRequest) (serverapi.WorkflowProjectLabelCatalogResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelCatalogRequest, serverapi.WorkflowProjectLabelCatalogResponse](c, ctx, protocol.MethodWorkflowProjectLabelList, req)
-	return validateWorkflowResponse("list workflow project labels", response, err)
-}
-
-func (c *Remote) RenameWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelRenameRequest) (serverapi.WorkflowProjectLabelRenameResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelRenameRequest, serverapi.WorkflowProjectLabelRenameResponse](c, ctx, protocol.MethodWorkflowProjectLabelRename, req)
-	return validateWorkflowResponse("rename workflow project label", response, err)
-}
-
-func (c *Remote) DeleteWorkflowProjectLabel(ctx context.Context, req serverapi.WorkflowProjectLabelDeleteRequest) (serverapi.WorkflowProjectLabelDeleteResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelDeleteRequest, serverapi.WorkflowProjectLabelDeleteResponse](c, ctx, protocol.MethodWorkflowProjectLabelDelete, req)
-	return validateWorkflowResponse("delete workflow project label", response, err)
-}
-
-func (c *Remote) ReorderWorkflowProjectLabels(ctx context.Context, req serverapi.WorkflowProjectLabelReorderRequest) (serverapi.WorkflowProjectLabelReorderResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectLabelReorderRequest, serverapi.WorkflowProjectLabelReorderResponse](c, ctx, protocol.MethodWorkflowProjectLabelReorder, req)
-	return validateWorkflowResponse("reorder workflow project labels", response, err)
-}
-
-func (c *Remote) GetWorkflowTaskLabels(ctx context.Context, req serverapi.WorkflowTaskLabelsGetRequest) (serverapi.WorkflowTaskLabelsGetResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskLabelsGetRequest, serverapi.WorkflowTaskLabelsGetResponse](c, ctx, protocol.MethodWorkflowTaskLabelsGet, req)
-	return validateWorkflowResponse("get workflow task labels", response, err)
-}
-
-func (c *Remote) UpdateWorkflowTaskLabels(ctx context.Context, req serverapi.WorkflowTaskLabelsUpdateRequest) (serverapi.WorkflowTaskLabelsUpdateResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskLabelsUpdateRequest, serverapi.WorkflowTaskLabelsUpdateResponse](c, ctx, protocol.MethodWorkflowTaskLabelsUpdate, req)
-	return validateWorkflowResponse("update workflow task labels", response, err)
+func (c *Remote) SaveWorkflowGraph(ctx context.Context, req *workflowpb.GraphSaveRequest) (*workflowpb.GraphSaveSuccess, error) {
+	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "Save"), req, &workflowpb.GraphSaveResult{},
+		func(failure *workflowpb.GraphSaveError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+		})
 }
 
 func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {

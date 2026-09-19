@@ -16,50 +16,10 @@ const (
 	workflowLabelIDBeta  = "22222222-2222-4222-8222-222222222222"
 )
 
-func TestWorkflowLabelPublicContractsRoundTrip(t *testing.T) {
+func TestWorkflowTaskLabelPublicContractsRoundTrip(t *testing.T) {
 	projectID := "project-1"
-	taskID := "task-1"
 	workflowID := runtimeids.NewWorkflowID()
 	nodeID := runtimeids.NewGraphEntityID()
-
-	catalog := WorkflowProjectLabelCatalog{
-		ProjectID: projectID,
-		Labels: []WorkflowProjectLabel{
-			{ID: workflowLabelIDAlpha, Name: "Alpha"},
-			{ID: workflowLabelIDBeta, Name: "Beta"},
-		},
-	}
-	data, err := json.Marshal(catalog)
-	if err != nil {
-		t.Fatalf("marshal catalog: %v", err)
-	}
-	var catalogShape map[string]any
-	if err := json.Unmarshal(data, &catalogShape); err != nil {
-		t.Fatalf("decode catalog JSON: %v", err)
-	}
-	if _, present := catalogShape["labels"]; !present {
-		t.Fatalf("catalog JSON omits labels: %s", data)
-	}
-	var decodedCatalog WorkflowProjectLabelCatalog
-	if err := json.Unmarshal(data, &decodedCatalog); err != nil {
-		t.Fatalf("unmarshal catalog: %v", err)
-	}
-	if !slices.EqualFunc(decodedCatalog.Labels, catalog.Labels, func(left, right WorkflowProjectLabel) bool {
-		return left == right
-	}) {
-		t.Fatalf("catalog labels = %+v, want %+v", decodedCatalog.Labels, catalog.Labels)
-	}
-	assignment := WorkflowTaskAssignedLabelIDs{
-		TaskID:   taskID,
-		LabelIDs: []string{workflowLabelIDAlpha, workflowLabelIDBeta},
-	}
-	assignmentJSON, assignmentShape := marshalWorkflowJSON[map[string]any](t, WorkflowTaskLabelsUpdateResponse{
-		Assignment: assignment,
-	})
-	assignmentObject, ok := assignmentShape["assignment"].(map[string]any)
-	if !ok || assignmentObject["task_id"] != taskID || !slices.Equal(assignmentObject["label_ids"].([]any), []any{workflowLabelIDAlpha, workflowLabelIDBeta}) {
-		t.Fatalf("authoritative assignment JSON = %s", assignmentJSON)
-	}
 
 	none := WorkflowTaskLabelFilter{Kind: WorkflowTaskLabelFilterKindNone}
 	namedAny := WorkflowTaskLabelFilter{
@@ -109,29 +69,6 @@ func TestWorkflowLabelPublicContractsRoundTrip(t *testing.T) {
 	}
 	if err := create.Validate(); err != nil {
 		t.Fatalf("labeled task create rejected: %v", err)
-	}
-	update := WorkflowTaskLabelsUpdateRequest{
-		TaskID:         taskID,
-		AddLabelIDs:    []string{workflowLabelIDAlpha},
-		RemoveLabelIDs: []string{workflowLabelIDBeta},
-	}
-	if err := update.Validate(); err != nil {
-		t.Fatalf("task label update rejected: %v", err)
-	}
-	if err := (WorkflowTaskLabelsGetRequest{TaskID: taskID}).Validate(); err != nil {
-		t.Fatalf("task label get rejected: %v", err)
-	}
-	if err := (WorkflowProjectLabelCatalogRequest{ProjectID: projectID}).Validate(); err != nil {
-		t.Fatalf("catalog request rejected: %v", err)
-	}
-	if err := (WorkflowProjectLabelCreateRequest{ProjectID: projectID, Name: "Alpha"}).Validate(); err != nil {
-		t.Fatalf("label create rejected: %v", err)
-	}
-	if err := (WorkflowProjectLabelRenameRequest{ProjectID: projectID, LabelID: workflowLabelIDAlpha, Name: "Renamed"}).Validate(); err != nil {
-		t.Fatalf("label rename rejected: %v", err)
-	}
-	if err := (WorkflowProjectLabelDeleteRequest{ProjectID: projectID, LabelID: workflowLabelIDAlpha}).Validate(); err != nil {
-		t.Fatalf("label delete rejected: %v", err)
 	}
 
 	taskList := WorkflowTaskListRequest{ProjectID: &projectID, LabelFilter: namedAny}
@@ -401,24 +338,9 @@ func TestWorkflowTaskNamedLabelFilterExclusionsValidateAndMarshalAdditively(t *t
 
 func TestWorkflowLabelSuccessDTOValidation(t *testing.T) {
 	label := WorkflowProjectLabel{ID: workflowLabelIDAlpha, Name: "Alpha"}
-	catalog := WorkflowProjectLabelCatalog{
-		ProjectID: "project-1",
-		Labels:    []WorkflowProjectLabel{label},
-	}
-	assignment := WorkflowTaskAssignedLabelIDs{
-		TaskID:   "task-1",
-		LabelIDs: []string{workflowLabelIDAlpha},
-	}
+
 	testValidWorkflowRequests(t, []workflowValidRequestCase{
 		{name: "project label", request: label},
-		{name: "project label catalog", request: catalog},
-		{name: "project label catalog response", request: WorkflowProjectLabelCatalogResponse{Catalog: catalog}},
-		{name: "project label create response", request: WorkflowProjectLabelCreateResponse{Label: label}},
-		{name: "project label rename response", request: WorkflowProjectLabelRenameResponse{Label: label}},
-		{name: "project label delete response", request: WorkflowProjectLabelDeleteResponse{LabelID: workflowLabelIDAlpha}},
-		{name: "task assignment", request: assignment},
-		{name: "task label get response", request: WorkflowTaskLabelsGetResponse{Assignment: assignment}},
-		{name: "task label update response", request: WorkflowTaskLabelsUpdateResponse{Assignment: assignment}},
 		{name: "task detail projection", request: WorkflowTaskDetail{Summary: WorkflowTaskSummary{ID: "task-1"}, LabelIDs: []string{workflowLabelIDAlpha}, Dependencies: emptyWorkflowTaskDependenciesForTest()}},
 		{name: "task list projection", request: WorkflowTaskListItem{
 			TaskID: "task-1", WorkflowID: runtimeids.NewWorkflowID(),
@@ -436,10 +358,7 @@ func TestWorkflowLabelSuccessDTOValidation(t *testing.T) {
 	testWorkflowFieldErrors(t, []workflowFieldErrorCase{
 		{name: "label requires canonical ID", request: WorkflowProjectLabel{Name: "Alpha"}, field: "id", code: WorkflowRequestErrorInvalidValue},
 		{name: "label requires name", request: WorkflowProjectLabel{ID: workflowLabelIDAlpha}, field: "name", code: WorkflowRequestErrorRequired},
-		{name: "catalog requires project", request: WorkflowProjectLabelCatalog{Labels: []WorkflowProjectLabel{label}}, field: "project_id", code: WorkflowRequestErrorRequired},
-		{name: "catalog raw 101 labels wins over malformed IDs", request: WorkflowProjectLabelCatalog{ProjectID: "project-1", Labels: make([]WorkflowProjectLabel, WorkflowLabelMaxIDs+1)}, field: "labels", code: WorkflowRequestErrorTooLong},
-		{name: "assignment requires task", request: WorkflowTaskAssignedLabelIDs{LabelIDs: []string{workflowLabelIDAlpha}}, field: "task_id", code: WorkflowRequestErrorRequired},
-		{name: "assignment raw 101 IDs wins over malformed IDs", request: WorkflowTaskAssignedLabelIDs{TaskID: "task-1", LabelIDs: raw101}, field: "label_ids", code: WorkflowRequestErrorTooLong},
+
 		{name: "detail rejects duplicate IDs", request: WorkflowTaskDetail{Summary: WorkflowTaskSummary{ID: "task-1"}, LabelIDs: []string{workflowLabelIDAlpha, workflowLabelIDAlpha}}, field: "task.label_ids[1]", code: WorkflowRequestErrorInvalidValue},
 		{name: "list item requires task ID", request: WorkflowTaskListItem{Labels: []WorkflowProjectLabel{label}}, field: "task_id", code: WorkflowRequestErrorRequired},
 		{name: "board card requires task ID", request: WorkflowBoardTaskCard{LabelIDs: []string{workflowLabelIDAlpha}}, field: "task_id", code: WorkflowRequestErrorRequired},
@@ -459,15 +378,7 @@ func TestWorkflowLabelContractsRejectInvalidCollectionsBeforeUUIDWork(t *testing
 			field:   "label_ids",
 			code:    WorkflowRequestErrorTooLong,
 		},
-		{
-			name: "task label add raw 101 IDs wins over malformed IDs",
-			request: WorkflowTaskLabelsUpdateRequest{
-				TaskID:      "task-1",
-				AddLabelIDs: raw101,
-			},
-			field: "add_label_ids",
-			code:  WorkflowRequestErrorTooLong,
-		},
+
 		{
 			name: "named filter raw 101 IDs wins over malformed IDs",
 			request: WorkflowTaskLabelFilter{
@@ -505,25 +416,7 @@ func TestWorkflowLabelContractsRejectInvalidCollectionsBeforeUUIDWork(t *testing
 			field:   "label_ids[1]",
 			code:    WorkflowRequestErrorInvalidValue,
 		},
-		{
-			name: "task label mutation rejects overlap",
-			request: WorkflowTaskLabelsUpdateRequest{
-				TaskID:         "task-1",
-				AddLabelIDs:    []string{workflowLabelIDAlpha},
-				RemoveLabelIDs: []string{workflowLabelIDAlpha},
-			},
-			field: "remove_label_ids[0]",
-			code:  WorkflowRequestErrorInvalidValue,
-		},
-		{
-			name: "task label mutation rejects duplicate remove",
-			request: WorkflowTaskLabelsUpdateRequest{
-				TaskID:         "task-1",
-				RemoveLabelIDs: []string{workflowLabelIDAlpha, workflowLabelIDAlpha},
-			},
-			field: "remove_label_ids[1]",
-			code:  WorkflowRequestErrorInvalidValue,
-		},
+
 		{
 			name:    "filter kind is required",
 			request: WorkflowTaskLabelFilter{},
@@ -755,59 +648,9 @@ func TestWorkflowLabelRPCValidationUsesTypedMutationErrors(t *testing.T) {
 		reason  WorkflowLabelErrorReason
 		field   string
 	}{
-		{
-			name: "invalid create name",
-			request: WorkflowProjectLabelCreateRequest{
-				ProjectID: "project-1",
-			},
-			reason: WorkflowLabelErrorReasonInvalidName,
-			field:  "name",
-		},
-		{
-			name: "invalid rename name",
-			request: WorkflowProjectLabelRenameRequest{
-				ProjectID: "project-1",
-				LabelID:   "11111111-1111-4111-8111-111111111111",
-			},
-			reason: WorkflowLabelErrorReasonInvalidName,
-			field:  "name",
-		},
-		{
-			name: "invalid delete label id",
-			request: WorkflowProjectLabelDeleteRequest{
-				ProjectID: "project-1",
-				LabelID:   "not-a-label-id",
-			},
-			reason: WorkflowLabelErrorReasonInvalidMutation,
-			field:  "label_id",
-		},
-		{
-			name:    "invalid filter",
-			request: WorkflowTaskLabelFilter{},
-			reason:  WorkflowLabelErrorReasonInvalidFilter,
-			field:   "label_filter.kind",
-		},
-		{
-			name: "raw assignment bound",
-			request: WorkflowTaskLabelsUpdateRequest{
-				TaskID:      "task-1",
-				AddLabelIDs: raw101,
-			},
-			reason: WorkflowLabelErrorReasonInvalidMutation,
-			field:  "add_label_ids",
-		},
-		{
-			name: "labeled task create",
-			request: WorkflowTaskCreateRequest{
-				ProjectID: "project-1",
-				Title:     "Task",
-				LabelIDs:  raw101,
-			},
-			reason: WorkflowLabelErrorReasonInvalidMutation,
-			field:  "label_ids",
-		},
+		{name: "invalid filter", request: WorkflowTaskLabelFilter{}, reason: WorkflowLabelErrorReasonInvalidFilter, field: "label_filter.kind"},
+		{name: "labeled task create", request: WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "Task", LabelIDs: raw101}, reason: WorkflowLabelErrorReasonInvalidMutation, field: "label_ids"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.request.ValidateRPC()

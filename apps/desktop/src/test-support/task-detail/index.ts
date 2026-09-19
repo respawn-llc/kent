@@ -505,15 +505,6 @@ export function createTaskDetailTestServices(
   return createTestServices(
     [
       ...startupRoutes,
-      {
-        method: "workflow.project.label.list",
-        result: {
-          catalog: {
-            project_id: "project-1",
-            labels: [],
-          },
-        },
-      },
       { method: "workflow.task.get", result: task },
       { method: "workflow.task.attention.list", result: attention },
       ...(comments === undefined ? [] : [{ method: "workflow.task.comment.list", result: comments }]),

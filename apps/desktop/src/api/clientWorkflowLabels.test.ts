@@ -1,9 +1,12 @@
+import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { create } from "@app/server-api-contract";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ContractError } from "./errors";
 import { taskLabelFilterPayload } from "./clientWorkflowLabels";
-
 const priorityID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const urgentID = "942495c2-5958-4959-8445-94046ad74fbd";
 const smallID = "11111111-1111-4111-8111-111111111111";
@@ -25,7 +28,6 @@ describe("ApiClient workflow labels", () => {
         new FakeRpcTransport([{ method: "workflow.task.groupCounts", result: response }]),
         unexpectedProjectOverflow,
       ).getProjectTaskGroupCounts({ projectID: "project-1" });
-
     await expect(getCounts(result)).resolves.toMatchObject({
       definitions: definitions.map(({ group, status_kinds }) => ({ group, statusKinds: status_kinds })),
       counts: result.counts,
@@ -34,24 +36,33 @@ describe("ApiClient workflow labels", () => {
       getCounts({ ...result, definitions: [definitions[0], definitions[0], definitions[2]] }),
     ).rejects.toBeInstanceOf(ContractError);
   });
-
   it("reorders a Project label catalog and preserves the authoritative response order", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.project.label.reorder",
-        result: {
-          catalog: {
-            project_id: "project-1",
-            labels: [
-              { id: urgentID, name: "Urgent" },
-              { id: priorityID, name: "Priority" },
-            ],
+        descriptor: wf.ProjectLabelService.method.reorder,
+        result: create(wf.ProjectLabelService.method.reorder.output, {
+          outcome: {
+            case: "success",
+            value: {
+              catalog: {
+                projectId: "project-1",
+                labels: [
+                  {
+                    id: urgentID,
+                    name: "Urgent",
+                  },
+                  {
+                    id: priorityID,
+                    name: "Priority",
+                  },
+                ],
+              },
+            },
           },
-        },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.reorderProjectLabels("project-1", [urgentID, priorityID])).resolves.toEqual({
       projectID: "project-1",
       labels: [
@@ -59,17 +70,16 @@ describe("ApiClient workflow labels", () => {
         { id: priorityID, name: "Priority" },
       ],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.project.label.reorder",
-        params: {
-          project_id: "project-1",
-          label_ids: [urgentID, priorityID],
-        },
+        descriptor: wf.ProjectLabelService.method.reorder,
+        request: create(wf.ProjectLabelService.method.reorder.input, {
+          projectId: "project-1",
+          labelIds: [urgentID, priorityID],
+        }),
       },
     ]);
   });
-
   it("creates a related task through an atomic relationship-intent collection and returns its summary", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -85,7 +95,6 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(
       client.createTask({
         projectID: "project-1",
@@ -105,7 +114,6 @@ describe("ApiClient workflow labels", () => {
       title: "New blocker",
       workflowID: smallID,
     });
-
     expect(transport.calls).toEqual([
       {
         method: "workflow.task.create",
@@ -124,7 +132,6 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
   });
-
   it("omits an empty excluded partition from a named filter payload", () => {
     expect(
       taskLabelFilterPayload({
@@ -141,106 +148,167 @@ describe("ApiClient workflow labels", () => {
       },
     });
   });
-
   it("lists the complete bounded Project label catalog", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.project.label.list",
-        result: {
-          catalog: {
-            project_id: "project-1",
-            labels: [{ id: priorityID, name: "Priority" }],
+        descriptor: wf.ProjectLabelService.method.list,
+        result: create(wf.ProjectLabelService.method.list.output, {
+          outcome: {
+            case: "success",
+            value: {
+              catalog: {
+                projectId: "project-1",
+                labels: [
+                  {
+                    id: priorityID,
+                    name: "Priority",
+                  },
+                ],
+              },
+            },
           },
-        },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.listProjectLabels("project-1")).resolves.toEqual({
       projectID: "project-1",
       labels: [{ id: priorityID, name: "Priority" }],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.project.label.list",
-        params: { project_id: "project-1" },
+        descriptor: wf.ProjectLabelService.method.list,
+        request: create(wf.ProjectLabelService.method.list.input, {
+          projectId: "project-1",
+        }),
       },
     ]);
   });
-
   it("creates a Project label and returns the authoritative label", async () => {
+    const rawName = ` ${"e\u0301".repeat(64)} `;
+    const normalizedName = "é".repeat(64);
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.project.label.create",
-        result: { label: { id: priorityID, name: "Priority" } },
+        descriptor: wf.ProjectLabelService.method.create,
+        result: create(wf.ProjectLabelService.method.create.output, {
+          outcome: {
+            case: "success",
+            value: {
+              label: {
+                id: priorityID,
+                name: normalizedName,
+              },
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
-    await expect(client.createProjectLabel("project-1", "Priority")).resolves.toEqual({
+    await expect(client.createProjectLabel("project-1", rawName)).resolves.toEqual({
       id: priorityID,
-      name: "Priority",
+      name: normalizedName,
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.project.label.create",
-        params: { project_id: "project-1", name: "Priority" },
+        descriptor: wf.ProjectLabelService.method.create,
+        request: create(wf.ProjectLabelService.method.create.input, {
+          projectId: "project-1",
+          name: rawName,
+        }),
       },
     ]);
   });
-
   it("renames a Project label without changing its identity", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.project.label.rename",
-        result: { label: { id: priorityID, name: "Urgent" } },
+        descriptor: wf.ProjectLabelService.method.rename,
+        result: create(wf.ProjectLabelService.method.rename.output, {
+          outcome: {
+            case: "success",
+            value: {
+              label: {
+                id: priorityID,
+                name: "Urgent",
+              },
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.renameProjectLabel("project-1", priorityID, "Urgent")).resolves.toEqual({
       id: priorityID,
       name: "Urgent",
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.project.label.rename",
-        params: { project_id: "project-1", label_id: priorityID, name: "Urgent" },
+        descriptor: wf.ProjectLabelService.method.rename,
+        request: create(wf.ProjectLabelService.method.rename.input, {
+          projectId: "project-1",
+          labelId: priorityID,
+          name: "Urgent",
+        }),
       },
     ]);
   });
-
   it("deletes a Project label and returns its authoritative identity", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.project.label.delete",
-        result: { label_id: priorityID },
+        descriptor: wf.ProjectLabelService.method.delete,
+        result: create(wf.ProjectLabelService.method.delete.output, {
+          outcome: {
+            case: "success",
+            value: {
+              labelId: priorityID,
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.deleteProjectLabel("project-1", priorityID)).resolves.toBe(priorityID);
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.project.label.delete",
-        params: { project_id: "project-1", label_id: priorityID },
+        descriptor: wf.ProjectLabelService.method.delete,
+        request: create(wf.ProjectLabelService.method.delete.input, {
+          projectId: "project-1",
+          labelId: priorityID,
+        }),
       },
     ]);
   });
-
   it("reads and updates the authoritative task label assignment", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.labels.get",
-        result: { assignment: { task_id: "task-1", label_ids: [priorityID] } },
+        descriptor: taskRead.TaskLabelReadService.method.get,
+        result: create(taskRead.TaskLabelReadService.method.get.output, {
+          outcome: {
+            case: "success",
+            value: {
+              assignment: {
+                taskId: "task-1",
+                labelIds: [priorityID],
+              },
+            },
+          },
+        }),
       },
       {
-        method: "workflow.task.labels.update",
-        result: { assignment: { task_id: "task-1", label_ids: [urgentID] } },
+        descriptor: taskLifecycle.TaskLabelService.method.update,
+        result: create(taskLifecycle.TaskLabelService.method.update.output, {
+          outcome: {
+            case: "success",
+            value: {
+              assignment: {
+                taskId: "task-1",
+                labelIds: [urgentID],
+              },
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.getTaskLabels("task-1")).resolves.toEqual({
       taskID: "task-1",
       labelIDs: [priorityID],
@@ -249,22 +317,23 @@ describe("ApiClient workflow labels", () => {
       taskID: "task-1",
       labelIDs: [urgentID],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.labels.get",
-        params: { task_id: "task-1" },
+        descriptor: taskRead.TaskLabelReadService.method.get,
+        request: create(taskRead.TaskLabelReadService.method.get.input, {
+          taskId: "task-1",
+        }),
       },
       {
-        method: "workflow.task.labels.update",
-        params: {
-          task_id: "task-1",
-          add_label_ids: [urgentID],
-          remove_label_ids: [priorityID],
-        },
+        descriptor: taskLifecycle.TaskLabelService.method.update,
+        request: create(taskLifecycle.TaskLabelService.method.update.input, {
+          taskId: "task-1",
+          addLabelIds: [urgentID],
+          removeLabelIds: [priorityID],
+        }),
       },
     ]);
   });
-
   it("creates a task with an explicit atomic label assignment", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -280,7 +349,6 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(
       client.createTask({
         projectID: "project-1",
@@ -312,11 +380,9 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
   });
-
   it("rejects malformed and prefixed Workflow IDs before task RPCs", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(
       client.createTask({
         projectID: "project-1",
@@ -336,10 +402,8 @@ describe("ApiClient workflow labels", () => {
         limit: 25,
       }),
     ).rejects.toThrow();
-
     expect(transport.calls).toEqual([]);
   });
-
   it("lists label-filtered task projections with ordered Label display data", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -373,7 +437,6 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(
       client.listTasks({
         projectID: "project-1",
@@ -423,7 +486,6 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
   });
-
   it("rejects a zero task-list continuation offset", async () => {
     const client = new ApiClient(
       new FakeRpcTransport([
@@ -440,7 +502,6 @@ describe("ApiClient workflow labels", () => {
       ]),
       unexpectedProjectOverflow,
     );
-
     await expect(
       client.listTasks({
         projectID: "project-1",

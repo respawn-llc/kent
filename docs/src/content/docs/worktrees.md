@@ -16,6 +16,8 @@ kent worktree delete <selector>
 
 Every command supports `--json`. Session-scoped commands automatically use the current Session inside a Kent shell or accept `--session <id>` explicitly.
 
+JSON uses snake_case field names, lowercase kind values, and a topology `variant` discriminator. Enter and leave acknowledgements include `operation_id`; creation includes `target` only when a caller Session is present.
+
 Agents receive their Worktree context when a conversation starts, including workflow Sessions, and retain it after compaction. Context reminders distinguish starting or continuing in a Worktree from switching into one.
 
 ## Select a Project or Workspace
@@ -34,6 +36,7 @@ Select a worktree by its exact ID, branch, display name, or path. IDs take prece
 
 `list` labels worktrees by availability:
 
+- **main_workspace**: the Workspace checkout used when no other Worktree is selected
 - **registered**: available to Git and managed by Kent
 - **external**: available to Git but not managed by Kent; entering it registers it
 - **missing**: managed by Kent, but absent from Git

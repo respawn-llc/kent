@@ -17,6 +17,8 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/server/worktree"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -221,32 +223,40 @@ func New(store *workflowstore.Store, readModels ReadModels, roleResolver workflo
 	return service, nil
 }
 
-func (s *Service) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowCreateResponse{}, err
+func (s *Service) CreateWorkflow(ctx context.Context, req *pb.CreateRequest) (*pb.CreateSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	created, err := s.store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: req.Name, Description: req.Description})
 	if err != nil {
-		return serverapi.WorkflowCreateResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowCreateResponse{Workflow: workflowRecord(created)}, nil
+	record, err := workflowview.ProjectRecord(created)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.CreateSuccess{Workflow: record}, nil
 }
 
-func (s *Service) CreateAndLinkWorkflowToProject(ctx context.Context, request serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
-	if err := request.Validate(); err != nil {
-		return serverapi.WorkflowCreateAndLinkProjectResponse{}, err
+func (s *Service) CreateAndLinkWorkflowToProject(ctx context.Context, request *pb.CreateAndLinkProjectRequest) (*pb.CreateAndLinkProjectSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
 	}
 	created, link, err := s.store.CreateAndLinkWorkflow(ctx, workflowstore.CreateAndLinkWorkflowRequest{
 		Name:          request.Name,
 		Description:   request.Description,
-		ProjectID:     request.ProjectID,
-		DefaultPolicy: workflowStoreDefaultPolicy(request.DefaultPolicy),
+		ProjectID:     request.ProjectId,
+		DefaultPolicy: workflowStoreDefaultPolicy(request.GetDefaultPolicy()),
 	})
 	if err != nil {
-		return serverapi.WorkflowCreateAndLinkProjectResponse{}, err
+		return nil, err
 	}
-	s.publishProjectWorkflowEvent(ctx, request.ProjectID, created.ID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionLinked, link.ID)
-	return serverapi.WorkflowCreateAndLinkProjectResponse{Workflow: workflowRecord(created), Link: projectWorkflowLink(link)}, nil
+	s.publishProjectWorkflowEvent(ctx, request.ProjectId, created.ID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionLinked, link.ID)
+	record, err := workflowview.ProjectRecord(created)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.CreateAndLinkProjectSuccess{Workflow: record, Link: projectWorkflowLink(link)}, nil
 }
 
 func (s *Service) publishWorkflowEvent(ctx context.Context, event workflowstore.WorkflowEventRecord) {
@@ -294,133 +304,173 @@ func (s *Service) publishLinkedWorkflowEvent(ctx context.Context, workflowID run
 	}
 }
 
-func (s *Service) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGetResponse{}, err
+func (s *Service) UpdateWorkflow(ctx context.Context, req *pb.UpdateRequest) (*pb.GetSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	if err := s.store.UpdateWorkflowInfo(ctx, req.WorkflowID, req.Name, req.Description); err != nil {
-		return serverapi.WorkflowGetResponse{}, err
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	if err != nil {
+		return nil, err
 	}
-	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionUpdated, req.WorkflowID.String())
-	return s.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: req.WorkflowID})
+	if err := s.store.UpdateWorkflowInfo(ctx, workflowID, req.Name, req.Description); err != nil {
+		return nil, err
+	}
+	s.publishLinkedWorkflowEvent(ctx, workflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionUpdated, workflowID.String())
+	return s.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 }
 
-func (s *Service) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowListResponse{}, err
+func (s *Service) ListWorkflows(ctx context.Context, req *pb.ListRequest) (*pb.ListSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	window, err := serverapi.ResolveWorkflowOffsetWindow(req.Offset, req.Limit)
-	if err != nil {
-		return serverapi.WorkflowListResponse{}, err
+	limit := serverapi.OffsetPaginationMaxLimit
+	if req.Limit != nil {
+		limit = int(*req.Limit)
 	}
 	var workflowID *runtimeids.WorkflowID
-	if req.WorkflowID != nil {
-		workflowID = req.WorkflowID
+	if req.WorkflowId != nil {
+		id, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		workflowID = &id
 	}
 	rows, err := s.store.ListWorkflows(ctx, workflowstore.ListWorkflowsRequest{
-		Offset:     window.Offset,
-		Limit:      window.Limit,
+		Offset:     int(req.GetOffset()),
+		Limit:      limit,
 		Query:      req.Query,
-		ProjectID:  req.ProjectID,
+		ProjectID:  req.ProjectId,
 		WorkflowID: workflowID,
 	})
 	if err != nil {
-		return serverapi.WorkflowListResponse{}, err
+		return nil, err
 	}
-	out := make([]serverapi.WorkflowRecord, 0, len(rows.Workflows))
+	out := make([]*pb.WorkflowRecord, 0, len(rows.Workflows))
 	for _, row := range rows.Workflows {
-		out = append(out, workflowRecord(row))
+		record, err := workflowview.ProjectRecord(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
 	}
-	return serverapi.WorkflowListResponse{Workflows: out, ProjectID: rows.ProjectID, NextOffset: rows.NextOffset}, nil
+	var nextOffset *int32
+	if rows.NextOffset != nil {
+		offset, err := protoapi.Int32(*rows.NextOffset, "next_offset")
+		if err != nil {
+			return nil, err
+		}
+		nextOffset = &offset
+	}
+	return &pb.ListSuccess{Workflows: out, ProjectId: rows.ProjectID, NextOffset: nextOffset}, nil
 }
 
-func (s *Service) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGetResponse{}, err
+func (s *Service) GetWorkflow(ctx context.Context, req *pb.GetRequest) (*pb.GetSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	def, _, err := s.readModels.Definitions.GetDefinition(ctx, req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowGetResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowGetResponse{Definition: def}, nil
+	def, _, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetSuccess{Definition: def}, nil
 }
 
-func (s *Service) LinkWorkflowToProject(ctx context.Context, request serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
-	if err := request.Validate(); err != nil {
-		return serverapi.WorkflowLinkProjectResponse{}, err
+func (s *Service) LinkWorkflowToProject(ctx context.Context, request *pb.LinkProjectRequest) (*pb.LinkProjectSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
 	}
-	link, err := s.store.LinkWorkflowWithDefaultPolicy(ctx, request.ProjectID, request.WorkflowID, workflowStoreDefaultPolicy(request.DefaultPolicy))
+	workflowID, err := runtimeids.ParseWorkflowID(request.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowLinkProjectResponse{}, err
+		return nil, err
 	}
-	s.publishProjectWorkflowEvent(ctx, request.ProjectID, request.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionLinked, link.ID)
-	return serverapi.WorkflowLinkProjectResponse{Link: projectWorkflowLink(link)}, nil
+	link, err := s.store.LinkWorkflowWithDefaultPolicy(ctx, request.ProjectId, workflowID, workflowStoreDefaultPolicy(request.GetDefaultPolicy()))
+	if err != nil {
+		return nil, err
+	}
+	s.publishProjectWorkflowEvent(ctx, request.ProjectId, workflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionLinked, link.ID)
+	return &pb.LinkProjectSuccess{Link: projectWorkflowLink(link)}, nil
 }
 
-func (s *Service) ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowListProjectLinksResponse{}, err
+func (s *Service) ListProjectWorkflowLinks(ctx context.Context, req *pb.ListProjectLinksRequest) (*pb.ListProjectLinksSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	links, err := s.store.ListProjectWorkflowLinks(ctx, req.ProjectID)
+	links, err := s.store.ListProjectWorkflowLinks(ctx, req.ProjectId)
 	if err != nil {
-		return serverapi.WorkflowListProjectLinksResponse{}, err
+		return nil, err
 	}
-	out := make([]serverapi.ProjectWorkflowLink, 0, len(links))
+	out := make([]*pb.ProjectWorkflowLink, 0, len(links))
 	for _, link := range links {
 		out = append(out, projectWorkflowLink(link))
 	}
-	return serverapi.WorkflowListProjectLinksResponse{Links: out}, nil
+	return &pb.ListProjectLinksSuccess{Links: out}, nil
 }
 
-func (s *Service) SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowSetDefaultProjectLinkResponse{}, err
+func (s *Service) SetDefaultProjectWorkflowLink(ctx context.Context, req *pb.SetDefaultProjectLinkRequest) (*pb.SetDefaultProjectLinkSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	link, err := s.store.SetDefaultProjectWorkflowLink(ctx, req.ProjectID, req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowSetDefaultProjectLinkResponse{}, err
+		return nil, err
 	}
-	s.publishProjectWorkflowEvent(ctx, req.ProjectID, req.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionDefaultChanged, link.ID)
-	return serverapi.WorkflowSetDefaultProjectLinkResponse{Link: projectWorkflowLink(link)}, nil
+	link, err := s.store.SetDefaultProjectWorkflowLink(ctx, req.ProjectId, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	s.publishProjectWorkflowEvent(ctx, req.ProjectId, workflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionDefaultChanged, link.ID)
+	return &pb.SetDefaultProjectLinkSuccess{Link: projectWorkflowLink(link)}, nil
 }
 
-func (s *Service) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.WorkflowUnlinkProjectRequest) (serverapi.WorkflowUnlinkProjectResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowUnlinkProjectResponse{}, err
+func (s *Service) UnlinkWorkflowFromProject(ctx context.Context, req *pb.UnlinkProjectRequest) (*pb.UnlinkProjectSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	result, err := s.store.UnlinkProjectWorkflow(ctx, req.LinkID, req.ReplacementDefaultLinkID)
+	result, err := s.store.UnlinkProjectWorkflow(ctx, req.LinkId, req.GetReplacementDefaultLinkId())
 	resp := workflowUnlinkProjectResponse(result)
 	if err != nil {
 		return resp, err
 	}
 	if result.Unlinked {
-		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionUnlinked, req.LinkID)
+		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflowLink, serverapi.WorkflowProjectEventActionUnlinked, req.LinkId)
 	}
 	return resp, nil
 }
 
-func (s *Service) PreviewWorkflowDelete(ctx context.Context, req serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowDeletePreviewResponse{}, err
+func (s *Service) PreviewWorkflowDelete(ctx context.Context, req *pb.DeletePreviewRequest) (*pb.DeletePreviewSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	impact, err := s.store.PreviewWorkflowDelete(ctx, req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowDeletePreviewResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowDeletePreviewResponse{Impact: workflowDeleteImpact(impact)}, nil
+	impact, err := s.store.PreviewWorkflowDelete(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.DeletePreviewSuccess{Impact: workflowDeleteImpact(impact)}, nil
 }
 
-func (s *Service) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowDeleteResponse{}, err
+func (s *Service) DeleteWorkflow(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	taskIDs, err := s.store.ListWorkflowTaskIDs(ctx, req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowDeleteResponse{}, err
+		return nil, err
 	}
-	var response serverapi.WorkflowDeleteResponse
+	taskIDs, err := s.store.ListWorkflowTaskIDs(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	var response *pb.DeleteSuccess
 	err = s.taskMutations.RunMany(ctx, taskIDs, func(ctx context.Context) error {
-		if err := s.ensureWorkflowTasksQuiescent(ctx, req.WorkflowID); err != nil {
+		if err := s.ensureWorkflowTasksQuiescent(ctx, workflowID); err != nil {
 			return err
 		}
 		var err error
@@ -463,16 +513,20 @@ func runWorkflowGraphMutation[T any](ctx context.Context, service *Service, work
 	return result, err
 }
 
-func (s *Service) deleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowDeleteResponse{}, err
+func (s *Service) deleteWorkflow(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	links, err := s.store.ListWorkflowProjectLinks(ctx, req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowDeleteResponse{}, err
+		return nil, err
+	}
+	links, err := s.store.ListWorkflowProjectLinks(ctx, workflowID)
+	if err != nil {
+		return nil, err
 	}
 	result, err := s.store.DeleteWorkflow(ctx, workflowstore.WorkflowDeleteRequest{
-		WorkflowID:           req.WorkflowID,
+		WorkflowID:           workflowID,
 		Confirmed:            req.Confirmed,
 		ExpectedVersion:      req.ExpectedVersion,
 		ExpectedProjectCount: req.ExpectedProjectCount,
@@ -481,14 +535,14 @@ func (s *Service) deleteWorkflow(ctx context.Context, req serverapi.WorkflowDele
 		CleanupArtifacts:     req.CleanupArtifacts,
 	})
 	if err != nil {
-		return serverapi.WorkflowDeleteResponse{}, err
+		return nil, err
 	}
 	resp := workflowDeleteResponse(result)
 	if !resp.Deleted {
 		return resp, nil
 	}
 	s.finalizeWorkflowAttentionResolution(ctx, result)
-	s.publishGlobalWorkflowEvent(ctx, req.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionDeleted, req.WorkflowID.String())
+	s.publishGlobalWorkflowEvent(ctx, workflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionDeleted, workflowID.String())
 	seen := map[string]bool{}
 	for _, link := range links {
 		projectID := strings.TrimSpace(link.ProjectID)
@@ -496,118 +550,160 @@ func (s *Service) deleteWorkflow(ctx context.Context, req serverapi.WorkflowDele
 			continue
 		}
 		seen[projectID] = true
-		s.publishProjectWorkflowEvent(ctx, projectID, req.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionDeleted, req.WorkflowID.String())
+		s.publishProjectWorkflowEvent(ctx, projectID, workflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionDeleted, workflowID.String())
 	}
 	return resp, nil
 }
 
-func (s *Service) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
+func (s *Service) ValidateWorkflow(ctx context.Context, req *pb.ValidateRequest) (*pb.ValidateResponse, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	def, _, err := s.store.GetDefinition(ctx, req.WorkflowID)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
+		return nil, err
 	}
-	mode := workflow.ValidationContext(req.Mode)
-	if mode == "" {
-		mode = workflow.ValidationContextDraft
+	def, _, err := s.store.GetDefinition(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	mode := workflow.ValidationContextDraft
+	if req.Mode != nil {
+		value, err := protoapi.WorkflowValidationMode.Decode(*req.Mode)
+		if err != nil {
+			return nil, err
+		}
+		mode = workflow.ValidationContext(value)
 	}
 	result := workflowscript.EvaluateDefinition(def, []workflow.ValidationContext{mode}, s.roleResolver, nil)[mode]
-	resp := workflowValidationResponse(def.ID, result)
-	return resp, nil
+	return workflowValidationResponse(def.ID, result)
 }
 
-func (s *Service) ValidateWorkflowScriptPath(ctx context.Context, req serverapi.WorkflowScriptPathValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
+func (s *Service) ValidateWorkflowScriptPath(ctx context.Context, req *pb.ScriptPathValidateRequest) (*pb.ValidateResponse, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	def, _, err := s.store.GetDefinition(ctx, req.WorkflowID)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
+		return nil, err
+	}
+	def, _, err := s.store.GetDefinition(ctx, id)
+	if err != nil {
+		return nil, err
 	}
 	diagnostics := workflowscript.Validate(workflowscript.ValidationRequest{RawPath: req.ScriptPath})
-	errors := make([]serverapi.WorkflowValidationError, 0, len(diagnostics))
+	validationErrors := make([]workflow.ValidationError, 0, len(diagnostics))
+	nodeID := workflow.NodeID(req.NodeId)
 	for _, diagnostic := range diagnostics {
-		errors = append(errors, scriptPathValidationError(def.ID, workflow.NodeID(req.NodeID), diagnostic))
+		validationErrors = append(validationErrors, workflow.ValidationError{
+			Code: workflow.ValidationErrorCode(diagnostic.Code), Message: diagnostic.Message,
+			NodeID: &nodeID, BlocksContext: diagnostic.Blocking,
+		})
 	}
-	return serverapi.WorkflowValidateResponse{
-		Valid:  workflowValidationErrorsValid(errors),
-		Errors: errors,
-	}, nil
+	return workflowValidationResponse(def.ID, workflow.ValidationResult{Errors: validationErrors})
 }
 
-func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGraphValidateDraftResponse{}, err
+func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req *pb.GraphValidateDraftRequest) (*pb.GraphValidateDraftSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	def, err := s.workflowGraphDraftDefinition(ctx, req.WorkflowID, req.Metadata, req.Graph)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowGraphValidateDraftResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowGraphValidateDraftResponse{
-		Results:       s.workflowGraphValidationResultsForDefinition(def, req.Modes),
-		DerivedWiring: workflowview.DerivedWiring(def, s.roleResolver),
-	}, nil
+	def, err := s.workflowGraphDraftDefinition(ctx, id, req.Metadata, req.Graph)
+	if err != nil {
+		return nil, err
+	}
+	results, err := s.workflowGraphValidationResultsForDefinition(def, req.Modes)
+	if err != nil {
+		return nil, err
+	}
+	wiring, err := workflowview.DerivedWiring(def, s.roleResolver)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GraphValidateDraftSuccess{Results: results, DerivedWiring: wiring}, nil
 }
 
-func (s *Service) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
+func (s *Service) DeriveWorkflowGraphWiring(ctx context.Context, req *pb.GraphDeriveWiringRequest) (*pb.GraphDeriveWiringSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	def, err := s.workflowGraphDraftDefinition(ctx, req.WorkflowID, nil, req.Graph)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowGraphDeriveWiringResponse{
-		DerivedWiring: workflowview.DerivedWiring(def, s.roleResolver),
-	}, nil
+	def, err := s.workflowGraphDraftDefinition(ctx, id, nil, req.Graph)
+	if err != nil {
+		return nil, err
+	}
+	wiring, err := workflowview.DerivedWiring(def, s.roleResolver)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GraphDeriveWiringSuccess{DerivedWiring: wiring}, nil
 }
 
-func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGraphSavePreviewResponse{}, err
+func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req *pb.GraphSavePreviewRequest) (*pb.GraphSavePreviewSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	storeRequest, err := workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedVersion, req.Metadata, req.Graph, nil)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
 	if err != nil {
-		return serverapi.WorkflowGraphSavePreviewResponse{}, err
+		return nil, err
+	}
+	storeRequest, err := workflowGraphStoreSaveRequest(id, req.ExpectedVersion, req.Metadata, req.Graph, nil)
+	if err != nil {
+		return nil, err
 	}
 	result, err := s.store.PreviewWorkflowGraphSave(ctx, storeRequest)
 	if err != nil {
-		return serverapi.WorkflowGraphSavePreviewResponse{}, err
+		return nil, err
 	}
-	resp := workflowGraphSavePreviewResponse(result, workflowGraphSaveValidationResponses(result))
-	if err := resp.Validate(); err != nil {
-		return serverapi.WorkflowGraphSavePreviewResponse{}, fmt.Errorf("project workflow graph save preview response: %w", err)
+	projected, err := workflowGraphSaveResponse(result)
+	if err != nil {
+		return nil, err
 	}
-	return resp, nil
+	return &pb.GraphSavePreviewSuccess{
+		CurrentVersion: projected.CurrentVersion, Changed: projected.Changed,
+		ValidationResults: projected.ValidationResults, Impact: projected.Impact, Blockers: projected.Blockers,
+		CanSave: projected.CanSave, ConfirmationRequired: projected.ConfirmationRequired,
+	}, nil
 }
 
-func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowGraphSaveResponse{}, err
+func (s *Service) SaveWorkflowGraph(ctx context.Context, req *pb.GraphSaveRequest) (*pb.GraphSaveSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	result, err := runWorkflowGraphMutation(ctx, s, req.WorkflowID, func(ctx context.Context) (workflowstore.WorkflowGraphSaveResult, error) {
-		storeRequest, err := workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedVersion, req.Metadata, req.Graph, req.Confirmation)
+	id, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := runWorkflowGraphMutation(ctx, s, id, func(ctx context.Context) (workflowstore.WorkflowGraphSaveResult, error) {
+		storeRequest, err := workflowGraphStoreSaveRequest(id, req.ExpectedVersion, req.Metadata, req.Graph, req.Confirmation)
 		if err != nil {
 			return workflowstore.WorkflowGraphSaveResult{}, err
 		}
 		return s.store.SaveWorkflowGraph(ctx, storeRequest)
 	})
 	if err != nil {
-		return serverapi.WorkflowGraphSaveResponse{}, err
+		return nil, err
 	}
-	resp := workflowGraphSaveResponse(result, workflowGraphSaveValidationResponses(result))
+	resp, err := workflowGraphSaveResponse(result)
+	if err != nil {
+		return nil, err
+	}
 	if result.Saved {
-		definition, _ := workflowview.ProjectDefinition(result.Definition, result.Record, s.roleResolver)
-		resp.Definition = &definition
+		definition, _, err := workflowview.ProjectDefinition(result.Definition, result.Record, s.roleResolver)
+		if err != nil {
+			return nil, err
+		}
+		resp.Definition = definition
 		resp.CurrentVersion = result.Record.Version
 		if result.Changed {
-			s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionGraphSaved, req.WorkflowID.String())
+			s.publishLinkedWorkflowEvent(ctx, id, serverapi.WorkflowProjectEventResourceWorkflow, serverapi.WorkflowProjectEventActionGraphSaved, id.String())
 		}
-	}
-	if err := resp.Validate(); err != nil {
-		return serverapi.WorkflowGraphSaveResponse{}, fmt.Errorf("project workflow graph save response: %w", err)
 	}
 	return resp, nil
 }
@@ -2339,7 +2435,7 @@ func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowS
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	if _, err := s.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: req.WorkflowID}); err != nil {
+	if _, err := s.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: req.WorkflowID.String()}); err != nil {
 		return nil, err
 	}
 	return s.events.subscribe("", &req.WorkflowID)
@@ -2369,58 +2465,44 @@ func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTas
 	return serverapi.WorkflowTaskGetResponse{Task: detail}, nil
 }
 
-func workflowRecord(row workflowstore.WorkflowRecord) serverapi.WorkflowRecord {
-	record := serverapi.WorkflowRecord{
-		ID:                    row.ID,
-		Name:                  row.Name,
-		Description:           row.Description,
-		Version:               row.Version,
-		ExecutionTargetPolicy: workflowExecutionTargetPolicyToAPI(row.ExecutionTargetPolicy),
-	}
-	if row.ProjectLink != nil {
-		record.ProjectLink = &serverapi.WorkflowListProjectLink{Default: row.ProjectLink.Default}
-	}
-	return record
+func projectWorkflowLink(row workflowstore.ProjectWorkflowLinkRecord) *pb.ProjectWorkflowLink {
+	return &pb.ProjectWorkflowLink{Id: row.ID, ProjectId: row.ProjectID, WorkflowId: row.WorkflowID.String(), Default: row.IsDefault}
 }
 
-func projectWorkflowLink(row workflowstore.ProjectWorkflowLinkRecord) serverapi.ProjectWorkflowLink {
-	return serverapi.ProjectWorkflowLink{ID: row.ID, ProjectID: row.ProjectID, WorkflowID: row.WorkflowID, Default: row.IsDefault}
-}
-
-func workflowStoreDefaultPolicy(policy serverapi.WorkflowProjectLinkDefaultMode) workflowstore.WorkflowLinkDefaultPolicy {
+func workflowStoreDefaultPolicy(policy pb.ProjectLinkDefaultMode) workflowstore.WorkflowLinkDefaultPolicy {
 	switch policy {
-	case serverapi.WorkflowProjectLinkDefaultAlways:
+	case pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS:
 		return workflowstore.WorkflowLinkDefaultAlways
-	case serverapi.WorkflowProjectLinkDefaultIfProjectHasNone:
+	case pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_IF_PROJECT_HAS_NONE:
 		return workflowstore.WorkflowLinkDefaultIfProjectHasNone
 	default:
 		return workflowstore.WorkflowLinkDefaultNever
 	}
 }
 
-func workflowUnlinkProjectResponse(result workflowstore.ProjectWorkflowUnlinkResult) serverapi.WorkflowUnlinkProjectResponse {
-	resp := serverapi.WorkflowUnlinkProjectResponse{LinkID: result.LinkID, Unlinked: result.Unlinked}
+func workflowUnlinkProjectResponse(result workflowstore.ProjectWorkflowUnlinkResult) *pb.UnlinkProjectSuccess {
+	resp := &pb.UnlinkProjectSuccess{LinkId: result.LinkID, Unlinked: result.Unlinked}
 	for _, blocker := range result.Blockers {
-		dto := serverapi.WorkflowUnlinkProjectBlocker{Code: blocker.Code, Message: blocker.Message, Count: blocker.Count}
+		dto := &pb.UnlinkProjectBlocker{Code: blocker.Code, Message: blocker.Message, Count: int32(blocker.Count)}
 		for _, task := range blocker.Tasks {
-			dto.Tasks = append(dto.Tasks, serverapi.WorkflowUnlinkTaskReference{TaskID: string(task.TaskID), ShortID: task.ShortID, Title: task.Title})
+			dto.Tasks = append(dto.Tasks, &pb.UnlinkTaskReference{TaskId: string(task.TaskID), ShortId: task.ShortID, Title: task.Title})
 		}
 		resp.Blockers = append(resp.Blockers, dto)
 	}
 	return resp
 }
 
-func workflowDeleteResponse(result workflowstore.WorkflowDeleteResult) serverapi.WorkflowDeleteResponse {
-	resp := serverapi.WorkflowDeleteResponse{Deleted: result.Deleted, Impact: workflowDeleteImpact(result.Impact)}
+func workflowDeleteResponse(result workflowstore.WorkflowDeleteResult) *pb.DeleteSuccess {
+	resp := &pb.DeleteSuccess{Deleted: result.Deleted, Impact: workflowDeleteImpact(result.Impact)}
 	for _, blocker := range result.Blockers {
-		resp.Blockers = append(resp.Blockers, serverapi.WorkflowDeleteBlocker{Code: blocker.Code, Message: blocker.Message, Count: blocker.Count})
+		resp.Blockers = append(resp.Blockers, &pb.DeleteBlocker{Code: blocker.Code, Message: blocker.Message, Count: blocker.Count})
 	}
 	return resp
 }
 
-func workflowDeleteImpact(impact workflowstore.WorkflowDeleteImpact) serverapi.WorkflowDeleteImpact {
-	return serverapi.WorkflowDeleteImpact{
-		WorkflowID:                     impact.WorkflowID,
+func workflowDeleteImpact(impact workflowstore.WorkflowDeleteImpact) *pb.DeleteImpact {
+	return &pb.DeleteImpact{
+		WorkflowId:                     impact.WorkflowID.String(),
 		Version:                        impact.Version,
 		ProjectCount:                   impact.ProjectCount,
 		LinkCount:                      impact.LinkCount,
@@ -2432,49 +2514,36 @@ func workflowDeleteImpact(impact workflowstore.WorkflowDeleteImpact) serverapi.W
 	}
 }
 
-func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID runtimeids.WorkflowID, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, modes []serverapi.WorkflowValidationMode) (map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, error) {
-	def, err := s.workflowGraphDraftDefinition(ctx, workflowID, metadata, graph)
-	if err != nil {
-		return nil, err
-	}
-	return s.workflowGraphValidationResultsForDefinition(def, modes), nil
-}
-
-func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Definition, modes []serverapi.WorkflowValidationMode) map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse {
-	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, len(modes))
+func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Definition, modes []pb.ValidationMode) ([]*pb.ModeValidationResult, error) {
 	contexts := make([]workflow.ValidationContext, 0, len(modes))
 	for _, mode := range modes {
-		contexts = append(contexts, workflow.ValidationContext(mode))
+		value, err := protoapi.WorkflowValidationMode.Decode(mode)
+		if err != nil {
+			return nil, err
+		}
+		contexts = append(contexts, workflow.ValidationContext(value))
 	}
 	results := workflowscript.EvaluateDefinition(def, contexts, s.roleResolver, nil)
-	for _, mode := range modes {
-		out[mode] = workflowValidationResponse(def.ID, results[workflow.ValidationContext(mode)])
-	}
-	return out
+	return workflowValidationResults(def.ID, contexts, results)
 }
 
-func scriptPathValidationError(workflowID runtimeids.WorkflowID, nodeID workflow.NodeID, diagnostic workflowscript.Diagnostic) serverapi.WorkflowValidationError {
-	workflowIDValue := workflowID
-	nodeIDValue := string(nodeID)
-	return serverapi.WorkflowValidationError{
-		Code:          diagnostic.Code,
-		Message:       diagnostic.Message,
-		WorkflowID:    &workflowIDValue,
-		NodeID:        &nodeIDValue,
-		BlocksContext: diagnostic.Blocking,
-	}
-}
-
-func workflowValidationErrorsValid(errors []serverapi.WorkflowValidationError) bool {
-	for _, err := range errors {
-		if err.BlocksContext {
-			return false
+func workflowValidationResults(workflowID runtimeids.WorkflowID, contexts []workflow.ValidationContext, results map[workflow.ValidationContext]workflow.ValidationResult) ([]*pb.ModeValidationResult, error) {
+	out := make([]*pb.ModeValidationResult, 0, len(contexts))
+	for _, context := range contexts {
+		mode, err := protoapi.WorkflowValidationMode.Encode(string(context))
+		if err != nil {
+			return nil, err
 		}
+		result, err := workflowValidationResponse(workflowID, results[context])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &pb.ModeValidationResult{Mode: mode, Result: result})
 	}
-	return true
+	return out, nil
 }
 
-func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID runtimeids.WorkflowID, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft) (workflow.Definition, error) {
+func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID runtimeids.WorkflowID, metadata *pb.GraphMetadata, graph *pb.GraphDraft) (workflow.Definition, error) {
 	current, _, err := s.store.GetDefinition(ctx, workflowID)
 	if err != nil {
 		return workflow.Definition{}, err
@@ -2489,28 +2558,31 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID r
 	}
 	targetPolicy := current.ExecutionTargetPolicy
 	if metadata != nil && metadata.ExecutionTargetPolicy != nil {
-		targetPolicy = workflowExecutionTargetPolicyFromAPI(*metadata.ExecutionTargetPolicy)
+		targetPolicy, err = workflowExecutionTargetPolicyFromAPI(metadata.ExecutionTargetPolicy)
+		if err != nil {
+			return workflow.Definition{}, err
+		}
 	}
 	def.DisplayName = displayName
 	def.ExecutionTargetPolicy = targetPolicy
 	return def, nil
 }
 
-func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph serverapi.WorkflowGraphDraft) (workflow.Definition, error) {
+func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph *pb.GraphDraft) (workflow.Definition, error) {
 	def := workflow.Definition{ID: workflowID}
 	groupMemberIDs := map[string][]workflow.NodeID{}
 	groupIDByKey := make(map[workflow.ModelKey]string, len(graph.NodeGroups))
 	for _, group := range graph.NodeGroups {
-		groupIDByKey[workflow.ModelKey(strings.TrimSpace(group.Key))] = group.ID
+		groupIDByKey[workflow.ModelKey(strings.TrimSpace(group.Key))] = group.Id
 		def.NodeGroups = append(def.NodeGroups, workflow.NodeGroup{
 			WorkflowID:  workflowID,
-			ID:          group.ID,
+			ID:          group.Id,
 			Key:         workflow.ModelKey(group.Key),
 			DisplayName: group.DisplayName,
 		})
 	}
 	for _, node := range graph.Nodes {
-		groupID := optionalStringValue(node.GroupID)
+		groupID := optionalStringValue(node.GroupId)
 		if groupID == "" && strings.TrimSpace(node.GroupKey) != "" {
 			groupKey := workflow.ModelKey(strings.TrimSpace(node.GroupKey))
 			var ok bool
@@ -2523,20 +2595,31 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph se
 			}
 		}
 		if groupID != "" {
-			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.ID))
+			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.Id))
+		}
+		kind, err := protoapi.WorkflowNodeKind.Decode(node.Kind)
+		if err != nil {
+			return workflow.Definition{}, err
+		}
+		completion := ""
+		if node.CompletionMode != nil {
+			completion, err = protoapi.WorkflowCompletionMode.Decode(*node.CompletionMode)
+			if err != nil {
+				return workflow.Definition{}, err
+			}
 		}
 		workflowNode, err := workflow.NewNode(
 			workflow.NodeIdentity{
 				WorkflowID:  workflowID,
-				ID:          workflow.NodeID(node.ID),
+				ID:          workflow.NodeID(node.Id),
 				Key:         workflow.ModelKey(node.Key),
 				DisplayName: node.DisplayName,
 				GroupID:     textutil.OptionalExactString(groupID),
 			},
-			workflow.NodeKind(node.Kind),
+			workflow.NodeKind(kind),
 			workflow.NodeFields{
-				SubagentRole:   node.SubagentRole,
-				CompletionMode: node.CompletionMode,
+				SubagentRole:   node.GetSubagentRole(),
+				CompletionMode: completion,
 				ScriptPath: func() workflow.OptionalScriptPath {
 					if scriptPath, ok := workflow.PresentScriptPath(optionalStringValue(node.ScriptPath)); ok {
 						return scriptPath
@@ -2557,52 +2640,49 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph se
 	for _, group := range graph.TransitionGroups {
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
 			WorkflowID:   workflowID,
-			ID:           workflow.TransitionGroupID(group.ID),
-			SourceNodeID: workflow.NodeID(group.SourceNodeID),
-			TransitionID: workflow.TransitionID(group.TransitionID),
+			ID:           workflow.TransitionGroupID(group.Id),
+			SourceNodeID: workflow.NodeID(group.SourceNodeId),
+			TransitionID: workflow.TransitionID(group.TransitionId),
 			DisplayName:  group.DisplayName,
 			Description:  group.Description,
 		})
 	}
 	for _, edge := range graph.Edges {
+		assignee, assigneeErr := protoapi.WorkflowAssigneeSelection.Decode(edge.AssigneeSelection)
+		thinking, thinkingErr := protoapi.WorkflowThinkingSelection.Decode(edge.ThinkingSelection)
+		contextMode, contextErr := protoapi.WorkflowContextMode.Decode(edge.ContextMode)
+		source, sourceErr := protoapi.WorkflowContextSourceKind.Decode(edge.ContextSource.GetKind())
+		parameters, parameterErr := domainParameters(edge.Parameters)
+		if err := errors.Join(assigneeErr, thinkingErr, contextErr, sourceErr, parameterErr); err != nil {
+			return workflow.Definition{}, err
+		}
 		def.Edges = append(def.Edges, workflow.Edge{
 			WorkflowID:        workflowID,
-			ID:                workflow.EdgeID(edge.ID),
+			ID:                workflow.EdgeID(edge.Id),
 			Key:               workflow.ModelKey(edge.Key),
-			TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID),
-			TargetNodeID:      workflow.NodeID(edge.TargetNodeID),
-			AssigneeSelection: workflow.AssigneeSelection(edge.AssigneeSelection),
-			ThinkingSelection: workflow.ThinkingSelection(edge.ThinkingSelection),
-			ContextMode:       workflow.ContextMode(edge.ContextMode),
-			ContextSource:     workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSource.Kind), NodeKey: workflow.ModelKey(edge.ContextSource.NodeKey)}),
+			TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupId),
+			TargetNodeID:      workflow.NodeID(edge.TargetNodeId),
+			AssigneeSelection: workflow.AssigneeSelection(assignee),
+			ThinkingSelection: workflow.ThinkingSelection(thinking),
+			ContextMode:       workflow.ContextMode(contextMode),
+			ContextSource:     workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(source), NodeKey: workflow.ModelKey(edge.ContextSource.GetNodeKey())}),
 			RequiresApproval:  edge.RequiresApproval,
 			PromptTemplate:    edge.PromptTemplate,
-			Parameters:        domainParameters(edge.Parameters),
+			Parameters:        parameters,
 		})
 	}
 	return def, nil
 }
 
-func workflowValidationResponse(workflowID runtimeids.WorkflowID, result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
-	resp := serverapi.WorkflowValidateResponse{Valid: !result.HasBlockingErrors()}
-	resp.Errors = workflowview.ValidationErrors(workflow.WorkflowIDPointer(workflowID), result.Errors)
-	return resp
-}
-
-func workflowGraphSaveValidationModes() []serverapi.WorkflowValidationMode {
-	return []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution}
-}
-
-func workflowGraphSaveValidationResponses(result workflowstore.WorkflowGraphSaveResult) map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse {
-	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, 2)
-	for _, mode := range workflowGraphSaveValidationModes() {
-		context := workflow.ValidationContext(mode)
-		out[mode] = workflowValidationResponse(result.Definition.ID, result.ValidationResults[context])
+func workflowValidationResponse(workflowID runtimeids.WorkflowID, result workflow.ValidationResult) (*pb.ValidateResponse, error) {
+	diagnostics, err := workflowview.ValidationErrors(&workflowID, result.Errors)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	return &pb.ValidateResponse{Valid: !result.HasBlockingErrors(), Errors: diagnostics}, nil
 }
 
-func workflowGraphStoreSaveRequest(workflowID runtimeids.WorkflowID, expectedVersion int64, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) (workflowstore.WorkflowGraphSaveRequest, error) {
+func workflowGraphStoreSaveRequest(workflowID runtimeids.WorkflowID, expectedVersion int64, metadata *pb.GraphMetadata, graph *pb.GraphDraft, confirmation *pb.GraphSaveConfirmation) (workflowstore.WorkflowGraphSaveRequest, error) {
 	definition, err := workflowDefinitionFromGraphDraft(workflowID, graph)
 	if err != nil {
 		return workflowstore.WorkflowGraphSaveRequest{}, err
@@ -2611,7 +2691,10 @@ func workflowGraphStoreSaveRequest(workflowID runtimeids.WorkflowID, expectedVer
 	if metadata != nil {
 		req.Metadata = &workflowstore.WorkflowGraphSaveMetadata{Name: metadata.Name, Description: metadata.Description}
 		if metadata.ExecutionTargetPolicy != nil {
-			policy := workflowExecutionTargetPolicyFromAPI(*metadata.ExecutionTargetPolicy)
+			policy, err := workflowExecutionTargetPolicyFromAPI(metadata.ExecutionTargetPolicy)
+			if err != nil {
+				return workflowstore.WorkflowGraphSaveRequest{}, err
+			}
 			req.Metadata.ExecutionTargetPolicy = &policy
 		}
 	}
@@ -2627,63 +2710,59 @@ func workflowGraphStoreSaveRequest(workflowID runtimeids.WorkflowID, expectedVer
 	return req, nil
 }
 
-func workflowExecutionTargetPolicyToAPI(policy workflow.ExecutionTargetPolicy) serverapi.WorkflowExecutionTargetConfiguration {
-	policy = policy.Canonical()
-	var customRef *string
-	if policy.CustomRef != nil {
-		value := *policy.CustomRef
-		customRef = &value
+func workflowExecutionTargetPolicyFromAPI(policy *pb.ExecutionTargetConfiguration) (workflow.ExecutionTargetPolicy, error) {
+	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(policy.Mode)
+	if err != nil {
+		return workflow.ExecutionTargetPolicy{}, err
 	}
-	return serverapi.WorkflowExecutionTargetConfiguration{
-		Mode:      serverapi.WorkflowExecutionTargetMode(policy.Mode),
-		CustomRef: customRef,
-	}
-}
-
-func workflowExecutionTargetPolicyFromAPI(policy serverapi.WorkflowExecutionTargetConfiguration) workflow.ExecutionTargetPolicy {
 	var customRef *string
 	if policy.CustomRef != nil {
 		value := *policy.CustomRef
 		customRef = &value
 	}
 	return workflow.ExecutionTargetPolicy{
-		Mode:      workflow.ExecutionTargetMode(policy.Mode),
+		Mode:      workflow.ExecutionTargetMode(mode),
 		CustomRef: customRef,
-	}.Canonical()
+	}.Canonical(), nil
 }
 
-func workflowGraphSavePreviewResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSavePreviewResponse {
-	return serverapi.WorkflowGraphSavePreviewResponse{
-		CurrentVersion:       result.Version,
-		Changed:              result.Changed,
-		ValidationResults:    validationResults,
-		Impact:               workflowGraphSaveImpact(result),
-		Blockers:             workflowGraphSaveBlockers(result.Blockers),
-		CanSave:              result.CanSave,
-		ConfirmationRequired: result.ConfirmationRequired,
+func workflowGraphSaveResponse(result workflowstore.WorkflowGraphSaveResult) (*pb.GraphSaveSuccess, error) {
+	validationResults, err := workflowValidationResults(result.Definition.ID,
+		[]workflow.ValidationContext{workflow.ValidationContextDraft, workflow.ValidationContextExecution}, result.ValidationResults)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func workflowGraphSaveResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSaveResponse {
-	return serverapi.WorkflowGraphSaveResponse{
+	impact, err := workflowGraphSaveImpact(result)
+	if err != nil {
+		return nil, err
+	}
+	blockers, err := workflowGraphSaveBlockers(result.Blockers)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GraphSaveSuccess{
 		Saved:                result.Saved,
 		Changed:              result.Changed,
 		CurrentVersion:       result.Version,
 		ValidationResults:    validationResults,
-		Impact:               workflowGraphSaveImpact(result),
-		Blockers:             workflowGraphSaveBlockers(result.Blockers),
+		Impact:               impact,
+		Blockers:             blockers,
 		CanSave:              result.CanSave,
 		ConfirmationRequired: result.ConfirmationRequired,
-	}
+	}, nil
 }
 
-func workflowGraphSaveImpact(result workflowstore.WorkflowGraphSaveResult) serverapi.WorkflowGraphSaveImpact {
-	return serverapi.WorkflowGraphSaveImpact{
+func workflowGraphSaveImpact(result workflowstore.WorkflowGraphSaveResult) (*pb.GraphSaveImpact, error) {
+	removed, err := workflowGraphEntityReferences(result.Impact.RemovedEntities)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GraphSaveImpact{
 		RemovedNodeGroupCount:             result.Impact.RemovedNodeGroupCount,
 		RemovedNodeCount:                  result.Impact.RemovedNodeCount,
 		RemovedTransitionGroupCount:       result.Impact.RemovedTransitionGroupCount,
 		RemovedEdgeCount:                  result.Impact.RemovedEdgeCount,
-		RemovedEntities:                   workflowGraphEntityReferences(result.Impact.RemovedEntities),
+		RemovedEntities:                   removed,
 		NodeTaskReferenceCount:            result.Impact.NodeTaskReferenceCount,
 		EdgeTaskReferenceCount:            result.Impact.EdgeTaskReferenceCount,
 		ActiveCurrentNodeCount:            result.EditPolicyImpact.ActiveCurrentNodeCount,
@@ -2691,24 +2770,36 @@ func workflowGraphSaveImpact(result workflowstore.WorkflowGraphSaveResult) serve
 		StartNodeChangeCount:              result.EditPolicyImpact.StartNodeChangeCount,
 		LastTerminalChangeCount:           result.EditPolicyImpact.LastTerminalChangeCount,
 		TaskReferencedNodeKindChangeCount: result.EditPolicyImpact.TaskReferencedNodeKindChangeCount,
-	}
+	}, nil
 }
 
-func workflowGraphSaveBlockers(blockers []workflowstore.WorkflowGraphSaveBlocker) []serverapi.WorkflowGraphSaveBlocker {
-	out := make([]serverapi.WorkflowGraphSaveBlocker, 0, len(blockers))
+func workflowGraphSaveBlockers(blockers []workflowstore.WorkflowGraphSaveBlocker) ([]*pb.GraphSaveBlocker, error) {
+	out := make([]*pb.GraphSaveBlocker, 0, len(blockers))
 	for _, blocker := range blockers {
-		out = append(out, serverapi.WorkflowGraphSaveBlocker{
+		affected, err := workflowGraphEntityReferences(blocker.AffectedEntities)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &pb.GraphSaveBlocker{
 			Code:             blocker.Code,
 			Message:          blocker.Message,
 			Count:            blocker.Count,
-			AffectedEntities: workflowGraphEntityReferences(blocker.AffectedEntities),
+			AffectedEntities: affected,
 		})
 	}
-	return out
+	return out, nil
 }
 
-func workflowGraphEntityReferences(references []workflowstore.WorkflowGraphEntityReference) []serverapi.WorkflowGraphEntityReference {
-	return append([]serverapi.WorkflowGraphEntityReference{}, references...)
+func workflowGraphEntityReferences(references []workflowstore.WorkflowGraphEntityReference) ([]*pb.GraphEntityReference, error) {
+	out := make([]*pb.GraphEntityReference, 0, len(references))
+	for _, reference := range references {
+		entityType, err := protoapi.WorkflowGraphEntityType.Encode(string(reference.EntityType))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &pb.GraphEntityReference{EntityType: entityType, EntityId: reference.EntityID})
+	}
+	return out, nil
 }
 
 func commentRecord(row workflowstore.CommentRecord) serverapi.WorkflowTaskComment {
@@ -2722,18 +2813,22 @@ func optionalStringValue(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-func joinInputProviders(in []serverapi.WorkflowJoinInputProvider) []workflow.JoinInputProvider {
+func joinInputProviders(in []*pb.DraftJoinInputProvider) []workflow.JoinInputProvider {
 	out := make([]workflow.JoinInputProvider, 0, len(in))
 	for _, provider := range in {
-		out = append(out, workflow.JoinInputProvider{InputName: provider.InputName, ProviderEdgeID: workflow.EdgeID(provider.ProviderEdgeID)})
+		out = append(out, workflow.JoinInputProvider{InputName: provider.InputName, ProviderEdgeID: workflow.EdgeID(provider.ProviderEdgeId)})
 	}
 	return out
 }
 
-func domainParameters(in []serverapi.WorkflowParameter) []workflow.Parameter {
+func domainParameters(in []*pb.Parameter) ([]workflow.Parameter, error) {
 	out := make([]workflow.Parameter, 0, len(in))
 	for _, parameter := range in {
-		out = append(out, workflow.Parameter{Key: parameter.Key, Description: parameter.Description, Purpose: workflow.ParameterPurpose(parameter.Purpose)})
+		purpose, err := protoapi.WorkflowParameterPurpose.Decode(parameter.Purpose)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, workflow.Parameter{Key: parameter.Key, Description: parameter.Description, Purpose: workflow.ParameterPurpose(purpose)})
 	}
-	return out
+	return out, nil
 }

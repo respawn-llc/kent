@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"core/shared/serverapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 )
 
 const (
@@ -61,8 +61,8 @@ func TestWorkflowGraphDocumentRequiresPublicShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("draft: %v", err)
 	}
-	if len(graph.Nodes) != 1 || graph.Nodes[0].GroupID == nil ||
-		*graph.Nodes[0].GroupID != workflowGraphDocumentGroupID ||
+	if len(graph.Nodes) != 1 || graph.Nodes[0].GroupId == nil ||
+		*graph.Nodes[0].GroupId != workflowGraphDocumentGroupID ||
 		graph.Nodes[0].GroupKey != "" {
 		t.Fatalf("Node membership = %+v", graph.Nodes)
 	}
@@ -73,17 +73,17 @@ func TestWorkflowGraphDocumentEmitsExplicitArraysAndPreservesNestedOrder(t *test
 	if err != nil {
 		t.Fatalf("prepare Workflow graph document contract: %v", err)
 	}
-	document, err := workflowGraphDocumentFromDraft(mustWorkflowID(t, emptyWorkflowGraphDocumentID), 1, serverapi.WorkflowGraphDraft{
-		NodeGroups: []serverapi.WorkflowGraphDraftNodeGroup{},
-		Nodes: []serverapi.WorkflowGraphDraftNode{{
-			ID: workflowGraphDocumentNodeID, Key: "node", Kind: "join", DisplayName: "Node",
-			JoinInputProviders: []serverapi.WorkflowJoinInputProvider{
-				{InputName: "second", ProviderEdgeID: workflowGraphDocumentEdgeTwoID},
-				{InputName: "first", ProviderEdgeID: workflowGraphDocumentEdgeOneID},
+	document, err := workflowGraphDocumentFromDraft(mustWorkflowID(t, emptyWorkflowGraphDocumentID), 1, &pb.GraphDraft{
+		NodeGroups: []*pb.GraphDraftNodeGroup{},
+		Nodes: []*pb.GraphDraftNode{{
+			Id: workflowGraphDocumentNodeID, Key: "node", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_JOIN, DisplayName: "Node",
+			JoinInputProviders: []*pb.DraftJoinInputProvider{
+				{InputName: "second", ProviderEdgeId: workflowGraphDocumentEdgeTwoID},
+				{InputName: "first", ProviderEdgeId: workflowGraphDocumentEdgeOneID},
 			},
 		}},
-		TransitionGroups: []serverapi.WorkflowGraphDraftTransitionGroup{},
-		Edges:            []serverapi.WorkflowGraphDraftEdge{},
+		TransitionGroups: []*pb.GraphDraftTransitionGroup{},
+		Edges:            []*pb.GraphDraftEdge{},
 	})
 	if err != nil {
 		t.Fatalf("document: %v", err)

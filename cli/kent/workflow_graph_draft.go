@@ -5,25 +5,25 @@ import (
 	"errors"
 
 	"core/shared/apicontract"
-	"core/shared/serverapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 )
 
 type workflowGraphPreview struct {
-	Graph    serverapi.WorkflowGraphDraft
-	Response serverapi.WorkflowGraphSavePreviewResponse
+	Graph    *pb.GraphDraft
+	Response *pb.GraphSavePreviewSuccess
 }
 
 func previewWorkflowGraphDraft(
 	ctx context.Context,
 	remote apicontract.WorkflowService,
-	current serverapi.WorkflowDefinition,
-	submitted serverapi.WorkflowGraphDraft,
+	current *pb.WorkflowDefinition,
+	submitted *pb.GraphDraft,
 ) (workflowGraphPreview, error) {
 	if remote == nil {
 		return workflowGraphPreview{}, errors.New("workflow service is required")
 	}
-	response, err := remote.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
-		WorkflowID:      current.Workflow.ID,
+	response, err := remote.PreviewWorkflowGraphSave(ctx, &pb.GraphSavePreviewRequest{
+		WorkflowId:      current.Workflow.Id,
 		ExpectedVersion: current.Workflow.Version,
 		Graph:           submitted,
 	})

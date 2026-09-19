@@ -133,7 +133,7 @@ describe("JsonRpcWebSocketTransport", () => {
     });
 
     const malformedReadiness = callReadiness(transport);
-    const request = transport.call("workflow.project.label.create", {
+    const request = transport.call("workflow.task.create", {
       project_id: "project-1",
       name: "Priority",
     });
@@ -155,7 +155,7 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(error).toBeInstanceOf(RpcError);
     expect(error).toMatchObject({
       code: -32031,
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
         reason: "name_conflict",
@@ -276,7 +276,7 @@ describe("JsonRpcWebSocketTransport", () => {
 
   it("falls back to a generic RPC error when error data is not valid JSON", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const request = transport.call("workflow.project.label.create", {
+    const request = transport.call("workflow.task.create", {
       project_id: "project-1",
       name: "Priority",
     });
@@ -292,7 +292,7 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(error).toBeInstanceOf(RpcError);
     expect(error).toMatchObject({
       code: -32031,
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: undefined,
     });
   });

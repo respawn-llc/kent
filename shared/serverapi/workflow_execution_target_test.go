@@ -127,24 +127,26 @@ func TestWorkflowTaskMutationSelfTargetErrorRoundTripsRPCData(t *testing.T) {
 
 func TestWorkflowGraphMetadataExecutionTargetPolicyValidation(t *testing.T) {
 	customRef := "refs/tags/v1"
-	if err := (WorkflowGraphSavePreviewRequest{
-		WorkflowID:      runtimeids.NewWorkflowID(),
+	if err := protovalidate.Validate(&definitionpb.GraphSavePreviewRequest{
+		WorkflowId:      runtimeids.NewWorkflowID().String(),
 		ExpectedVersion: 1,
-		Metadata: &WorkflowGraphMetadata{
+		Graph:           &definitionpb.GraphDraft{},
+		Metadata: &definitionpb.GraphMetadata{
 			Name:                  "Workflow",
-			ExecutionTargetPolicy: &WorkflowExecutionTargetConfiguration{Mode: WorkflowExecutionTargetModeCustomRef, CustomRef: &customRef},
+			ExecutionTargetPolicy: &definitionpb.ExecutionTargetConfiguration{Mode: definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF, CustomRef: &customRef},
 		},
-	}).Validate(); err != nil {
+	}); err != nil {
 		t.Fatalf("custom target policy metadata rejected: %v", err)
 	}
-	if err := (WorkflowGraphSavePreviewRequest{
-		WorkflowID:      runtimeids.NewWorkflowID(),
+	if err := protovalidate.Validate(&definitionpb.GraphSavePreviewRequest{
+		WorkflowId:      runtimeids.NewWorkflowID().String(),
 		ExpectedVersion: 1,
-		Metadata: &WorkflowGraphMetadata{
+		Graph:           &definitionpb.GraphDraft{},
+		Metadata: &definitionpb.GraphMetadata{
 			Name:                  "Workflow",
-			ExecutionTargetPolicy: &WorkflowExecutionTargetConfiguration{Mode: WorkflowExecutionTargetModeHead, CustomRef: &customRef},
+			ExecutionTargetPolicy: &definitionpb.ExecutionTargetConfiguration{Mode: definitionpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD, CustomRef: &customRef},
 		},
-	}).Validate(); err == nil {
+	}); err == nil {
 		t.Fatal("non-custom policy metadata accepted a custom ref")
 	}
 }

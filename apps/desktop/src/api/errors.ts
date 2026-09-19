@@ -318,6 +318,7 @@ const workflowLabelErrorDataSchema = z
   }));
 
 export function decodeWorkflowLabelError(error: unknown): WorkflowLabelError | null {
+  if (error instanceof WorkflowLabelError) return error;
   if (!(error instanceof RpcError)) {
     return null;
   }

@@ -11,41 +11,44 @@ import (
 	"testing"
 
 	"core/shared/apicontract"
+	protoapi "core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
 )
 
 type workflowDeleteStub struct {
 	apicontract.WorkflowService
-	preview        serverapi.WorkflowDeletePreviewResponse
-	result         serverapi.WorkflowDeleteResponse
-	previewRequest serverapi.WorkflowDeletePreviewRequest
-	deleteRequest  *serverapi.WorkflowDeleteRequest
+	preview        *pb.DeletePreviewSuccess
+	result         *pb.DeleteSuccess
+	previewRequest *pb.DeletePreviewRequest
+	deleteRequest  *pb.DeleteRequest
 }
 
 type workflowPaginationStub struct {
 	apicontract.WorkflowService
-	request  serverapi.WorkflowListRequest
-	response serverapi.WorkflowListResponse
+	request  *pb.ListRequest
+	response *pb.ListSuccess
 }
 
 func (s *workflowPaginationStub) ListWorkflows(
 	_ context.Context,
-	request serverapi.WorkflowListRequest,
-) (serverapi.WorkflowListResponse, error) {
+	request *pb.ListRequest,
+) (*pb.ListSuccess, error) {
 	s.request = request
 	return s.response, nil
 }
 
 func TestWorkflowListPaginationSuccess(t *testing.T) {
-	offset, limit, nextOffset := 5, 2, 7
+	offset, limit, nextOffset := int32(5), int32(2), int32(7)
 	stub := &workflowPaginationStub{
-		response: serverapi.WorkflowListResponse{
-			Workflows:  []serverapi.WorkflowRecord{},
+		response: &pb.ListSuccess{
+			Workflows:  []*pb.WorkflowRecord{},
 			NextOffset: &nextOffset,
 		},
 	}
-	response, err := listWorkflowPage(t.Context(), stub, serverapi.WorkflowListRequest{
+	response, err := listWorkflowPage(t.Context(), stub, &pb.ListRequest{
 		Offset: &offset,
 		Limit:  &limit,
 	})
@@ -68,7 +71,7 @@ func TestWorkflowListPaginationSuccess(t *testing.T) {
 		t.Fatalf("JSON exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	var output struct {
-		NextOffset *int              `json:"next_offset"`
+		NextOffset *int32            `json:"next_offset"`
 		Workflows  []json.RawMessage `json:"workflows"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil ||
@@ -93,76 +96,80 @@ func TestWorkflowListPaginationSuccess(t *testing.T) {
 
 func (s *workflowDeleteStub) PreviewWorkflowDelete(
 	_ context.Context,
-	req serverapi.WorkflowDeletePreviewRequest,
-) (serverapi.WorkflowDeletePreviewResponse, error) {
+	req *pb.DeletePreviewRequest,
+) (*pb.DeletePreviewSuccess, error) {
 	s.previewRequest = req
 	return s.preview, nil
 }
 
 func (s *workflowDeleteStub) DeleteWorkflow(
 	_ context.Context,
-	req serverapi.WorkflowDeleteRequest,
-) (serverapi.WorkflowDeleteResponse, error) {
-	s.deleteRequest = &req
+	req *pb.DeleteRequest,
+) (*pb.DeleteSuccess, error) {
+	s.deleteRequest = req
 	return s.result, nil
 }
 
 func TestWorkflowDeleteUsesPreviewedImpactAndTypedOutcome(t *testing.T) {
 	workflowID := mustWorkflowID(t, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	impact := serverapi.WorkflowDeleteImpact{
-		WorkflowID: workflowID, Version: 7, ProjectCount: 2, LinkCount: 3, TaskCount: 5,
+	impact := &pb.DeleteImpact{
+		WorkflowId: workflowID.String(), Version: 7, ProjectCount: 2, LinkCount: 3, TaskCount: 5,
 	}
 	t.Run("preview only", func(t *testing.T) {
-		remote := &workflowDeleteStub{preview: serverapi.WorkflowDeletePreviewResponse{Impact: impact}}
+		remote := &workflowDeleteStub{preview: &pb.DeletePreviewSuccess{Impact: impact}}
 		var stdout, stderr bytes.Buffer
 		if code := runWorkflowDelete(t.Context(), remote, workflowID, false, true, &stdout, &stderr); code != 1 {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		if remote.deleteRequest != nil || remote.previewRequest.WorkflowID != workflowID {
+		if remote.deleteRequest != nil || remote.previewRequest.WorkflowId != workflowID.String() {
 			t.Fatalf("preview=%+v delete=%+v", remote.previewRequest, remote.deleteRequest)
 		}
-		var output serverapi.WorkflowDeleteResponse
+		var output workflowDeleteJSON
 		if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 			t.Fatal(err)
 		}
-		if output.Deleted || output.Impact != impact || len(output.Blockers) != 0 {
+		expectedImpact, err := workflowDeleteImpactForCLI(impact)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if output.Deleted || output.Impact != expectedImpact || len(output.Blockers) != 0 {
 			t.Fatalf("output=%+v", output)
 		}
 	})
 
 	t.Run("confirmed request copies preview counts", func(t *testing.T) {
 		remote := &workflowDeleteStub{
-			preview: serverapi.WorkflowDeletePreviewResponse{Impact: impact},
-			result:  serverapi.WorkflowDeleteResponse{Deleted: true, Impact: impact},
+			preview: &pb.DeletePreviewSuccess{Impact: impact},
+			result:  &pb.DeleteSuccess{Deleted: true, Impact: impact},
 		}
 		var stdout, stderr bytes.Buffer
 		if code := runWorkflowDelete(t.Context(), remote, workflowID, true, true, &stdout, &stderr); code != 0 {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		want := serverapi.WorkflowDeleteRequest{
-			WorkflowID: workflowID, Confirmed: true, ExpectedVersion: 7,
+		want := &pb.DeleteRequest{
+			WorkflowId: workflowID.String(), Confirmed: true, ExpectedVersion: 7,
 			ExpectedProjectCount: 2, ExpectedLinkCount: 3, ExpectedTaskCount: 5,
 		}
-		if remote.deleteRequest == nil || *remote.deleteRequest != want {
+		if !proto.Equal(remote.deleteRequest, want) {
 			t.Fatalf("delete request=%+v want=%+v", remote.deleteRequest, want)
 		}
 	})
 
 	t.Run("typed blocker", func(t *testing.T) {
-		blocker := serverapi.WorkflowDeleteBlocker{Code: "current_nodes", Message: "busy", Count: 1}
+		blocker := &pb.DeleteBlocker{Code: "current_nodes", Message: "busy", Count: 1}
 		remote := &workflowDeleteStub{
-			preview: serverapi.WorkflowDeletePreviewResponse{Impact: impact},
-			result:  serverapi.WorkflowDeleteResponse{Impact: impact, Blockers: []serverapi.WorkflowDeleteBlocker{blocker}},
+			preview: &pb.DeletePreviewSuccess{Impact: impact},
+			result:  &pb.DeleteSuccess{Impact: impact, Blockers: []*pb.DeleteBlocker{blocker}},
 		}
 		var stdout, stderr bytes.Buffer
 		if code := runWorkflowDelete(t.Context(), remote, workflowID, true, true, &stdout, &stderr); code != 1 || stderr.Len() != 0 {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		var output serverapi.WorkflowDeleteResponse
+		var output workflowDeleteJSON
 		if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 			t.Fatal(err)
 		}
-		if output.Deleted || len(output.Blockers) != 1 || output.Blockers[0] != blocker {
+		if output.Deleted || len(output.Blockers) != 1 || output.Blockers[0].Code != blocker.Code || output.Blockers[0].Count != blocker.Count {
 			t.Fatalf("output=%+v", output)
 		}
 	})
@@ -171,25 +178,25 @@ func TestWorkflowDeleteUsesPreviewedImpactAndTypedOutcome(t *testing.T) {
 func TestWorkflowDeleteRejectsMismatchedOrInconsistentIdentity(t *testing.T) {
 	workflowID := mustWorkflowID(t, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 	otherID := mustWorkflowID(t, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
-	valid := serverapi.WorkflowDeleteImpact{WorkflowID: workflowID, Version: 1}
+	valid := &pb.DeleteImpact{WorkflowId: workflowID.String(), Version: 1}
 	for _, test := range []struct {
 		name    string
-		preview serverapi.WorkflowDeleteImpact
-		result  serverapi.WorkflowDeleteResponse
+		preview *pb.DeleteImpact
+		result  *pb.DeleteSuccess
 	}{
-		{name: "preview identity", preview: serverapi.WorkflowDeleteImpact{WorkflowID: otherID}},
-		{name: "result identity", preview: valid, result: serverapi.WorkflowDeleteResponse{
-			Deleted: true, Impact: serverapi.WorkflowDeleteImpact{WorkflowID: otherID, Version: 1},
+		{name: "preview identity", preview: &pb.DeleteImpact{WorkflowId: otherID.String()}},
+		{name: "result identity", preview: valid, result: &pb.DeleteSuccess{
+			Deleted: true, Impact: &pb.DeleteImpact{WorkflowId: otherID.String(), Version: 1},
 		}},
-		{name: "deleted with blocker", preview: valid, result: serverapi.WorkflowDeleteResponse{
+		{name: "deleted with blocker", preview: valid, result: &pb.DeleteSuccess{
 			Deleted: true, Impact: valid,
-			Blockers: []serverapi.WorkflowDeleteBlocker{{Code: "busy", Message: "busy", Count: 1}},
+			Blockers: []*pb.DeleteBlocker{{Code: "busy", Message: "busy", Count: 1}},
 		}},
-		{name: "not deleted without blocker", preview: valid, result: serverapi.WorkflowDeleteResponse{Impact: valid}},
+		{name: "not deleted without blocker", preview: valid, result: &pb.DeleteSuccess{Impact: valid}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &workflowDeleteStub{
-				preview: serverapi.WorkflowDeletePreviewResponse{Impact: test.preview},
+				preview: &pb.DeletePreviewSuccess{Impact: test.preview},
 				result:  test.result,
 			}
 			var stdout, stderr bytes.Buffer
@@ -203,33 +210,33 @@ func TestWorkflowDeleteRejectsMismatchedOrInconsistentIdentity(t *testing.T) {
 
 type workflowGraphApplyStub struct {
 	apicontract.WorkflowService
-	definition serverapi.WorkflowDefinition
-	saves      []serverapi.WorkflowGraphSaveResponse
-	requests   []serverapi.WorkflowGraphSaveRequest
+	definition *pb.WorkflowDefinition
+	saves      []*pb.GraphSaveSuccess
+	requests   []*pb.GraphSaveRequest
 }
 
 type workflowGraphMutationStub struct {
 	apicontract.WorkflowService
 	calls           []string
-	definition      serverapi.WorkflowDefinition
-	preview         serverapi.WorkflowGraphSavePreviewResponse
-	previewRequests []serverapi.WorkflowGraphSavePreviewRequest
-	save            serverapi.WorkflowGraphSaveResponse
-	saveRequests    []serverapi.WorkflowGraphSaveRequest
+	definition      *pb.WorkflowDefinition
+	preview         *pb.GraphSavePreviewSuccess
+	previewRequests []*pb.GraphSavePreviewRequest
+	save            *pb.GraphSaveSuccess
+	saveRequests    []*pb.GraphSaveRequest
 }
 
 func (s *workflowGraphMutationStub) GetWorkflow(
-	context.Context,
-	serverapi.WorkflowGetRequest,
-) (serverapi.WorkflowGetResponse, error) {
+	context.Context, *pb.GetRequest,
+
+) (*pb.GetSuccess, error) {
 	s.calls = append(s.calls, "get")
-	return serverapi.WorkflowGetResponse{Definition: s.definition}, nil
+	return &pb.GetSuccess{Definition: s.definition}, nil
 }
 
 func (s *workflowGraphMutationStub) PreviewWorkflowGraphSave(
 	_ context.Context,
-	request serverapi.WorkflowGraphSavePreviewRequest,
-) (serverapi.WorkflowGraphSavePreviewResponse, error) {
+	request *pb.GraphSavePreviewRequest,
+) (*pb.GraphSavePreviewSuccess, error) {
 	s.calls = append(s.calls, "preview")
 	s.previewRequests = append(s.previewRequests, request)
 	return s.preview, nil
@@ -237,8 +244,8 @@ func (s *workflowGraphMutationStub) PreviewWorkflowGraphSave(
 
 func (s *workflowGraphMutationStub) SaveWorkflowGraph(
 	_ context.Context,
-	request serverapi.WorkflowGraphSaveRequest,
-) (serverapi.WorkflowGraphSaveResponse, error) {
+	request *pb.GraphSaveRequest,
+) (*pb.GraphSaveSuccess, error) {
 	s.calls = append(s.calls, "save")
 	s.saveRequests = append(s.saveRequests, request)
 	return s.save, nil
@@ -246,51 +253,51 @@ func (s *workflowGraphMutationStub) SaveWorkflowGraph(
 
 func TestWorkflowGraphMutationPreviewsAndSavesCompleteDraft(t *testing.T) {
 	workflowID := mustWorkflowID(t, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	definition := serverapi.WorkflowDefinition{
-		Workflow: serverapi.WorkflowRecord{ID: workflowID, Version: 7},
-		Nodes: []serverapi.WorkflowNode{
-			{ID: "node-source", Key: "source", Kind: "agent", DisplayName: "Source"},
-			{ID: "node-target", Key: "target", Kind: "agent", DisplayName: "Target"},
+	definition := &pb.WorkflowDefinition{
+		Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 7},
+		Nodes: []*pb.WorkflowNode{
+			{Id: "node-source", Key: "source", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Source"},
+			{Id: "node-target", Key: "target", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Target"},
 		},
-		TransitionGroups: []serverapi.WorkflowTransitionGroup{{
-			ID: "group-existing", SourceNodeID: "node-source", TransitionID: "existing",
+		TransitionGroups: []*pb.WorkflowTransitionGroup{{
+			Id: "group-existing", SourceNodeId: "node-source", TransitionId: "existing",
 		}},
-		Edges: []serverapi.WorkflowEdge{{
-			ID: "edge-existing", TransitionGroupID: "group-existing", Key: "existing",
-			TargetNodeID: "node-target", AssigneeSelection: "configured",
-			ThinkingSelection: "configured", ContextMode: "new_session",
+		Edges: []*pb.WorkflowEdge{{
+			Id: "edge-existing", TransitionGroupId: "group-existing", Key: "existing",
+			TargetNodeId: "node-target", AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED,
+			ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION,
 		}},
 	}
 	tests := []struct {
 		name   string
 		mutate workflowGraphDraftMutation[struct{}]
-		assert func(*testing.T, serverapi.WorkflowGraphDraft)
+		assert func(*testing.T, *pb.GraphDraft)
 	}{
 		{
 			name: "node add",
-			mutate: func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, struct{}, error) {
-				graph, _, err := addWorkflowNodeDraftMutation(serverapi.WorkflowGraphDraftNode{
-					ID: "node-added", Key: "added", Kind: "terminal", DisplayName: "Added",
+			mutate: func(graph *pb.GraphDraft) (*pb.GraphDraft, struct{}, error) {
+				graph, _, err := addWorkflowNodeDraftMutation(&pb.GraphDraftNode{
+					Id: "node-added", Key: "added", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL, DisplayName: "Added",
 				})(graph)
 				return graph, struct{}{}, err
 			},
-			assert: func(t *testing.T, graph serverapi.WorkflowGraphDraft) {
+			assert: func(t *testing.T, graph *pb.GraphDraft) {
 				t.Helper()
-				if len(graph.Nodes) != 3 || graph.Nodes[2].ID != "node-added" {
+				if len(graph.Nodes) != 3 || graph.Nodes[2].Id != "node-added" {
 					t.Fatalf("node add graph = %+v", graph.Nodes)
 				}
 			},
 		},
 		{
 			name: "node update",
-			mutate: func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, struct{}, error) {
+			mutate: func(graph *pb.GraphDraft) (*pb.GraphDraft, struct{}, error) {
 				displayName := "Renamed"
 				graph, _, err := updateWorkflowNodeDraftMutation(workflowNodeUpdateDraftMutation{
 					NodeKey: "source", DisplayName: &displayName,
 				})(graph)
 				return graph, struct{}{}, err
 			},
-			assert: func(t *testing.T, graph serverapi.WorkflowGraphDraft) {
+			assert: func(t *testing.T, graph *pb.GraphDraft) {
 				t.Helper()
 				if graph.Nodes[0].DisplayName != "Renamed" {
 					t.Fatalf("node update graph = %+v", graph.Nodes)
@@ -299,35 +306,35 @@ func TestWorkflowGraphMutationPreviewsAndSavesCompleteDraft(t *testing.T) {
 		},
 		{
 			name: "edge add",
-			mutate: func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, struct{}, error) {
+			mutate: func(graph *pb.GraphDraft) (*pb.GraphDraft, struct{}, error) {
 				graph, _, err := addWorkflowEdgeDraftMutation(workflowEdgeAddDraftMutation{
 					SourceNodeKey: "source", TargetNodeKey: "target",
 					TransitionID: "added", NewTransitionGroupID: "group-added",
-					Edge: serverapi.WorkflowGraphDraftEdge{
-						ID: "edge-added", Key: "added", AssigneeSelection: "configured",
-						ThinkingSelection: "configured", ContextMode: "new_session",
+					Edge: &pb.GraphDraftEdge{
+						Id: "edge-added", Key: "added", AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED,
+						ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE},
 					},
 				})(graph)
 				return graph, struct{}{}, err
 			},
-			assert: func(t *testing.T, graph serverapi.WorkflowGraphDraft) {
+			assert: func(t *testing.T, graph *pb.GraphDraft) {
 				t.Helper()
 				if len(graph.TransitionGroups) != 2 || len(graph.Edges) != 2 ||
-					graph.Edges[1].TransitionGroupID != "group-added" {
+					graph.Edges[1].TransitionGroupId != "group-added" {
 					t.Fatalf("edge add graph = %+v / %+v", graph.TransitionGroups, graph.Edges)
 				}
 			},
 		},
 		{
 			name: "edge update",
-			mutate: func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, struct{}, error) {
+			mutate: func(graph *pb.GraphDraft) (*pb.GraphDraft, struct{}, error) {
 				key := "renamed"
 				graph, _, err := updateWorkflowEdgeDraftMutation(workflowEdgeUpdateDraftMutation{
 					EdgeID: "edge-existing", EdgeKey: &key,
 				})(graph)
 				return graph, struct{}{}, err
 			},
-			assert: func(t *testing.T, graph serverapi.WorkflowGraphDraft) {
+			assert: func(t *testing.T, graph *pb.GraphDraft) {
 				t.Helper()
 				if graph.Edges[0].Key != "renamed" {
 					t.Fatalf("edge update graph = %+v", graph.Edges)
@@ -339,13 +346,13 @@ func TestWorkflowGraphMutationPreviewsAndSavesCompleteDraft(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &workflowGraphMutationStub{
 				definition: definition,
-				preview: serverapi.WorkflowGraphSavePreviewResponse{
+				preview: &pb.GraphSavePreviewSuccess{
 					CurrentVersion: 7, Changed: true, CanSave: true,
-					Impact: emptyGraphImpact(), Blockers: []serverapi.WorkflowGraphSaveBlocker{},
+					Impact: emptyGraphImpact(), Blockers: []*pb.GraphSaveBlocker{},
 				},
-				save: serverapi.WorkflowGraphSaveResponse{
+				save: &pb.GraphSaveSuccess{
 					Saved: true, Changed: true, CanSave: true, CurrentVersion: 8,
-					Impact: emptyGraphImpact(), Blockers: []serverapi.WorkflowGraphSaveBlocker{},
+					Impact: emptyGraphImpact(), Blockers: []*pb.GraphSaveBlocker{}, Definition: workflowSavedFixture(workflowID, 8),
 				},
 			}
 			_, result, err := runWorkflowGraphMutation(t.Context(), remote, workflowID, test.mutate)
@@ -371,15 +378,15 @@ func TestWorkflowGraphMutationPreviewsAndSavesCompleteDraft(t *testing.T) {
 func TestWorkflowGraphMutationStopsBeforeSaveWhenPreviewIsBlocked(t *testing.T) {
 	workflowID := mustWorkflowID(t, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 	remote := &workflowGraphMutationStub{
-		definition: serverapi.WorkflowDefinition{
-			Workflow: serverapi.WorkflowRecord{ID: workflowID, Version: 7},
+		definition: &pb.WorkflowDefinition{
+			Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 7},
 		},
-		preview: serverapi.WorkflowGraphSavePreviewResponse{
+		preview: &pb.GraphSavePreviewSuccess{
 			CurrentVersion: 7, Changed: true,
 			Impact: emptyGraphImpact(),
-			Blockers: []serverapi.WorkflowGraphSaveBlocker{{
+			Blockers: []*pb.GraphSaveBlocker{{
 				Code: "validation_failed", Message: "blocked", Count: 1,
-				AffectedEntities: []serverapi.WorkflowGraphEntityReference{},
+				AffectedEntities: []*pb.GraphEntityReference{},
 			}},
 		},
 	}
@@ -387,8 +394,8 @@ func TestWorkflowGraphMutationStopsBeforeSaveWhenPreviewIsBlocked(t *testing.T) 
 		t.Context(),
 		remote,
 		workflowID,
-		addWorkflowNodeDraftMutation(serverapi.WorkflowGraphDraftNode{
-			ID: "node-added", Key: "added", Kind: "terminal", DisplayName: "Added",
+		addWorkflowNodeDraftMutation(&pb.GraphDraftNode{
+			Id: "node-added", Key: "added", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL, DisplayName: "Added",
 		}),
 	)
 	if err == nil || !reflect.DeepEqual(remote.calls, []string{"get", "preview"}) ||
@@ -398,16 +405,16 @@ func TestWorkflowGraphMutationStopsBeforeSaveWhenPreviewIsBlocked(t *testing.T) 
 }
 
 func (s *workflowGraphApplyStub) GetWorkflow(
-	context.Context,
-	serverapi.WorkflowGetRequest,
-) (serverapi.WorkflowGetResponse, error) {
-	return serverapi.WorkflowGetResponse{Definition: s.definition}, nil
+	context.Context, *pb.GetRequest,
+
+) (*pb.GetSuccess, error) {
+	return &pb.GetSuccess{Definition: s.definition}, nil
 }
 
 func (s *workflowGraphApplyStub) SaveWorkflowGraph(
 	_ context.Context,
-	req serverapi.WorkflowGraphSaveRequest,
-) (serverapi.WorkflowGraphSaveResponse, error) {
+	req *pb.GraphSaveRequest,
+) (*pb.GraphSaveSuccess, error) {
 	s.requests = append(s.requests, req)
 	response := s.saves[0]
 	s.saves = s.saves[1:]
@@ -424,69 +431,68 @@ func TestWorkflowGraphApplyTypedOutcomesAndConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	confirmationBlocker := serverapi.WorkflowGraphSaveBlocker{
+	confirmationBlocker := &pb.GraphSaveBlocker{
 		Code: "confirmation_required", Message: "confirm", Count: 1,
-		AffectedEntities: []serverapi.WorkflowGraphEntityReference{},
+		AffectedEntities: []*pb.GraphEntityReference{},
 	}
 	confirmationImpact := emptyGraphImpact()
 	confirmationImpact.RemovedEdgeCount = 1
-	confirmationImpact.RemovedEntities = []serverapi.WorkflowGraphEntityReference{{
-		EntityType: serverapi.WorkflowGraphEntityTypeEdge,
-		EntityID:   "edge-1",
+	confirmationImpact.RemovedEntities = []*pb.GraphEntityReference{{
+		EntityType: pb.GraphEntityType_WORKFLOW_GRAPH_ENTITY_TYPE_EDGE,
+		EntityId:   workflowGraphDocumentEdgeOneID,
 	}}
 	for _, test := range []struct {
 		name      string
 		confirmed bool
-		saves     []serverapi.WorkflowGraphSaveResponse
+		saves     []*pb.GraphSaveSuccess
 		want      workflowGraphApplyOutcomeKind
 	}{
 		{
 			name: "unchanged",
-			saves: []serverapi.WorkflowGraphSaveResponse{{
+			saves: []*pb.GraphSaveSuccess{{
 				Saved: true, CanSave: true, CurrentVersion: 1,
-				ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
-				Impact:            emptyGraphImpact(), Blockers: []serverapi.WorkflowGraphSaveBlocker{},
+				Definition:        workflowSavedFixture(workflowID, 1),
+				ValidationResults: []*pb.ModeValidationResult{},
+				Impact:            emptyGraphImpact(), Blockers: []*pb.GraphSaveBlocker{},
 			}},
 			want: workflowGraphApplyUnchanged,
 		},
 		{
 			name: "blocked",
-			saves: []serverapi.WorkflowGraphSaveResponse{{
+			saves: []*pb.GraphSaveSuccess{{
 				CurrentVersion:    1,
-				ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
+				ValidationResults: []*pb.ModeValidationResult{},
 				Impact:            emptyGraphImpact(),
-				Blockers: []serverapi.WorkflowGraphSaveBlocker{{
+				Blockers: []*pb.GraphSaveBlocker{{
 					Code: "validation_failed", Message: "invalid", Count: 1,
-					AffectedEntities: []serverapi.WorkflowGraphEntityReference{},
+					AffectedEntities: []*pb.GraphEntityReference{},
 				}},
 			}},
 			want: workflowGraphApplyBlocked,
 		},
 		{
 			name: "confirmation required",
-			saves: []serverapi.WorkflowGraphSaveResponse{{
+			saves: []*pb.GraphSaveSuccess{{
 				Changed: true, CanSave: true, ConfirmationRequired: true, CurrentVersion: 1,
-				ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
-				Impact:            confirmationImpact, Blockers: []serverapi.WorkflowGraphSaveBlocker{confirmationBlocker},
+				ValidationResults: []*pb.ModeValidationResult{},
+				Impact:            confirmationImpact, Blockers: []*pb.GraphSaveBlocker{confirmationBlocker},
 			}},
 			want: workflowGraphApplyConfirmationRequired,
 		},
 		{
 			name:      "confirmed save",
 			confirmed: true,
-			saves: []serverapi.WorkflowGraphSaveResponse{
+			saves: []*pb.GraphSaveSuccess{
 				{
 					Changed: true, CanSave: true, ConfirmationRequired: true, CurrentVersion: 1,
-					ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
-					Impact:            confirmationImpact, Blockers: []serverapi.WorkflowGraphSaveBlocker{confirmationBlocker},
+					ValidationResults: []*pb.ModeValidationResult{},
+					Impact:            confirmationImpact, Blockers: []*pb.GraphSaveBlocker{confirmationBlocker},
 				},
 				{
 					Saved: true, Changed: true, CanSave: true, CurrentVersion: 2,
-					Definition: &serverapi.WorkflowDefinition{
-						Workflow: serverapi.WorkflowRecord{ID: workflowID, Version: 2},
-					},
-					ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
-					Impact:            confirmationImpact, Blockers: []serverapi.WorkflowGraphSaveBlocker{},
+					Definition:        workflowSavedFixture(workflowID, 2),
+					ValidationResults: []*pb.ModeValidationResult{},
+					Impact:            confirmationImpact, Blockers: []*pb.GraphSaveBlocker{},
 				},
 			},
 			want: workflowGraphApplySaved,
@@ -494,10 +500,10 @@ func TestWorkflowGraphApplyTypedOutcomesAndConfirmation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &workflowGraphApplyStub{
-				definition: serverapi.WorkflowDefinition{
-					Workflow: serverapi.WorkflowRecord{ID: workflowID, Version: 1},
+				definition: &pb.WorkflowDefinition{
+					Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 1},
 				},
-				saves: append([]serverapi.WorkflowGraphSaveResponse(nil), test.saves...),
+				saves: append([]*pb.GraphSaveSuccess(nil), test.saves...),
 			}
 			outcome := runWorkflowGraphApply(t.Context(), remote, document, test.confirmed)
 			if outcome.Outcome != test.want {
@@ -514,26 +520,36 @@ func TestWorkflowGraphApplyTypedOutcomesAndConfirmation(t *testing.T) {
 	}
 }
 
+func workflowSavedFixture(id runtimeids.WorkflowID, version int64) *pb.WorkflowDefinition {
+	return &pb.WorkflowDefinition{
+		Workflow: &pb.WorkflowRecord{
+			Id: id.String(), Name: "Workflow", Version: version,
+			ExecutionTargetPolicy: &pb.ExecutionTargetConfiguration{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE},
+		},
+		DerivedWiring: &pb.DerivedWiring{},
+	}
+}
+
 func TestWorkflowGraphApplyChecksStaleVersionBeforeAddedIdentity(t *testing.T) {
 	workflowID := mustWorkflowID(t, emptyWorkflowGraphDocumentID)
-	remote := &workflowGraphApplyStub{saves: []serverapi.WorkflowGraphSaveResponse{{
+	remote := &workflowGraphApplyStub{saves: []*pb.GraphSaveSuccess{{
 		CurrentVersion:    2,
-		ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{},
+		ValidationResults: []*pb.ModeValidationResult{},
 		Impact:            emptyGraphImpact(),
-		Blockers: []serverapi.WorkflowGraphSaveBlocker{{
+		Blockers: []*pb.GraphSaveBlocker{{
 			Code: "version_changed", Message: "changed", Count: 2,
-			AffectedEntities: []serverapi.WorkflowGraphEntityReference{},
+			AffectedEntities: []*pb.GraphEntityReference{},
 		}},
 	}}}
 	document := workflowGraphDocument{
 		WorkflowID: workflowID, ExpectedVersion: 1,
 		Graph: workflowGraphDocumentGraph{
-			NodeGroups: []serverapi.WorkflowGraphDraftNodeGroup{},
+			NodeGroups: []workflowGraphDocumentNodeGroup{},
 			Nodes: []workflowGraphDocumentNode{{
 				ID: "not-a-uuid", Key: "node", Kind: "agent", DisplayName: "Node",
 			}},
-			TransitionGroups: []serverapi.WorkflowGraphDraftTransitionGroup{},
-			Edges:            []serverapi.WorkflowGraphDraftEdge{},
+			TransitionGroups: []workflowGraphDocumentTransition{},
+			Edges:            []workflowGraphDocumentEdge{},
 		},
 	}
 	outcome := runWorkflowGraphApply(t.Context(), remote, document, false)
@@ -600,28 +616,28 @@ func TestWorkflowGraphApplyLoadsFileAndStdin(t *testing.T) {
 func TestWorkflowGraphAddedIdentityAndDraftContracts(t *testing.T) {
 	workflowID := mustWorkflowID(t, emptyWorkflowGraphDocumentID)
 	groupID := "group-id"
-	definition := serverapi.WorkflowDefinition{
-		Workflow: serverapi.WorkflowRecord{ID: workflowID, Version: 3},
-		NodeGroups: []serverapi.WorkflowNodeGroup{{
-			GroupID: groupID, GroupKey: "group", DisplayName: "Group",
+	definition := &pb.WorkflowDefinition{
+		Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 3},
+		NodeGroups: []*pb.WorkflowNodeGroup{{
+			GroupId: groupID, GroupKey: "group", DisplayName: "Group",
 		}},
-		Nodes: []serverapi.WorkflowNode{{
-			ID: "node-id", Key: "node", Kind: "agent", DisplayName: "Node", GroupID: &groupID,
+		Nodes: []*pb.WorkflowNode{{
+			Id: "node-id", Key: "node", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Node", GroupId: &groupID,
 		}},
-		TransitionGroups: []serverapi.WorkflowTransitionGroup{{
-			ID: "transition-group-id", SourceNodeID: "node-id", TransitionID: "next",
+		TransitionGroups: []*pb.WorkflowTransitionGroup{{
+			Id: "transition-group-id", SourceNodeId: "node-id", TransitionId: "next",
 		}},
-		Edges: []serverapi.WorkflowEdge{{
-			ID: "edge-id", TransitionGroupID: "transition-group-id", Key: "branch", TargetNodeID: "node-id",
-			AssigneeSelection: "previous_node", ThinkingSelection: "configured",
-			Parameters: []serverapi.WorkflowParameter{{Key: "role", Purpose: "target_assignee"}},
+		Edges: []*pb.WorkflowEdge{{
+			Id: "edge-id", TransitionGroupId: "transition-group-id", Key: "branch", TargetNodeId: "node-id",
+			AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED,
+			Parameters: []*pb.Parameter{{Key: "role", Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE}},
 		}},
 	}
-	draft := serverapi.WorkflowGraphDraftFromDefinition(definition)
-	if draft.NodeGroups[0].ID != "group-id" || draft.Nodes[0].ID != "node-id" ||
-		draft.TransitionGroups[0].ID != "transition-group-id" || draft.Edges[0].ID != "edge-id" ||
-		draft.Edges[0].AssigneeSelection != "previous_node" ||
-		draft.Edges[0].Parameters[0].Purpose != "target_assignee" {
+	draft := protoapi.WorkflowGraphDraftFromDefinition(definition)
+	if draft.NodeGroups[0].Id != "group-id" || draft.Nodes[0].Id != "node-id" ||
+		draft.TransitionGroups[0].Id != "transition-group-id" || draft.Edges[0].Id != "edge-id" ||
+		draft.Edges[0].AssigneeSelection != pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE ||
+		draft.Edges[0].Parameters[0].Purpose != pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE {
 		t.Fatalf("draft=%+v", draft)
 	}
 }
@@ -637,45 +653,45 @@ func TestWorkflowEdgeSelectionAndPureMutationValidation(t *testing.T) {
 	}
 
 	parameters, err := workflowEdgeParametersForAdd(
-		[]serverapi.WorkflowParameter{{Key: "ordinary", Description: "value", Purpose: "ordinary"}},
-		"previous_node",
-		"configured",
+		[]*pb.Parameter{{Key: "ordinary", Description: "value", Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_ORDINARY}},
+		pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE,
+		pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED,
 		nil,
 		nil,
 	)
-	if err != nil || len(parameters) != 2 || parameters[1].Purpose != "target_assignee" {
+	if err != nil || len(parameters) != 2 || parameters[1].Purpose != pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE {
 		t.Fatalf("parameters=%+v err=%v", parameters, err)
 	}
-	if _, err := workflowEdgeParametersForAdd(nil, "configured", "configured", &serverapi.WorkflowParameter{
-		Key: "role", Purpose: "target_assignee",
+	if _, err := workflowEdgeParametersForAdd(nil, pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, &pb.Parameter{
+		Key: "role", Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE,
 	}, nil); err == nil {
 		t.Fatal("protected parameter accepted for a disabled selector")
 	}
 
-	graph := serverapi.WorkflowGraphDraft{
-		Nodes: []serverapi.WorkflowGraphDraftNode{
-			{ID: "source-id", Key: "source"},
-			{ID: "target-id", Key: "target"},
+	graph := &pb.GraphDraft{
+		Nodes: []*pb.GraphDraftNode{
+			{Id: "source-id", Key: "source"},
+			{Id: "target-id", Key: "target"},
 		},
-		TransitionGroups: []serverapi.WorkflowGraphDraftTransitionGroup{},
-		Edges:            []serverapi.WorkflowGraphDraftEdge{},
+		TransitionGroups: []*pb.GraphDraftTransitionGroup{},
+		Edges:            []*pb.GraphDraftEdge{},
 	}
 	mutate := addWorkflowEdgeDraftMutation(workflowEdgeAddDraftMutation{
 		SourceNodeKey:        "source",
 		TargetNodeKey:        "target",
 		TransitionID:         "next",
 		NewTransitionGroupID: "group-id",
-		Edge: serverapi.WorkflowGraphDraftEdge{
-			ID: "edge-id", Key: "branch", AssigneeSelection: "configured", ThinkingSelection: "configured",
+		Edge: &pb.GraphDraftEdge{
+			Id: "edge-id", Key: "branch", AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE},
 		},
 	})
 	updated, result, err := mutate(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.TransitionGroups) != 1 || updated.TransitionGroups[0].ID != "group-id" ||
-		len(updated.Edges) != 1 || result.Edge.ID != "edge-id" ||
-		result.Edge.TransitionGroupID != "group-id" || result.Edge.TargetNodeID != "target-id" {
+	if len(updated.TransitionGroups) != 1 || updated.TransitionGroups[0].Id != "group-id" ||
+		len(updated.Edges) != 1 || result.Edge.Id != "edge-id" ||
+		result.Edge.TransitionGroupId != "group-id" || result.Edge.TargetNodeId != "target-id" {
 		t.Fatalf("updated=%+v result=%+v", updated, result)
 	}
 }
@@ -754,8 +770,8 @@ func mustWorkflowID(t *testing.T, raw string) runtimeids.WorkflowID {
 	return id
 }
 
-func emptyGraphImpact() serverapi.WorkflowGraphSaveImpact {
-	return serverapi.WorkflowGraphSaveImpact{
-		RemovedEntities: []serverapi.WorkflowGraphEntityReference{},
+func emptyGraphImpact() *pb.GraphSaveImpact {
+	return &pb.GraphSaveImpact{
+		RemovedEntities: []*pb.GraphEntityReference{},
 	}
 }

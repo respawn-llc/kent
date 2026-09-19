@@ -4,10 +4,25 @@ import (
 	"testing"
 
 	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	"core/shared/runtimeids"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
+
+func TestWorkflowVersionSafeIntegerBoundary(t *testing.T) {
+	request := &workflowdefinitionpb.GraphSavePreviewRequest{
+		WorkflowId: runtimeids.NewWorkflowID().String(), ExpectedVersion: 9007199254740991,
+		Graph: &workflowdefinitionpb.GraphDraft{},
+	}
+	if err := Validate(request); err != nil {
+		t.Fatalf("largest supported version: %v", err)
+	}
+	request.ExpectedVersion++
+	if err := Validate(request); err == nil {
+		t.Fatal("version outside the declared safe integer range was accepted")
+	}
+}
 
 func TestWorkflowCustomRefDraftCanBeSavedWithoutRef(t *testing.T) {
 	policy := &workflowdefinitionpb.ExecutionTargetConfiguration{

@@ -3,12 +3,14 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 const projectWorkflowUnlinkTaskPreviewLimit = 10
@@ -40,6 +42,9 @@ func (s *Store) LinkWorkflowWithDefaultPolicy(ctx context.Context, projectID str
 }
 
 func (s *Store) linkWorkflowInTx(ctx context.Context, q *sqlitegen.Queries, now int64, projectID string, workflowID runtimeids.WorkflowID, policy WorkflowLinkDefaultPolicy) (ProjectWorkflowLinkRecord, error) {
+	if err := requireWorkflowLinkEntities(ctx, q, projectID, workflowID); err != nil {
+		return ProjectWorkflowLinkRecord{}, err
+	}
 	existing, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: projectID, WorkflowID: workflowID})
 	if err == nil {
 		link := linkRecordFromRow(existing)
@@ -72,6 +77,22 @@ func (s *Store) linkWorkflowInTx(ctx context.Context, q *sqlitegen.Queries, now 
 		}
 	}
 	return ProjectWorkflowLinkRecord{ID: linkID, ProjectID: projectID, WorkflowID: workflowID, IsDefault: shouldDefault}, nil
+}
+
+func requireWorkflowLinkEntities(ctx context.Context, q *sqlitegen.Queries, projectID string, workflowID runtimeids.WorkflowID) error {
+	if _, err := q.GetProjectSummary(ctx, projectID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, projectID)
+		}
+		return err
+	}
+	if _, err := q.GetWorkflow(ctx, workflowID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %q", serverapi.ErrWorkflowNotFound, workflowID)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) shouldSetWorkflowLinkDefault(ctx context.Context, q *sqlitegen.Queries, projectID string, policy WorkflowLinkDefaultPolicy) (bool, error) {
@@ -156,6 +177,9 @@ func (s *Store) SetDefaultProjectWorkflowLink(ctx context.Context, projectID str
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	if err := requireWorkflowLinkEntities(ctx, q, projectID, workflowID); err != nil {
+		return ProjectWorkflowLinkRecord{}, err
+	}
 	link, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: projectID, WorkflowID: workflowID})
 	if err != nil {
 		return ProjectWorkflowLinkRecord{}, err

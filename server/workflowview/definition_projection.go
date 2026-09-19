@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/server/workflowstore"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -19,7 +19,7 @@ type DefinitionProjection struct {
 
 type definitionSnapshot struct {
 	domain    workflow.Definition
-	api       serverapi.WorkflowDefinition
+	api       *pb.WorkflowDefinition
 	nodeKinds map[string]workflow.NodeKind
 }
 
@@ -30,19 +30,10 @@ func NewDefinitionProjection(store *workflowstore.Store) (*DefinitionProjection,
 	return &DefinitionProjection{store: store, catalog: store.TargetAgentCatalog()}, nil
 }
 
-func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) serverapi.WorkflowPickerItem {
-	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
-	if validation != nil {
-		item.ValidForTaskCreation = link.ID != "" && !validation.HasBlockingErrors()
-		item.ValidationErrors = ValidationErrors(workflow.WorkflowIDPointer(def.Workflow.ID), validation.Errors)
-	}
-	return item
-}
-
-func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID runtimeids.WorkflowID) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error) {
+func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error) {
 	snapshot, err := p.snapshot(ctx, workflowID)
 	if err != nil {
-		return serverapi.WorkflowDefinition{}, nil, err
+		return nil, nil, err
 	}
 	return snapshot.api, snapshot.nodeKinds, nil
 }
@@ -54,10 +45,10 @@ func (p *DefinitionProjection) CurrentNodesByTask(ctx context.Context, taskIDs [
 	return p.store.ListCurrentNodesByTask(ctx, taskIDs)
 }
 
-func workflowNodesByID(def serverapi.WorkflowDefinition) map[string]serverapi.WorkflowNode {
-	nodes := make(map[string]serverapi.WorkflowNode, len(def.Nodes))
+func workflowNodesByID(def *pb.WorkflowDefinition) map[string]*pb.WorkflowNode {
+	nodes := make(map[string]*pb.WorkflowNode, len(def.Nodes))
 	for _, node := range def.Nodes {
-		nodes[node.ID] = node
+		nodes[node.Id] = node
 	}
 	return nodes
 }
@@ -73,33 +64,26 @@ func (p *DefinitionProjection) snapshot(ctx context.Context, workflowID runtimei
 	if err != nil {
 		return definitionSnapshot{}, err
 	}
-	api, nodeKinds := ProjectDefinition(domain, record, p.catalog)
-	return definitionSnapshot{domain: domain, api: api, nodeKinds: nodeKinds}, nil
+	api, nodeKinds, err := ProjectDefinition(domain, record, p.catalog)
+	return definitionSnapshot{domain: domain, api: api, nodeKinds: nodeKinds}, err
 }
 
 // ProjectDefinition is the canonical pure domain-to-API workflow projection.
-func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRecord, catalogs ...workflow.TargetAgentCatalog) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind) {
-	api := serverapi.WorkflowDefinition{
-		Workflow: serverapi.WorkflowRecord{
-			ID:                    record.ID,
-			Name:                  record.Name,
-			Description:           record.Description,
-			Version:               record.Version,
-			ExecutionTargetPolicy: projectExecutionTargetPolicy(record.ExecutionTargetPolicy),
-		},
+func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRecord, catalogs ...workflow.TargetAgentCatalog) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error) {
+	projectedRecord, err := ProjectRecord(record)
+	if err != nil {
+		return nil, nil, err
 	}
-	if record.ProjectLink != nil {
-		api.Workflow.ProjectLink = &serverapi.WorkflowListProjectLink{Default: record.ProjectLink.Default}
-	}
+	api := &pb.WorkflowDefinition{Workflow: projectedRecord}
 	groupKeyByID := make(map[string]string, len(def.NodeGroups))
 	for _, group := range def.NodeGroups {
 		groupKeyByID[group.ID] = string(group.Key)
-		api.NodeGroups = append(api.NodeGroups, serverapi.WorkflowNodeGroup{
-			GroupID:     group.ID,
-			WorkflowID:  group.WorkflowID,
+		api.NodeGroups = append(api.NodeGroups, &pb.WorkflowNodeGroup{
+			GroupId:     group.ID,
+			WorkflowId:  group.WorkflowID.String(),
 			GroupKey:    string(group.Key),
 			DisplayName: group.DisplayName,
-			SortOrder:   int(group.SortOrder),
+			SortOrder:   int32(group.SortOrder),
 		})
 	}
 	nodeKinds := make(map[string]workflow.NodeKind, len(def.Nodes))
@@ -110,11 +94,11 @@ func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRec
 			scriptPath = &value
 		}
 		joinProviders := workflow.NodeJoinInputProviders(node)
-		projectedJoinProviders := make([]serverapi.WorkflowJoinInputProvider, 0, len(joinProviders))
+		projectedJoinProviders := make([]*pb.JoinInputProvider, 0, len(joinProviders))
 		for _, provider := range joinProviders {
-			projectedJoinProviders = append(projectedJoinProviders, serverapi.WorkflowJoinInputProvider{
+			projectedJoinProviders = append(projectedJoinProviders, &pb.JoinInputProvider{
 				InputName:      provider.InputName,
-				ProviderEdgeID: string(provider.ProviderEdgeID),
+				ProviderEdgeId: string(provider.ProviderEdgeID),
 			})
 		}
 		nodeID := string(identity.ID)
@@ -122,70 +106,112 @@ func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRec
 		if identity.GroupID != nil {
 			groupKey = groupKeyByID[*identity.GroupID]
 		}
-		api.Nodes = append(api.Nodes, serverapi.WorkflowNode{
-			ID:                 nodeID,
-			WorkflowID:         identity.WorkflowID,
+		kind, err := protoapi.WorkflowNodeKind.Encode(string(node.Kind()))
+		if err != nil {
+			return nil, nil, err
+		}
+		var completion *pb.CompletionMode
+		if value := workflow.NodeCompletionMode(node); value != "" {
+			mode, err := protoapi.WorkflowCompletionMode.Encode(value)
+			if err != nil {
+				return nil, nil, err
+			}
+			completion = &mode
+		}
+		api.Nodes = append(api.Nodes, &pb.WorkflowNode{
+			Id:                 nodeID,
+			WorkflowId:         identity.WorkflowID.String(),
 			Key:                string(identity.Key),
-			Kind:               string(node.Kind()),
+			Kind:               kind,
 			DisplayName:        identity.DisplayName,
-			GroupID:            textutil.Pointer(identity.GroupID),
+			GroupId:            textutil.Pointer(identity.GroupID),
 			GroupKey:           groupKey,
-			SubagentRole:       workflow.NodeSubagentRole(node),
-			CompletionMode:     workflow.NodeCompletionMode(node),
+			SubagentRole:       textutil.OptionalExactString(workflow.NodeSubagentRole(node)),
+			CompletionMode:     completion,
 			ScriptPath:         scriptPath,
 			JoinInputProviders: projectedJoinProviders,
 		})
 		nodeKinds[nodeID] = node.Kind()
 	}
 	for _, group := range def.TransitionGroups {
-		api.TransitionGroups = append(api.TransitionGroups, serverapi.WorkflowTransitionGroup{
-			ID:           string(group.ID),
-			WorkflowID:   group.WorkflowID,
-			SourceNodeID: string(group.SourceNodeID),
-			TransitionID: string(group.TransitionID),
+		api.TransitionGroups = append(api.TransitionGroups, &pb.WorkflowTransitionGroup{
+			Id:           string(group.ID),
+			WorkflowId:   group.WorkflowID.String(),
+			SourceNodeId: string(group.SourceNodeID),
+			TransitionId: string(group.TransitionID),
 			DisplayName:  group.DisplayName,
 			Description:  group.Description,
 		})
 	}
 	for _, edge := range def.Edges {
-		parameters := make([]serverapi.WorkflowParameter, 0, len(edge.Parameters))
+		parameters := make([]*pb.Parameter, 0, len(edge.Parameters))
 		for _, parameter := range edge.Parameters {
-			parameters = append(parameters, serverapi.WorkflowParameter{Key: parameter.Key, Description: parameter.Description, Purpose: string(workflow.CanonicalParameterPurpose(parameter.Purpose))})
+			purpose, err := protoapi.WorkflowParameterPurpose.Encode(string(workflow.CanonicalParameterPurpose(parameter.Purpose)))
+			if err != nil {
+				return nil, nil, err
+			}
+			parameters = append(parameters, &pb.Parameter{Key: parameter.Key, Description: parameter.Description, Purpose: purpose})
 		}
-		requirements := make([]serverapi.WorkflowOutputRequirement, 0, len(edge.OutputRequirements))
+		requirements := make([]*pb.OutputRequirement, 0, len(edge.OutputRequirements))
 		for _, requirement := range edge.OutputRequirements {
-			requirements = append(requirements, serverapi.WorkflowOutputRequirement{FieldName: requirement.FieldName})
+			requirements = append(requirements, &pb.OutputRequirement{FieldName: requirement.FieldName})
 		}
-		api.Edges = append(api.Edges, serverapi.WorkflowEdge{
-			ID:                 string(edge.ID),
-			WorkflowID:         edge.WorkflowID,
-			TransitionGroupID:  string(edge.TransitionGroupID),
+		assignee, assigneeErr := protoapi.WorkflowAssigneeSelection.Encode(string(workflow.CanonicalAssigneeSelection(edge.AssigneeSelection)))
+		thinking, thinkingErr := protoapi.WorkflowThinkingSelection.Encode(string(workflow.CanonicalThinkingSelection(edge.ThinkingSelection)))
+		contextMode, contextErr := protoapi.WorkflowContextMode.Encode(string(edge.ContextMode))
+		source, sourceErr := apiContextSource(edge.ContextSource)
+		if err := errors.Join(assigneeErr, thinkingErr, contextErr, sourceErr); err != nil {
+			return nil, nil, err
+		}
+		api.Edges = append(api.Edges, &pb.WorkflowEdge{
+			Id:                 string(edge.ID),
+			WorkflowId:         edge.WorkflowID.String(),
+			TransitionGroupId:  string(edge.TransitionGroupID),
 			Key:                string(edge.Key),
-			TargetNodeID:       string(edge.TargetNodeID),
-			AssigneeSelection:  string(workflow.CanonicalAssigneeSelection(edge.AssigneeSelection)),
-			ThinkingSelection:  string(workflow.CanonicalThinkingSelection(edge.ThinkingSelection)),
+			TargetNodeId:       string(edge.TargetNodeID),
+			AssigneeSelection:  assignee,
+			ThinkingSelection:  thinking,
 			RequiresApproval:   edge.RequiresApproval,
-			ContextMode:        string(edge.ContextMode),
-			ContextSource:      apiContextSource(edge.ContextSource),
+			ContextMode:        contextMode,
+			ContextSource:      source,
 			PromptTemplate:     edge.PromptTemplate,
 			Parameters:         parameters,
 			InputBindings:      InputBindings(edge.InputBindings),
 			OutputRequirements: requirements,
 		})
 	}
-	api.DerivedWiring = DerivedWiring(def, catalogs...)
-	return api, nodeKinds
+	api.DerivedWiring, err = DerivedWiring(def, catalogs...)
+	return api, nodeKinds, err
 }
 
-func projectExecutionTargetPolicy(policy workflow.ExecutionTargetPolicy) serverapi.WorkflowExecutionTargetConfiguration {
+func ProjectRecord(record workflowstore.WorkflowRecord) (*pb.WorkflowRecord, error) {
+	policy, err := projectExecutionTargetPolicy(record.ExecutionTargetPolicy)
+	if err != nil {
+		return nil, err
+	}
+	result := &pb.WorkflowRecord{
+		Id: record.ID.String(), Name: record.Name, Description: record.Description,
+		Version: record.Version, ExecutionTargetPolicy: policy,
+	}
+	if record.ProjectLink != nil {
+		result.ProjectLink = &pb.WorkflowListProjectLink{Default: record.ProjectLink.Default}
+	}
+	return result, nil
+}
+
+func projectExecutionTargetPolicy(policy workflow.ExecutionTargetPolicy) (*pb.ExecutionTargetConfiguration, error) {
 	canonical := policy.Canonical()
 	var customRef *string
 	if canonical.CustomRef != nil {
 		value := *canonical.CustomRef
 		customRef = &value
 	}
-	return serverapi.WorkflowExecutionTargetConfiguration{
-		Mode:      serverapi.WorkflowExecutionTargetMode(canonical.Mode),
-		CustomRef: customRef,
+	mode, err := protoapi.WorkflowExecutionTargetMode.Encode(string(canonical.Mode))
+	if err != nil {
+		return nil, err
 	}
+	return &pb.ExecutionTargetConfiguration{
+		Mode:      mode,
+		CustomRef: customRef,
+	}, nil
 }

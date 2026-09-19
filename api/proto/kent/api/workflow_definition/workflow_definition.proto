@@ -1240,10 +1240,7 @@ message ProjectLabelCatalogSuccess {
 message ProjectLabelCreateRequest {
   string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string name = 2 [
-    (buf.validate.field).string = {
-      min_len: 1
-      max_len: 64
-    },
+    (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_definition.project_label_create_name_nonblank"
       message: "name must not be blank"
@@ -1263,10 +1260,7 @@ message ProjectLabelRenameRequest {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string name = 3 [
-    (buf.validate.field).string = {
-      min_len: 1
-      max_len: 64
-    },
+    (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_definition.project_label_rename_name_nonblank"
       message: "name must not be blank"
@@ -2307,7 +2301,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.create"
     };
   }
   rpc CreateAndLinkProject(CreateAndLinkProjectRequest) returns (CreateAndLinkProjectResult) {
@@ -2317,7 +2310,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.createAndLinkProject"
     };
   }
   rpc Update(UpdateRequest) returns (UpdateResult) {
@@ -2327,7 +2319,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.update"
     };
   }
   rpc List(ListRequest) returns (ListResult) {
@@ -2337,7 +2328,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.list"
     };
   }
   rpc Get(GetRequest) returns (GetResult) {
@@ -2347,7 +2337,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.get"
     };
   }
   rpc DeletePreview(DeletePreviewRequest) returns (DeletePreviewResult) {
@@ -2357,7 +2346,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.deletePreview"
     };
   }
   rpc Delete(DeleteRequest) returns (DeleteResult) {
@@ -2367,7 +2355,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.delete"
     };
   }
   rpc Validate(ValidateRequest) returns (ValidateResult) {
@@ -2377,7 +2364,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.validate"
     };
   }
   rpc ValidateScriptPath(ScriptPathValidateRequest) returns (ValidateScriptPathResult) {
@@ -2387,7 +2373,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.scriptPath.validate"
     };
   }
 }
@@ -2400,7 +2385,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.validateDraft"
     };
   }
   rpc DeriveWiring(GraphDeriveWiringRequest) returns (GraphDeriveWiringResult) {
@@ -2410,7 +2394,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.deriveWiring"
     };
   }
   rpc SavePreview(GraphSavePreviewRequest) returns (GraphSavePreviewResult) {
@@ -2420,7 +2403,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.savePreview"
     };
   }
   rpc Save(GraphSaveRequest) returns (GraphSaveResult) {
@@ -2430,7 +2412,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.save"
     };
   }
 }
@@ -2443,7 +2424,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.linkProject"
     };
   }
   rpc List(ListProjectLinksRequest) returns (ListProjectLinksResult) {
@@ -2453,7 +2433,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.listProjectLinks"
     };
   }
   rpc SetDefault(SetDefaultProjectLinkRequest) returns (SetDefaultProjectLinkResult) {
@@ -2463,7 +2442,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.setDefaultProjectLink"
     };
   }
   rpc Unlink(UnlinkProjectRequest) returns (UnlinkProjectResult) {
@@ -2473,7 +2451,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.unlinkProject"
     };
   }
 }
@@ -2486,7 +2463,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.create"
     };
   }
   rpc List(ProjectLabelCatalogRequest) returns (ProjectLabelCatalogResult) {
@@ -2496,7 +2472,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.list"
     };
   }
   rpc Rename(ProjectLabelRenameRequest) returns (ProjectLabelRenameResult) {
@@ -2506,7 +2481,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.rename"
     };
   }
   rpc Delete(ProjectLabelDeleteRequest) returns (ProjectLabelDeleteResult) {
@@ -2516,7 +2490,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.delete"
     };
   }
   rpc Reorder(ProjectLabelReorderRequest) returns (ProjectLabelReorderResult) {
@@ -2526,7 +2499,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.reorder"
     };
   }
 }

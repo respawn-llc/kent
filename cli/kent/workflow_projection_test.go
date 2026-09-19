@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"core/server/workflow"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 )
 
@@ -20,15 +22,22 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceCodes(t *testing.T) {
 		workflow.CodeSessionTransitionAmbiguous,
 	} {
 		t.Run(string(code), func(t *testing.T) {
-			projected := workflowValidationForCLI(serverapi.WorkflowValidateResponse{
-				Errors: []serverapi.WorkflowValidationError{{
-					Code:    string(code),
+			value, err := protoapi.WorkflowValidationErrorCode.Encode(string(code))
+			if err != nil {
+				t.Fatal(err)
+			}
+			projected, err := workflowValidationForCLI(&pb.ValidateResponse{
+				Errors: []*pb.WorkflowValidationError{{
+					Code:    value,
 					Message: serverMessage,
-					Details: &serverapi.WorkflowValidationErrorDetails{
+					Details: &pb.WorkflowValidationErrorDetails{
 						Placeholder: placeholder,
 					},
 				}},
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			message := projected.Errors[0].Message
 			if message == serverMessage {
@@ -57,12 +66,12 @@ func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceCodes(t *testing.T)
 		&stderr,
 		workflowGraphApplyOutcome{
 			Outcome: workflowGraphApplyBlocked,
-			Blockers: []serverapi.WorkflowGraphSaveBlocker{{
+			Blockers: []workflowGraphBlockerJSON{{
 				Code:    "validation_failed",
 				Message: "validation failed",
 			}},
-			ValidationResults: map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse{
-				serverapi.WorkflowValidationModeExecution: {
+			ValidationResults: map[string]workflowValidationJSON{
+				"execution": {
 					Errors: []serverapi.WorkflowValidationError{{
 						Code:    string(workflow.CodeSessionTransitionMissing),
 						Message: serverMessage,

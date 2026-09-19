@@ -14,6 +14,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
@@ -687,65 +688,68 @@ func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project-labels", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 
-	var created serverapi.WorkflowProjectLabelCreateResponse
-	callGateway(t, conn, "create-project-label", protocol.MethodWorkflowProjectLabelCreate, serverapi.WorkflowProjectLabelCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	service := pb.File_kent_api_workflow_definition_workflow_definition_proto.Services().ByName("ProjectLabelService")
+	callInvalid := func(correlation string, method protoreflect.Name, request, result proto.Message) {
+		t.Helper()
+		payload, err := proto.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope := callGatewayDescriptorPayload(t, conn, correlation, service.Methods().ByName(method), payload)
+		if envelope.GetResult() == nil {
+			t.Fatalf("expected declared label validation error, got %v", envelope)
+		}
+		if err := protoapi.Decode(envelope.GetResult().Payload, result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var createResult pb.ProjectLabelCreateResult
+	callGatewayDescriptor(t, conn, "create-project-label", service.Methods().ByName("Create"), &pb.ProjectLabelCreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Name:      "Priority",
-	}, &created)
-	if created.Label.ID == "" || created.Label.Name != "Priority" {
+	}, &createResult)
+	created := createResult.GetSuccess()
+	if created == nil || created.Label.Id == "" || created.Label.Name != "Priority" {
 		t.Fatalf("created label = %+v", created.Label)
 	}
 
-	var listed serverapi.WorkflowProjectLabelCatalogResponse
-	callGateway(t, conn, "list-project-labels", protocol.MethodWorkflowProjectLabelList, serverapi.WorkflowProjectLabelCatalogRequest{
-		ProjectID: appCore.ProjectID(),
-	}, &listed)
-	if listed.Catalog.ProjectID != appCore.ProjectID() ||
+	var listResult pb.ProjectLabelCatalogResult
+	callGatewayDescriptor(t, conn, "list-project-labels", service.Methods().ByName("List"), &pb.ProjectLabelCatalogRequest{
+		ProjectId: appCore.ProjectID(),
+	}, &listResult)
+	listed := listResult.GetSuccess()
+	if listed == nil || listed.Catalog.ProjectId != appCore.ProjectID() ||
 		len(listed.Catalog.Labels) != 1 ||
-		listed.Catalog.Labels[0] != created.Label {
+		!proto.Equal(listed.Catalog.Labels[0], created.Label) {
 		t.Fatalf("listed catalog = %+v, want created label", listed.Catalog)
 	}
 
-	duplicate := callGatewayExpectError(t, conn, "duplicate-project-label", protocol.MethodWorkflowProjectLabelCreate, serverapi.WorkflowProjectLabelCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	var duplicate pb.ProjectLabelCreateResult
+	callGatewayDescriptor(t, conn, "duplicate-project-label", service.Methods().ByName("Create"), &pb.ProjectLabelCreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Name:      "priority",
-	})
-	if duplicate.Code != protocol.ErrCodeWorkflowLabel {
-		t.Fatalf("duplicate label error = %+v, want workflow label code", duplicate)
-	}
-	decoded, ok := serverapi.DecodeWorkflowLabelError(duplicate.Data, duplicate.Message).(*serverapi.WorkflowLabelError)
-	if !ok ||
-		decoded.Reason != serverapi.WorkflowLabelErrorReasonNameConflict ||
-		decoded.ProjectID == nil ||
-		*decoded.ProjectID != appCore.ProjectID() {
-		t.Fatalf("decoded duplicate label error = %+v", decoded)
+	}, &duplicate)
+	if duplicate.GetError().GetCode() != "name_conflict" || duplicate.GetError().GetNameConflict().GetProjectId() != appCore.ProjectID() {
+		t.Fatalf("duplicate label error = %+v", &duplicate)
 	}
 
-	invalidRename := callGatewayExpectError(t, conn, "invalid-project-label-rename", protocol.MethodWorkflowProjectLabelRename, serverapi.WorkflowProjectLabelRenameRequest{
-		ProjectID: appCore.ProjectID(),
-		LabelID:   created.Label.ID,
+	var invalidRename pb.ProjectLabelRenameResult
+	callInvalid("invalid-project-label-rename", "Rename", &pb.ProjectLabelRenameRequest{
+		ProjectId: appCore.ProjectID(),
+		LabelId:   created.Label.Id,
 		Name:      " ",
-	})
-	assertWorkflowLabelGatewayError(t, invalidRename, serverapi.WorkflowLabelErrorReasonInvalidName, "name")
-
-	invalidDelete := callGatewayExpectError(t, conn, "invalid-project-label-delete", protocol.MethodWorkflowProjectLabelDelete, serverapi.WorkflowProjectLabelDeleteRequest{
-		ProjectID: appCore.ProjectID(),
-		LabelID:   "not-a-label-id",
-	})
-	assertWorkflowLabelGatewayError(t, invalidDelete, serverapi.WorkflowLabelErrorReasonInvalidMutation, "label_id")
-}
-
-func assertWorkflowLabelGatewayError(t *testing.T, response *protocol.ResponseError, reason serverapi.WorkflowLabelErrorReason, field string) {
-	t.Helper()
-	if response == nil {
-		t.Fatal("workflow label error response is missing")
+	}, &invalidRename)
+	if invalidRename.GetError().GetInvalidName().GetField() != "name" {
+		t.Fatalf("invalid name error = %v", &invalidRename)
 	}
-	if response.Code != protocol.ErrCodeWorkflowLabel {
-		t.Fatalf("workflow label error = %+v, want code %d", response, protocol.ErrCodeWorkflowLabel)
-	}
-	decoded, ok := serverapi.DecodeWorkflowLabelError(response.Data, response.Message).(*serverapi.WorkflowLabelError)
-	if !ok || decoded.Reason != reason || decoded.Field == nil || *decoded.Field != field {
-		t.Fatalf("decoded workflow label error = %+v, want reason %q field %q", decoded, reason, field)
+
+	var invalidDelete pb.ProjectLabelDeleteResult
+	callInvalid("invalid-project-label-delete", "Delete", &pb.ProjectLabelDeleteRequest{
+		ProjectId: appCore.ProjectID(),
+		LabelId:   "not-a-label-id",
+	}, &invalidDelete)
+	if invalidDelete.GetError().GetInvalidMutation().GetField() != "label_id" {
+		t.Fatalf("invalid deletion error = %v", &invalidDelete)
 	}
 }
 

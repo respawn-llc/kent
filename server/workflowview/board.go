@@ -11,6 +11,8 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -81,7 +83,10 @@ func (b *Board) Get(ctx context.Context, req serverapi.WorkflowBoardRequest) (se
 	snapshot := definitions[selected.WorkflowID]
 	selectedWorkflowID := selected.WorkflowID
 	groups := boardGroups(snapshot.api)
-	columns := boardColumns(snapshot)
+	columns, err := boardColumns(snapshot)
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
 	if err := b.applyColumnTaskCounts(ctx, columns, projectID, selectedWorkflowID, labelFilter, req.DependencyFilter); err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
@@ -348,6 +353,14 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			return nil, nil, fmt.Errorf("workflow selection invariant violated: active link missing for project_id=%q workflow_id=%q", projectID, workflowID)
 		}
 		validation := definitionExecutionValidation(snapshot.domain, b.roleResolver)
+		diagnostics, err := ValidationErrors(&workflowID, validation.Errors)
+		if err != nil {
+			return nil, nil, err
+		}
+		taskDiagnostics, err := protoapi.WorkflowValidationErrorsForJSON(diagnostics)
+		if err != nil {
+			return nil, nil, err
+		}
 		picker = append(picker, serverapi.WorkflowPickerItem{
 			WorkflowID:           workflowID,
 			DisplayName:          snapshot.api.Workflow.Name,
@@ -355,7 +368,7 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			Version:              snapshot.api.Workflow.Version,
 			IsProjectDefault:     link.IsDefault != 0,
 			ValidForTaskCreation: !validation.HasBlockingErrors(),
-			ValidationErrors:     ValidationErrors(workflow.WorkflowIDPointer(snapshot.api.Workflow.ID), validation.Errors),
+			ValidationErrors:     taskDiagnostics,
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {
@@ -452,19 +465,19 @@ func defaultWorkflowBoardSelection(picker []serverapi.WorkflowPickerItem) *serve
 	return &picker[0]
 }
 
-func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGroup {
+func boardGroups(def *pb.WorkflowDefinition) []serverapi.WorkflowBoardGroup {
 	columnNodes := boardColumnNodes(def)
 	groups := make([]serverapi.WorkflowBoardGroup, 0, len(def.NodeGroups))
 	for _, group := range def.NodeGroups {
 		dto := serverapi.WorkflowBoardGroup{
-			GroupID:     group.GroupID,
+			GroupID:     group.GroupId,
 			Key:         group.GroupKey,
 			DisplayName: group.DisplayName,
-			SortOrder:   group.SortOrder,
+			SortOrder:   int(group.SortOrder),
 		}
 		for _, node := range columnNodes {
-			if node.GroupID != nil && *node.GroupID == group.GroupID {
-				dto.NodeIDs = append(dto.NodeIDs, node.ID)
+			if node.GroupId != nil && *node.GroupId == group.GroupId {
+				dto.NodeIDs = append(dto.NodeIDs, node.Id)
 			}
 		}
 		if len(dto.NodeIDs) > 0 {
@@ -474,29 +487,33 @@ func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGrou
 	return groups
 }
 
-func boardColumns(snapshot definitionSnapshot) []serverapi.WorkflowBoardColumn {
+func boardColumns(snapshot definitionSnapshot) ([]serverapi.WorkflowBoardColumn, error) {
 	columns := make([]serverapi.WorkflowBoardColumn, 0, len(snapshot.api.Nodes))
 	derived := workflow.DeriveWiring(snapshot.domain)
 	for index, node := range boardColumnNodes(snapshot.api) {
+		kind, err := protoapi.WorkflowNodeKind.Decode(node.Kind)
+		if err != nil {
+			return nil, err
+		}
 		columns = append(columns, serverapi.WorkflowBoardColumn{
 			Node: serverapi.WorkflowBoardNodeSummary{
-				NodeID:       node.ID,
+				NodeID:       node.Id,
 				Key:          node.Key,
-				Kind:         node.Kind,
+				Kind:         kind,
 				DisplayName:  node.DisplayName,
-				AssigneeRole: node.SubagentRole,
+				AssigneeRole: node.GetSubagentRole(),
 				SortOrder:    index,
-				OutputFields: OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.ID))),
+				OutputFields: protoapi.WorkflowOutputFieldsForJSON(OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.Id)))),
 			},
-			GroupID:   node.GroupID,
+			GroupID:   node.GroupId,
 			SortOrder: index,
-			IsBacklog: node.Kind == string(workflow.NodeKindStart),
-			IsDone:    node.Kind == string(workflow.NodeKindTerminal),
+			IsBacklog: node.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_START,
+			IsDone:    node.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL,
 		})
 	}
-	return columns
+	return columns, nil
 }
 
-func boardVisibleNodeKind(kind string) bool {
-	return workflow.NodeKind(kind) != workflow.NodeKindJoin
+func boardVisibleNodeKind(kind pb.NodeKind) bool {
+	return kind != pb.NodeKind_WORKFLOW_NODE_KIND_JOIN
 }

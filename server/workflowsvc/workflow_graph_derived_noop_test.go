@@ -5,7 +5,8 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	protoapi "core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 )
 
 func TestServiceWorkflowGraphSaveIgnoresPersistedDerivedEdgeWiring(t *testing.T) {
@@ -39,9 +40,9 @@ func TestServiceWorkflowGraphSaveIgnoresPersistedDerivedEdgeWiring(t *testing.T)
 		t.Fatalf("fixture has no persisted derived wiring: %+v", persisted.Edges)
 	}
 	current := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
-		WorkflowID: workflowID, ExpectedVersion: current.Workflow.Version,
-		Graph: serverapi.WorkflowGraphDraftFromDefinition(current),
+	preview, err := service.PreviewWorkflowGraphSave(ctx, &pb.GraphSavePreviewRequest{
+		WorkflowId: workflowID.String(), ExpectedVersion: current.Workflow.Version,
+		Graph: protoapi.WorkflowGraphDraftFromDefinition(current),
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowGraphSave: %v", err)
@@ -49,9 +50,9 @@ func TestServiceWorkflowGraphSaveIgnoresPersistedDerivedEdgeWiring(t *testing.T)
 	if preview.Changed {
 		t.Fatalf("preview = %+v, want unchanged authored graph", preview)
 	}
-	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: workflowID, ExpectedVersion: current.Workflow.Version,
-		Graph: serverapi.WorkflowGraphDraftFromDefinition(current),
+	saved, err := service.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: workflowID.String(), ExpectedVersion: current.Workflow.Version,
+		Graph: protoapi.WorkflowGraphDraftFromDefinition(current),
 	})
 	if err != nil {
 		t.Fatalf("SaveWorkflowGraph: %v", err)
