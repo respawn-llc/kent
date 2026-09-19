@@ -10,8 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"core/shared/protoapi"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -38,81 +40,36 @@ type UpdateStatusService struct {
 }
 
 type completedUpdateStatus struct {
-	result      updateStatusResult
+	result      *serverpb.UpdateStatus
 	completedAt time.Time
 }
 
 type updateStatusOperation struct {
 	done   chan struct{}
-	result updateStatusResult
+	result *serverpb.UpdateStatus
 	err    error
 }
 
-type updateStatusKind uint8
-
-const (
-	updateStatusCurrent updateStatusKind = iota + 1
-	updateStatusAvailable
-	updateStatusCheckUnavailable
-	updateStatusCheckFailed
-)
-
-type updateStatusResult struct {
-	kind    updateStatusKind
-	current string
-	latest  string
-	cause   string
+func currentUpdateStatusResult(current, latest string) *serverpb.UpdateStatus {
+	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Current{
+		Current: &serverpb.UpdateVersions{CurrentVersion: current, LatestVersion: latest},
+	}}
 }
 
-func currentUpdateStatusResult(current, latest string) updateStatusResult {
-	return updateStatusResult{kind: updateStatusCurrent, current: current, latest: latest}
+func availableUpdateStatusResult(current, latest string) *serverpb.UpdateStatus {
+	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Available{
+		Available: &serverpb.UpdateVersions{CurrentVersion: current, LatestVersion: latest},
+	}}
 }
 
-func availableUpdateStatusResult(current, latest string) updateStatusResult {
-	return updateStatusResult{kind: updateStatusAvailable, current: current, latest: latest}
+func checkUnavailableUpdateStatusResult() *serverpb.UpdateStatus {
+	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_CheckUnavailable{CheckUnavailable: &emptypb.Empty{}}}
 }
 
-func checkUnavailableUpdateStatusResult() updateStatusResult {
-	return updateStatusResult{kind: updateStatusCheckUnavailable}
-}
-
-func failedUpdateStatusResult(cause string) updateStatusResult {
-	return updateStatusResult{kind: updateStatusCheckFailed, cause: strings.TrimSpace(cause)}
-}
-
-func (r updateStatusResult) validate() error {
-	switch r.kind {
-	case updateStatusCurrent, updateStatusAvailable:
-		if strings.TrimSpace(r.current) == "" || strings.TrimSpace(r.latest) == "" {
-			return errors.New("update versions are required")
-		}
-	case updateStatusCheckUnavailable:
-		if r.current != "" || r.latest != "" || r.cause != "" {
-			return errors.New("unavailable update status cannot carry details")
-		}
-	case updateStatusCheckFailed:
-		if strings.TrimSpace(r.cause) == "" {
-			return errors.New("failed update status requires a cause")
-		}
-	default:
-		return errors.New("update status kind is invalid")
-	}
-	return nil
-}
-
-func (r updateStatusResult) proto() *serverpb.UpdateStatus {
-	status := &serverpb.UpdateStatus{}
-	switch r.kind {
-	case updateStatusCurrent:
-		status.Status = &serverpb.UpdateStatus_Current{Current: &serverpb.UpdateVersions{CurrentVersion: r.current, LatestVersion: r.latest}}
-	case updateStatusAvailable:
-		status.Status = &serverpb.UpdateStatus_Available{Available: &serverpb.UpdateVersions{CurrentVersion: r.current, LatestVersion: r.latest}}
-	case updateStatusCheckUnavailable:
-		status.Status = &serverpb.UpdateStatus_CheckUnavailable{CheckUnavailable: &emptypb.Empty{}}
-	case updateStatusCheckFailed:
-		status.Status = &serverpb.UpdateStatus_CheckFailed{CheckFailed: &serverpb.UpdateCheckFailed{Cause: r.cause}}
-	}
-	return status
+func failedUpdateStatusResult(cause string) *serverpb.UpdateStatus {
+	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_CheckFailed{
+		CheckFailed: &serverpb.UpdateCheckFailed{Cause: strings.TrimSpace(cause)},
+	}}
 }
 
 func NewUpdateStatusService(currentVersion string, debug bool) *UpdateStatusService {
@@ -137,7 +94,7 @@ func newUpdateStatusService(currentVersion string, debug bool, releaseSource rel
 	}
 }
 
-func (s *UpdateStatusService) status(ctx context.Context) (updateStatusResult, error) {
+func (s *UpdateStatusService) status(ctx context.Context) (*serverpb.UpdateStatus, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -145,12 +102,12 @@ func (s *UpdateStatusService) status(ctx context.Context) (updateStatusResult, e
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return updateStatusResult{}, ErrUpdateStatusServiceClosed
+		return nil, ErrUpdateStatusServiceClosed
 	}
 	if s.completed != nil && isFreshUpdateStatusCache(s.now(), s.completed.completedAt) {
 		result := s.completed.result
 		s.mu.Unlock()
-		return result, nil
+		return proto.CloneOf(result), nil
 	}
 	s.completed = nil
 	if s.inflight == nil {
@@ -163,9 +120,9 @@ func (s *UpdateStatusService) status(ctx context.Context) (updateStatusResult, e
 
 	select {
 	case <-operation.done:
-		return operation.result, operation.err
+		return proto.CloneOf(operation.result), operation.err
 	case <-ctx.Done():
-		return updateStatusResult{}, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -176,7 +133,7 @@ func (s *UpdateStatusService) runUpdateStatusCheck(operation *updateStatusOperat
 	defer cancel()
 
 	result := s.checkUpdateStatus(ctx)
-	if err := result.validate(); err != nil {
+	if err := protoapi.Validate(result); err != nil {
 		result = s.invalidCalculatedResult(result, err)
 	}
 	s.mu.Lock()
@@ -188,10 +145,10 @@ func (s *UpdateStatusService) runUpdateStatusCheck(operation *updateStatusOperat
 	s.completeOperationLocked(operation, result, nil, true)
 }
 
-func (s *UpdateStatusService) invalidCalculatedResult(result updateStatusResult, cause error) updateStatusResult {
+func (s *UpdateStatusService) invalidCalculatedResult(result *serverpb.UpdateStatus, cause error) *serverpb.UpdateStatus {
 	diagnostic := fmt.Sprintf(
-		"update status invariant violated: operation=publish calculated_kind=%q configured_version=%q cause=%v",
-		result.kind,
+		"update status invariant violated: operation=publish calculated_status=%T configured_version=%q cause=%v",
+		result.GetStatus(),
 		strings.TrimSpace(s.currentVersion),
 		cause,
 	)
@@ -201,7 +158,7 @@ func (s *UpdateStatusService) invalidCalculatedResult(result updateStatusResult,
 	return failedUpdateStatusResult("internal update checker failure: " + cause.Error())
 }
 
-func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) updateStatusResult {
+func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) *serverpb.UpdateStatus {
 	currentVersion, err := parseConfiguredUpdateVersion(s.currentVersion)
 
 	if err != nil {
@@ -220,7 +177,7 @@ func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) updateStatu
 	return currentUpdateStatusResult(current, latest)
 }
 
-func classifyReleaseSourceFailure(err error) updateStatusResult {
+func classifyReleaseSourceFailure(err error) *serverpb.UpdateStatus {
 	var httpStatusError *releaseHTTPStatusError
 	var metadataError *releaseMetadataError
 	if errors.As(err, &httpStatusError) || errors.As(err, &metadataError) {
@@ -237,7 +194,7 @@ func classifyReleaseSourceFailure(err error) updateStatusResult {
 	return failedUpdateStatusResult(err.Error())
 }
 
-func (s *UpdateStatusService) completeOperationLocked(operation *updateStatusOperation, result updateStatusResult, err error, cache bool) {
+func (s *UpdateStatusService) completeOperationLocked(operation *updateStatusOperation, result *serverpb.UpdateStatus, err error, cache bool) {
 	operation.result = result
 	operation.err = err
 	if cache {
@@ -259,7 +216,7 @@ func (s *UpdateStatusService) Close() error {
 		s.closed = true
 		s.cancel()
 		if s.inflight != nil {
-			s.completeOperationLocked(s.inflight, updateStatusResult{}, ErrUpdateStatusServiceClosed, false)
+			s.completeOperationLocked(s.inflight, nil, ErrUpdateStatusServiceClosed, false)
 		} else {
 			s.completed = nil
 		}

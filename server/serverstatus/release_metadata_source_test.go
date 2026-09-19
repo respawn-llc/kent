@@ -123,7 +123,7 @@ func TestGitHubReleaseMetadataSourceRejectsInvalidTags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Status: %v", err)
 			}
-			if result.kind != updateStatusCheckFailed || result.cause != sourceErr.Error() {
+			if failure := result.GetCheckFailed(); failure == nil || failure.Cause != sourceErr.Error() {
 				t.Fatalf("result = %#v, want check failure preserving source cause %v", result, sourceErr)
 			}
 		})
@@ -132,13 +132,13 @@ func TestGitHubReleaseMetadataSourceRejectsInvalidTags(t *testing.T) {
 
 func TestUpdateStatusServiceComparesGitHubReleaseVersions(t *testing.T) {
 	for _, test := range []struct {
-		tag  string
-		want updateStatusKind
+		tag       string
+		available bool
 	}{
-		{tag: "v1.10.0", want: updateStatusAvailable},
-		{tag: "v1.9.0", want: updateStatusCurrent},
-		{tag: "v1.8.0", want: updateStatusCurrent},
-		{tag: "v18446744073709551615.0.0", want: updateStatusAvailable},
+		{tag: "v1.10.0", available: true},
+		{tag: "v1.9.0"},
+		{tag: "v1.8.0"},
+		{tag: "v18446744073709551615.0.0", available: true},
 	} {
 		t.Run(test.tag, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -151,8 +151,12 @@ func TestUpdateStatusServiceComparesGitHubReleaseVersions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Status: %v", err)
 			}
-			if result.kind != test.want || result.current != "1.9.0" || result.latest != strings.TrimPrefix(test.tag, "v") {
-				t.Fatalf("result = %#v, want kind %d with release %s", result, test.want, test.tag)
+			versions := result.GetCurrent()
+			if test.available {
+				versions = result.GetAvailable()
+			}
+			if versions == nil || versions.CurrentVersion != "1.9.0" || versions.LatestVersion != strings.TrimPrefix(test.tag, "v") {
+				t.Fatalf("result = %v, want available=%v with release %s", result, test.available, test.tag)
 			}
 		})
 	}
