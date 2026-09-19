@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"core/server/llm"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
@@ -186,7 +185,7 @@ func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSet
 		},
 	}, f.err
 }
-func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.pauseGoalCalls++
 	if f.goalCallEvents != nil {
 		*f.goalCallEvents = append(*f.goalCallEvents, "pause-started")
@@ -195,33 +194,33 @@ func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, err
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ResumeGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) ResumeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.resumeGoalCalls++
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) CompleteGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) CompleteGoal() (*runtimepb.GoalMutationSuccess, error) {
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
 	f.goal.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE
-	return clientui.GoalMutationResult{
+	return &runtimepb.GoalMutationSuccess{
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ClearGoal() (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) ClearGoal() (*runtimepb.GoalMutationSuccess, error) {
 	f.clearGoalCalls++
 	f.goal = nil
-	return clientui.GoalMutationResult{Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR}, f.err
+	return &runtimepb.GoalMutationSuccess{Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR}, f.err
 }
 
 func runtimeControlTestGoal(objective string, status runtimepb.GoalStatus) *runtimepb.GoalView {
@@ -326,7 +325,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		sessionID:      m.sessionID,
 		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
-		mutation: clientui.GoalMutationResult{
+		mutation: &runtimepb.GoalMutationSuccess{
 			Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 			Goal: paused.Goal}})
 	stale := &runtimepb.GoalView{
@@ -495,7 +494,8 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 		t.Fatalf("not-accepted interrupt changed active submit: %+v", updated.activeSubmit)
 	}
 	updated.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token: updated.runtimeMainViewToken,
+		token:                  updated.runtimeMainViewToken,
+		interruptedSubmitToken: textutil.Value(uint64(1)),
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
 			Session: &runtimepb.SessionView{SessionId: "session-1"},
@@ -525,7 +525,8 @@ func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
 	})
 	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
 	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token: m.runtimeMainViewToken,
+		token:                  m.runtimeMainViewToken,
+		interruptedSubmitToken: textutil.Value(uint64(1)),
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
 			Session: &runtimepb.SessionView{SessionId: m.sessionID},
@@ -751,7 +752,7 @@ func TestRuntimeControlMarksDisconnectOnTransportError(t *testing.T) {
 }
 
 func TestRuntimeControlClearsDisconnectOnReachableServerError(t *testing.T) {
-	client := &runtimeControlFakeClient{submitErr: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}}
+	client := &runtimeControlFakeClient{submitErr: errors.New("request rejected")}
 	m := newProjectedTestUIModel(client)
 	m.setRuntimeDisconnected(true)
 

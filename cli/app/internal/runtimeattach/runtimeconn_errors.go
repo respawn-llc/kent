@@ -7,16 +7,11 @@ import (
 	"net"
 	"net/url"
 
-	"core/shared/llmerrors"
 	"core/shared/serverapi"
 )
 
 func IsRuntimeConnectionError(err error) bool {
 	if err == nil {
-		return false
-	}
-	var statusErr *llmerrors.APIStatusError
-	if errors.As(err, &statusErr) {
 		return false
 	}
 	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) || errors.Is(err, serverapi.ErrStreamFailed) {

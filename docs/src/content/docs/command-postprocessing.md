@@ -43,8 +43,8 @@ Kent sends JSON like:
   "parsed_args": ["go", "test", "./..."],
   "command_name": "go",
   "workdir": "/abs/workdir",
-  "original_output": "...sanitized command output...",
-  "current_output": "...built-in processed output or original output...",
+  "original_output": "...raw command output...",
+  "current_output": "...sanitized and built-in processed output...",
   "exit_code": 0,
   "backgrounded": false,
   "max_display_chars": 16000
@@ -53,8 +53,8 @@ Kent sends JSON like:
 
 Your hook receives both:
 
-- `original_output`: sanitized command output before built-in processing
-- `current_output`: command output after built-in processing, or `original_output` when unchanged
+- `original_output`: raw command output before sanitization or built-in processing
+- `current_output`: command output after sanitization and enabled built-in processing
 
 Hook **must** return JSON like:
 

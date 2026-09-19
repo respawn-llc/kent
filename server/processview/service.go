@@ -9,23 +9,16 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-type ProcessSource interface {
-	List() []shelltool.Snapshot
-	Snapshot(id string) (shelltool.Snapshot, error)
-	Kill(id string) error
-	InlineOutput(id string, maxChars int) (string, string, error)
-}
-
 type ProjectSessionMembership interface {
 	ListProjectSessionIDs(ctx context.Context, projectID string) ([]string, error)
 }
 
 type ProcessViewService struct {
-	processes  ProcessSource
+	processes  *shelltool.Manager
 	membership ProjectSessionMembership
 }
 
-func NewProcessViewService(processes ProcessSource, membership ProjectSessionMembership) *ProcessViewService {
+func NewProcessViewService(processes *shelltool.Manager, membership ProjectSessionMembership) *ProcessViewService {
 	return &ProcessViewService{processes: processes, membership: membership}
 }
 

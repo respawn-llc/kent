@@ -46,7 +46,7 @@ export type PendingTaskInitiatingAction =
     }>
   | Readonly<{
       kind: "setup_recovery";
-      action: Extract<TaskInitiatingAction, { kind: "move" }>;
+      action: TaskInitiatingAction;
       failure: WorktreeSetupRetainedError;
       choiceFailure: ExecutionTargetChoiceFailure | null;
       retrySelection?: WorkflowExecutionTargetSelection;
@@ -118,7 +118,7 @@ function createTaskInitiatingActions(client: QueryClient) {
           },
           onError(error) {
             const failure = decodeWorktreeSetupRetainedError(error);
-            if (action.kind === "move" && failure !== null) {
+            if (failure !== null) {
               input.onConfirmation({
                 kind: "setup_recovery",
                 action,

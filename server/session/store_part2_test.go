@@ -272,7 +272,7 @@ func TestEventUseRejectsSymlinkedEventsFileAfterMetadataOnlyOpen(t *testing.T) {
 	}
 }
 
-func TestEventUseRepairsMissingEventsFileAndPublishes(t *testing.T) {
+func TestEventUseRejectsMissingEventsFileWithoutChangingMetadata(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "session-without-events")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -305,25 +305,21 @@ func TestEventUseRepairsMissingEventsFileAndPublishes(t *testing.T) {
 	if observer.reconciled {
 		t.Fatal("metadata-only open reconciled event state")
 	}
-	events, err := collectEvents(opened)
-	if err != nil {
-		t.Fatalf("materialize events: %v", err)
+	if _, err := collectEvents(opened); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("materialize missing events: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, eventsFile)); err != nil {
-		t.Fatalf("expected event use to recreate missing file: %v", err)
+	if _, err := os.Stat(filepath.Join(sessionDir, eventsFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("event use changed missing file: %v", err)
 	}
-	if log := mustMaterializeSessionTestEventLog(t, opened); mustMaterializedRevision(log) != 0 {
-		t.Fatalf("expected reopened last sequence to reconcile to zero, got %d", mustMaterializedRevision(log))
+	if opened.Meta().LastSequence != meta.LastSequence {
+		t.Fatal("event use changed retained sequence")
 	}
-	if !observer.reconciled || observer.reconciliation.LastSequence != 0 {
-		t.Fatalf("observer reconciliation = %+v, called = %t", observer.reconciliation, observer.reconciled)
-	}
-	if len(events) != 0 {
-		t.Fatalf("expected recreated events file to be empty, got %+v", events)
+	if observer.reconciled {
+		t.Fatal("missing artifact was reconciled as empty history")
 	}
 }
 
-func TestMaterializeMissingEventsFileWithoutObserverLeavesCurrentPendingRepair(t *testing.T) {
+func TestMaterializeMissingEventsFileDoesNotCommitRecovery(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "session-without-events")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -352,16 +348,16 @@ func TestMaterializeMissingEventsFileWithoutObserverLeavesCurrentPendingRepair(t
 	if !errors.As(materializeErr, &typedErr) {
 		t.Fatalf("materialization error = %v, want typed materialization error", materializeErr)
 	}
-	if !typedErr.Committed || !typedErr.PendingRepair ||
-		typedErr.Stage != EventLogMaterializationStageReconciliation ||
-		!errors.Is(typedErr, errEventLogReconcilerRequired) {
+	if typedErr.Committed || typedErr.PendingRepair ||
+		typedErr.Stage != EventLogMaterializationStagePreparation ||
+		!errors.Is(typedErr, os.ErrNotExist) {
 		t.Fatalf("materialization error facts = %+v", typedErr)
 	}
 	if _, openErr := openCurrentEventLog(
 		filepath.Join(sessionDir, eventsFile),
 		currentEventLogReadOnly,
-	); openErr != nil {
-		t.Fatalf("committed current event log unavailable: %v", openErr)
+	); !errors.Is(openErr, os.ErrNotExist) {
+		t.Fatalf("missing event log changed: %v", openErr)
 	}
 }
 

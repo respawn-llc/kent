@@ -383,8 +383,8 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 		t.Fatal("terminal hydration completed before release")
 	}
 
-	refresh := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual))
-	refreshMessage, ok := refresh.cmd().(runtimeMainViewRefreshedMsg)
+	refresh := m.startRuntimeMainViewRefresh(nil)
+	refreshMessage, ok := refresh().(runtimeMainViewRefreshedMsg)
 	if !ok {
 		t.Fatalf("refresh command returned an unexpected message")
 	}

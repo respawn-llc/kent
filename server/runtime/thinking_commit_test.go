@@ -56,7 +56,7 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 					t.Fatal(err)
 				}
 				if providerFailure {
-					client.errors = []error{&llm.APIStatusError{StatusCode: 400, Body: `{"error":"request_failed"}`}}
+					client.errors = []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, ProviderCode: "request_failed"}}
 				} else {
 					mustBlockTestEventLogAppends(t, store)
 				}

@@ -4,6 +4,10 @@ import "core/shared/config"
 
 func cloneMeta(in Meta) Meta {
 	out := in
+	if in.Category != nil {
+		category := *in.Category
+		out.Category = &category
+	}
 	if in.ProtectedInputDraft != nil {
 		text := *in.ProtectedInputDraft
 		out.ProtectedInputDraft = &text

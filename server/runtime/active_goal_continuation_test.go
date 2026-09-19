@@ -183,10 +183,11 @@ func TestMetaContextProjectionUsesCanonicalStablePrefixAcrossEmissionOrders(t *t
 		t.Fatalf("canonical projection changed with emission order: forward=%+v reverse=%+v", got, want)
 	}
 
-	reviewer, err := buildReviewerRequestMessagesWithBuilder(base, builder, false)
+	reviewerItems, err := buildReviewerRequestItemsWithBuilder(reviewerItemsFromMessages(base), builder, false)
 	if err != nil {
 		t.Fatalf("build reviewer projection: %v", err)
 	}
+	reviewer := llm.MessagesFromItems(reviewerItems)
 	boundaryIndex := -1
 	for index, message := range reviewer {
 		if message.Role == llm.RoleDeveloper && message.MessageType == nil {
@@ -220,17 +221,18 @@ func TestReviewerReconstructionPlacesActiveGoalBeforeTranscriptBoundary(t *testi
 		MessageType: textutil.Value(llm.MessageTypeActiveGoalContinuation),
 		Content:     textutil.Value("continuation"),
 	}
-	rebuilt, err := buildReviewerRequestMessagesWithBuilder(
-		[]llm.Message{
+	items, err := buildReviewerRequestItemsWithBuilder(
+		reviewerItemsFromMessages([]llm.Message{
 			continuation,
 			{Role: llm.RoleUser, Content: textutil.Value("request")},
-		},
+		}),
 		newMetaContextBuilder(t.TempDir(), "model", "", config.SkillPolicy{}, time.Unix(0, 0)),
 		false,
 	)
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
+	rebuilt := llm.MessagesFromItems(items)
 
 	continuationIndex, boundaryIndex, transcriptIndex := -1, -1, -1
 	continuationCount := 0
@@ -265,8 +267,8 @@ func TestReviewerReconstructionPlacesActiveGoalBeforeTranscriptBoundary(t *testi
 
 func TestReviewerReconstructionUsesLatestMetaContextMode(t *testing.T) {
 	t.Parallel()
-	rebuilt, err := buildReviewerRequestMessagesWithBuilder(
-		[]llm.Message{
+	items, err := buildReviewerRequestItemsWithBuilder(
+		reviewerItemsFromMessages([]llm.Message{
 			{
 				Role:        llm.RoleDeveloper,
 				MessageType: textutil.Value(llm.MessageTypeActiveGoalContinuation),
@@ -279,13 +281,14 @@ func TestReviewerReconstructionUsesLatestMetaContextMode(t *testing.T) {
 				Content:     textutil.Value("current workflow"),
 			},
 			{Role: llm.RoleUser, Content: textutil.Value("request")},
-		},
+		}),
 		newMetaContextBuilder(t.TempDir(), "model", "", config.SkillPolicy{}, time.Unix(0, 0)),
 		false,
 	)
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
+	rebuilt := llm.MessagesFromItems(items)
 	counts := make(map[llm.MessageType]int)
 	for _, message := range rebuilt {
 		if message.MessageType != nil {
@@ -299,8 +302,8 @@ func TestReviewerReconstructionUsesLatestMetaContextMode(t *testing.T) {
 
 func TestReviewerReconstructionPreservesLatestWorkflowExit(t *testing.T) {
 	t.Parallel()
-	rebuilt, err := buildReviewerRequestMessagesWithBuilder(
-		[]llm.Message{
+	items, err := buildReviewerRequestItemsWithBuilder(
+		reviewerItemsFromMessages([]llm.Message{
 			{
 				Role:        llm.RoleDeveloper,
 				MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
@@ -313,13 +316,14 @@ func TestReviewerReconstructionPreservesLatestWorkflowExit(t *testing.T) {
 				Content:     textutil.Value("the discarded workflow assignment was rolled back"),
 			},
 			{Role: llm.RoleUser, Content: textutil.Value("request")},
-		},
+		}),
 		newMetaContextBuilder(t.TempDir(), "model", "", config.SkillPolicy{}, time.Unix(0, 0)),
 		false,
 	)
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
+	rebuilt := llm.MessagesFromItems(items)
 	boundaryIndex := -1
 	for index, message := range rebuilt {
 		if message.Role == llm.RoleDeveloper && message.MessageType == nil {

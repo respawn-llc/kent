@@ -46,10 +46,6 @@ func (c *countingSessionViewClient) GetLatestCommittedAssistantFinalAnswer(_ con
 	return &transcriptpb.LatestFinalAnswerSuccess{Answer: c.finalAnswer}, nil
 }
 
-func (c *countingSessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
-}
-
 type controlledTranscriptPageResult struct {
 	response *transcriptpb.PageSuccess
 	err      error
@@ -86,11 +82,6 @@ func (c *controlledTranscriptPageClient) GetLatestCommittedAssistantFinalAnswer(
 	return &transcriptpb.LatestFinalAnswerSuccess{}, nil
 }
 
-func (c *controlledTranscriptPageClient) GetSessionExecutionEnvironment(ctx context.Context, _ *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	<-ctx.Done()
-	return &sessionpb.ExecutionEnvironmentSuccess{}, ctx.Err()
-}
-
 type flakySessionViewClient struct {
 	apicontract.SessionViewService
 	mu        sync.Mutex
@@ -122,8 +113,4 @@ func (c *flakySessionViewClient) GetSessionTranscriptPage(context.Context, *tran
 
 func (c *flakySessionViewClient) GetLatestCommittedAssistantFinalAnswer(context.Context, *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
 	return &transcriptpb.LatestFinalAnswerSuccess{}, nil
-}
-
-func (c *flakySessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
 }

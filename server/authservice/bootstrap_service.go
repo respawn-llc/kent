@@ -49,11 +49,10 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, _ *emptypb.Em
 	issuer := strings.TrimSpace(s.oauthOptions.Issuer)
 	clientID := strings.TrimSpace(s.oauthOptions.ClientID)
 	status := &authpb.BootstrapStatus{
-		AuthReady:              ready,
-		AuthRequired:           s.authRequired,
-		NoAuthSelected:         stored.IsNoAuthSelected(),
-		AuthBootstrapSupported: true,
-		SupportedModes:         append([]authpb.BootstrapMode(nil), s.supportedModes...),
+		AuthReady:      ready,
+		AuthRequired:   s.authRequired,
+		NoAuthSelected: stored.IsNoAuthSelected(),
+		SupportedModes: append([]authpb.BootstrapMode(nil), s.supportedModes...),
 	}
 	if issuer != "" || clientID != "" {
 		status.Oauth = &authpb.BootstrapOAuthConfig{}

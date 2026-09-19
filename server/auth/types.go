@@ -7,7 +7,6 @@ var (
 	ErrInvalidAuthMethod     = sharedauth.ErrInvalidAuthMethod
 	ErrSwitchRequiresIdle    = sharedauth.ErrSwitchRequiresIdle
 	ErrOAuthRefreshFailed    = sharedauth.ErrOAuthRefreshFailed
-	ErrInvalidAuthScope      = sharedauth.ErrInvalidAuthScope
 	ErrDeviceCodeUnsupported = sharedauth.ErrDeviceCodeUnsupported
 )
 
@@ -41,10 +40,6 @@ type StartupGate = sharedauth.StartupGate
 
 func EmptyState() State {
 	return sharedauth.EmptyState()
-}
-
-func MaskedAPIKeySummary(apiKey *APIKeyMethod) string {
-	return sharedauth.MaskedAPIKeySummary(apiKey)
 }
 
 func EvaluateStartupGate(state State) StartupGate {

@@ -182,7 +182,6 @@ type SessionViewService interface {
 	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
 	GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error)
 	GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error)
-	GetSessionExecutionEnvironment(ctx context.Context, req *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error)
 	SubscribeQuestionHistory(ctx context.Context, req *sessionpb.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error)
 }
 

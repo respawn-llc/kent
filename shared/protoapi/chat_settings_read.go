@@ -15,10 +15,6 @@ func ChatSettingsErrorFromProto(value *pb.ReadError) error {
 		return err
 	}
 	switch detail := value.Detail.(type) {
-	case *pb.ReadError_AuthRequired:
-		return serverapi.ErrServerAuthRequired
-	case *pb.ReadError_ServerNotReady:
-		return ServerNotReadyFromProto(detail.ServerNotReady)
 	case *pb.ReadError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *pb.ReadError_SessionNotFound:
@@ -27,8 +23,6 @@ func ChatSettingsErrorFromProto(value *pb.ReadError) error {
 			return err
 		}
 		return fmt.Errorf("%w: %s", sessioncontract.ErrSessionNotFound, sessionID)
-	case *pb.ReadError_InternalFailure:
-		return InternalFailureFromProto(detail.InternalFailure)
 	case *pb.ReadError_ChatSettingsAgentPreparation:
 		return &serverapi.ChatSettingsAgentPreparationError{
 			Agent: detail.ChatSettingsAgentPreparation.Agent,

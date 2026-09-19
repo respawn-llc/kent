@@ -56,12 +56,7 @@ export {
   taskDependencyListResponseSchema,
   taskDependencyRemoveResponseSchema,
 } from "./taskDependencies";
-export {
-  decodeWorktreeSetupRetainedError,
-  parseTaskSetupRecoveryDetail,
-  WorktreeSetupRetainedError,
-  type TaskSetupRecovery,
-} from "./workflowWorktree";
+export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./workflowWorktree";
 
 const boardGroupsSchema = z
   .array(boardGroupSchema)

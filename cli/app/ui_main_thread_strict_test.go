@@ -121,10 +121,6 @@ type strictCountingStatusCollector struct {
 	baseCalls int
 }
 
-func (c *strictCountingStatusCollector) Collect(context.Context, uiStatusRequest) (uiStatusSnapshot, error) {
-	return uiStatusSnapshot{}, nil
-}
-
 func (c *strictCountingStatusCollector) CollectBase(req uiStatusRequest) uiStatusSnapshot {
 	c.baseCalls++
 	return status.Snapshot{CollectedAt: req.CurrentTime}

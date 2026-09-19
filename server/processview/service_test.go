@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/toolspec"
 )
@@ -30,7 +33,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 			return shelltool.Snapshot{}, false
 		}
 		process := entries[0]
-		if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
+		if process.LogPath == "" || process.RecentOutput == "" {
 			return shelltool.Snapshot{}, false
 		}
 		return process, true
@@ -55,8 +58,8 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	if !process.Backgrounded || !process.Running {
 		t.Fatalf("expected backgrounded running process, got %+v", process)
 	}
-	if !process.OutputAvailable || process.OutputRetainedFromBytes != 0 || process.OutputRetainedToBytes <= 0 {
-		t.Fatalf("expected retained output metadata, got %+v", process)
+	if process.LogPath == "" || process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview, got %+v", process)
 	}
 
 	got, err := fixture.service.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: process.Id})
@@ -66,8 +69,8 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	if got.Process == nil || got.Process.GetOwnerRunId() != "run-1" || got.Process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
-	if !got.Process.OutputAvailable || got.Process.OutputRetainedFromBytes != 0 || got.Process.OutputRetainedToBytes < process.OutputRetainedToBytes {
-		t.Fatalf("expected retained output metadata from get, got %+v", got.Process)
+	if got.Process.LogPath != process.LogPath || got.Process.RecentOutput == "" {
+		t.Fatalf("expected log path and output preview from get, got %+v", got.Process)
 	}
 }
 
@@ -86,7 +89,7 @@ func newProcessViewFixture(t *testing.T) processViewFixture {
 	t.Cleanup(func() { _ = manager.Close() })
 
 	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, 200_000, manager, "session-1")
+	tool := shelltool.NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "session-1", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	return processViewFixture{
 		manager: manager,
 		tool:    tool,
@@ -160,51 +163,35 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 	}
 }
 
-func TestServiceKillProcessSignalsManagerEntry(t *testing.T) {
+func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	result := fixture.startCommand(t, "call-kill", "sleep 30", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	if _, err := fixture.service.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: "1000"}); err != nil {
-		t.Fatalf("KillProcess: %v", err)
+	processes := fixture.manager.List()
+	if len(processes) != 1 {
+		t.Fatalf("process count = %d, want 1", len(processes))
 	}
-	waitForProcessKilled(t, fixture.manager, "1000")
-}
-
-func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source, nil)
+	id := processes[0].ID
+	req := &processpb.KillRequest{ProcessId: id}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := svc.KillProcess(ctx, &processpb.KillRequest{ProcessId: "1000"}); err != context.Canceled {
+	if _, err := fixture.service.KillProcess(ctx, req); err != context.Canceled {
 		t.Fatalf("KillProcess error = %v, want context canceled", err)
 	}
-	if source.killCalls != 0 {
-		t.Fatalf("kill call count = %d, want 0", source.killCalls)
+	snapshot, err := fixture.manager.Snapshot(id)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestServiceKillProcessRepeatedCallExecutesAgain(t *testing.T) {
-	source := &stubKillProcessSource{}
-	svc := NewProcessViewService(source, nil)
-	req := &processpb.KillRequest{ProcessId: "1000"}
-
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess first: %v", err)
+	if snapshot.KillRequested || !snapshot.Running {
+		t.Fatalf("canceled request changed process state: %+v", snapshot)
 	}
-	if _, err := svc.KillProcess(context.Background(), req); err != nil {
-		t.Fatalf("KillProcess second: %v", err)
+	if _, err := fixture.service.KillProcess(context.Background(), req); err != nil {
+		t.Fatalf("KillProcess: %v", err)
 	}
-	if source.killCalls != 2 {
-		t.Fatalf("kill call count = %d, want 2", source.killCalls)
-	}
-}
-
-type stubKillProcessSource struct {
-	killCalls int
-	killErr   error
+	waitForProcessKilled(t, fixture.manager, id)
 }
 
 type allProjectSessionMembership struct{}
@@ -214,21 +201,6 @@ func (allProjectSessionMembership) ListProjectSessionIDs(
 	_ string,
 ) ([]string, error) {
 	return []string{"session-1"}, nil
-}
-
-func (s *stubKillProcessSource) List() []shelltool.Snapshot { return nil }
-
-func (s *stubKillProcessSource) Snapshot(string) (shelltool.Snapshot, error) {
-	return shelltool.Snapshot{}, nil
-}
-
-func (s *stubKillProcessSource) Kill(string) error {
-	s.killCalls++
-	return s.killErr
-}
-
-func (s *stubKillProcessSource) InlineOutput(string, int) (string, string, error) {
-	return "", "", nil
 }
 
 func waitForProcessCount(t *testing.T, manager *shelltool.Manager, count int) {

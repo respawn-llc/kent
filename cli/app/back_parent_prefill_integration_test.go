@@ -38,7 +38,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "source-project-model",
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}

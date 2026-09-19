@@ -175,6 +175,7 @@ message WorkflowSessionStatus {
 }
 
 message Status {
+
   string reviewer_frequency = 1 [(buf.validate.field).string.min_len = 1];
   bool reviewer_enabled = 2;
   bool auto_compaction_enabled = 3;
@@ -188,7 +189,6 @@ message Status {
   optional string previous_session_id = 8 [(buf.validate.field).string.min_len = 1];
   optional string parent_agent_session_id = 9 [(buf.validate.field).string.min_len = 1];
   optional string navigation_target_session_id = 10 [(buf.validate.field).string.min_len = 1];
-  optional string last_committed_assistant_final_answer = 11;
   string thinking_level = 12 [(buf.validate.field).string.min_len = 1];
   string compaction_mode = 13 [(buf.validate.field).string = {
     in: [

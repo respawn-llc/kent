@@ -15,9 +15,6 @@ type staticTaskStatusLiveObservationSource struct {
 func TestTaskDetailOffersResumeForSavedAdmissionWithoutLiveExecution(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "saved admission")
-	if _, err := fixture.store.AdmitCurrentNode(t.Context(), started.currentNode); err != nil {
-		t.Fatalf("AdmitCurrentNode: %v", err)
-	}
 	projected, err := fixture.detail.GetTask(t.Context(), string(started.task.ID))
 	if err != nil {
 		t.Fatalf("TaskDetail.GetTask: %v", err)

@@ -153,7 +153,7 @@ func TestNewProviderClient_AuthManagerOAuthPathCompressesCodexRequest(t *testing
 			Type:  auth.MethodOAuth,
 			OAuth: &auth.OAuthMethod{AccessToken: "oauth-token", AccountID: "account-1"},
 		},
-	}), nil, nil)
+	}), nil)
 	client, err := NewProviderClient(ProviderClientOptions{
 		Model:      "gpt-5.6-sol",
 		Auth:       manager,

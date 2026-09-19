@@ -321,7 +321,6 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 							Ready:           true,
 							ServerId:        "server-1",
 							ServerVersion:   "test",
-							ServerBuild:     "test",
 							ProtocolVersion: protocol.Version,
 						},
 					}},
@@ -676,8 +675,9 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 	if _, err := remote.ListProjects(context.Background(), &emptypb.Empty{}); err == nil {
 		t.Fatal("reconnect with substituted workspace unexpectedly succeeded")
 	}
-	if got := remote.WorkspaceID(); got != "workspace-a" {
-		t.Fatalf("authoritative WorkspaceID = %q, want workspace-a", got)
+	binding, present := remote.ProjectBinding()
+	if !present || binding.WorkspaceID != "workspace-a" {
+		t.Fatalf("authoritative binding = %+v, present=%v, want workspace-a", binding, present)
 	}
 	requireNoHandlerError(t, handlerErrs)
 }

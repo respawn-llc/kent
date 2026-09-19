@@ -49,6 +49,17 @@ type staticExecutionTargetResolver struct {
 	target *worktreepb.SessionExecutionTarget
 }
 
+func availableSessionExecutionTarget(workdir string) *worktreepb.SessionExecutionTarget {
+	return &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.Value("workspace-id"),
+		WorkspaceName:         "workspace",
+		WorkspaceRoot:         workdir,
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		CwdRelpath:            ".",
+		EffectiveWorkdir:      workdir,
+	}
+}
+
 func newDormantMainViewTestService(
 	t *testing.T,
 	store *session.Store,
@@ -198,9 +209,7 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 		t.Fatalf("dormant session agent role = %v, want %q", resp.MainView.Session.AgentRole, role)
 	}
 	if resp.MainView.Status.ParentAgentSessionId == nil || *resp.MainView.Status.ParentAgentSessionId != parentSessionID ||
-		resp.MainView.Status.NavigationTargetSessionId == nil || *resp.MainView.Status.NavigationTargetSessionId != parentSessionID ||
-		resp.MainView.Status.LastCommittedAssistantFinalAnswer == nil ||
-		*resp.MainView.Status.LastCommittedAssistantFinalAnswer != "final answer" {
+		resp.MainView.Status.NavigationTargetSessionId == nil || *resp.MainView.Status.NavigationTargetSessionId != parentSessionID {
 		t.Fatalf("unexpected dormant status: %+v", resp.MainView.Status)
 	}
 	if resp.MainView.Status.Goal == nil ||
@@ -379,14 +388,6 @@ func TestServiceDormantHistoryReplacementStartsNewTranscriptSegment(t *testing.T
 	}
 	if len(entries) != 0 {
 		t.Fatalf("entry count = %d, want empty active segment", len(entries))
-	}
-
-	mainViewResp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
-	if err != nil {
-		t.Fatalf("get session main view: %v", err)
-	}
-	if got := mainViewResp.MainView.Status.LastCommittedAssistantFinalAnswer; got != nil {
-		t.Fatalf("last committed assistant final answer = %q, want absence because later user message supersedes it", *got)
 	}
 }
 

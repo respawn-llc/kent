@@ -616,11 +616,11 @@ func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSup
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 	if ready {
-		if _, err := authSupport.AuthManager.SwitchMethod(context.Background(), auth.Method{
+		if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}, true); err != nil {
-			t.Fatalf("SwitchMethod: %v", err)
+		}, auth.EnvAPIKeyPreferenceUnspecified, false, true); err != nil {
+			t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
 		}
 	}
 	return authSupport
@@ -1757,12 +1757,12 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 	}
 
 	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
+	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
+	defer func() { _ = background.Close() }()
+	appCore, err := core.New(resolvedA.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

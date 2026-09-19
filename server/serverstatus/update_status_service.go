@@ -212,14 +212,9 @@ func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) updateStatu
 	if err != nil {
 		return classifyReleaseSourceFailure(err)
 	}
-	latestVersion, err := parseUpdateVersion(metadata.Version)
-	if err != nil {
-		return failedUpdateStatusResult(fmt.Sprintf("latest release version is invalid: %v", err))
-	}
-
 	current := currentVersion.String()
-	latest := latestVersion.String()
-	if latestVersion.Compare(currentVersion) > 0 {
+	latest := metadata.Version.String()
+	if metadata.Version.Compare(currentVersion) > 0 {
 		return availableUpdateStatusResult(current, latest)
 	}
 	return currentUpdateStatusResult(current, latest)

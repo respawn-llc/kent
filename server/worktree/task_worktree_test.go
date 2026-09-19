@@ -788,6 +788,9 @@ func TestRestoreLockedTaskWorktreeReportsConflictingDeterministicRootRecord(t *t
 	if err != nil {
 		t.Fatalf("GetWorktreeRecordByID: %v", err)
 	}
+	if _, err := env.store.DB().ExecContext(env.ctx, `UPDATE sessions SET worktree_id = NULL WHERE task_id = ?`, string(task.ID)); err != nil {
+		t.Fatal(err)
+	}
 	record.WorkspaceID = otherWorkspace.WorkspaceID
 	if err := env.store.UpsertWorktreeRecord(env.ctx, record); err != nil {
 		t.Fatalf("UpsertWorktreeRecord: %v", err)
@@ -1437,7 +1440,7 @@ func completedTaskWorktree(t *testing.T, env *serviceTestEnv) (workflowstore.Tas
 	if err != nil || len(nodes) != 1 {
 		t.Fatalf("current Nodes = %+v: %v", nodes, err)
 	}
-	if _, err := store.CompleteCurrentNode(env.ctx, workflowstore.CurrentNodeCompletionRequest{
+	if _, err := workflowfixture.CompleteCurrentNode(t, env.ctx, env.store, store, workflowstore.CurrentNodeCompletionRequest{
 		Source: nodes[0].Reference, TransitionID: "done",
 	}); err != nil {
 		t.Fatal(err)
@@ -1700,14 +1703,21 @@ func TestDeleteWorktreeAllowsTerminalTaskManagedWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MaterializeInitialTaskWorktree: %v", err)
 	}
-	started, err := workflowStore.StartTask(env.ctx, task.ID)
+	plan, err := workflowStore.PlanTaskStart(env.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: env.binding.WorkspaceID, SourceWorkspaceRoot: env.workspaceRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := workflowStore.CommitTaskStart(env.ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, env.ctx, env.store, plan.StartContexts()))
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("StartTask mutation = %+v, want one current node", started.Mutation)
 	}
-	if _, err := workflowStore.CompleteCurrentNode(env.ctx, workflowstore.CurrentNodeCompletionRequest{
+	if _, err := workflowfixture.CompleteCurrentNode(t, env.ctx, env.store, workflowStore, workflowstore.CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "done",
 	}); err != nil {
@@ -1793,7 +1803,7 @@ func lockTaskWorktreeExecutionTarget(t *testing.T, env *serviceTestEnv, store *w
 	t.Helper()
 	requestedRef := resolvedTarget.RequestedRef
 	commitOID := resolvedTarget.CommitOID
-	_, err := store.StartTaskWithExecutionTarget(env.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+	plan, err := store.PlanTaskStart(env.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
 		Snapshot: workflowstore.ExecutionTargetSnapshot{
 			Mode:         workflow.ExecutionTargetModeHead,
 			RequestedRef: &requestedRef,
@@ -1811,7 +1821,10 @@ func lockTaskWorktreeExecutionTarget(t *testing.T, env *serviceTestEnv, store *w
 		},
 	})
 	if err != nil {
-		t.Fatalf("StartTaskWithExecutionTarget: %v", err)
+		t.Fatal(err)
+	}
+	if _, err := store.CommitTaskStart(env.ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, env.ctx, env.store, plan.StartContexts())); err != nil {
+		t.Fatalf("commit Task target: %v", err)
 	}
 }
 

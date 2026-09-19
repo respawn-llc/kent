@@ -618,7 +618,6 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     ready: readiness.ready,
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
-    serverBuild: readiness.serverBuild,
     protocolVersion: readiness.protocolVersion,
     authReady: readiness.authReady,
     authRequired: readiness.authRequired,

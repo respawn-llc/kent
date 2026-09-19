@@ -111,12 +111,7 @@ func invokeBinaryAuthBootstrapStatus(
 	if client == nil {
 		return nil, serverapi.ErrServerAuthRequired
 	}
-	success, err := client.GetBootstrapStatus(ctx, message)
-	if err != nil {
-		return nil, err
-	}
-	success.AllowedPreAuthMethods = g.registration.AllowedPreAuthMethods()
-	return success, nil
+	return client.GetBootstrapStatus(ctx, message)
 }
 
 func invokeBinaryAuthCompleteBootstrap(

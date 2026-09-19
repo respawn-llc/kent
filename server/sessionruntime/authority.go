@@ -41,7 +41,6 @@ type Authority struct {
 	lifecycleCtx       context.Context
 	lifecycleCancel    context.CancelFunc
 	lifecycleWG        sync.WaitGroup
-	nextExecution      ExecutionGeneration
 	nextResource       runtimeids.ResourceGeneration
 	byScope            map[runtimeids.ExecutionScopeID]*execution
 	workflowExecutions map[string]map[runtimeids.WorkflowID]map[workflow.TaskID]map[workflow.CurrentNodeReferenceKey]*execution
@@ -110,23 +109,6 @@ func (a *Authority) runLifecycleTask(ctx context.Context, task func(context.Cont
 	defer a.lifecycleWG.Done()
 	result <- task(ctx)
 	close(result)
-}
-
-func (a *Authority) nextGenerationsLocked() (ExecutionGeneration, runtimeids.ResourceGeneration) {
-	a.nextExecution++
-	a.nextResource++
-	if a.nextExecution == 0 || a.nextResource == 0 {
-		panic("session runtime generation overflow")
-	}
-	return a.nextExecution, a.nextResource
-}
-
-func (a *Authority) nextExecutionGenerationLocked() ExecutionGeneration {
-	a.nextExecution++
-	if a.nextExecution == 0 {
-		panic("session runtime execution generation overflow")
-	}
-	return a.nextExecution
 }
 
 func (a *Authority) ExecutionByWorkflow(ref WorkflowExecutionRef) (ExecutionHandle, bool) {
@@ -558,18 +540,7 @@ func (a *Authority) reserveScriptExecutionLocked(req ScriptExecutionRequest) (*e
 		return nil, ErrAuthorityClosed
 	}
 	scopeID := runtimeids.NewExecutionScopeID()
-	executionGeneration := a.nextExecutionGenerationLocked()
-	a.nextResource++
-	resourceGeneration := a.nextResource
-	if resourceGeneration == 0 {
-		panic("session runtime resource generation overflow")
-	}
-	scope := newScriptExecutionScope(
-		scopeID,
-		executionGeneration,
-		resourceGeneration,
-		nil,
-	)
+	scope := newScriptExecutionScope(scopeID, nil)
 	runCtx, cancel := context.WithCancel(context.Background())
 	reserved := &execution{
 		authority: a,

@@ -7,7 +7,8 @@
 - Kent rejects a missing or invalid dispatch Session identity before authentication resolution, credential refresh, or any network request.
 - Authenticated dispatches retain their `Authorization` and ChatGPT account-identity headers. An explicit custom OpenAI-compatible endpoint may remain anonymous and sends the common identity headers without `Authorization`.
 - Kent sends no `session_id` header.
-- Token counting, model-context resolution, and offline request inspection send no Session identity, Codex dispatch metadata, routing hint, or provider turn state.
+- Kent must not send separate provider requests to count input tokens.
+- Model-context resolution and offline request inspection send no Session identity, Codex dispatch metadata, routing hint, or provider turn state.
 
 ## ChatGPT Codex Routing
 

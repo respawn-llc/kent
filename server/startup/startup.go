@@ -8,10 +8,8 @@ import (
 	"core/server/auth"
 	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/capabilityfacts"
 	"core/server/core"
 	"core/server/metadata"
-	"core/shared/apicontract"
 	"core/shared/config"
 )
 
@@ -38,16 +36,7 @@ type AuthHandler interface {
 	LookupEnv(key string) string
 }
 
-type OnboardingHandler func(ctx context.Context, req OnboardingRequest) (config.App, error)
-
-type OnboardingRequest struct {
-	Config                config.App
-	AuthManager           *auth.Manager
-	CapabilityFactsClient apicontract.CapabilityFactsService
-	ReloadConfig          func() (config.App, error)
-}
-
-func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*core.Core, error) {
+func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
@@ -64,28 +53,10 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 			return nil, err
 		}
 	}
-	if onboardingHandler != nil {
-		factsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg, AuthManager: authSupport.AuthManager})
-		cfg, err = onboardingHandler(ctx, OnboardingRequest{
-			Config:                cfg,
-			AuthManager:           authSupport.AuthManager,
-			CapabilityFactsClient: factsService,
-			ReloadConfig: func() (config.App, error) {
-				refreshed, err := serverbootstrap.ResolveConfig(bootstrapReq)
-				if err != nil {
-					return config.App{}, err
-				}
-				return refreshed.Config, nil
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
 	if !cfg.Source.SettingsFileExists() {
 		return nil, ErrOnboardingRequired
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +64,11 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 		ctx,
 		cfg,
 		authSupport,
-		runtimeSupport,
+		background,
 		coreOptionsForBootstrap(bootstrapReq, nil),
 	)
 	if err != nil {
-		_ = runtimeSupport.Background.Close()
+		_ = background.Close()
 		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}

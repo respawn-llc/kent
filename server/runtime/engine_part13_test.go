@@ -284,7 +284,6 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
 			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
 		}},
-		inputTokenCount: 1_900,
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
@@ -323,7 +322,6 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
 			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
 		}},
-		inputTokenCount: 1_900,
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",

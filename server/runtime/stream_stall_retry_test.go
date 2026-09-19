@@ -42,7 +42,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 		{
 			name:         "automatic retriable uses full budget",
 			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-5"},
-			err:          &llm.APIStatusError{StatusCode: 503, Body: "overloaded"},
+			err:          &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown, Message: "overloaded"},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
 		},
 		{
@@ -117,7 +117,7 @@ func TestRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
 func TestRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
 	withGenerateRetryDelays(t, []time.Duration{0, 0, 0, 0, 0})
 	cause := &llm.ProviderAPIError{StatusCode: 200, Code: llm.UnifiedErrorCodeProviderOverload}
-	client := &fakeClient{errors: []error{&llm.APIStatusError{StatusCode: 503}, nil, cause, cause, cause, cause, cause, cause}}
+	client := &fakeClient{errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}, nil, cause, cause, cause, cause, cause, cause}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-5"})
 	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-5", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, nil, nil, nil); err != nil {
 		t.Fatalf("first generation: %v", err)

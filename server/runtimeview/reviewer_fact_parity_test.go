@@ -62,7 +62,10 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 			LocalEntry: &entries[index], LocalEntryProjected: true,
 			CommittedProvenance: entries[index].CommittedProvenance,
 		}
-		liveMessages := TranscriptMessagesFromRuntimeEvent(event)
+		liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+		if err != nil {
+			t.Fatalf("project live Reviewer event %d: %v", index, err)
+		}
 		if len(liveMessages) != 1 {
 			t.Fatalf("live Reviewer subscription messages %d, want one", len(liveMessages))
 		}
@@ -124,7 +127,7 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
-	liveMessages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventToolCallCompleted,
 		StepID: runtimeStepIDPointer(stepID),
 		ToolResult: &tools.Result{
@@ -136,6 +139,9 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 		},
 		CommittedProvenance: provenance,
 	})
+	if err != nil {
+		t.Fatalf("project live Question event: %v", err)
+	}
 	if len(facts) != 1 || len(hydration.TailSegment.Entries) != 1 || len(page.Entries) != 1 || len(liveMessages) != 1 {
 		t.Fatalf(
 			"projected Question rows: facts=%d hydration=%d page=%d live=%d, want one each",

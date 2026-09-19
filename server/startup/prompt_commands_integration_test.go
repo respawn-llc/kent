@@ -102,7 +102,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 			Model:         "gpt-5",
 			OpenAIBaseURL: responseServer.URL(),
 		},
-	}, envAuthHandler{}, nil)
+	}, envAuthHandler{})
 	if got := server.Config().Settings.OpenAIBaseURL; got != responseServer.URL() {
 		t.Fatalf("OpenAIBaseURL = %q, want %q", got, responseServer.URL())
 	}

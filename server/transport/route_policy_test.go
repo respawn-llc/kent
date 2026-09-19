@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/session"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	rpccontract "core/shared/apicontract"
+	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -332,19 +335,6 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	); err == nil {
 		t.Fatal("unrelated foreign-project draft mutation unexpectedly allowed")
 	}
-	executionEnvironmentOperation, err := protoapi.OperationFromDescriptor(sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetExecutionEnvironment"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := executor.authorizeScopeFacts(
-		ctx,
-		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeScopePolicy(executionEnvironmentOperation.Options.ScopePolicy),
-		executionEnvironmentOperation.Name,
-		routeScopeParams{sessionID: fixture.ownSessionID},
-	); err != nil {
-		t.Fatalf("active project own execution environment: %v", err)
-	}
 	followUpOperation, err := protoapi.OperationFromDescriptor(promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"))
 	if err != nil {
 		t.Fatal(err)
@@ -488,6 +478,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 	fixture.appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 	ctx := context.Background()
 	own, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: fixture.ownSessionID,
@@ -498,6 +489,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreign, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: fixture.foreignSessionID,
@@ -508,6 +500,7 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 		t.Fatalf("start foreign process: %v", err)
 	}
 	ownerless, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf ownerless\\n; sleep 1"},
 		DisplayCommand: "printf ownerless; sleep 1",
 		Workdir:        fixture.appCore.Config().WorkspaceRoot,
@@ -687,12 +680,12 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
+	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.New(resolvedA.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

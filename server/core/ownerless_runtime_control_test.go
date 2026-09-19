@@ -141,13 +141,13 @@ func runSecondClientLiveControlsActiveRun(
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
+	background, err := serverbootstrap.BuildShellManager(resolved.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	t.Cleanup(func() { _ = background.Close() })
 
-	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, runtimeSupport, Options{
+	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, background, Options{
 		WorkspaceConfigLoadOptions: config.LoadOptions{
 			Model:         "gpt-5",
 			OpenAIBaseURL: server.URL,

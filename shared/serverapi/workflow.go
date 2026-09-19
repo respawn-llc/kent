@@ -2972,47 +2972,7 @@ type workflowAttentionInterruptionDetailSchema struct {
 		RequestedRef *string                                 `json:"requested_ref,omitempty"`
 		Cause        WorkflowExecutionTargetUnavailableCause `json:"cause"`
 	} `json:"configured_execution_target_unavailable,omitempty"`
-	SetupRecovery                      *workflowSetupRecoveryDetailSchema   `json:"setup_recovery,omitempty"`
 	OriginalExecutionTargetUnavailable *taskpb.LockedExecutionTargetDetails `json:"original_execution_target_unavailable,omitempty"`
-}
-
-type workflowSetupRecoveryDetailSchema struct {
-	SetupOperationID         WorkflowSetupOperationID          `json:"setup_operation_id"`
-	Cause                    worktreecontract.SetupFailureKind `json:"cause"`
-	Diagnostic               string                            `json:"diagnostic"`
-	ScriptPath               *string                           `json:"script_path"`
-	SetupRequirement         worktreecontract.SetupRequirement `json:"setup_requirement"`
-	ExecutionTarget          WorkflowExecutionTargetSelection  `json:"execution_target"`
-	RetainedWorktree         *workflowRetainedWorktreeSchema   `json:"retained_worktree"`
-	RetainedPreviousWorktree *workflowRetainedWorktreeSchema   `json:"retained_previous_worktree"`
-}
-
-type workflowRetainedWorktreeSchema struct {
-	WorktreeID string `json:"worktree_id"`
-	Root       string `json:"root"`
-}
-
-func (retained *workflowRetainedWorktreeSchema) domain() *worktreecontract.RetainedWorktree {
-	if retained == nil {
-		return nil
-	}
-	return &worktreecontract.RetainedWorktree{WorktreeID: retained.WorktreeID, Root: retained.Root}
-}
-
-func (detail workflowSetupRecoveryDetailSchema) domain() worktreecontract.SetupRecoveryDetail[
-	worktreecontract.SetupOperationID,
-	WorkflowExecutionTargetSelection,
-] {
-	return worktreecontract.SetupRecoveryDetail[worktreecontract.SetupOperationID, WorkflowExecutionTargetSelection]{
-		SetupOperationID:         detail.SetupOperationID.Domain(),
-		Cause:                    detail.Cause,
-		Diagnostic:               detail.Diagnostic,
-		ScriptPath:               detail.ScriptPath,
-		SetupRequirement:         detail.SetupRequirement,
-		ExecutionTarget:          detail.ExecutionTarget,
-		RetainedWorktree:         detail.RetainedWorktree.domain(),
-		RetainedPreviousWorktree: detail.RetainedPreviousWorktree.domain(),
-	}
 }
 
 func validateOptionalAttentionInterruptionDetailJSON(field string, value *string) error {
@@ -3038,11 +2998,6 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 		requirement := NewWorkflowConfiguredTargetSelectionRequirement(unavailable.Mode, unavailable.RequestedRef, unavailable.Cause)
 		if err := requirement.Validate(); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" configured execution target metadata is invalid")
-		}
-	}
-	if recovery := detail.SetupRecovery; recovery != nil {
-		if err := recovery.domain().Validate(); err != nil {
-			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" setup recovery facts are invalid")
 		}
 	}
 	if unavailable := detail.OriginalExecutionTargetUnavailable; unavailable != nil {

@@ -3,14 +3,12 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"core/prompts"
 	"core/server/auth"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
@@ -41,8 +39,8 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
-	support, err := BuildRuntimeSupport(config.App{Settings: config.Settings{
+func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
+	background, err := BuildShellManager(config.App{Settings: config.Settings{
 		ShellOutputMaxChars:    321,
 		BGShellsOutput:         config.BGShellsOutputVerbose,
 		MinimumExecToBgSeconds: 1,
@@ -55,47 +53,27 @@ func TestBuildRuntimeSupportUsesConfigSettings(t *testing.T) {
 		t.Fatalf("build runtime support: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = support.Background.Close()
+		_ = background.Close()
 	})
-	if support.Background == nil {
+	if background == nil {
 		t.Fatal("expected background manager")
+	}
+	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+	if err != nil {
+		t.Fatal(err)
 	}
 	request := shelltool.ExecRequest{
 		Command: []string{"/bin/sh", "-c", "read value"},
 		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		Postprocessor: runner,
 	}
-	if _, err := support.Background.Start(context.Background(), request); err != nil {
+	if _, err := background.Start(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	_, err = support.Background.Start(context.Background(), request)
+	_, err = background.Start(context.Background(), request)
 	var limit *shelltool.ConcurrentShellLimitError
 	if !errors.As(err, &limit) || limit.Limit != 1 {
 		t.Fatalf("configured shell limit not enforced: %v", err)
-	}
-}
-
-func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	result, err := BuildGeneratedSupport(context.Background(), "")
-	if err != nil {
-		t.Fatalf("BuildGeneratedSupport: %v", err)
-	}
-	wantSkillsRoot := filepath.Join(home, config.ConfigDirName, ".generated", "skills")
-	if result.GeneratedSkillsRoot != wantSkillsRoot {
-		t.Fatalf("generated skills root = %q, want %q", result.GeneratedSkillsRoot, wantSkillsRoot)
-	}
-	if entries, err := os.ReadDir(wantSkillsRoot); err != nil {
-		t.Fatalf("expected generated skills root to be seeded: %v", err)
-	} else if len(entries) == 0 {
-		t.Fatal("expected generated skills root to contain at least one skill")
-	}
-	if result.RecoveredWarning != "" {
-		t.Fatalf("did not expect recovered warning on clean seed, got %+v", result)
-	}
-	if prompts.RecoveredWarning() == "" {
-		t.Fatal("expected generated warning text to be available")
 	}
 }
 

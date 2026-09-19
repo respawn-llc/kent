@@ -29,7 +29,6 @@ import (
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/apicontract"
 	"core/shared/config"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -317,7 +316,7 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 			Type:   auth.MethodAPIKey,
 			APIKey: &auth.APIKeyMethod{Key: "test-key"},
 		},
-	}), nil, time.Now)
+	}), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	launcher := &headlessPromptLauncher{boot: HeadlessBootstrap{
 		RuntimeAuthority:       authority,
@@ -375,7 +374,7 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
@@ -452,7 +451,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
@@ -609,7 +608,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
@@ -971,7 +970,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	defer provider.Close()
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -1157,7 +1156,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
@@ -1374,13 +1373,11 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 
-	bootstrapHook := writeRunPromptHook(t, `printf '{"processed":true,"replaced_output":"BOOTSTRAP"}'`)
 	effectiveHook := writeRunPromptHook(t, fmt.Sprintf(
 		`printf '{"processed":true,"replaced_output":"EFFECTIVE:%%s"}' "$%s"`,
 		sessionenv.SessionIDEnv,
 	))
-	bootstrapRunner := mustRunPromptPostprocessor(t, config.ShellPostprocessingModeUser, &bootstrapHook)
-	background, err := shelltool.NewManager(shelltool.WithPostprocessor(bootstrapRunner))
+	background, err := shelltool.NewManager()
 	if err != nil {
 		t.Fatalf("new supplied background manager: %v", err)
 	}
@@ -1431,7 +1428,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
@@ -1469,9 +1466,6 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		if output != want {
 			t.Fatalf("exec_command output = %q, want %q", output, want)
 		}
-		if strings.Contains(output, "BOOTSTRAP") {
-			t.Fatalf("exec_command used bootstrap shell postprocessing: %q", output)
-		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for exec_command output")
 	}
@@ -1481,18 +1475,6 @@ func writeRunPromptHook(t *testing.T, body string) string {
 	t.Helper()
 	script := "#!/bin/sh\n" + body + "\n"
 	return testsetup.WriteExecutable(t, "postprocess-hook.sh", script)
-}
-
-func mustRunPromptPostprocessor(t *testing.T, mode config.ShellPostprocessingMode, hookPath *string) *postprocess.Runner {
-	t.Helper()
-	runner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     mode,
-		HookPath: hookPath,
-	})
-	if err != nil {
-		t.Fatalf("new run prompt postprocessor: %v", err)
-	}
-	return runner
 }
 
 func writeRunPromptExecCommandResponse(w http.ResponseWriter, args json.RawMessage) {
@@ -1624,7 +1606,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		PersistenceRoot: root,
 		Settings:        config.Settings{Model: "gpt-5"},
 	}
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
@@ -1670,7 +1652,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
@@ -1753,7 +1735,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
+	}), nil)
 
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {

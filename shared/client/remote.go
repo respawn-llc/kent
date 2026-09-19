@@ -244,7 +244,7 @@ func (c *Remote) GetReadiness(ctx context.Context, req *emptypb.Empty) (*serverp
 		req,
 		&serverpb.GetReadinessResult{},
 		func(failure *serverpb.GetReadinessError) error {
-			return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -254,36 +254,13 @@ func (c *Remote) GetUpdateStatus(ctx context.Context, req *emptypb.Empty) (*serv
 		req,
 		&serverpb.GetUpdateStatusResult{},
 		func(failure *serverpb.GetUpdateStatusError) error {
-			switch failure.Code {
-			case "auth_required":
-				return serverapi.ErrServerAuthRequired
-			case "server_not_ready":
-				return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
-			default:
-				return generatedOperationFailure(failure.Code)
-			}
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
 func (c *Remote) ProjectID() string {
 	if binding, present := c.projectBinding(); present {
 		return binding.ProjectID
-	}
-	return ""
-}
-
-func (c *Remote) WorkspaceRoot() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceRoot
-	}
-	return ""
-}
-
-func (c *Remote) WorkspaceID() string {
-	if binding, present := c.projectBinding(); present {
-		return binding.WorkspaceID
 	}
 	return ""
 }
@@ -304,11 +281,6 @@ func (c *Remote) projectBinding() (ProjectAttachment, bool) {
 func callUnscopedRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
 	var resp Resp
 	return resp, c.callUnscoped(ctx, method, req, &resp)
-}
-
-func callControlRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	return resp, c.call(ctx, method, req, &resp)
 }
 
 func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, requestID string, method string, req Req) (Resp, error) {
@@ -669,18 +641,6 @@ func (c *Remote) MutateChatSettings(
 	return response, nil
 }
 
-func callValidatedControlRPC[Request any, Response interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Request) (Response, error) {
-	response, err := callControlRPC[Request, Response](c, ctx, method, req)
-	if err != nil {
-		return response, err
-	}
-	if err := response.Validate(); err != nil {
-		var zero Response
-		return zero, invalidResponseError(method, err)
-	}
-	return response, nil
-}
-
 func (c *Remote) ensureOpen() error {
 	if c == nil {
 		return errors.New("remote client is required")
@@ -689,21 +649,6 @@ func (c *Remote) ensureOpen() error {
 		return errors.New("remote client is closed")
 	}
 	return nil
-}
-
-func (c *Remote) call(ctx context.Context, method string, params any, out any) error {
-	return c.callUnscoped(ctx, method, params, out)
-}
-
-func callValidatedRPC[Req any, Resp interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
-	var resp Resp
-	if err := c.call(ctx, method, req, &resp); err != nil {
-		return resp, err
-	}
-	if err := resp.Validate(); err != nil {
-		return resp, fmt.Errorf("validate %s response: %w", method, err)
-	}
-	return resp, nil
 }
 
 func (c *Remote) callUnscoped(ctx context.Context, method string, params any, out any) error {

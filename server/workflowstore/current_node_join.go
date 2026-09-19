@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
@@ -15,7 +14,7 @@ import (
 	"core/shared/runtimeids"
 )
 
-func completeCurrentNodeJoinArrival(
+func planCurrentNodeJoinArrival(
 	ctx context.Context,
 	q *sqlitegen.Queries,
 	policy invariant.Policy,
@@ -25,7 +24,8 @@ func completeCurrentNodeJoinArrival(
 	outputValues map[string]string,
 	catalog workflow.TargetAgentCatalog,
 	resolveRetainedSessionSelection func(context.Context, runtimeids.SessionID) (*workflow.AgentExecutionSelection, error),
-	associatedAt time.Time,
+	arrival *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams,
+	before []sqlitegen.TaskActiveFanoutBranch,
 ) (CurrentNodeCompletionResult, error) {
 	branchKey, branchScoped := source.Reference.TransitionBranchKey()
 	if !branchScoped {
@@ -58,29 +58,16 @@ func completeCurrentNodeJoinArrival(
 	if err != nil {
 		return CurrentNodeCompletionResult{}, fmt.Errorf("encode join arrival values: %w", err)
 	}
-	updated, err := q.UpdateTaskActiveFanoutBranchArrival(ctx, sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams{
+	*arrival = sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams{
 		TaskID:              string(source.Reference.TaskID),
 		TransitionBranchKey: string(branchKey),
 		ArrivalValuesJson:   sql.NullString{String: string(arrivalValuesJSON), Valid: true},
-	})
-	if err != nil {
-		return CurrentNodeCompletionResult{}, err
 	}
-	if updated != 1 {
-		return CurrentNodeCompletionResult{}, errors.New("join arrival branch is not pending in the active fan-out")
-	}
-	arrivals, ready, err := currentFanoutJoinArrivals(ctx, q, source.Reference.TaskID)
+	arrivals, ready, err := materializeFanoutJoinArrivals(before, arrival)
 	if err != nil {
 		return CurrentNodeCompletionResult{}, err
 	}
 	if !ready {
-		removed, err := deleteTaskCurrentNode(ctx, q, source.Reference)
-		if err != nil {
-			return CurrentNodeCompletionResult{}, err
-		}
-		if removed != 1 {
-			return CurrentNodeCompletionResult{}, errors.New("join arrival source current node is no longer current")
-		}
 		return CurrentNodeCompletionResult{
 			Mutation: workflow.CurrentNodeMutationResult{
 				Removed: []workflow.CurrentNodeReference{source.Reference},
@@ -147,23 +134,6 @@ func completeCurrentNodeJoinArrival(
 	if err != nil {
 		return CurrentNodeCompletionResult{}, err
 	}
-	removed, err := deleteTaskCurrentNode(ctx, q, source.Reference)
-	if err != nil {
-		return CurrentNodeCompletionResult{}, err
-	}
-	if removed != 1 {
-		return CurrentNodeCompletionResult{}, errors.New("join arrival source current node is no longer current")
-	}
-	deleted, err := q.DeleteTaskActiveFanout(ctx, string(source.Reference.TaskID))
-	if err != nil {
-		return CurrentNodeCompletionResult{}, err
-	}
-	if deleted != 1 {
-		return CurrentNodeCompletionResult{}, errors.New("join arrival active fan-out is no longer current")
-	}
-	if err := insertTaskCurrentNode(ctx, q, targetCurrentNode, associatedAt); err != nil {
-		return CurrentNodeCompletionResult{}, err
-	}
 	result := CurrentNodeCompletionResult{
 		Mutation: workflow.CurrentNodeMutationResult{
 			Removed: []workflow.CurrentNodeReference{source.Reference},
@@ -189,11 +159,15 @@ type currentFanoutJoinArrival struct {
 	Values    map[string]string
 }
 
-func currentFanoutJoinArrivals(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID) ([]currentFanoutJoinArrival, bool, error) {
+func currentFanoutJoinArrivals(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID, proposed *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams) ([]currentFanoutJoinArrival, bool, error) {
 	rows, err := q.ListTaskActiveFanoutBranches(ctx, string(taskID))
 	if err != nil {
 		return nil, false, err
 	}
+	return materializeFanoutJoinArrivals(rows, proposed)
+}
+
+func materializeFanoutJoinArrivals(rows []sqlitegen.TaskActiveFanoutBranch, proposed *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams) ([]currentFanoutJoinArrival, bool, error) {
 	if len(rows) == 0 {
 		return nil, false, nil
 	}
@@ -202,7 +176,16 @@ func currentFanoutJoinArrivals(ctx context.Context, q *sqlitegen.Queries, taskID
 	}
 	arrivals := make([]currentFanoutJoinArrival, 0, len(rows))
 	ready := true
+	proposedFound := proposed == nil
 	for _, row := range rows {
+		if proposed != nil && row.TransitionBranchKey == proposed.TransitionBranchKey {
+			if row.ArrivalState != "pending" {
+				return nil, false, errors.New("join arrival branch is no longer pending")
+			}
+			row.ArrivalState = "arrived"
+			row.ArrivalValuesJson = proposed.ArrivalValuesJson
+			proposedFound = true
+		}
 		switch row.ArrivalState {
 		case "pending":
 			ready = false
@@ -225,6 +208,9 @@ func currentFanoutJoinArrivals(ctx context.Context, q *sqlitegen.Queries, taskID
 			BranchKey: workflow.TransitionBranchKey(row.TransitionBranchKey),
 			Values:    values,
 		})
+	}
+	if !proposedFound {
+		return nil, false, errors.New("join arrival branch is not part of the active fan-out")
 	}
 	return arrivals, ready, nil
 }

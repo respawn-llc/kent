@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 
-	"core/shared/protoapi"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	"core/shared/serverapi"
 )
@@ -19,8 +18,6 @@ func (c *Remote) GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest
 				return &serverapi.UnsupportedProviderError{
 					ProviderID: failure.GetUnsupportedProvider().ProviderId,
 				}
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}

@@ -12,25 +12,16 @@ import (
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 const (
 	reasonProtocolViolationCap workflow.CurrentNodeInterruptionReason = "workflow_protocol_violation_cap"
 )
 
-type CurrentNodeAssignmentSteerer interface {
-	SteerCurrentNodeAssignment(context.Context, workflow.CurrentNodeReference) (CurrentNodeAssignmentSteer, error)
-}
-
-type CurrentNodeManualMoveAssignmentPreparer interface {
-	PrepareManualMoveAssignments(
-		context.Context,
-		[]workflowstore.CurrentNodeStartContext,
-	) (
-		workflowstore.ManualMoveTargetAssignmentPreparation,
-		map[workflow.CurrentNodeReferenceKey]CurrentNodeAssignmentSteer,
-		error,
-	)
+type CurrentNodePreparation struct {
+	Session    *workflowstore.PlannedCurrentNodeSession
+	Assignment CurrentNodeAssignmentSteer
 }
 
 type CurrentNodeAssignmentSteer interface {
@@ -63,6 +54,7 @@ type CurrentNodeScriptPublicationPreparation interface {
 type CurrentNodePublicationRunner interface {
 	CurrentNodeAgentRunner
 	CurrentNodeScriptPublicationPreparation
+	PrepareCurrentNode(context.Context, workflowstore.CurrentNodeStartContext, workflowruntime.TaskPromptDelivery) (CurrentNodePreparation, error)
 }
 
 type CurrentNodeScriptPublication interface {
@@ -71,9 +63,13 @@ type CurrentNodeScriptPublication interface {
 }
 
 type CurrentNodeControllerConfig struct {
-	AgentConcurrency  int
-	Attention         CurrentNodeAttentionLifecycle
-	AssignmentSteerer CurrentNodeAssignmentSteerer
+	AgentConcurrency int
+	Attention        CurrentNodeAttentionLifecycle
+	ExecutionTargets CurrentNodeExecutionTargets
+}
+
+type CurrentNodeExecutionTargets interface {
+	RestoreExecutionTarget(context.Context, workflow.ExecutionTargetRestoreRequest) error
 }
 
 type CurrentNodeAttentionLifecycle interface {
@@ -85,33 +81,40 @@ type CurrentNodeAttentionLifecycle interface {
 // natural reference rather than a replacement execution identity.
 type CurrentNodeAutomaticIntent = workflowstore.CurrentNodeAutomaticIntent
 
+type currentNodeStore interface {
+	PlanTaskStart(context.Context, workflow.TaskID, *workflowstore.ExecutionTargetCandidate) (workflowstore.TaskStartPlan, error)
+	CommitTaskStart(context.Context, workflowstore.TaskStartPlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.StartTaskResult, error)
+	PlanTaskResume(context.Context, workflow.TaskID, []workflow.CurrentNodeReference, *workflowstore.ExecutionTargetCandidate) (workflowstore.TaskResumePlan, error)
+	CommitTaskResume(context.Context, workflowstore.TaskResumePlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.TaskResumeCommitResult, error)
+	PlanManualMove(context.Context, workflowstore.ManualMovePreparation, *workflowstore.ExecutionTargetCandidate) (workflowstore.ManualMovePlan, error)
+	CommitManualMove(context.Context, workflowstore.ManualMovePlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.ManualMoveResult, error)
+	ListCurrentNodes(context.Context, workflow.TaskID) ([]workflow.CurrentNode, error)
+	PreflightTaskResume(context.Context, workflow.TaskID) ([]workflowstore.CurrentNodeResumeClassification, error)
+	AdmitCurrentNode(context.Context, workflow.CurrentNodeReference) (session.CommitReceipt, error)
+	PendingApproval(context.Context, workflow.ApprovalID) (workflow.PendingApproval, error)
+	PlanPendingApproval(context.Context, workflow.ApprovalID) (workflowstore.PendingApprovalPlan, error)
+	CommitPendingApproval(context.Context, workflowstore.PendingApprovalPlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.PendingApprovalApplyResult, error)
+	InterruptAdmittedCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
+	InterruptCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
+	ReconcileTaskResume(context.Context, workflow.TaskID) error
+	ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
+	PlanCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionPlan, error)
+	CommitCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionPlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.CurrentNodeCompletionOutcome, error)
+	ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
+	ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
+	TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
+}
+
 // CurrentNodeController is the sole workflowruntime.Controller. Its mutex,
 // per-Task mutation coordinator, and Authority operations define the ordering
 // for lifecycle, admission, interruption, and completion operations.
 type CurrentNodeController struct {
-	store interface {
-		StartTask(context.Context, workflow.TaskID) (workflowstore.StartTaskResult, error)
-		ListCurrentNodes(context.Context, workflow.TaskID) ([]workflow.CurrentNode, error)
-		InterruptedExecutableCurrentNodes(context.Context, workflow.TaskID) ([]workflow.CurrentNode, error)
-		PreflightTaskResume(context.Context, workflow.TaskID) ([]workflowstore.CurrentNodeResumeClassification, error)
-		AdmitCurrentNode(context.Context, workflow.CurrentNodeReference) (session.CommitReceipt, error)
-		ResumeCurrentNode(context.Context, workflow.CurrentNodeReference) (workflowstore.InterruptedCurrentNodeAttentionProjection, bool, error)
-		PendingApproval(context.Context, workflow.ApprovalID) (workflow.PendingApproval, error)
-		ApplyPendingApproval(context.Context, workflow.ApprovalID) (workflowstore.PendingApprovalApplyResult, error)
-		InterruptAdmittedCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
-		InterruptCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
-		ReconcileTaskResume(context.Context, workflow.TaskID) error
-		ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
-		CompleteCurrentNode(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error)
-		ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
-		ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
-		TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
-	}
-	runner    CurrentNodePublicationRunner
-	steerer   CurrentNodeAssignmentSteerer
-	authority *sessionruntime.Authority
-	mutations *TaskMutationCoordinator
-	attention CurrentNodeAttentionLifecycle
+	store            currentNodeStore
+	runner           CurrentNodePublicationRunner
+	authority        *sessionruntime.Authority
+	mutations        *TaskMutationCoordinator
+	attention        CurrentNodeAttentionLifecycle
+	executionTargets CurrentNodeExecutionTargets
 
 	agentConcurrency int
 	workerContext    context.Context
@@ -119,15 +122,13 @@ type CurrentNodeController struct {
 	workerWake       chan struct{}
 	workerWG         sync.WaitGroup
 	admissionWG      sync.WaitGroup
-	preparationWG    sync.WaitGroup
+	operationWG      sync.WaitGroup
 
 	mu                    sync.Mutex
 	closed                bool
 	explicitQueue         []currentNodeQueuedStart
 	explicitQueued        map[workflow.CurrentNodeReferenceKey]struct{}
 	explicitReservations  map[workflow.CurrentNodeReferenceKey]currentNodeQueuedStart
-	preparationQueue      []*taskPreparationBatch
-	preparationRunning    []*taskPreparationBatch
 	automaticQueue        currentNodeAutomaticQueue
 	queued                map[workflow.CurrentNodeReferenceKey]struct{}
 	automaticReservations map[workflow.CurrentNodeReferenceKey]currentNodeQueuedStart
@@ -143,24 +144,7 @@ type CurrentNodeController struct {
 }
 
 func NewCurrentNodeController(
-	store interface {
-		StartTask(context.Context, workflow.TaskID) (workflowstore.StartTaskResult, error)
-		ListCurrentNodes(context.Context, workflow.TaskID) ([]workflow.CurrentNode, error)
-		InterruptedExecutableCurrentNodes(context.Context, workflow.TaskID) ([]workflow.CurrentNode, error)
-		PreflightTaskResume(context.Context, workflow.TaskID) ([]workflowstore.CurrentNodeResumeClassification, error)
-		AdmitCurrentNode(context.Context, workflow.CurrentNodeReference) (session.CommitReceipt, error)
-		ResumeCurrentNode(context.Context, workflow.CurrentNodeReference) (workflowstore.InterruptedCurrentNodeAttentionProjection, bool, error)
-		PendingApproval(context.Context, workflow.ApprovalID) (workflow.PendingApproval, error)
-		ApplyPendingApproval(context.Context, workflow.ApprovalID) (workflowstore.PendingApprovalApplyResult, error)
-		InterruptAdmittedCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
-		InterruptCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
-		ReconcileTaskResume(context.Context, workflow.TaskID) error
-		ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
-		CompleteCurrentNode(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionOutcome, error)
-		ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
-		ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
-		TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
-	},
+	store currentNodeStore,
 	runner CurrentNodePublicationRunner,
 	authority *sessionruntime.Authority,
 	mutations *TaskMutationCoordinator,
@@ -171,9 +155,6 @@ func NewCurrentNodeController(
 	}
 	if runner == nil {
 		return nil, errors.New("current node workflow runner is required")
-	}
-	if cfg.AssignmentSteerer == nil {
-		return nil, errors.New("current node assignment steerer is required")
 	}
 	if authority == nil {
 		return nil, errors.New("session runtime authority is required")
@@ -188,10 +169,10 @@ func NewCurrentNodeController(
 	controller := &CurrentNodeController{
 		store:                 store,
 		runner:                runner,
-		steerer:               cfg.AssignmentSteerer,
 		authority:             authority,
 		mutations:             mutations,
 		attention:             cfg.Attention,
+		executionTargets:      cfg.ExecutionTargets,
 		agentConcurrency:      cfg.AgentConcurrency,
 		workerContext:         workerContext,
 		workerCancel:          workerCancel,
@@ -323,69 +304,106 @@ func (c *CurrentNodeController) completeLiveCurrentNode(
 		return workflowruntime.CompletionResult{}, sessionruntime.ErrExecutionNoLongerLive
 	}
 	var result workflowruntime.CompletionResult
-	err := c.runTaskMutation(ctx, workflowRef.CurrentNode.TaskID, func(ctx context.Context) error {
-		c.mu.Lock()
-		if err := c.ensureTaskAvailableLocked(workflowRef.CurrentNode.TaskID); err != nil {
-			c.mu.Unlock()
-			return err
-		}
-		c.mu.Unlock()
-		committed, err := validateAndCommit(func() (workflowruntime.CompletionResult, error) {
-			c.mu.Lock()
-			if err := c.ensureTaskAvailableLocked(workflowRef.CurrentNode.TaskID); err != nil {
-				c.mu.Unlock()
-				return workflowruntime.CompletionResult{}, err
-			}
-			c.mu.Unlock()
-			outcome, completionErr := c.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
-				Source:       workflowRef.CurrentNode,
-				TransitionID: transitionID,
-				OutputValues: outputValues,
-				Commentary:   commentary,
+	err := c.RunTaskOperation(ctx, func(ctx context.Context) error {
+		return c.runTaskMutation(ctx, workflowRef.CurrentNode.TaskID, func(ctx context.Context) error {
+			plan, err := c.store.PlanCurrentNodeCompletion(ctx, workflowstore.CurrentNodeCompletionRequest{
+				Source: workflowRef.CurrentNode, TransitionID: transitionID,
+				OutputValues: outputValues, Commentary: commentary,
 			})
-			if completionErr != nil {
-				return workflowruntime.CompletionResult{}, completionErr
+			if err != nil {
+				return err
 			}
-			if !outcome.CommitReceipt.Committed {
-				return workflowruntime.CompletionResult{}, errors.New("current node completion returned without a committed mutation")
+			contexts := plan.StartContexts()
+			if err := c.restoreExecutionRoot(ctx, contexts); err != nil {
+				return err
 			}
-			return workflowruntime.CompletionResult{
-				TransitionID:    workflow.TransitionID(transitionID),
-				State:           workflowruntime.CompletionStateApplied,
-				CommittedResult: outcome.CurrentNodeCompletionResult,
-				Diagnostic:      outcome.PostCommitDiagnostic,
-			}, nil
+			starts, sessions, err := c.prepareStarts(ctx, contexts, workflowruntime.TaskPromptDeliveryAssignment)
+			if err != nil {
+				return err
+			}
+			for index := range starts {
+				starts[index].scheduling = workflow.CurrentNodeSchedulingReady
+				starts[index].policy = currentNodeAdmissionAutomaticAgent
+				if starts[index].nodeKind == workflow.NodeKindScript {
+					starts[index].policy = currentNodeAdmissionAutomaticScript
+				}
+			}
+			committed, err := validateAndCommit(func() (workflowruntime.CompletionResult, error) {
+				c.mu.Lock()
+				if err := c.ensureAvailableLocked(); err != nil {
+					c.mu.Unlock()
+					return workflowruntime.CompletionResult{}, err
+				}
+				if c.interrupts.scopeFenced(scopeID) {
+					c.mu.Unlock()
+					return workflowruntime.CompletionResult{}, ErrTaskExecutionNotQuiescent
+				}
+				c.mu.Unlock()
+				outcome, completionErr := c.store.CommitCurrentNodeCompletion(ctx, plan, sessions)
+				if completionErr != nil {
+					return workflowruntime.CompletionResult{}, completionErr
+				}
+				if !outcome.CommitReceipt.Committed {
+					return workflowruntime.CompletionResult{}, errors.New("current node completion returned without a committed mutation")
+				}
+				return workflowruntime.CompletionResult{
+					TransitionID:    workflow.TransitionID(transitionID),
+					State:           workflowruntime.CompletionStateApplied,
+					CommittedResult: outcome.CurrentNodeCompletionResult,
+					Diagnostic:      outcome.PostCommitDiagnostic,
+					Continuation:    &currentNodeCompletionContinuation{controller: c, starts: starts},
+				}, nil
+			})
+			if err != nil {
+				return err
+			}
+			if !committed.IsApplied() {
+				return errors.New("current node completion returned without an applied result")
+			}
+			result = committed
+			return nil
 		})
-		if err != nil {
-			return err
-		}
-		if !committed.IsApplied() {
-			return errors.New("current node completion returned without an applied result")
-		}
-		result = committed
-		return nil
 	})
 	return result, err
 }
 
-func (c *CurrentNodeController) ContinueCurrentNode(
+func (c *CurrentNodeController) restoreExecutionRoot(ctx context.Context, inputs []workflowstore.CurrentNodeStartContext) error {
+	if len(inputs) == 0 || inputs[0].ExecutionRoot == nil || inputs[0].ExecutionRoot.Managed == nil {
+		return nil
+	}
+	if c.executionTargets == nil {
+		return errors.New("managed Workflow execution requires execution target preparation")
+	}
+	err := c.executionTargets.RestoreExecutionTarget(ctx, workflow.ExecutionTargetRestoreRequest{TaskID: inputs[0].Task.ID})
+	var unavailable *serverapi.WorkflowLockedExecutionTargetError
+	if errors.As(err, &unavailable) {
+		return NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
+			Code:                               "workflow_original_target_unavailable",
+			OriginalExecutionTargetUnavailable: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause).Details.GetOriginalTargetUnavailable(),
+		})
+	}
+	return err
+}
+
+type currentNodeCompletionContinuation struct {
+	controller *CurrentNodeController
+	starts     []currentNodeQueuedStart
+}
+
+func (p *currentNodeCompletionContinuation) Continue(
 	ctx context.Context,
-	completed workflowstore.CurrentNodeCompletionResult,
 	preparationErr error,
 ) error {
-	if c == nil {
-		return errors.New("current node workflow controller is required")
-	}
-	starts := automaticQueuedStarts(completed.AutomaticIntents)
-	var startFailure *TaskStartPreparationError
-	if errors.As(preparationErr, &startFailure) {
+	c := p.controller
+	starts := p.starts
+	if preparationErr != nil {
 		return errors.Join(preparationErr, c.recoverCurrentNodeStartFailures(ctx, starts, false, preparationErr))
 	}
 	if len(starts) == 0 {
 		c.wakeAdmissionWorker()
 		return nil
 	}
-	starts, err := c.steerAndWaitStarts(ctx, starts, recoverAllCurrentNodeStarts)
+	starts, err := c.steerAndWaitStarts(ctx, starts)
 	if err != nil {
 		return err
 	}
@@ -468,7 +486,7 @@ func (c *CurrentNodeController) FailCurrentNodeScope(
 				c.mu.Unlock()
 				return errors.New("current node workflow controller is closed")
 			}
-			if c.interrupts.taskActive(reference.TaskID) {
+			if c.interrupts.scopeFenced(scopeID) {
 				c.mu.Unlock()
 				return ErrTaskExecutionNotQuiescent
 			}
@@ -495,30 +513,21 @@ func (c *CurrentNodeController) Close() error {
 		return nil
 	}
 	c.closing = true
-	runningPreparations := append([]*taskPreparationBatch(nil), c.preparationRunning...)
-	for _, batch := range runningPreparations {
-		batch.cancel(preparationShutdownCause())
-	}
 	c.mu.Unlock()
 	c.workerCancel()
+	// Accepted operations can be waiting for execution finalizers that need
+	// lifecycle reads. Drain them before placing an exclusive barrier writer.
+	c.operationWG.Wait()
 	c.lifecycleBarrier.Lock()
-	var (
-		queuedPreparations []*taskPreparationBatch
-		queuedStarts       []currentNodeQueuedStart
-	)
+	var queuedStarts []currentNodeQueuedStart
 	c.mu.Lock()
 	c.closed = true
 	c.closing = false
-	queuedPreparations = append([]*taskPreparationBatch(nil), c.preparationQueue...)
-	c.preparationQueue = nil
 	queuedStarts = append([]currentNodeQueuedStart(nil), c.explicitQueue...)
 	c.explicitQueue = nil
 	c.explicitQueued = make(map[workflow.CurrentNodeReferenceKey]struct{})
 	c.automaticQueue.clear()
 	c.queued = make(map[workflow.CurrentNodeReferenceKey]struct{})
-	for _, batch := range queuedPreparations {
-		closeQueuedTaskPreparationBatch(batch, preparationShutdownCause())
-	}
 	for _, start := range queuedStarts {
 		start.completion.resolve(nil, errors.New("current node workflow controller shut down before admission"))
 	}
@@ -527,7 +536,6 @@ func (c *CurrentNodeController) Close() error {
 
 	stopErr := c.authority.StopWorkflowExecutions(context.Background())
 	c.workerWG.Wait()
-	c.preparationWG.Wait()
 	c.admissionWG.Wait()
 	c.mu.Lock()
 	workerErr := c.workerErr

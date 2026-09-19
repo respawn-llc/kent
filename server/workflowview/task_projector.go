@@ -213,20 +213,8 @@ func taskActions(
 			(len(concurrencyQueued) != 0 ||
 				(!hasLiveExecution &&
 					(status.Kind == serverapi.WorkflowTaskStatusKindInterrupted ||
-						status.Kind == serverapi.WorkflowTaskStatusKindActive) &&
-					!currentNodesOwnSetupRecovery(currentNodes))),
+						status.Kind == serverapi.WorkflowTaskStatusKindActive))),
 		CanDelete: canDelete,
 	}
 	return actions
-}
-
-func currentNodesOwnSetupRecovery(nodes []workflow.CurrentNode) bool {
-	for _, node := range nodes {
-		if node.Scheduling != nil &&
-			node.Scheduling.Interruption != nil &&
-			node.Scheduling.Interruption.Detail.SetupRecovery != nil {
-			return true
-		}
-	}
-	return false
 }

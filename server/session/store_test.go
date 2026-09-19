@@ -276,6 +276,35 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	}
 }
 
+func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *testing.T) {
+	store := newSessionTestStore(t)
+	markSessionTestLocked(t, store, sessionTestLockedContract())
+	if err := store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Meta()
+	projected := ProjectCompactedMeta(before)
+	if projected.Locked != nil || projected.OriginalThinkingEffort != nil || projected.UsageState != nil {
+		t.Fatal("compaction projection retained the previous generation contract")
+	}
+	if projected.SessionID != before.SessionID || projected.WorkspaceRoot != before.WorkspaceRoot {
+		t.Fatal("compaction projection changed retained identity")
+	}
+	if before.Locked == nil || before.OriginalThinkingEffort == nil || store.Meta().Locked == nil {
+		t.Fatal("compaction projection mutated retained metadata")
+	}
+	log := mustMaterializeSessionTestEventLog(t, store)
+	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+		Engine: "local", Mode: CompactionModeManual,
+	}); err != nil || !receipt.Committed {
+		t.Fatalf("commit compaction: %+v, %v", receipt, err)
+	}
+	actual := store.Meta()
+	if actual.Locked != projected.Locked || actual.OriginalThinkingEffort != projected.OriginalThinkingEffort || actual.UsageState != projected.UsageState {
+		t.Fatal("compaction did not apply the planned generation boundary")
+	}
+}
+
 func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	store := newSessionTestStore(t)
 	toolPreambles := true

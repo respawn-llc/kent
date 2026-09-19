@@ -61,7 +61,7 @@ func (c uiInputController) stopProcessListFlowCmd() tea.Cmd {
 	overlayCmd := m.restoreTranscriptSurface()
 	m.closeProcessList()
 	spinnerCmd := m.reconcileSpinnerTicking(false)
-	releaseCmd := m.releaseDeferredRuntimeSyncs()
+	releaseCmd := m.drainPendingRuntimeMainViewRefresh()
 	if overlayCmd != nil {
 		return tea.Batch(overlayCmd, spinnerCmd, releaseCmd)
 	}

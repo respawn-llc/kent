@@ -317,6 +317,7 @@ function interruptedCurrentNodeFallback(notification: AttentionNotification, t: 
     return fallback;
   }
   const reasonCopy: Readonly<Record<string, string>> = {
+    context_selection_required: t("task.contextSelectionRequired"),
     workflow_protocol_violation_cap: t("app.attention.interruptedCurrentNodeProtocolCap"),
     workflow_runtime_start_failed: t("app.attention.interruptedCurrentNodeRuntimeFailed"),
     workflow_script_completion_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),

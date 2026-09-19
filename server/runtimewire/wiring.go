@@ -24,11 +24,10 @@ import (
 )
 
 type RuntimeWiring struct {
-	Engine      *runtime.Engine
-	AskBroker   *askquestion.AskQuestionBroker
-	EventBridge *EventBridge
-	Background  *shelltool.Manager
-	LocalTools  *LocalToolRegistryBinding
+	Engine     *runtime.Engine
+	AskBroker  *askquestion.AskQuestionBroker
+	Background *shelltool.Manager
+	LocalTools *LocalToolRegistryBinding
 }
 
 func (w *RuntimeWiring) Close() error {
@@ -112,7 +111,7 @@ func NewRuntimeWiringWithBackground(
 	if opts.Client != nil {
 		client = opts.Client
 	} else if opts.ClientFactory != nil {
-		client, err = newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeMain, store.Meta().SessionID, active, enabledTools, filesystemContext.Access.WorkingDirectory.LexicalPath, opts.Sources, mainProvider)
+		client, err = newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeMain, store.Meta().SessionID, active, enabledTools, opts.Sources, mainProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -141,10 +140,10 @@ func NewRuntimeWiringWithBackground(
 	reviewerProvider := reviewerProviderRuntimeSettings(active)
 	newReviewerClient := func() (llm.Client, error) {
 		if opts.ClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
+			return newRuntimeClientFromFactory(factoryContext, opts.ClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, opts.Sources, reviewerProvider)
 		}
 		if opts.ReviewerClientFactory != nil {
-			return newRuntimeClientFromFactory(factoryContext, opts.ReviewerClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, workingDirectory, opts.Sources, reviewerProvider)
+			return newRuntimeClientFromFactory(factoryContext, opts.ReviewerClientFactory, RuntimeClientPurposeReviewer, store.Meta().SessionID, active, enabledTools, opts.Sources, reviewerProvider)
 		}
 		var reviewerAuth llm.AuthHeaderProvider
 		if mgr != nil && !strings.EqualFold(strings.TrimSpace(reviewerProvider.Auth), "none") {
@@ -212,15 +211,7 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
-	toolRegistry := localTools.Registry()
-	eventBridge := NewEventBridge(2048, func(total uint64, evt runtime.Event) {
-		if logger == nil {
-			return
-		}
-		if total == 1 || total%100 == 0 {
-			logger.Logf("runtime.event.drop count=%d kind=%s", total, evt.Kind)
-		}
-	})
+	toolRegistry := localTools.registry
 	promptReloader := opts.PromptFacingSnapshotReloader
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
@@ -278,12 +269,7 @@ func NewRuntimeWiringWithBackground(
 			Client:            reviewerClient,
 			ClientFactory:     newReviewerClient,
 		},
-		OnEvent: func(evt runtime.Event) {
-			if opts.OnEvent != nil {
-				opts.OnEvent(evt)
-			}
-			eventBridge.Publish(evt)
-		},
+		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
@@ -294,11 +280,10 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	return &RuntimeWiring{
-		Engine:      eng,
-		AskBroker:   askBroker,
-		EventBridge: eventBridge,
-		Background:  background,
-		LocalTools:  localTools,
+		Engine:     eng,
+		AskBroker:  askBroker,
+		Background: background,
+		LocalTools: localTools,
 	}, nil
 }
 
@@ -353,20 +338,8 @@ func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(con
 	}, nil
 }
 
-type providerRuntimeSettings struct {
-	Model                        string
-	ProviderOverride             string
-	OpenAIBaseURL                string
-	ModelVerbosity               config.ModelVerbosity
-	ProviderIdentifier           string
-	Store                        bool
-	ContextWindowTokens          int
-	Auth                         string
-	ProviderCapabilitiesOverride *llm.ProviderCapabilities
-}
-
-func mainProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	return providerRuntimeSettings{
+func mainProviderRuntimeSettings(active config.Settings) RuntimeClientProviderSettings {
+	return RuntimeClientProviderSettings{
 		Model:                        active.Model,
 		ProviderOverride:             active.ProviderOverride,
 		OpenAIBaseURL:                active.OpenAIBaseURL,
@@ -421,14 +394,14 @@ func modelCapabilitySourceConfigured(sources map[string]config.Origin, key strin
 	return sources[key].Configured()
 }
 
-func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
+func reviewerProviderRuntimeSettings(active config.Settings) RuntimeClientProviderSettings {
 	reviewer := active.Reviewer
 	reviewerProvider := config.ResolveReviewerProviderSettings(config.Settings{
 		ProviderOverride: active.ProviderOverride,
 		OpenAIBaseURL:    active.OpenAIBaseURL,
 		Reviewer:         reviewer,
 	})
-	return providerRuntimeSettings{
+	return RuntimeClientProviderSettings{
 		Model:                        reviewer.Model,
 		ProviderOverride:             reviewerProvider.ProviderOverride,
 		OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,

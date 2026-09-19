@@ -3,15 +3,18 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/workflow"
 	"core/shared/runtimeids"
@@ -20,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestMigratedSerialApprovalFanoutAppliesFrozenTargetBranches(t *testing.T) {
+func TestMigratedSerialApprovalWithMissingEnteringEdgeRequiresMove(t *testing.T) {
 	root := t.TempDir()
 	databasePath := filepath.Join(root, "db", "main.sqlite3")
 	db := openLegacyCurrentStateMigrationDatabase(t, root, databasePath)
@@ -213,7 +216,7 @@ INSERT INTO task_transition_edges (
 			target.edgeID,
 			target.key,
 			target.nodeID,
-			target.key,
+			map[string]string{"split_a": "target_a", "split_b": "target_b"}[target.key],
 			target.name,
 			target.mode,
 			sourceSessionID,
@@ -222,6 +225,18 @@ INSERT INTO task_transition_edges (
 	execLegacyMigrationSeed(t, db, "delete mutable approval graph", `
 DELETE FROM workflow_transition_groups
 WHERE id = 'group-fanout'`)
+	// The live graph has been edited into a valid serial chain, but the
+	// Approval still names the deleted fan-out's incoming edges.
+	execLegacyMigrationSeed(t, db, "replacement graph", `
+INSERT INTO workflow_transition_groups (id,source_node_id,transition_id,display_name) VALUES
+('group-replacement-source','node-source','next_source','Next'),
+('group-replacement-a','node-target-a','next_a','Next'),
+('group-replacement-b','node-target-b','done','Done');
+INSERT INTO workflow_edges (id,transition_group_id,edge_key,target_node_id,requires_approval,context_mode,input_bindings_json,output_requirements_json) VALUES
+('edge-replacement-source','group-replacement-source','next','node-target-a',0,'new_session','[]','[]'),
+('edge-replacement-a','group-replacement-a','next','node-target-b',0,'new_session','[]','[]'),
+('edge-replacement-b','group-replacement-b','done','node-done',0,'new_session','[]','[]');
+UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_node_id != 'node-done'`)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close legacy migration database: %v", err)
 	}
@@ -231,7 +246,10 @@ WHERE id = 'group-fanout'`)
 		t.Fatalf("migrate legacy approval fanout database: %v", err)
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
-	store, err := New(metadataStore)
+	if _, err := metadataStore.DB().ExecContext(t.Context(), `UPDATE tasks SET execution_target_mode = 'none', execution_target_provenance = 'resolved', pending_initial_managed_branch_name = NULL WHERE id = ?`, "task-migrated-approval-fanout"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(metadataStore, WithRoleResolver(testsetup.QuestionsEnabled("coder")))
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
@@ -273,103 +291,72 @@ WHERE id = 'group-fanout'`)
 		}
 	}
 
-	applied, err := store.ApplyPendingApproval(t.Context(), approval.ID)
+	_, err = store.PlanPendingApproval(t.Context(), approval.ID)
+	var restriction *TaskContextSelectionRequiredError
+	if !errors.As(err, &restriction) || restriction.TaskID != approval.Source.TaskID {
+		t.Fatalf("Approval restriction = %v", err)
+	}
+	_, err = store.PreflightTaskResume(t.Context(), approval.Source.TaskID)
+	if !errors.As(err, &restriction) {
+		t.Fatalf("Resume restriction = %v", err)
+	}
+	retained, err := store.PendingApproval(t.Context(), approval.ID)
+	if err != nil || !reflect.DeepEqual(retained, approval) {
+		t.Fatalf("restricted Approval content lost: %+v, %v", retained, err)
+	}
+	noOp, err := store.PrepareManualMove(t.Context(), ManualMoveRequest{TaskID: approval.Source.TaskID, TargetNodeID: approval.Source.NodeID})
 	if err != nil {
-		t.Fatalf("ApplyPendingApproval migrated fanout: %v", err)
+		t.Fatal(err)
 	}
-	if len(applied.Mutation.Removed) != 1 || len(applied.Mutation.Created) != 2 {
-		t.Fatalf("applied migrated fanout = %+v, want source replaced by two targets", applied)
+	noOpPlan, err := store.PlanManualMove(t.Context(), noOp, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var (
-		deferredTarget workflow.CurrentNode
-		legacyTarget   workflow.CurrentNode
-	)
-	for _, target := range applied.Mutation.Created {
-		if !target.Reference.IsBranchScoped() {
-			t.Fatalf("applied migrated target = %+v, want branch-scoped current node", target)
+	if _, err := store.CommitManualMove(t.Context(), noOpPlan, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PreflightTaskResume(t.Context(), approval.Source.TaskID); !errors.As(err, &restriction) {
+		t.Fatalf("no-op Move cleared context restriction: %v", err)
+	}
+	task, err := store.GetTaskExecutionTargetContext(t.Context(), approval.Source.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _, err := store.GetDefinition(t.Context(), task.Task.WorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var destination workflow.NodeID
+	for _, node := range definition.Nodes {
+		if node.Kind() == workflow.NodeKindTerminal {
+			destination = workflow.NodeIDOf(node)
 		}
-		branchKey, _ := target.Reference.TransitionBranchKey()
-		switch branchKey {
-		case "split_a":
-			if target.SessionID != nil ||
-				target.ContinuationSource.Kind() != workflow.MaterializedContinuationSourceDeferredSelf {
-				t.Fatalf("applied migrated new-session target = %+v, want deferred self without retained Session", target)
-			}
-			deferredTarget = target
-		case "split_b":
-			if target.SessionID == nil ||
-				target.SessionID.String() != sourceSessionID ||
-				target.ContinuationSource.Kind() != workflow.MaterializedContinuationSourceExact {
-				t.Fatalf("applied migrated continuation target = %+v, want exact Session %q", target, sourceSessionID)
-			}
-			legacyTarget = target
-		default:
-			t.Fatalf("applied migrated unexpected target = %+v", target)
-		}
 	}
-	parsedSourceSessionID, err := runtimeids.ParseSessionID(sourceSessionID)
+	prepared, err := store.PrepareManualMove(t.Context(), ManualMoveRequest{TaskID: approval.Source.TaskID, TargetNodeID: destination})
 	if err != nil {
-		t.Fatalf("parse migrated source Session: %v", err)
+		t.Fatal(err)
 	}
-	if err := store.ValidateCurrentNodeSessionBinding(
-		t.Context(),
-		parsedSourceSessionID,
-		legacyTarget.Reference,
-	); err != nil {
-		t.Fatalf("ValidateCurrentNodeSessionBinding migrated Approval target: %v", err)
-	}
-	bound, err := store.BindSessionToCurrentNode(t.Context(), CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    parsedSourceSessionID,
-			CurrentNode:  legacyTarget.Reference,
-			AssociatedAt: time.UnixMilli(now + 2).UTC(),
-		},
-	})
+	plan, err := store.PlanManualMove(t.Context(), prepared, nil)
 	if err != nil {
-		t.Fatalf("BindSessionToCurrentNode migrated Approval target: %v", err)
+		t.Fatal(err)
 	}
-	if bound.SessionID != parsedSourceSessionID || !bound.CurrentNode.Equal(legacyTarget.Reference) {
-		t.Fatalf("migrated Approval target binding = %+v, want Session %q and Current Node %v", bound, parsedSourceSessionID, legacyTarget.Reference)
-	}
-	if current, err := store.LatestTaskSessionForNode(t.Context(), legacyTarget.Reference); err != nil ||
-		current.SessionID != parsedSourceSessionID {
-		t.Fatalf("migrated Approval target current association = %+v, %v; want exact frozen Session", current, err)
-	}
-	freshSessionID := runtimeids.NewSessionID()
-	if _, err := metadataStore.DB().ExecContext(t.Context(), `
-INSERT INTO sessions (
-    id, project_id, workspace_id, artifact_relpath,
-    created_at_unix_ms, updated_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?)`,
-		freshSessionID.String(),
-		"project-migrated-approval-fanout",
-		"workspace-migrated-approval-fanout",
-		"sessions/"+freshSessionID.String(),
-		now+3,
-		now+3,
-	); err != nil {
-		t.Fatalf("insert fresh migrated Approval target Session: %v", err)
-	}
-	freshAssociation, err := store.BindSessionToCurrentNode(t.Context(), CurrentNodeSessionBindingRequest{
-		Association: TaskSessionAssociationRequest{
-			SessionID:    freshSessionID,
-			CurrentNode:  deferredTarget.Reference,
-			AssociatedAt: time.UnixMilli(now + 3).UTC(),
-		},
-	})
+	moved, err := store.CommitManualMove(t.Context(), plan, nil)
 	if err != nil {
-		t.Fatalf("BindSessionToCurrentNode deferred migrated Approval target: %v", err)
+		t.Fatal(err)
 	}
-	if freshAssociation.SessionID != freshSessionID ||
-		!freshAssociation.CurrentNode.Equal(deferredTarget.Reference) {
-		t.Fatalf("deferred migrated Approval target association = %+v, want Session %q and Current Node %v", freshAssociation, freshSessionID, deferredTarget.Reference)
+	if len(moved.Mutation.Created) != 1 || moved.Mutation.Created[0].Reference.NodeID != destination {
+		t.Fatalf("Move did not replace restricted positions: %+v", moved)
 	}
-	if err := store.ValidateCurrentNodeSessionBinding(
-		t.Context(),
-		freshSessionID,
-		deferredTarget.Reference,
-	); err != nil {
-		t.Fatalf("ValidateCurrentNodeSessionBinding deferred migrated Approval target: %v", err)
+	remaining, err := store.ListPendingApprovals(t.Context(), approval.Source.TaskID)
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("Move left Approval: %+v, %v", remaining, err)
+	}
+	var sessions int
+	if err := metadataStore.DB().QueryRowContext(t.Context(), `SELECT count(*) FROM sessions WHERE id = ?`, sourceSessionID).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 1 {
+		t.Fatal("Move deleted source chat")
 	}
 }
 

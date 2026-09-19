@@ -246,7 +246,7 @@ func connectionAttachmentGeneratedError(
 	case "project_not_found":
 		return projectNotFoundError(notFound)
 	case "workspace_not_registered":
-		return workspaceNotRegisteredError(notRegistered)
+		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "project_unavailable":
 		return projectUnavailableError(unavailable)
 	case "server_not_ready":

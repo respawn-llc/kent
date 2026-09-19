@@ -2,6 +2,7 @@ package workflowview
 
 import (
 	"context"
+	"core/internal/testharness/workflowfixture"
 	"os/exec"
 	"slices"
 	"strings"
@@ -326,7 +327,7 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 			requiresApproval: true,
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				started := startTaskSearchTask(t, fixture, task)
-				if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+				if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 					Source:       started.currentNode,
 					TransitionID: "done",
 				}); err != nil {
@@ -339,7 +340,7 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 			name: "done",
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				started := startTaskSearchTask(t, fixture, task)
-				if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+				if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 					Source:       started.currentNode,
 					TransitionID: "done",
 				}); err != nil {
@@ -546,14 +547,7 @@ func createTaskSearchTaskAtSequence(
 
 func startTaskSearchTask(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) startedCurrentNodeViewTask {
 	t.Helper()
-	started, err := fixture.store.StartTask(fixture.ctx, task.ID)
-	if err != nil {
-		t.Fatalf("StartTask: %v", err)
-	}
-	if len(started.Mutation.Created) != 1 {
-		t.Fatalf("StartTask mutation = %+v", started.Mutation)
-	}
-	return startedCurrentNodeViewTask{task: task, currentNode: started.Mutation.Created[0].Reference}
+	return fixture.startExistingTask(t, task)
 }
 
 func startTaskSearchScript(

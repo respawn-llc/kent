@@ -22,17 +22,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TranscriptHydrationFromSnapshot(
-	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
-	tailSegment *transcriptpb.TailSegment,
-) *transcriptpb.Hydration {
-	hydration, err := TranscriptHydrationFromSnapshotChecked(runtimeSnapshot, tailSegment)
-	if err != nil {
-		panic(err)
-	}
-	return hydration
-}
-
 func TranscriptHydrationFromSnapshotChecked(
 	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
 	tailSegment *transcriptpb.TailSegment,
@@ -181,14 +170,6 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 		out = append(out, projected)
 	}
 	return out, nil
-}
-
-func TranscriptMessagesFromRuntimeEvent(evt runtime.Event) []*transcriptpb.Event {
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(evt)
-	if err != nil {
-		panic(err)
-	}
-	return messages
 }
 
 func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {

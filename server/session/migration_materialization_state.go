@@ -190,7 +190,15 @@ func (s *Store) prepareEventLogMaterializationWithStableLockHeld() (
 	foundVersion := classificationResult.foundVersion
 
 	switch classification {
-	case eventLogSourceMissing, eventLogSourceEmpty:
+	case eventLogSourceMissing:
+		return eventLogPreparationResult{}, false, fmt.Errorf("Session event log %q is missing: %w", eventsPath, os.ErrNotExist)
+	case eventLogSourceEmpty:
+		s.mu.Lock()
+		established := s.meta.LastSequence != 0 || s.meta.ConversationEstablished
+		s.mu.Unlock()
+		if established {
+			return eventLogPreparationResult{}, false, errors.New("established Session event log is empty")
+		}
 		if s.eventLogCreationVersion == nil {
 			return eventLogPreparationResult{}, false, errors.New(
 				"event-log materialization invariant violated: creation version is absent",
