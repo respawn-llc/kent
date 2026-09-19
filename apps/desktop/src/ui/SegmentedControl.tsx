@@ -50,7 +50,7 @@ export function SegmentedControl<Value extends string>({
   if (selectedSegment.option.disabled === true) {
     throw new Error(`Segmented control "${ariaLabel}" cannot select disabled value "${value}".`);
   }
-  const padding = size === "compact" ? "3px" : "var(--space-1)";
+  const padding = size === "compact" ? "calc(var(--space-1) * 0.75)" : "var(--space-1)";
   const indicatorStyle = {
     top: padding,
     bottom: padding,
@@ -64,7 +64,7 @@ export function SegmentedControl<Value extends string>({
       className={cx(
         "app-region-no-drag relative inline-grid h-[var(--space-6)] min-w-0 grid-flow-col auto-cols-fr rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-1)]",
         size === "compact" &&
-          "data-[size=compact]:h-[22px] data-[size=compact]:p-[3px] [&>button]:min-w-8 [&>button]:px-[6px]",
+          "data-[size=compact]:h-[calc(var(--space-5)-var(--space-1)/2)] data-[size=compact]:p-[calc(var(--space-1)*0.75)] [&>button]:min-w-[var(--space-6)] [&>button]:px-[calc(var(--space-2)*0.75)]",
         className,
       )}
       data-size={size}

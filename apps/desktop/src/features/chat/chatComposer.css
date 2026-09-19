@@ -41,6 +41,20 @@
   gap: var(--space-2);
 }
 
+.chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
+.chat-composer-settings > div > *,
+.chat-composer-actions > * {
+  animation: surface-reveal var(--motion-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
+  .chat-composer-settings > div > *,
+  .chat-composer-actions > * {
+    animation: none;
+  }
+}
+
 .chat-composer-settings {
   min-width: min(12rem, 100%);
   flex: 1 1 12rem;

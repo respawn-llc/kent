@@ -1,3 +1,9 @@
+@property --chat-context-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 .chat-context-trigger {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -59,6 +65,8 @@
   inset: 0;
   border-radius: inherit;
   background: conic-gradient(var(--context-start), var(--context-middle), var(--context-end));
+  mask-image: conic-gradient(black var(--chat-context-angle), transparent 0);
+  transition: --chat-context-angle var(--motion-morph);
 }
 
 @media (prefers-reduced-motion: reduce) {
