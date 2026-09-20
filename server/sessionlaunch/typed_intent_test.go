@@ -38,10 +38,10 @@ func TestServiceMapsTypedLaunchIntents(t *testing.T) {
 			PersistenceRoot: persistenceRoot,
 			Settings:        config.Settings{Model: "gpt-5"},
 		},
-		ContainerDir:             containerDir,
-		StoreOptions:             persistence.Options(),
-		PersistedSessions:        persistence,
-		ProjectWorkspaceBoundary: sessionLaunchBoundaryResolver{root: "/tmp/workspace-a"},
+		ContainerDir:      containerDir,
+		StoreOptions:      persistence.Options(),
+		PersistedSessions: persistence,
+		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
 	})
 
 	createRequest := PlanRequest{

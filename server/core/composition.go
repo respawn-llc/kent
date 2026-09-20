@@ -108,12 +108,13 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		Debug:           cfg.Settings.Debug,
-		PersistenceRoot: cfg.PersistenceRoot,
-		AuthManager:     authSupport.AuthManager,
-		Background:      background,
-		StoreOptions:    storeOptions,
-		PromptFeed:      runtimeRegistry,
+		WorkspaceMembership: metadataStore,
+		Debug:               cfg.Settings.Debug,
+		PersistenceRoot:     cfg.PersistenceRoot,
+		AuthManager:         authSupport.AuthManager,
+		Background:          background,
+		StoreOptions:        storeOptions,
+		PromptFeed:          runtimeRegistry,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(resource, event); err != nil {
 				if cfg.Settings.Debug {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"core/internal/testharness/scriptedllm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"
@@ -138,7 +137,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		binding.CanonicalRoot,
 		binding.CanonicalRoot,
-		metadata.ProjectWorkspaceBoundary{ProjectID: binding.ProjectID},
+		binding.ProjectID,
 	)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)

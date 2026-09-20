@@ -62,7 +62,7 @@ func (b *Board) Get(ctx context.Context, req serverapi.WorkflowBoardRequest) (se
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
-	project, err := b.metadata.GetProjectOverview(ctx, projectID)
+	project, err := projectWorkspaceFacts(ctx, b.queries, projectID)
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
@@ -70,12 +70,11 @@ func (b *Board) Get(ctx context.Context, req serverapi.WorkflowBoardRequest) (se
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
-	workspaceContext := boardProjectWorkspaceContext(project)
 	selected := workflowBoardSelectorFromRequest(req).selectFrom(picker)
 	if selected == nil {
 		return serverapi.WorkflowBoard{
 			ProjectID:         projectID,
-			Project:           projectBoardProject(project, workspaceContext),
+			Project:           project,
 			WorkflowPicker:    picker,
 			GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
 		}, nil
@@ -92,7 +91,7 @@ func (b *Board) Get(ctx context.Context, req serverapi.WorkflowBoardRequest) (se
 	}
 	return serverapi.WorkflowBoard{
 		ProjectID:         projectID,
-		Project:           projectBoardProject(project, workspaceContext),
+		Project:           project,
 		SelectedWorkflow:  selected,
 		WorkflowPicker:    picker,
 		Groups:            groups,
@@ -111,7 +110,7 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 	projectID := strings.TrimSpace(req.ProjectID)
 	workflowID := req.WorkflowID
 	nodeID := strings.TrimSpace(req.NodeID)
-	project, err := b.metadata.GetProjectOverview(ctx, projectID)
+	project, err := projectWorkspaceFacts(ctx, b.queries, projectID)
 	if err != nil {
 		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
 	}
@@ -138,7 +137,6 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 	if req.Offset != nil {
 		offset = *req.Offset
 	}
-	workspaceContext := boardProjectWorkspaceContext(project)
 	definition, err := b.projection.definition(ctx, b.queries, workflowID)
 	if err != nil {
 		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
@@ -192,10 +190,14 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 		if !exists {
 			return serverapi.WorkflowBoardNodeCardsListResponse{}, fmt.Errorf("task status projection omitted Task %q", task.ID)
 		}
+		source, err := taskSourceWorkspace(ctx, b.queries, task, project.DefaultWorkspaceID)
+		if err != nil {
+			return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		}
 		card, _ := b.card(
 			projected,
 			labelIDsByTask[task.ID],
-			sourceWorkspaceForTask(task, workspaceContext.byID, workspaceContext.primary),
+			source,
 			dependencyProgressByTaskID[task.ID],
 		)
 		cards = append(cards, card)

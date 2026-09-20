@@ -158,32 +158,6 @@ func (c *Remote) GetProjectWorkspace(ctx context.Context, request *projectpb.Get
 	return response, nil
 }
 
-func (c *Remote) GetProjectOverview(ctx context.Context, request *projectpb.GetOverviewRequest) (*projectpb.GetOverviewSuccess, error) {
-	response, err := callGeneratedBinary(c, ctx, projectCatalogMethod("GetOverview"), request,
-		&projectpb.GetOverviewResult{},
-		func(failure *projectpb.GetOverviewError) error {
-			switch failure.Code {
-			case "project_not_found":
-				return projectNotFoundError(failure.GetProjectNotFound())
-			case "project_unavailable":
-				return projectUnavailableError(failure.GetProjectUnavailable())
-			default:
-				return generatedOperationFailure(failure.Code)
-			}
-		})
-	if err != nil {
-		return nil, err
-	}
-	if response.Overview.Project.ProjectId != request.ProjectId {
-		return nil, fmt.Errorf(
-			"project overview response project %q does not match request project %q",
-			response.Overview.Project.ProjectId,
-			request.ProjectId,
-		)
-	}
-	return response, nil
-}
-
 func projectNotFoundGeneratedError(
 	code string,
 	notFound *projectpb.ProjectNotFoundDetails,

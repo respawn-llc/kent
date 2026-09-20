@@ -5,6 +5,7 @@ import (
 	"context"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
 	"encoding/json"
 	"errors"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -1368,15 +1369,15 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 		request := &sessionlaunchpb.SessionRetargetWorkspaceRequest{}
 		call := receiveRemoteGeneratedCall(t, ws, "SessionLifecycleService", "RetargetWorkspace", request)
 		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRetargetWorkspaceResult{
-			Outcome: &sessionlaunchpb.SessionRetargetWorkspaceResult_Error{Error: &sessionlaunchpb.SessionRetargetWorkspaceError{
+			Outcome: &sessionlaunchpb.SessionRetargetWorkspaceResult_Error{Error: &sessionretargetpb.SessionRetargetWorkspaceError{
 				Code: "target_project_required",
-				Detail: &sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectRequired{
-					TargetProjectRequired: &sessionlaunchpb.SessionRetargetTargetProjectRequiredDetails{
-						Facts: &sessionlaunchpb.SessionRetargetFacts{
+				Detail: &sessionretargetpb.SessionRetargetWorkspaceError_TargetProjectRequired{
+					TargetProjectRequired: &sessionretargetpb.SessionRetargetTargetProjectRequiredDetails{
+						Facts: &sessionretargetpb.SessionRetargetFacts{
 							SessionId:         source.SessionID,
-							SourceProject:     &sessionlaunchpb.ProjectReference{Id: source.SourceProject.ID, Name: source.SourceProject.Name},
+							SourceProject:     &sessionretargetpb.ProjectReference{Id: source.SourceProject.ID, Name: source.SourceProject.Name},
 							TargetRoot:        source.TargetRoot,
-							CandidateProjects: []*sessionlaunchpb.ProjectReference{{Id: source.CandidateProjects[0].ID, Name: source.CandidateProjects[0].Name}},
+							CandidateProjects: []*sessionretargetpb.ProjectReference{{Id: source.CandidateProjects[0].ID, Name: source.CandidateProjects[0].Name}},
 						},
 					},
 				},

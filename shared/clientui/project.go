@@ -26,21 +26,6 @@ type ProjectSummary struct {
 	UpdatedAt    time.Time
 }
 
-type ProjectWorkspaceSummary struct {
-	WorkspaceID  string
-	DisplayName  string
-	RootPath     string
-	Availability ProjectAvailability
-	IsPrimary    bool
-	SessionCount int
-	UpdatedAt    time.Time
-}
-
-type ProjectOverview struct {
-	Project    ProjectSummary
-	Workspaces []ProjectWorkspaceSummary
-}
-
 type SessionSummary struct {
 	SessionID          runtimeids.SessionID            `json:"session_id"`
 	Category           sessioncontract.SessionCategory `json:"category"`

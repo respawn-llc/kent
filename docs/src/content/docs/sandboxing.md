@@ -13,7 +13,11 @@ However, Kent's [client-server](../server/) architecture makes it easy to run Ke
 
 ## Outside-Workspace Edits
 
-By default, native edit tools prompt before modifying files outside the Session's Execution Target Root and the bounded collection of up to 500 most recently attached Workspaces in the Session's current Project. `view_image` uses the same trusted boundary for local image reads. Targets under the operating system's temporary roots and their canonical platform aliases, such as `/tmp` and `/private/tmp` on macOS, are allowed without approval. The temporary-root allowance does not override path-deny rules or the prohibition on directly editing another Kent-managed Worktree. Kent prepares this boundary once for the runtime; native file operations do not query Project metadata for each target.
+Native edit tools trust the Session's Execution Target Root. For an unrecognized target without existing Session approval, Kent checks the current Project's attached Workspaces on demand and learns the broadest containing Workspace root. Learned roots remain trusted until the Runtime ends, including after detachment. `view_image` shares these learned roots for local image reads; its outside-Workspace approval remains separate from edit approval.
+
+When an ordinary Session moves between Projects, the Runtime retains its learned roots and former Execution Target Roots. New unrecognized targets are checked against the destination Project. Targets outside these trusted roots follow ordinary approval; unsuccessful lookups are not remembered, so attaching a Workspace allows another attempt. A metadata failure stops the file operation without requesting approval.
+
+Targets under the operating system's temporary roots and their canonical platform aliases, such as `/tmp` and `/private/tmp` on macOS, are allowed without approval. Trusted roots, temporary-root allowances, and approvals do not override path-deny rules or the prohibition on directly editing another Kent-managed Worktree.
 
 **This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. Edits to another Kent-managed Worktree remain forbidden even when that Worktree belongs to the same Project.
 

@@ -80,7 +80,7 @@ func (s *Store) linkWorkflowInTx(ctx context.Context, q *sqlitegen.Queries, now 
 }
 
 func requireWorkflowLinkEntities(ctx context.Context, q *sqlitegen.Queries, projectID string, workflowID runtimeids.WorkflowID) error {
-	if _, err := q.GetProjectSummary(ctx, projectID); err != nil {
+	if _, err := q.GetProjectEditMetadata(ctx, projectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, projectID)
 		}

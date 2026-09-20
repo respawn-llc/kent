@@ -51,10 +51,10 @@ func TestAbsoluteForeignManagedWorktreeEditIsDenied(t *testing.T) {
 	tool := newTestToolWithFilesystemContext(
 		t,
 		filesystemContext,
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			approvalCalls++
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-		}),
+		})),
 	)
 	if err := os.MkdirAll(foreignRoot, 0o755); err != nil {
 		t.Fatalf("mkdir foreign root: %v", err)
@@ -274,9 +274,9 @@ func TestOutsideWorkspaceDenialReturnsTypedOuterOutcome(t *testing.T) {
 	target := filepath.Join(outside, "target.txt")
 	writeEditTestFile(t, target, "old\n", 0o644)
 	commentary := "keep it local"
-	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny, Commentary: &commentary}, nil
-	}))
+	})))
 
 	result := callEdit(t, tool, map[string]any{"path": target, "old_string": "old", "new_string": "new"})
 	if !result.IsError || result.CallID != "call" || result.Name != toolspec.ToolEdit || result.QuestionAnswer != nil {
@@ -306,10 +306,10 @@ func TestPathDenyPolicyBlocksCreateReplaceAndRealSymlinkTargets(t *testing.T) {
 	prompts := 0
 	tool := newTestTool(t, workspace,
 		WithPathDenyPolicy(policy),
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			prompts++
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-		}),
+		})),
 	)
 
 	createTarget := filepath.Join(deniedRoot, "created.txt")

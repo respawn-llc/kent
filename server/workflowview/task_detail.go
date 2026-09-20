@@ -13,7 +13,6 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
-	"core/shared/clientui"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 )
@@ -144,19 +143,11 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (serve
 		return serverapi.WorkflowTaskDetail{}, err
 	}
 	labelIDsByTask := taskLabelIDsByTask(labelsByTask)
-	projectState, err := d.queries.GetProjectKeyState(ctx, task.ProjectID)
+	project, err := projectWorkspaceFacts(ctx, d.queries, task.ProjectID)
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
-	workspaceCount, err := d.queries.CountProjectWorkspaces(ctx, task.ProjectID)
-	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
-	}
-	primaryWorkspaceID, err := d.queries.GetProjectPrimaryWorkspaceID(ctx, task.ProjectID)
-	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
-	}
-	sourceWorkspace, err := d.sourceWorkspace(ctx, task, primaryWorkspaceID)
+	sourceWorkspace, err := taskSourceWorkspace(ctx, d.queries, task, project.DefaultWorkspaceID)
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
@@ -171,12 +162,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (serve
 
 	detail := serverapi.WorkflowTaskDetail{
 		Summary: taskSummary(task, projected.Status, projected.Done),
-		Project: serverapi.ProjectBoardProject{
-			ProjectKey:             projectState.ProjectKey,
-			DisplayName:            projectState.DisplayName,
-			DefaultWorkspaceID:     primaryWorkspaceID,
-			AttachedWorkspaceCount: int(workspaceCount),
-		},
+		Project: project,
 		Workflow: serverapi.WorkflowTaskWorkflowSummary{
 			WorkflowID:  definition.domain.ID,
 			DisplayName: definition.api.Workflow.Name,
@@ -284,45 +270,6 @@ func sortTaskDetailCurrentScripts(scripts []serverapi.WorkflowTaskCurrentScript)
 		}
 		return scripts[i].Path < scripts[j].Path
 	})
-}
-
-func (d *TaskDetail) sourceWorkspace(ctx context.Context, task sqlitegen.TaskRecord, primaryWorkspaceID string) (serverapi.ProjectWorkspaceSummary, error) {
-	sourceWorkspaceID := primaryWorkspaceID
-	if task.SourceWorkspaceID.Valid {
-		sourceWorkspaceID = task.SourceWorkspaceID.String
-	}
-	row, err := d.queries.GetWorkspaceByID(ctx, sourceWorkspaceID)
-	if err == nil {
-		if row.ProjectID != task.ProjectID {
-			return serverapi.ProjectWorkspaceSummary{}, fmt.Errorf("task %q source workspace %q belongs to project %q", task.ID, row.ID, row.ProjectID)
-		}
-		displayName := displayNameForPath(row.CanonicalRootPath)
-		if strings.TrimSpace(row.ID) == "" || strings.TrimSpace(row.CanonicalRootPath) == "" || displayName == "" {
-			return serverapi.ProjectWorkspaceSummary{}, fmt.Errorf("task %q source workspace %q has invalid durable identity", task.ID, row.ID)
-		}
-		return serverapi.ProjectWorkspaceSummary{
-			WorkspaceID:     row.ID,
-			DisplayName:     displayName,
-			RootPath:        row.CanonicalRootPath,
-			Availability:    string(clientui.ProjectAvailabilityAvailable),
-			IsPrimary:       row.ID == primaryWorkspaceID,
-			UpdatedAtUnixMs: row.UpdatedAtUnixMs,
-		}, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return serverapi.ProjectWorkspaceSummary{}, err
-	}
-	snapshot := sourceWorkspaceForTask(task, nil, serverapi.ProjectWorkspaceSummary{})
-	if strings.TrimSpace(snapshot.RootPath) == "" {
-		return serverapi.ProjectWorkspaceSummary{}, err
-	}
-	if strings.TrimSpace(snapshot.WorkspaceID) == "" {
-		return serverapi.ProjectWorkspaceSummary{}, fmt.Errorf("task %q source workspace snapshot has no workspace id", task.ID)
-	}
-	if strings.TrimSpace(snapshot.DisplayName) == "" {
-		snapshot.DisplayName = displayNameForPath(snapshot.RootPath)
-	}
-	return snapshot, nil
 }
 
 func (d *TaskDetail) executionTargetForTask(ctx context.Context, task sqlitegen.TaskRecord, sourceWorkspaceID string) (*serverapi.WorkflowExecutionTarget, *string, error) {

@@ -27,6 +27,19 @@ func TestGetProjectWorkspaceCatalogRowSelectsExactAttachedWorkspace(t *testing.T
 	}
 }
 
+func TestResolveProjectSourceWorkspaceRejectsBrokenDefault(t *testing.T) {
+	store, _, source := newMetadataTestStore(t)
+	if _, err := store.AttachWorkspaceToProject(t.Context(), source.ProjectID, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(t.Context(), "UPDATE projects SET primary_workspace_id = '' WHERE id = ?", source.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolveProjectSourceWorkspace(t.Context(), source.ProjectID); err == nil {
+		t.Fatal("broken default selected an arbitrary attached Workspace")
+	}
+}
+
 func TestGetProjectWorkspaceCatalogRowDistinguishesMissingProjectFromNotAttachedWorkspace(t *testing.T) {
 	store, _, source := newMetadataTestStore(t)
 	selector, err := serverapi.NewProjectWorkspaceSelectorForID(source.WorkspaceID)

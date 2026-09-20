@@ -38,6 +38,7 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	WorkspaceMembership                 WorkspaceMembership
 	MainWorkspaceRoot                   string
 	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
@@ -182,6 +183,7 @@ func NewRuntimeWiringWithBackground(
 	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
+		WorkspaceMembership: opts.WorkspaceMembership,
 		FilesystemContext:   filesystemContext,
 		OwnerSessionID:      store.Meta().SessionID,
 		Enabled:             enabledTools,
