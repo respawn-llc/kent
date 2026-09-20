@@ -265,7 +265,6 @@ func (a *Authority) buildAgentResource(
 	}
 	resource.mu.Lock()
 	resource.engine = wiring.Engine
-	resource.eventBridge = wiring.EventBridge
 	resource.logger = logger
 	resource.localTools = wiring.LocalTools
 	resource.askBroker = wiring.AskBroker

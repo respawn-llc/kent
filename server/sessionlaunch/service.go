@@ -461,6 +461,7 @@ func applyPreparedAgentChatSettings(
 	if err != nil {
 		return session.Meta{}, false, nil, err
 	}
+	target.ConnectionID = meta.ConnectionID
 	if textutil.EqualOptional(target.AgentRole, state.AgentRole) {
 		return meta, true, nil, nil
 	}
@@ -495,14 +496,14 @@ func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPla
 	if err != nil {
 		return PlanResult{}, err
 	}
-	provider, err := llm.ResolveEffectiveProviderCapabilities(
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(
 		plan.Locked,
 		plan.ActiveSettings,
 	)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	plan = launch.ApplyContextPolicy(plan, provider.Capabilities)
+	plan = launch.ApplyContextPolicy(plan, capabilities)
 	return PlanResult{Plan: plan, Warnings: warnings}, nil
 }
 

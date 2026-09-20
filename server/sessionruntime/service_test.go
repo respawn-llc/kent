@@ -23,7 +23,6 @@ import (
 	"core/server/session/sessiontest"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/protoapi"
 	"core/shared/runtimeids"
@@ -1236,16 +1235,8 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 
 func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
-	bootstrapRunner, err := postprocess.NewRunner(postprocess.Settings{
-		PersistenceRoot: t.TempDir(),
-		Mode:            config.ShellPostprocessingModeNone,
-	})
-	if err != nil {
-		t.Fatalf("new bootstrap shell postprocessor: %v", err)
-	}
-	background, err := shelltool.NewManager(t.TempDir(),
+	background, err := shelltool.NewManager(fixture.config.PersistenceRoot,
 		shelltool.WithMinimumExecToBgTime(time.Second),
-		shelltool.WithPostprocessor(bootstrapRunner),
 	)
 	if err != nil {
 		t.Fatalf("new background shell manager: %v", err)

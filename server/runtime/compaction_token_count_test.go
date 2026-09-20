@@ -145,7 +145,7 @@ func TestPreSubmitCompactionRechecksEligibilityAgainstCurrentContext(t *testing.
 
 func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t *testing.T) {
 	t.Parallel()
-	client := &preciseCompactionClient{contextWindow: 1_000}
+	client := &contextWindowClient{contextWindow: 1_000}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
 		Model:                 "gpt-5",
 		ContextWindowTokens:   400_000,

@@ -116,7 +116,7 @@ func TestGetServerReadinessSkipsAuthStateWhenStartupAuthNotRequired(t *testing.T
 }
 
 func TestServerStatusSeparatesReadinessFromLazyUpdateStatus(t *testing.T) {
-	source := &countingReleaseSource{metadata: releaseMetadata{Version: "1.2.0"}}
+	source := &countingReleaseSource{metadata: releaseMetadata{Version: updateVersion{components: [3]uint64{1, 2, 0}}}}
 	updates := newUpdateStatusService("1.1.0", false, source, time.Now)
 	t.Cleanup(func() {
 		if err := updates.Close(); err != nil {

@@ -56,7 +56,7 @@ func (s *ServeServer) Config() config.App {
 var localSocketListener = listenLocalSocket
 var errStartupControlSurfaceNotRequired = errors.New("startup control surface is not required")
 
-func StartServeServer(ctx context.Context, req Request, onboardingHandler OnboardingHandler) (*ServeServer, error) {
+func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	bootstrapReq := buildRequest(req)
 	root, err := config.ResolvePersistenceRoot(bootstrapReq.LoadOptions.ConfigRoot)
 	if err != nil {
@@ -73,29 +73,16 @@ func StartServeServer(ctx context.Context, req Request, onboardingHandler Onboar
 	}
 	cfg := resolved.Config
 	if cfg.Source.SettingsFileExists() {
-		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, onboardingHandler)
+		appCore, err := startCoreWithBootstrap(ctx, bootstrapReq)
 		if err != nil {
 			return nil, err
 		}
 		return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
 	}
-	if onboardingHandler != nil {
-		onboardingCfg, completed, err := runStartupOnboardingHandler(ctx, cfg, bootstrapReq, onboardingHandler)
-		if err != nil {
-			return nil, err
-		}
-		if completed && onboardingCfg.Source.SettingsFileExists() {
-			appCore, err := startCoreWithBootstrap(ctx, bootstrapReq, nil)
-			if err != nil {
-				return nil, err
-			}
-			return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
-		}
-	}
 	cfg, deps, err := buildStartupControlSurface(ctx, bootstrapReq)
 	if err != nil {
 		if errors.Is(err, errStartupControlSurfaceNotRequired) {
-			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq, onboardingHandler)
+			appCore, coreErr := startCoreWithBootstrap(ctx, bootstrapReq)
 			if coreErr != nil {
 				return nil, coreErr
 			}
@@ -104,35 +91,6 @@ func StartServeServer(ctx context.Context, req Request, onboardingHandler Onboar
 		return nil, err
 	}
 	return &ServeServer{deps: deps, cfg: cfg}, nil
-}
-
-func runStartupOnboardingHandler(ctx context.Context, cfg config.App, bootstrapReq serverbootstrap.Request, onboardingHandler OnboardingHandler) (config.App, bool, error) {
-	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
-	if err != nil {
-		return config.App{}, false, err
-	}
-	factsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
-	reloadConfig := func() (config.App, error) {
-		refreshed, err := serverbootstrap.ResolveConfig(bootstrapReq)
-		if err != nil {
-			return config.App{}, err
-		}
-		return refreshed.Config, nil
-	}
-	onboardingCfg, err := onboardingHandler(ctx, OnboardingRequest{
-		Config:                cfg,
-		AuthManager:           authSupport.AuthManager,
-		CapabilityFactsClient: factsService,
-		ReloadConfig:          reloadConfig,
-	})
-	if errors.Is(err, ErrOnboardingRequired) {
-		return cfg, false, nil
-	}
-	if err != nil {
-		return config.App{}, false, err
-	}
-	return onboardingCfg, onboardingCfg.Source.SettingsFileExists(), nil
 }
 
 func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstrap.Request) (config.App, *startupGatewayDependencies, error) {
@@ -445,7 +403,7 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 		panicOnMetadataMigrationFailure(err)
 		return d.activationError(resp, err)
 	}
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(refreshed.Config)
+	background, err := serverbootstrap.BuildShellManager(refreshed.Config)
 	if err != nil {
 		return d.activationError(resp, err)
 	}
@@ -453,11 +411,11 @@ func (d *startupGatewayDependencies) activate(ctx context.Context, resp *onboard
 		ctx,
 		refreshed.Config,
 		d.authSupport,
-		runtimeSupport,
+		background,
 		coreOptionsForBootstrap(d.bootstrap, d.rootLease),
 	)
 	if err != nil {
-		_ = runtimeSupport.Background.Close()
+		_ = background.Close()
 		panicOnMetadataMigrationFailure(err)
 		return d.activationError(resp, err)
 	}

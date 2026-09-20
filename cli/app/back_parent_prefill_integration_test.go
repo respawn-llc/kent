@@ -39,7 +39,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
@@ -94,7 +94,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "source-project-model",
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)

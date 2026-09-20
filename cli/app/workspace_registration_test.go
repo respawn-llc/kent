@@ -45,12 +45,20 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 	home = newAppTestHome(t)
 	workspace = t.TempDir()
 	registerAppWorkspace(t, workspace)
-	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
+	writeAppTestSettings(t)
+	return home, workspace
+}
+
+func writeAppTestSettings(t *testing.T) {
+	t.Helper()
+	if _, _, err := config.WriteDefaultSettingsFile(); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1"))
-	return home, workspace
+	cfg, err := config.LoadGlobal(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 }
 
 func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, workspace string) {
@@ -87,6 +95,7 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.P
 
 func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
 	t.Helper()
+	writeAppTestSettings(t)
 	releasePortProbe := reserveAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
@@ -94,7 +103,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)

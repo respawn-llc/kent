@@ -9,6 +9,61 @@ import (
 	"core/server/session"
 )
 
+func TestStoredLockedContractPreservesCapabilitiesWithObsoleteCountingFields(t *testing.T) {
+	t.Parallel()
+	const stored = `{
+		"model":"gpt-5",
+		"provider_contract":{
+			"provider_id":"openai",
+			"supports_responses_api":true,
+			"supports_responses_compact":true,
+			"supports_request_input_token_count":true,
+			"has_supports_request_input_token_count":true,
+			"supports_prompt_cache_key":true,
+			"has_supports_prompt_cache_key":true,
+			"supports_native_web_search":true,
+			"supports_reasoning_encrypted":true,
+			"supports_server_side_context_edit":true,
+			"supports_provider_verbosity":false,
+			"is_openai_first_party":true
+		}
+	}`
+	verbosity := false
+	want := session.LockedContract{
+		Model: "gpt-5",
+		ProviderContract: session.LockedProviderCapabilities{
+			ProviderID:                    "openai",
+			SupportsResponsesAPI:          true,
+			SupportsResponsesCompact:      true,
+			SupportsPromptCacheKey:        true,
+			HasSupportsPromptCacheKey:     true,
+			SupportsNativeWebSearch:       true,
+			SupportsReasoningEncrypted:    true,
+			SupportsServerSideContextEdit: true,
+			SupportsProviderVerbosity:     &verbosity,
+			IsOpenAIFirstParty:            true,
+		},
+	}
+	var decoded session.LockedContract
+	if err := unmarshalStoredJSON(stored, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, want) {
+		t.Fatalf("decoded contract = %#v, want %#v", decoded, want)
+	}
+	encoded, err := marshalJSON(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded session.LockedContract
+	if err := unmarshalStoredJSON(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reloaded, want) {
+		t.Fatalf("reloaded contract = %#v, want %#v", reloaded, want)
+	}
+}
+
 func TestSessionMetadataDocumentRoundTripsWorkflowNeutralFields(t *testing.T) {
 	t.Parallel()
 	createdAt := time.Unix(123, 456).UTC()

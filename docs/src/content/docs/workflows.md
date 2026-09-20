@@ -296,6 +296,10 @@ Choose the source workspace before starting automation. Agents run in the enviro
 
 A workflow Session may start, interrupt, resume, approve, or manually move another Task. It cannot target its own Task; Kent derives that ownership from the invoking Session.
 
+Start, Resume, and Move prepare execution before committing the action and starting Agent or Script work. The action stays pending during preparation; success means the action committed, not that the Agent or Script finished. Preparation failures include diagnostics and applicable retry or Execution Target choices. Retry is explicit.
+
+Closing the app or disconnecting a command does not cancel an accepted action. If a command times out or loses its connection, inspect the Task before retrying; the server may have completed the action.
+
 If independent Desktop task actions need confirmation at the same time, the newest confirmation replaces the previous one. The task whose confirmation was replaced stays unchanged; start that action again when needed.
 
 ### Current Work, Sessions, And Activity
@@ -307,6 +311,8 @@ Interrupt stops exact live work. Interrupting a Task stops every live Agent Sess
 Restarting Kent leaves saved tasks untouched and does not restart their work. Resume reconciles unfinished execution only when you explicitly request it. Opening or reconnecting the app does not replay notifications for existing interruptions, approvals, or questions.
 
 For an interrupted Agent Task whose retained Session was successfully manually compacted, use ordinary Task Resume to continue the same Task, Current Node, and Session. Kent restores the Current Node assignment before model work; retry Resume after an assignment or startup failure is reported.
+
+If Kent cannot safely identify an older parallel branch's assigned Session, it requires Manual Move with an explicit context choice instead of Resume. Move replaces the whole Task's parallel positions and Join progress; existing conversations and files remain intact. An older pending Approval whose incoming Transition has been deleted also requires Manual Move.
 
 Delete permanently removes a quiescent Task. Interrupt preserves the task for Resume.
 
@@ -494,7 +500,7 @@ Managed replacements use a fresh Worktree and default their branch name to the T
 kent task resume APP-42 --execution-target ref:main --branch-name APP-42-followup
 ```
 
-Kent stops existing Task work before replacing its target. Replacement setup must succeed before Kent saves the target or applies a Move. Failure retains the candidate Worktree and branch without making it the Task target; the Move remains unapplied or the Task remains interrupted. Choose another target with a free branch name, or cancel. Failed candidate files remain available for inspection, but recovery does not retry setup in that candidate. Closing a client does not cancel an accepted Move.
+Kent stops existing Task work before replacing its target. Replacement setup must succeed before Kent saves the target or applies a Move. Failure retains the candidate Worktree and branch without making it the Task target. Kent reports the failure without restoring the Task's previous column or restarting interrupted work. Choose another target with a free branch name, or cancel. Failed candidate files remain available for inspection, but recovery does not retry setup in that candidate.
 
 Each Task Start, Resume, or Move action runs setup at most once. Original restoration is distinct from fresh replacement: if setup fails after recreating the original, still-bound checkout, the action reports failure, but a later explicit Resume or Session message may use that checkout without rerunning setup. Stopping Kent during replacement setup does not bind the unfinished candidate; later Resume follows the saved Task target.
 

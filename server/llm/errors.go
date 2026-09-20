@@ -9,7 +9,6 @@ import (
 
 var ErrModelStreamStalled = llmerrors.ErrModelStreamStalled
 
-type APIStatusError = llmerrors.APIStatusError
 type UnifiedErrorCode = llmerrors.UnifiedErrorCode
 type ProviderAPIError = llmerrors.ProviderAPIError
 type AuthError = llmerrors.AuthError

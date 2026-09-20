@@ -20,19 +20,18 @@ import (
 )
 
 type Manager struct {
-	persistenceRoot      string
-	mu                   sync.Mutex
-	nextID               int
-	entries              sync.Map
-	completedRecency     []string
-	tempDir              string
-	onEvent              func(Event) bool
-	minimumExecToBgTime  time.Duration
-	closeGracePeriod     time.Duration
-	closeWaitTimeout     time.Duration
-	defaultPostprocessor *postprocess.Runner
-	closed               bool
-	maxConcurrent        int
+	persistenceRoot     string
+	mu                  sync.Mutex
+	nextID              int
+	entries             sync.Map
+	completedRecency    []string
+	tempDir             string
+	onEvent             func(Event) bool
+	minimumExecToBgTime time.Duration
+	closeGracePeriod    time.Duration
+	closeWaitTimeout    time.Duration
+	closed              bool
+	maxConcurrent       int
 	// Includes starts in progress until they fail or their process exits.
 	occupiedSlots int
 }
@@ -62,33 +61,22 @@ func WithCloseTimeouts(gracePeriod, waitTimeout time.Duration) ManagerOption {
 	}
 }
 
-func WithPostprocessor(runner *postprocess.Runner) ManagerOption {
-	return func(m *Manager) {
-		m.defaultPostprocessor = runner
-	}
-}
-
 func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error) {
 	if persistenceRoot == "" {
 		return nil, errors.New("server persistence root is required for shell execution")
-	}
-	defaultPostprocessor, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin, PersistenceRoot: persistenceRoot})
-	if err != nil {
-		return nil, fmt.Errorf("compile default shell postprocessor: %w", err)
 	}
 	tempDir, err := os.MkdirTemp("", backgroundLogDirPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create background shell temp dir: %w", err)
 	}
 	mgr := &Manager{
-		persistenceRoot:      persistenceRoot,
-		nextID:               initialProcessID,
-		tempDir:              tempDir,
-		minimumExecToBgTime:  defaultMinimumExecToBgTime,
-		closeGracePeriod:     closeGracePeriod,
-		closeWaitTimeout:     closeWaitTimeout,
-		defaultPostprocessor: defaultPostprocessor,
-		maxConcurrent:        config.DefaultMaxConcurrentShells,
+		persistenceRoot:     persistenceRoot,
+		nextID:              initialProcessID,
+		tempDir:             tempDir,
+		minimumExecToBgTime: defaultMinimumExecToBgTime,
+		closeGracePeriod:    closeGracePeriod,
+		closeWaitTimeout:    closeWaitTimeout,
+		maxConcurrent:       config.DefaultMaxConcurrentShells,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -101,10 +89,6 @@ func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error)
 	}
 	if mgr.minimumExecToBgTime <= 0 {
 		mgr.minimumExecToBgTime = defaultMinimumExecToBgTime
-	}
-	if mgr.defaultPostprocessor == nil {
-		_ = os.RemoveAll(tempDir)
-		return nil, errors.New("shell postprocessor is required")
 	}
 	return mgr, nil
 }
@@ -150,9 +134,6 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		maxOutputChars = defaultOutputTokenCap * 4
 	}
 	runner := req.Postprocessor
-	if runner == nil {
-		runner = m.defaultPostprocessor
-	}
 	if runner == nil {
 		return ExecResult{}, errors.New("shell process postprocessor is required")
 	}

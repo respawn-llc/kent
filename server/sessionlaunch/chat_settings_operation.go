@@ -69,6 +69,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 	if err != nil {
 		return PreparedChatSettingsOperationResult{}, err
 	}
+	base.ConnectionID = input.Raw.ConnectionID
 	target := base
 	switch operation := operation.Operation.(type) {
 	case *chatsettingspb.MutationOperation_AgentRole:
@@ -88,6 +89,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			if err != nil {
 				return PreparedChatSettingsOperationResult{}, err
 			}
+			target.ConnectionID = &entry.ConnectionID
 		}
 		selectedEntry = entry
 	case *chatsettingspb.MutationOperation_Supervisor:

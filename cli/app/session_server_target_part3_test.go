@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -94,6 +96,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	}
 
 	result, err := fixture.daemon.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf 'daemon process output\n'; sleep 0.2"},
 		DisplayCommand: "printf 'daemon process output'; sleep 0.2",
 		Workdir:        workspace,

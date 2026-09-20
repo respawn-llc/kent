@@ -8,6 +8,8 @@ import (
 	"time"
 
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func BackgroundCompletionEvent(id string, ownerSessionID string, root string) shelltool.Event {
@@ -29,6 +31,10 @@ func BackgroundCompletionEventWithOutput(id string, ownerSessionID string, root 
 		panic(fmt.Sprintf("create background shell manager fixture: %v", err))
 	}
 	defer func() { _ = manager.Close() }()
+	runner, err := postprocess.NewRunner(postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+	if err != nil {
+		panic(fmt.Sprintf("create background shell postprocessor fixture: %v", err))
+	}
 
 	events := make(chan shelltool.Event, 1)
 	manager.SetEventHandler(func(event shelltool.Event) bool {
@@ -38,6 +44,7 @@ func BackgroundCompletionEventWithOutput(id string, ownerSessionID string, root 
 		return true
 	})
 	result, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor: runner,
 		Command: []string{
 			"/bin/sh",
 			"-c",

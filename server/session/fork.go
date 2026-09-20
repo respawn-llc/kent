@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -134,11 +135,21 @@ func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, for
 // conversation history. Workflow fan-out copies retain the outgoing contract for
 // a permitted lazy compaction, or reuse the source's committed summary.
 func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
-	child, _, err := streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		LockedContract:      InheritFullContract,
-		InheritContinuation: true,
-	}, 0, thinking)
-	return child, err
+	parent, err := materializedForkParent(parentLog)
+	if err != nil {
+		return nil, err
+	}
+	meta := parent.Meta()
+	descriptor, err := NewCreateSessionDescriptor(runtimeids.NewSessionID(), filepath.Dir(parent.Dir()), meta.WorkspaceContainer, meta.WorkspaceRoot, category)
+	if err != nil {
+		return nil, err
+	}
+	options := []StoreOption{func(options *storeOptions) { *options = parent.options }}
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &meta}, forkName, thinking, options...)
+	if err != nil {
+		return nil, err
+	}
+	return MaterializeClone(context.Background(), plan, parentLog, options...)
 }
 
 // streamChildFromParent creates a child session and streams the parent event
@@ -193,7 +204,7 @@ func streamChildFromParent(
 	if err != nil {
 		return nil, 0, fmt.Errorf("materialize fork child event log: %w", err)
 	}
-	derived, cutOrdinal, err := streamReplayIntoChild(parentLog, childLog, targetSeq, thinking.PreserveNativeUpdates)
+	derived, cutOrdinal, err := streamReplay(parentLog, childLog.log.version, childLog.appendReplayRecordsWithEndByteCursor, targetSeq, thinking.PreserveNativeUpdates)
 	if err != nil {
 		return nil, 0, fmt.Errorf("stream fork replay events: %w", err)
 	}
@@ -225,12 +236,12 @@ func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
 	return parent, nil
 }
 
-// streamReplayIntoChild walks the parent event log and appends each event to the
+// streamReplay walks the parent event log and appends each event to the
 // child in bounded chunks, folding replay-derived metadata incrementally. When
 // targetSeq > 0 it stops just before the visible user message persisted at that
 // sequence and returns that message's 1-based visible-user-message ordinal; it
 // returns 0 when the target is not found (or when cloning the whole log).
-func streamReplayIntoChild(parentLog MaterializedEventLog, childLog MaterializedEventLog, targetSeq int64, preserveNativeUpdates bool) (replayDerivedState, int, error) {
+func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func([]EventRecord) (recordAppendOutcome, error), targetSeq int64, preserveNativeUpdates bool) (replayDerivedState, int, error) {
 	derived := replayDerivedState{}
 	visibleUserCount := 0
 	cutOrdinal := 0
@@ -240,7 +251,7 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 		if len(batch.records) == 0 {
 			return nil
 		}
-		appended, err := childLog.appendReplayRecordsWithEndByteCursor(batch.records)
+		appended, err := appendBatch(batch.records)
 		if err != nil {
 			return err
 		}
@@ -307,7 +318,7 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 			}
 			record = rebasedRecord
 		}
-		recordBytes, err := replayRecordByteSizeForVersion(record, childLog.log.version)
+		recordBytes, err := replayRecordByteSizeForVersion(record, version)
 		if err != nil {
 			return err
 		}

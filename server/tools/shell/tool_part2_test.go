@@ -2,6 +2,9 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	"encoding/json"
 	"testing"
 	"time"
@@ -18,7 +21,7 @@ func runCompletionNoticeTest(t *testing.T, execID string, command string, pollID
 		return true
 	})
 
-	result := callExecCommand(t, NewExecCommandTool(t.TempDir(), 16_000, 200_000, manager, ""), execID, map[string]any{
+	result := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), execID, map[string]any{
 		"cmd":           command,
 		"shell":         "/bin/sh",
 		"login":         false,
@@ -86,6 +89,7 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf owner"},
 		DisplayCommand: "sleep briefly",
 		OwnerSessionID: "process-owner",
@@ -124,7 +128,7 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 func TestTerminalEventEmissionHoldsPollingInteractionLock(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	terminalHandlerStarted := make(chan struct{})
 	releaseTerminalHandler := make(chan struct{})
 	events := make(chan Event, 1)
@@ -192,7 +196,7 @@ func TestExecCommandClosesStdinForNonInteractiveProcess(t *testing.T) {
 		events <- evt
 		return true
 	})
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "eof-1", map[string]any{
 		"cmd":           "if read line; then echo line:$line; else echo eof; fi",
@@ -239,6 +243,7 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 	})
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		// Keep the signal-resistant process as the root: a waiting shell can exit
 		// normally when its child is killed, yielding a completed event instead.
 		Command:        []string{"/bin/sh", "-c", "trap '' TERM INT; exec sleep 30"},

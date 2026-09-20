@@ -80,18 +80,8 @@ func (a *Authority) PrepareDetachedScriptExecution(
 	if a.workflowExecutionByCurrentNodeLocked(req.Workflow, workflowKey) != nil {
 		return nil, fmt.Errorf("workflow current node %v is already live", req.Workflow.CurrentNode)
 	}
-	executionGeneration := a.nextExecutionGenerationLocked()
-	a.nextResource++
-	resourceGeneration := a.nextResource
-	if resourceGeneration == 0 {
-		a.closed = true
-		return nil, a.invariant(
-			"allocate detached Script resource generation",
-			errors.New("Session Runtime resource generation overflow"),
-		)
-	}
 	scopeID := runtimeids.NewExecutionScopeID()
-	scope := newScriptExecutionScope(scopeID, executionGeneration, resourceGeneration, &req.Workflow)
+	scope := newScriptExecutionScope(scopeID, &req.Workflow)
 	runCtx, cancel := context.WithCancel(a.lifecycleCtx)
 	execution := &execution{
 		authority: a, scope: scope, script: &TaskScriptExecutionTarget{Path: req.Command.Path},

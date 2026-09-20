@@ -53,16 +53,6 @@ func Validate(message proto.Message) error {
 	return nil
 }
 
-func DecodeJSON(encoded []byte, message proto.Message) error {
-	if message == nil {
-		return fmt.Errorf("generated message is required")
-	}
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(encoded, message); err != nil {
-		return fmt.Errorf("unmarshal generated JSON message: %w", err)
-	}
-	return Validate(message)
-}
-
 func EncodeJSON(message proto.Message) ([]byte, error) {
 	if err := Validate(message); err != nil {
 		return nil, err

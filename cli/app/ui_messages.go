@@ -80,7 +80,7 @@ type goalRuntimeDoneMsg struct {
 	objective      string
 	goal           *runtimepb.GoalView
 	setResult      *runtimepb.GoalSetSuccess
-	mutation       clientui.GoalMutationResult
+	mutation       *runtimepb.GoalMutationSuccess
 	diagnostic     error
 	err            error
 }
@@ -197,18 +197,11 @@ type runtimeReconnectWarningMsg struct {
 
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
-	req                      runtimeMainViewRefreshRequest
+	interruptedSubmitToken   *uint64
 	metadataBaselineRevision *uint64
 	view                     *runtimepb.MainView
 	err                      error
 }
-
-type runtimeMainViewRefreshCause string
-
-const (
-	runtimeMainViewRefreshCauseWorktreeMutation runtimeMainViewRefreshCause = "worktree_mutation"
-	runtimeMainViewRefreshCauseManual           runtimeMainViewRefreshCause = "manual"
-)
 
 type detailTranscriptLoadMsg struct {
 	requestID uuid.UUID

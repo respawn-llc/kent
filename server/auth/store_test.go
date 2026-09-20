@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -22,6 +23,50 @@ func TestFileStoreSaveWritesWithSecurePermissions(t *testing.T) {
 	}
 
 	assertAuthStateFileMode(t, statePath, authStateFileMode)
+}
+
+func TestFileStorePreservesCredentialsOnRewrite(t *testing.T) {
+	tests := []struct {
+		name       string
+		credential string
+		want       OAuthMethod
+	}{
+		{
+			name: "OAuth",
+			credential: `{
+				"access_token": "saved-access",
+				"refresh_token": "saved-refresh",
+				"token_type": "Bearer",
+				"expiry": "2030-01-01T12:00:00Z",
+				"account_id": "saved-account",
+				"email": "saved@example.invalid"
+			}`,
+			want: OAuthMethod{
+				AccessToken: "saved-access", RefreshToken: "saved-refresh",
+				Expiry:    time.Date(2030, time.January, 1, 12, 0, 0, 0, time.UTC),
+				AccountID: "saved-account", Email: "saved@example.invalid",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "auth.json")
+			persisted := `{"connections": {"work": ` + test.credential + `}}`
+			if err := os.WriteFile(path, []byte(persisted), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store := NewFileStore(path)
+			before := requireAuthState(t, store.Load)
+			if err := store.Save(context.Background(), before); err != nil {
+				t.Fatal(err)
+			}
+			after := requireAuthState(t, store.Load)
+			want := State{Connections: map[config.ConnectionID]OAuthMethod{"work": test.want}}
+			if !reflect.DeepEqual(before, want) || !reflect.DeepEqual(after, want) {
+				t.Fatal("credentials, identity, expiry, or auth selection were not preserved")
+			}
+		})
+	}
 }
 
 func TestFileStoreLoadCorrectsExistingFilePermissions(t *testing.T) {
@@ -69,7 +114,6 @@ func testOAuthState() State {
 			"work": {
 				AccessToken:  "oauth-access",
 				RefreshToken: "oauth-refresh",
-				TokenType:    "Bearer",
 				Expiry:       time.Date(2026, time.January, 1, 11, 0, 0, 0, time.UTC),
 			},
 		},

@@ -121,13 +121,6 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 	}
 }
 
-func (b *LocalToolRegistryBinding) Registry() *tools.Registry {
-	if b == nil {
-		return nil
-	}
-	return b.registry
-}
-
 func (b *LocalToolRegistryBinding) ReplaceEnabledTools(enabled []toolspec.ID) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

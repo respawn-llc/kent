@@ -2,6 +2,7 @@ package workflowsvc
 
 import (
 	"context"
+	"core/internal/testharness/workflowfixture"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -85,7 +86,7 @@ func TestWorkflowSessionCannotApproveItsOwnTask(t *testing.T) {
 		started.CurrentNodes[0],
 	)
 	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.ID), started.CurrentNodes[0])
-	completed, err := service.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       source,
 		TransitionID: "done",
 	})
@@ -233,7 +234,7 @@ func TestWorkflowSessionCanApproveAnotherTask(t *testing.T) {
 	targetTask := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	targetStarted := startWorkflowServiceTask(t, ctx, service, targetTask.Task.ID)
 	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(targetTask.Task.ID), targetStarted.CurrentNodes[0])
-	completed, err := service.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       source,
 		TransitionID: "done",
 	})
@@ -393,7 +394,7 @@ func TestUnboundSessionCanMutateAnyTask(t *testing.T) {
 		workflow.TaskID(approvalTask.Task.ID),
 		approvalStarted.CurrentNodes[0],
 	)
-	completed, err := service.store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       approvalSource,
 		TransitionID: "done",
 	})
@@ -450,7 +451,7 @@ func (s *taskMutationAuthorizationExecutionStub) Interrupt(_ context.Context, se
 	return nil
 }
 
-func (s *taskMutationAuthorizationExecutionStub) ResumeTask(_ context.Context, taskID workflow.TaskID) (workflowexecution.TaskResumeResult, error) {
+func (s *taskMutationAuthorizationExecutionStub) ResumeTask(_ context.Context, taskID workflow.TaskID, _ *workflowstore.ExecutionTargetCandidate) (workflowexecution.TaskResumeResult, error) {
 	s.resumedTaskIDs = append(s.resumedTaskIDs, taskID)
 	return workflowexecution.TaskResumeResult{
 		Outcome: workflowexecution.TaskResumeApplied,
@@ -461,15 +462,6 @@ func (s *taskMutationAuthorizationExecutionStub) ResumeTask(_ context.Context, t
 			},
 		}},
 	}, nil
-}
-
-func (s *taskMutationAuthorizationExecutionStub) ResumeTaskWithPreparation(
-	_ context.Context,
-	taskID workflow.TaskID,
-	_ workflowexecution.TaskStartPreparation,
-	_ workflowexecution.TaskPreparationFinalizer,
-) (workflowexecution.TaskResumeResult, error) {
-	return s.ResumeTask(context.Background(), taskID)
 }
 
 func bindWorkflowServiceSessionToTask(

@@ -122,7 +122,8 @@ func startConfiguredDaemonFixture(
 	request serverstartup.Request,
 ) *configuredDaemonFixture {
 	t.Helper()
-	daemon, err := serverstartup.StartServeServer(context.Background(), request, autoOnboarding)
+	writeAppTestSettings(t)
+	daemon, err := serverstartup.StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}

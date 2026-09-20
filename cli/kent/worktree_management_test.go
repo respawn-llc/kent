@@ -58,12 +58,12 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 		t.Fatal(err)
 	}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	runtimeSupport, err := bootstrap.BuildRuntimeSupport(cfg)
+	background, err := bootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	app, err := core.New(cfg, authSupport, runtimeSupport)
+	t.Cleanup(func() { _ = background.Close() })
+	app, err := core.New(cfg, authSupport, background)
 	if err != nil {
 		t.Fatal(err)
 	}

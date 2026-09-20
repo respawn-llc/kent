@@ -100,7 +100,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		LoadOptions: config.LoadOptions{
 			Model: "gpt-5",
 		},
-	}, envAuthHandler{}, nil)
+	})
 	connection, err := server.Config().Settings.SelectedConnection()
 	if err != nil || connection.Endpoint == nil || *connection.Endpoint != responseServer.URL() {
 		t.Fatalf("selected connection = %+v, error = %v", connection, err)

@@ -43,7 +43,6 @@ func (s *ServerStatusService) GetReadiness(ctx context.Context, _ *emptypb.Empty
 	readiness := &serverpb.Readiness{
 		Ready:           ready,
 		ServerVersion:   config.Version,
-		ServerBuild:     config.Version,
 		ProtocolVersion: protocol.Version,
 		AuthReady:       authReady,
 		AuthRequired:    authRequired,

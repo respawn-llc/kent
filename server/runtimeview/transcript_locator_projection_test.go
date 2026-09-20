@@ -37,12 +37,15 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
 	})
-	live := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
 		UserMessage:         "hello",
 		CommittedProvenance: provenance,
 	})
+	if err != nil {
+		t.Fatalf("project live user message: %v", err)
+	}
 
 	if len(page.Entries) != 1 || len(hydration.TailSegment.Entries) != 1 || len(live) != 1 {
 		t.Fatalf("projected rows: page=%d hydration=%d live=%d, want one each", len(page.Entries), len(hydration.TailSegment.Entries), len(live))

@@ -91,7 +91,7 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 	email := "user@example.com"
 	plan := "pro"
 	collector := Collector{}
-	snapshot, err := collector.Collect(context.Background(), Request{
+	result := collector.CollectAuth(context.Background(), Request{
 		WorkspaceRoot: t.TempDir(),
 		AuthStatus: statusAuthStatusStub{response: &authpb.Status{
 			Resolution: &authpb.StatusResolution{
@@ -107,15 +107,15 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 			},
 			Subscription: &authpb.SubscriptionFacts{Applicable: true, Plan: &plan},
 		}},
-	})
-	if err != nil {
-		t.Fatalf("collect status: %v", err)
+	}, Snapshot{})
+	if result.Warning != "" {
+		t.Fatalf("collect auth: %s", result.Warning)
 	}
-	if snapshot.Auth.Summary != email {
-		t.Fatalf("auth summary = %q", snapshot.Auth.Summary)
+	if result.Auth.Summary != email {
+		t.Fatalf("auth summary = %q", result.Auth.Summary)
 	}
-	if !snapshot.Subscription.Applicable {
-		t.Fatalf("subscription = %+v", snapshot.Subscription)
+	if !result.Subscription.Applicable {
+		t.Fatalf("subscription = %+v", result.Subscription)
 	}
 }
 

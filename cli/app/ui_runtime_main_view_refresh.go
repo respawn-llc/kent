@@ -11,51 +11,31 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type runtimeSyncPolicyClass uint8
-
-const (
-	runtimeSyncPolicyClassAllowed runtimeSyncPolicyClass = iota + 1
-	runtimeSyncPolicyClassRoutine
-)
-
-type runtimeMainViewRefreshRequest struct {
-	cause                  runtimeMainViewRefreshCause
-	class                  runtimeSyncPolicyClass
-	priority               int
-	interruptedSubmitToken *uint64
-}
-
-type runtimeMainViewRefreshDecision struct {
-	cmd         tea.Cmd
-	started     bool
-	deferred    bool
-	busyPending bool
-}
-
 type runtimeMainViewCandidateClient interface {
 	fetchMainView() (*runtimepb.MainView, error)
 }
 
-func (m *uiModel) startRuntimeMainViewRefreshRequest(request runtimeMainViewRefreshRequest) runtimeMainViewRefreshDecision {
+func (m *uiModel) startRuntimeMainViewRefresh(interruptedSubmitToken *uint64) tea.Cmd {
 	if m == nil || !m.hasRuntimeClient() {
-		return runtimeMainViewRefreshDecision{}
+		return nil
 	}
-	request = normalizeRuntimeMainViewRefreshRequest(request)
 	if m.runtimeMainViewBusy {
-		m.mergePendingRuntimeMainViewRefresh(request)
-		return runtimeMainViewRefreshDecision{busyPending: true}
+		m.runtimeMainViewPendingSet = true
+		if interruptedSubmitToken != nil {
+			m.runtimeMainViewPendingInterruptedSubmitToken = interruptedSubmitToken
+		}
+		return nil
 	}
 	m.runtimeMainViewToken++
 	token := m.runtimeMainViewToken
 	client := m.runtimeClient()
 	m.runtimeMainViewBusy = true
-	m.runtimeMainViewActiveRequest = request
 	var metadataBaselineRevision *uint64
 	if sessionClient, ok := client.(*sessionRuntimeClient); ok {
 		revision := sessionClient.mainViewMetadataRevision()
 		metadataBaselineRevision = &revision
 	}
-	cmd := func() tea.Msg {
+	return func() tea.Msg {
 		var (
 			view *runtimepb.MainView
 			err  error
@@ -67,62 +47,22 @@ func (m *uiModel) startRuntimeMainViewRefreshRequest(request runtimeMainViewRefr
 		}
 		return runtimeMainViewRefreshedMsg{
 			token:                    token,
-			req:                      request,
+			interruptedSubmitToken:   interruptedSubmitToken,
 			metadataBaselineRevision: metadataBaselineRevision,
 			view:                     view,
 			err:                      err,
 		}
 	}
-	return runtimeMainViewRefreshDecision{cmd: cmd, started: true}
 }
 
-func normalizeRuntimeMainViewRefreshRequest(req runtimeMainViewRefreshRequest) runtimeMainViewRefreshRequest {
-	if req.cause == "" {
-		req.cause = runtimeMainViewRefreshCauseManual
-	}
-	if req.class == 0 {
-		req.class = runtimeSyncPolicyClassRoutine
-	}
-	if req.priority == 0 {
-		req.priority = 10
-	}
-	return req
-}
-
-func runtimeMainViewRefreshRequestForCause(cause runtimeMainViewRefreshCause) runtimeMainViewRefreshRequest {
-	priority := 10
-	class := runtimeSyncPolicyClassRoutine
-	switch cause {
-	case runtimeMainViewRefreshCauseWorktreeMutation:
-		class = runtimeSyncPolicyClassAllowed
-		priority = 50
-	}
-	return normalizeRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequest{cause: cause, class: class, priority: priority})
-}
-
-func (m *uiModel) mergePendingRuntimeMainViewRefresh(req runtimeMainViewRefreshRequest) {
-	if m == nil {
-		return
-	}
-	req = normalizeRuntimeMainViewRefreshRequest(req)
-	if !m.runtimeMainViewPendingSet || req.priority >= m.runtimeMainViewPending.priority {
-		m.runtimeMainViewPending = req
-		m.runtimeMainViewPendingSet = true
-	}
-}
-
-func (m *uiModel) drainPendingRuntimeMainViewRefresh() runtimeMainViewRefreshDecision {
+func (m *uiModel) drainPendingRuntimeMainViewRefresh() tea.Cmd {
 	if m == nil || !m.runtimeMainViewPendingSet || m.runtimeMainViewBusy {
-		return runtimeMainViewRefreshDecision{}
+		return nil
 	}
-	req := m.runtimeMainViewPending
-	m.runtimeMainViewPending = runtimeMainViewRefreshRequest{}
 	m.runtimeMainViewPendingSet = false
-	return m.startRuntimeMainViewRefreshRequest(req)
-}
-
-func (m *uiModel) releaseDeferredRuntimeSyncs() tea.Cmd {
-	return m.drainPendingRuntimeMainViewRefresh().cmd
+	interruptedSubmitToken := m.runtimeMainViewPendingInterruptedSubmitToken
+	m.runtimeMainViewPendingInterruptedSubmitToken = nil
+	return m.startRuntimeMainViewRefresh(interruptedSubmitToken)
 }
 
 func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg) tea.Cmd {
@@ -130,15 +70,9 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 		return nil
 	}
 	m.runtimeMainViewBusy = false
-	req := msg.req
-	if req == (runtimeMainViewRefreshRequest{}) {
-		req = m.runtimeMainViewActiveRequest
-	}
-	req = normalizeRuntimeMainViewRefreshRequest(req)
-	m.runtimeMainViewActiveRequest = runtimeMainViewRefreshRequest{}
 	if msg.err != nil {
 		m.observeRuntimeRequestResult(msg.err)
-		return m.drainPendingRuntimeMainViewRefresh().cmd
+		return m.drainPendingRuntimeMainViewRefresh()
 	}
 	m.observeRuntimeRequestResult(nil)
 	canonical := msg.view
@@ -151,12 +85,12 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 	}
 	applyCmd := m.applyRuntimeMainViewState(canonical)
 	var restoreCmd tea.Cmd
-	if req.interruptedSubmitToken != nil && m.activeSubmit.token == *req.interruptedSubmitToken &&
+	if msg.interruptedSubmitToken != nil && m.activeSubmit.token == *msg.interruptedSubmitToken &&
 		canonical.Activity != nil && !protoapi.RuntimeActivityActiveForControl(canonical.Activity) {
 		m.activeSubmit = activeSubmitState{}
 		restoreCmd = m.inputController().restoreInterruptedInputsIntoComposer()
 	}
-	return sequenceCmds(applyCmd, restoreCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh().cmd)
+	return sequenceCmds(applyCmd, restoreCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh())
 }
 
 func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) tea.Cmd {

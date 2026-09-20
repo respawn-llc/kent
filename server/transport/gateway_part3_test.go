@@ -136,12 +136,12 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 		}
 	}
 	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, resolved.Config.Settings)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
+	background, err := serverbootstrap.BuildShellManager(resolved.Config)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.New(resolved.Config, authSupport, background)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

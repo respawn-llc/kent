@@ -27,8 +27,12 @@ func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Capabilities.ProviderID != "chatgpt-codex" || resolved.TransportCapabilities.ProviderID != "openai-compatible" ||
-		!resolved.Capabilities.SupportsReasoningEncrypted || resolved.TransportCapabilities.SupportsReasoningEncrypted {
+	transport, err := ResolveRuntimeProviderCapabilities(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ProviderID != "chatgpt-codex" || transport.ProviderID != "openai-compatible" ||
+		!resolved.SupportsReasoningEncrypted || transport.SupportsReasoningEncrypted {
 		t.Fatalf("historical contract and actual transport were conflated: %+v", resolved)
 	}
 	settings.Connections[id] = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
@@ -47,7 +51,7 @@ func TestConnectionCapabilityOverrides(t *testing.T) {
 		},
 	}}
 	resolved, err := ResolveEffectiveProviderCapabilities(nil, settings)
-	if err != nil || resolved.Capabilities.ProviderID != "custom" || !resolved.Capabilities.SupportsProviderVerbosity {
+	if err != nil || resolved.ProviderID != "custom" || !resolved.SupportsProviderVerbosity {
 		t.Fatalf("connection capability override = %+v, %v", resolved, err)
 	}
 }

@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"core/server/llm"
+	"core/server/tools"
 	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 	"core/shared/transcript"
 )
 
@@ -388,11 +390,12 @@ func localCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, e
 		ToolCalls: calls,
 	}})
 	for _, call := range calls {
+		result := toolErrorResult(tools.Call{ID: call.ID, Name: toolspec.ID(call.Name)}, localCompactionToolsDisabledMessage)
 		items = append(items, llm.ResponseItem{
 			Type:   llm.ToolOutputItemType(call.Custom),
 			CallID: textutil.OptionalTrimmedString(call.ID),
 			Name:   textutil.OptionalExactString(call.Name),
-			Output: mustJSON(map[string]any{"error": localCompactionToolsDisabledMessage}),
+			Output: result.Output,
 		})
 	}
 	return llm.PrepareOpenAIInputItems(items), nil

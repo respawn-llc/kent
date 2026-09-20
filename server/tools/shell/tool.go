@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"core/server/tools"
+	"core/shared/textutil"
 )
 
 const (
@@ -28,6 +31,16 @@ func marshalNoHTMLEscape(v any) (json.RawMessage, error) {
 		return nil, err
 	}
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+// ErrorResult returns a shell failure with plaintext model-facing output.
+func ErrorResult(c tools.Call, message string) tools.Result {
+	// Encoding a string into the in-memory buffer cannot fail.
+	body, _ := marshalNoHTMLEscape(message)
+	return tools.Result{
+		CallID: c.ID, Name: c.Name, Output: body, IsError: true,
+		Summary: textutil.OptionalExactString(message),
+	}
 }
 
 func formatToolCallError(toolName string, err error) string {

@@ -88,7 +88,6 @@ func TestFetchUsagePayloadUsesTypedOAuthHeaders(t *testing.T) {
 
 	_, err := fetchUsagePayload(context.Background(), server.URL, auth.OAuthMethod{
 		AccessToken: "access-token",
-		TokenType:   "Bearer",
 		AccountID:   "acct-1",
 	})
 	if err != nil {

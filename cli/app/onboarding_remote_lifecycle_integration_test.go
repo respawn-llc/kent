@@ -243,12 +243,12 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeSupport, err := bootstrap.BuildRuntimeSupport(cfg)
+	background, err := bootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(cfg, authSupport, runtimeSupport)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.New(cfg, authSupport, background)
 	if err != nil {
 		t.Fatal(err)
 	}

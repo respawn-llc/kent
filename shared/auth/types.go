@@ -26,7 +26,6 @@ type Method struct {
 type OAuthMethod struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
-	TokenType    string    `json:"token_type"`
 	Expiry       time.Time `json:"expiry"`
 	AccountID    string    `json:"account_id,omitempty"`
 	Email        string    `json:"email,omitempty"`

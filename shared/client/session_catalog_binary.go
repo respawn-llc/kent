@@ -21,7 +21,7 @@ func (c *Remote) ListSessionPage(ctx context.Context, request *projectpb.Session
 	response, err := callGeneratedBinary(c, ctx, sessionCatalogMethod("Page"), request,
 		&projectpb.SessionPageResult{},
 		func(failure *projectpb.SessionPageError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 	if err != nil {
 		return nil, err

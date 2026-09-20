@@ -8,6 +8,10 @@ func cloneMeta(in Meta) Meta {
 		id := *in.ConnectionID
 		out.ConnectionID = &id
 	}
+	if in.Category != nil {
+		category := *in.Category
+		out.Category = &category
+	}
 	if in.ProtectedInputDraft != nil {
 		text := *in.ProtectedInputDraft
 		out.ProtectedInputDraft = &text

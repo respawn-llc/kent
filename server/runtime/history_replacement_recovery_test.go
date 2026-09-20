@@ -449,7 +449,6 @@ func newCommittedRemoteCompactionFixture(
 	fixture := &committedRemoteCompactionFixture{
 		store: mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(observer)),
 		client: &fakeCompactionClient{
-			inputTokenCount: 2_000,
 			compactionResponses: []llm.CompactionResponse{{
 				Checkpoint: llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,

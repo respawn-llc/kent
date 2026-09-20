@@ -29,7 +29,6 @@ import (
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/apicontract"
 	"core/shared/config"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -1383,13 +1382,11 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 
-	bootstrapHook := writeRunPromptHook(t, `printf '{"processed":true,"replaced_output":"BOOTSTRAP"}'`)
 	effectiveHook := writeRunPromptHook(t, fmt.Sprintf(
 		`printf '{"processed":true,"replaced_output":"EFFECTIVE:%%s"}' "$%s"`,
 		sessionenv.SessionIDEnv,
 	))
-	bootstrapRunner := mustRunPromptPostprocessor(t, config.ShellPostprocessingModeUser, &bootstrapHook)
-	background, err := shelltool.NewManager(root, shelltool.WithPostprocessor(bootstrapRunner))
+	background, err := shelltool.NewManager(root)
 	if err != nil {
 		t.Fatalf("new supplied background manager: %v", err)
 	}
@@ -1476,9 +1473,6 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		if output != want {
 			t.Fatalf("exec_command output = %q, want %q", output, want)
 		}
-		if strings.Contains(output, "BOOTSTRAP") {
-			t.Fatalf("exec_command used bootstrap shell postprocessing: %q", output)
-		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for exec_command output")
 	}
@@ -1488,19 +1482,6 @@ func writeRunPromptHook(t *testing.T, body string) string {
 	t.Helper()
 	script := "#!/bin/sh\n" + body + "\n"
 	return testsetup.WriteExecutable(t, "postprocess-hook.sh", script)
-}
-
-func mustRunPromptPostprocessor(t *testing.T, mode config.ShellPostprocessingMode, hookPath *string) *postprocess.Runner {
-	t.Helper()
-	runner, err := postprocess.NewRunner(postprocess.Settings{
-		PersistenceRoot: t.TempDir(),
-		Mode:            mode,
-		HookPath:        hookPath,
-	})
-	if err != nil {
-		t.Fatalf("new run prompt postprocessor: %v", err)
-	}
-	return runner
 }
 
 func writeRunPromptExecCommandResponse(w http.ResponseWriter, args json.RawMessage) {

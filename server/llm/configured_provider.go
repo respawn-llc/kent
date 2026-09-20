@@ -9,24 +9,19 @@ import (
 	"core/shared/config"
 )
 
-type EffectiveProviderResolution struct {
-	Capabilities          ProviderCapabilities
-	TransportCapabilities ProviderCapabilities
-}
-
 // ResolveEffectiveProviderCapabilities preserves the historical request
 // contract independently of the selected connection's actual transport.
-func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settings config.Settings) (EffectiveProviderResolution, error) {
+func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settings config.Settings) (ProviderCapabilities, error) {
 	actual, err := ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
-		return EffectiveProviderResolution{}, err
+		return ProviderCapabilities{}, err
 	}
 	effective := actual
 	if contract, present := ProviderCapabilitiesFromLocked(locked); present {
 		effective = contract
 		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
 	}
-	return EffectiveProviderResolution{Capabilities: effective, TransportCapabilities: actual}, nil
+	return effective, nil
 }
 
 func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapabilities, error) {

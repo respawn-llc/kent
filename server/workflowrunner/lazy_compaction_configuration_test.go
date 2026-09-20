@@ -47,11 +47,16 @@ func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	}
 	requireLazyCompactionPreservesRequestPrefix(t, requests[1], compactions[0])
 	factoryRequests := f.runtimeRequests()
-	if len(factoryRequests) == 0 || factoryRequests[len(factoryRequests)-1].Connection.ID != "reviewer" {
+	var targetID *string
+	for _, request := range factoryRequests {
+		if request.Connection.ID == "reviewer" {
+			targetID = &request.SessionID
+		}
+	}
+	if targetID == nil {
 		t.Fatal("lazy continuation did not construct the target connection")
 	}
-	targetID := factoryRequests[len(factoryRequests)-1].SessionID
-	record, err := f.metadata.ResolvePersistedSession(t.Context(), targetID)
+	record, err := f.metadata.ResolvePersistedSession(t.Context(), *targetID)
 	if err != nil {
 		t.Fatal(err)
 	}

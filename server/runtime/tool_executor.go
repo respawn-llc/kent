@@ -10,6 +10,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	shelltool "core/server/tools/shell"
 	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/textutil"
@@ -117,13 +118,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 				serialGate.wait(serialOrdinal)
 				defer serialGate.done(serialOrdinal)
 			}
-			callCtx := tools.WithExecutionIdentity(executionCtx, tools.ExecutionIdentity{
-				RunID:      runID,
-				StepID:     stepID,
-				ToolCallID: clientui.ToolCallID(tc.ID),
-			})
-			callCtx = tools.WithApprovalLifecycle(callCtx, tools.NewApprovalLifecycle())
-			res, completed, callErr := t.executePreparedToolCall(callCtx, stepID, runID, tc, toolID, knownTool, inputErr, askBatch)
+			res, completed, callErr := e.executePreparedToolCall(executionCtx, stepID, runID, tc, toolID, knownTool, inputErr, askBatch)
 			if fatal := collector.fatalSnapshot(); fatal != nil {
 				return
 			}
@@ -254,7 +249,14 @@ func resultGroupFlushReasonForEffect(
 	}
 }
 
-func (t *defaultToolExecutor) executePreparedToolCall(
+func toolErrorResult(call tools.Call, message string) tools.Result {
+	if call.Name == toolspec.ToolExecCommand || call.Name == toolspec.ToolWriteStdin {
+		return shelltool.ErrorResult(call, message)
+	}
+	return tools.ErrorResult(call, message)
+}
+
+func (e *Engine) executePreparedToolCall(
 	ctx context.Context,
 	stepID string,
 	runID string,
@@ -264,34 +266,36 @@ func (t *defaultToolExecutor) executePreparedToolCall(
 	inputErr error,
 	askBatch *tools.AskQuestionBatchMetadata,
 ) (tools.Result, bool, error) {
+	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
+		RunID: runID, StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
+	})
+	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
+	toolCall := tools.Call{
+		ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID,
+		AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: e.cfg.AskQuestionBatchSkipped,
+	}
 	if !knownTool {
 		return tools.Result{CallID: call.ID, Name: toolspec.ID(call.Name), IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: textutil.Value("unknown tool")}, true, nil
 	}
 	if toolID == toolspec.ToolCompleteNode {
-		result, err := t.executeCompleteNodeTool(ctx, stepID, call)
+		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
 		return result, true, err
 	}
 	if inputErr != nil {
-		return tools.ErrorResult(tools.Call{
-			ID:     call.ID,
-			Name:   toolID,
-			Input:  call.Input,
-			RunID:  runID,
-			StepID: stepID,
-		}, inputErr.Error()), true, nil
+		return toolErrorResult(toolCall, inputErr.Error()), true, nil
 	}
 	if toolID == toolspec.ToolWebSearch {
 		if err := tools.ValidateWebSearchInput(call.Input); err != nil {
 			return tools.ErrorResult(tools.Call{ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID}, tools.InvalidWebSearchQueryMessage), true, nil
 		}
 	}
-	handler, ok := t.engine.registry.Get(toolID)
+	handler, ok := e.registry.Get(toolID)
 	if !ok {
-		return tools.Result{CallID: call.ID, Name: toolID, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: textutil.Value("unknown tool")}, true, nil
+		return toolErrorResult(toolCall, errUnknownTool.Error()), true, nil
 	}
 	result, err := handler.Call(
 		ctx,
-		tools.Call{ID: call.ID, Name: toolID, Input: call.Input, RunID: runID, StepID: stepID, AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: t.engine.cfg.AskQuestionBatchSkipped},
+		toolCall,
 	)
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&
@@ -300,7 +304,7 @@ func (t *defaultToolExecutor) executePreparedToolCall(
 			return tools.Result{}, false, err
 		}
 		if !toolResultHasCompletedOutcome(result) {
-			result = tools.Result{CallID: call.ID, Name: toolID, IsError: true, Output: mustJSON(map[string]any{"error": err.Error()}), Summary: textutil.Value(err.Error())}
+			result = toolErrorResult(toolCall, err.Error())
 		}
 	}
 	result.CallID = call.ID
@@ -468,8 +472,7 @@ func serialToolExecutionRequired(toolID toolspec.ID, workflowActive bool) bool {
 	}
 }
 
-func (t *defaultToolExecutor) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) (tools.Result, error) {
-	e := t.engine
+func (e *Engine) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) (tools.Result, error) {
 	result := tools.Result{CallID: call.ID, Name: toolspec.ToolCompleteNode}
 	execution, active := e.currentNodeExecutionConfig()
 	if !active || execution.Controller == nil {

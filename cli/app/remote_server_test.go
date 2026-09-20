@@ -31,7 +31,7 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFi
 	daemon, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)

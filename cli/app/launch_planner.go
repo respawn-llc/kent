@@ -141,7 +141,7 @@ func (l projectScopedSessionPageLoader) ProjectID() string {
 }
 
 func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, request sessionPageRequest) (sessionPageResponse, error) {
-	category, err := client.SessionCategoryToProto(request.Category)
+	category, err := protoapi.SessionCategoryToProto(request.Category)
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
@@ -158,7 +158,7 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
-	responseCategory, err := client.SessionCategoryFromProto(response.Category)
+	responseCategory, err := protoapi.SessionCategoryFromProto(response.Category)
 	if err != nil {
 		return sessionPageResponse{}, err
 	}

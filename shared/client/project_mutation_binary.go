@@ -6,7 +6,6 @@ import (
 
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
@@ -35,7 +34,6 @@ func (c *Remote) SetDefaultWorkspace(ctx context.Context, request *projectpb.Set
 				failure.GetWorkspacePathIdentity(),
 				nil,
 				failure.GetWorkspaceMutationFailed(),
-				failure.GetInternalFailure(),
 			)
 		})
 }
@@ -51,7 +49,6 @@ func (c *Remote) UnlinkWorkspaceFromProject(ctx context.Context, request *projec
 				failure.GetWorkspacePathIdentity(),
 				failure.GetWorkspaceDetachConflict(),
 				failure.GetWorkspaceMutationFailed(),
-				failure.GetInternalFailure(),
 			)
 		})
 	if err != nil {
@@ -71,11 +68,8 @@ func (c *Remote) DeleteProject(ctx context.Context, request *projectpb.DeletePro
 	response, err := callGeneratedBinary(c, ctx, projectCatalogMethod("Delete"), request,
 		&projectpb.DeleteProjectResult{},
 		func(failure *projectpb.DeleteProjectError) error {
-			if failure.Code == "auth_required" {
-				return serverapi.ErrServerAuthRequired
-			}
 			return projectNotFoundGeneratedError(
-				failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+				failure.Code, failure.GetProjectNotFound())
 		})
 	if err != nil {
 		return nil, err
@@ -112,20 +106,16 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 		&projectpb.RebindWorkspaceResult{},
 		func(failure *projectpb.RebindWorkspaceError) error {
 			switch failure.Code {
-			case "auth_required":
-				return serverapi.ErrServerAuthRequired
 			case "workspace_not_registered":
-				return workspaceNotRegisteredError(failure.GetWorkspaceNotRegistered())
+				return protoapi.WorkspaceNotRegisteredFromProto(failure.GetWorkspaceNotRegistered())
 			case "workspace_binding_ambiguous":
-				return workspaceBindingAmbiguousMutationError(failure.GetWorkspaceBindingAmbiguous())
+				return protoapi.WorkspaceBindingAmbiguousMutationFromProto(failure.GetWorkspaceBindingAmbiguous())
 			case "workspace_already_bound":
 				return validateEmptyProjectMutationDetail(
 					failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
 			case "workspace_path_missing":
 				return validateEmptyProjectMutationDetail(
 					failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}
@@ -134,16 +124,12 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 
 func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_key_conflict":
 		return projectKeyConflictError(failure.GetProjectKeyConflict())
 	case "workspace_already_bound":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
 	case "workspace_path_missing":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -151,14 +137,10 @@ func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 
 func projectUpdateGeneratedError(failure *projectpb.UpdateProjectError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "project_key_conflict":
 		return projectKeyConflictError(failure.GetProjectKeyConflict())
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -166,16 +148,12 @@ func projectUpdateGeneratedError(failure *projectpb.UpdateProjectError) error {
 
 func projectAttachGeneratedError(failure *projectpb.AttachWorkspaceError) error {
 	switch failure.Code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "workspace_already_bound":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
 	case "workspace_path_missing":
 		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -188,86 +166,37 @@ func projectWorkspaceMutationGeneratedError(
 	pathIdentity *projectpb.WorkspacePathIdentityDetails,
 	detachConflict *projectpb.WorkspaceDetachConflictDetails,
 	mutation *projectpb.WorkspaceMutationDetails,
-	internal *sharedpb.InternalFailureDetails,
 ) error {
 	switch code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
 	case "project_not_found":
 		return projectNotFoundError(notFound)
 	case "workspace_not_registered":
-		return workspaceNotRegisteredError(notRegistered)
+		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "workspace_path_identity":
-		return workspacePathIdentityError(pathIdentity)
+		return protoapi.WorkspacePathIdentityFromProto(pathIdentity)
 	case "workspace_detach_conflict":
-		return workspaceDetachConflictError(detachConflict)
+		return protoapi.WorkspaceDetachConflictFromProto(detachConflict)
 	case "workspace_mutation_failed":
-		return workspaceMutationError(mutation)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(internal)
+		return protoapi.WorkspaceMutationFromProto(mutation)
 	default:
 		return generatedOperationFailure(code)
 	}
 }
 
-func workspaceNotRegisteredError(details *projectpb.WorkspaceNotRegisteredDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	return serverapi.ErrWorkspaceNotRegistered
-}
-
-func workspaceBindingAmbiguousMutationError(details *projectpb.WorkspaceBindingAmbiguousMutationDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	return serverapi.WorkspaceBindingAmbiguousError{ProjectIDs: append([]string(nil), details.ProjectIds...)}
-}
-
 func workspaceBindingAmbiguousError(details *projectpb.WorkspaceBindingAmbiguousDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	return serverapi.WorkspaceBindingAmbiguousError{
-		CanonicalRoot: details.CanonicalRoot,
-		ProjectIDs:    append([]string(nil), details.ProjectIds...),
-	}
-}
-
-func projectUnavailableError(details *projectpb.ProjectUnavailableDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	availability, err := ProjectAvailabilityFromProto(details.Availability)
+	value, err := protoapi.WorkspaceBindingAmbiguousFromProto(details)
 	if err != nil {
 		return err
 	}
-	return serverapi.ProjectUnavailableError{
-		ProjectID:    details.ProjectId,
-		RootPath:     details.RootPath,
-		Availability: availability,
-	}
+	return value
 }
 
-func workspacePathIdentityError(details *projectpb.WorkspacePathIdentityDetails) error {
-	if err := protoapi.Validate(details); err != nil {
+func projectUnavailableError(details *projectpb.ProjectUnavailableDetails) error {
+	value, err := protoapi.ProjectUnavailableFromProto(details)
+	if err != nil {
 		return err
 	}
-	return serverapi.WorkspacePathIdentityError{WorkspaceRoot: details.WorkspaceRoot}
-}
-
-func workspaceDetachConflictError(details *projectpb.WorkspaceDetachConflictDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	return &serverapi.WorkspaceDetachConflictError{ProjectID: details.ProjectId, WorkspaceID: details.WorkspaceId}
-}
-
-func workspaceMutationError(details *projectpb.WorkspaceMutationDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
-	return &serverapi.WorkspaceMutationError{ProjectID: details.ProjectId, WorkspaceID: details.WorkspaceId}
+	return value
 }
 
 func projectKeyConflictError(details *projectpb.ProjectKeyConflictDetails) error {

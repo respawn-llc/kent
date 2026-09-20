@@ -262,7 +262,6 @@ func TestRefreshOpenAIAuthToken(t *testing.T) {
 		OAuth: &OAuthMethod{
 			AccessToken:  "old-access",
 			RefreshToken: "old-refresh",
-			TokenType:    "Bearer",
 			Expiry:       time.Now().Add(-time.Minute),
 		},
 	})

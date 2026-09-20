@@ -87,10 +87,6 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 	if s.view == nil {
 		return nil, errors.New("persisted Session view is required")
 	}
-	segment, err := s.newestSegment(ctx)
-	if err != nil {
-		return nil, err
-	}
 	meta := s.view.Meta()
 	sessionFreshness := s.view.ConversationFreshness()
 	version, err := protoapi.NewReadModelVersion(
@@ -123,19 +119,18 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		return nil, err
 	}
 	status := &runtimepb.Status{
-		ReviewerFrequency:                 strings.TrimSpace(s.projection.settings.Reviewer.Frequency),
-		ReviewerEnabled:                   strings.TrimSpace(s.projection.settings.Reviewer.Frequency) != "off",
-		AutoCompactionEnabled:             s.projection.autoCompactionEnabled,
-		QuestionsEnabled:                  s.projection.questionsEnabled,
-		FastModeAvailable:                 s.projection.fastModeAvailable,
-		FastModeEnabled:                   s.projection.fastModeAvailable && s.projection.settings.PriorityRequestMode,
-		ConversationFreshness:             freshness,
-		PreviousSessionId:                 protoapi.OptionalSessionIDToProto(meta.PreviousSessionID),
-		ParentAgentSessionId:              protoapi.OptionalSessionIDToProto(meta.ParentAgentSessionID),
-		NavigationTargetSessionId:         protoapi.OptionalSessionIDToProto(session.NavigationTargetSessionID(meta)),
-		LastCommittedAssistantFinalAnswer: segment.LastCommittedAssistantFinalAnswer,
-		ThinkingLevel:                     strings.TrimSpace(s.projection.settings.ThinkingLevel),
-		CompactionMode:                    string(s.projection.settings.CompactionMode),
+		ReviewerFrequency:         strings.TrimSpace(s.projection.settings.Reviewer.Frequency),
+		ReviewerEnabled:           strings.TrimSpace(s.projection.settings.Reviewer.Frequency) != "off",
+		AutoCompactionEnabled:     s.projection.autoCompactionEnabled,
+		QuestionsEnabled:          s.projection.questionsEnabled,
+		FastModeAvailable:         s.projection.fastModeAvailable,
+		FastModeEnabled:           s.projection.fastModeAvailable && s.projection.settings.PriorityRequestMode,
+		ConversationFreshness:     freshness,
+		PreviousSessionId:         protoapi.OptionalSessionIDToProto(meta.PreviousSessionID),
+		ParentAgentSessionId:      protoapi.OptionalSessionIDToProto(meta.ParentAgentSessionID),
+		NavigationTargetSessionId: protoapi.OptionalSessionIDToProto(session.NavigationTargetSessionID(meta)),
+		ThinkingLevel:             strings.TrimSpace(s.projection.settings.ThinkingLevel),
+		CompactionMode:            string(s.projection.settings.CompactionMode),
 		ContextUsage: &runtimepb.ContextUsage{
 			UsedTokens:   usedTokens,
 			WindowTokens: windowTokens,

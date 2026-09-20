@@ -19,7 +19,7 @@ func TestDeleteWorkflowCleansCrossWorkflowDependenciesAndTouchesSurvivors(t *tes
 	if err != nil {
 		t.Fatalf("GetDefinition deleted workflow: %v", err)
 	}
-	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{
+	if _, err := moveTask(t, store, ctx, ManualMoveRequest{
 		TaskID:       deletedTask.ID,
 		TargetNodeID: workflow.NodeIDOf(nodeByKind(t, deletedDefinition, workflow.NodeKindTerminal)),
 	}); err != nil {
@@ -65,7 +65,7 @@ func TestDeleteProjectCascadesTaskDependenciesWithoutSurvivorTouch(t *testing.T)
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	for _, task := range []TaskRecord{blocker, blocked} {
-		if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{
+		if _, err := moveTask(t, store, ctx, ManualMoveRequest{
 			TaskID:       task.ID,
 			TargetNodeID: workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindTerminal)),
 		}); err != nil {

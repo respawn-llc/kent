@@ -1,5 +1,4 @@
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
-import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import type { SessionExecutionTarget } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type {
   ChatActivityFacts,
@@ -12,6 +11,7 @@ import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 import { goalFactFromWire } from "./chatGoal";
 import { ContractError } from "./errors";
 import { enumValue, required, safeNumber } from "./chatWire";
+import { projectAvailability } from "./clientProject";
 
 export function conversationFreshness(value: R.ConversationFreshness): 0 | 1 {
   return enumValue(value, { [R.ConversationFreshness.FRESH]: 0, [R.ConversationFreshness.ESTABLISHED]: 1 });
@@ -30,21 +30,12 @@ export function activeKind(value: R.ActivityActiveKind): ChatActiveKind {
   });
 }
 
-function availability(value: ProjectAvailability): ChatExecutionFacts["WorkspaceAvailability"] {
-  return enumValue(value, {
-    [ProjectAvailability.AVAILABLE]: "available",
-    [ProjectAvailability.MISSING]: "missing",
-    [ProjectAvailability.INACCESSIBLE]: "inaccessible",
-    [ProjectAvailability.UNLINKED]: "unlinked",
-  });
-}
-
 export function executionFacts(value: SessionExecutionTarget): ChatExecutionFacts {
   return {
     WorkspaceID: value.workspaceId ?? null,
     WorkspaceName: value.workspaceName,
     WorkspaceRoot: value.workspaceRoot,
-    WorkspaceAvailability: availability(value.workspaceAvailability),
+    WorkspaceAvailability: projectAvailability(value.workspaceAvailability),
     Worktree:
       value.worktree === undefined
         ? null
@@ -52,7 +43,7 @@ export function executionFacts(value: SessionExecutionTarget): ChatExecutionFact
             ID: value.worktree.id,
             Name: value.worktree.name,
             Root: value.worktree.root,
-            Availability: availability(value.worktree.availability),
+            Availability: projectAvailability(value.worktree.availability),
           },
     CwdRelpath: value.cwdRelpath,
     EffectiveWorkdir: value.effectiveWorkdir,
@@ -123,7 +114,6 @@ function runtimeStatus(value: R.Status): ChatRuntimeStatus {
     previousSessionID: value.previousSessionId ?? null,
     parentAgentSessionID: value.parentAgentSessionId ?? null,
     navigationTargetSessionID: value.navigationTargetSessionId ?? null,
-    lastCommittedAssistantFinalAnswer: value.lastCommittedAssistantFinalAnswer ?? null,
     thinkingLevel: value.thinkingLevel,
     compactionMode: value.compactionMode,
     contextUsage: {

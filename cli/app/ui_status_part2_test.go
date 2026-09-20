@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"core/shared/gitenv"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -25,6 +27,8 @@ func TestStatusLineGitStartupUsesRuntimeWorktreeRootBranch(t *testing.T) {
 	workspaceRoot := initStatusLineGitRepo(t, "workspace-branch")
 	worktreeRoot := initStatusLineGitRepo(t, "worktree-branch")
 	t.Chdir(processRoot)
+	t.Setenv("GIT_DIR", filepath.Join(processRoot, ".git"))
+	t.Setenv("GIT_WORK_TREE", processRoot)
 
 	runtimeClient := &runtimeControlFakeClient{sessionView: &runtimepb.SessionView{
 		ExecutionTarget: &worktreepb.SessionExecutionTarget{
@@ -196,6 +200,46 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	}
 }
 
+func TestStatusRefreshSectionFailurePreservesProgressiveResults(t *testing.T) {
+	collector := &stubProgressiveStatusCollector{
+		gitResult: uiStatusGitStageResult{Git: uiStatusGitInfo{Visible: true, Branch: "working-branch"}},
+		envResult: uiStatusEnvironmentStageResult{CollectorWarning: "environment inspection failed"},
+	}
+	model := newProjectedStaticUIModel(WithUIStatusCollector(collector))
+	cmd := model.statusRefreshCmd()
+	if !model.status.loading {
+		t.Fatal("refresh did not expose loading while sections were pending")
+	}
+	messages := collectCmdMessages(t, cmd)
+	var environment statusEnvironmentRefreshDoneMsg
+	for _, message := range messages {
+		if result, ok := message.(statusEnvironmentRefreshDoneMsg); ok {
+			environment = result
+		}
+	}
+	next, _ := model.Update(environment)
+	model = next.(*uiModel)
+	if !model.status.loading || model.status.snapshot.CollectorWarning == "" {
+		t.Fatal("failed section did not expose its warning while other sections remained loading")
+	}
+	for _, message := range messages {
+		switch message.(type) {
+		case statusBaseRefreshDoneMsg, statusAuthRefreshDoneMsg, statusGitRefreshDoneMsg:
+			next, _ := model.Update(message)
+			model = next.(*uiModel)
+		}
+	}
+	if model.status.loading {
+		t.Fatal("loading remained after every section completed")
+	}
+	if !model.status.snapshot.Git.Visible || model.status.snapshot.Git.Branch != collector.gitResult.Git.Branch {
+		t.Fatal("section failure discarded the independently completed Git result")
+	}
+	if model.status.snapshot.CollectorWarning != collector.envResult.CollectorWarning {
+		t.Fatal("later section completion discarded the earlier failure warning")
+	}
+}
+
 func TestStatusRefreshDefersRuntimeAndAuthReadsToCommands(t *testing.T) {
 	authStatus := &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)}
 	runtimeClient := &statusRefreshRuntimeClient{}
@@ -244,7 +288,7 @@ func initStatusLineGitRepo(t *testing.T, branch string) string {
 	t.Helper()
 	repoRoot := t.TempDir()
 	cmd := exec.Command("git", "-C", repoRoot, "init", "-b", branch)
-	cmd.Env = sanitizedGitEnv(os.Environ())
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init -b %s: %v (%s)", branch, err, out)
 	}

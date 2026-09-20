@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
@@ -21,6 +22,7 @@ import (
 	"core/server/runtimewire"
 	"core/server/session"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
@@ -43,12 +45,12 @@ func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options 
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
+		t.Fatalf("BuildShellManager: %v", err)
 	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, runtimeSupport, options)
+	t.Cleanup(func() { _ = background.Close() })
+	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, background, options)
 	if err != nil {
 		t.Fatalf("core.NewWithContextOptions: %v", err)
 	}
@@ -499,6 +501,7 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	}
 
 	ownResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: storeA.Meta().SessionID,
@@ -511,6 +514,7 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreignResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: storeB.Meta().SessionID,

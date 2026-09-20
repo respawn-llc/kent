@@ -104,12 +104,6 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 		appendWrapped(title, titleStyle)
 	}
 
-	if strings.TrimSpace(m.status.error) != "" && m.status.snapshot.CollectedAt.IsZero() {
-		appendSectionTitle("Status")
-		appendWrapped(m.status.error, warningStyle)
-		return lines
-	}
-
 	snapshot := m.status.snapshot
 
 	appendSectionTitle("Session")

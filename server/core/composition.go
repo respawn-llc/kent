@@ -29,6 +29,7 @@ import (
 	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
+	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
 	"core/server/workflowexecution"
@@ -45,12 +46,12 @@ import (
 	"core/shared/toolspec"
 )
 
-func New(cfg config.App, authSupport serverbootstrap.AuthSupport, runtimeSupport serverbootstrap.RuntimeSupport) (*Core, error) {
-	return NewWithContext(context.Background(), cfg, authSupport, runtimeSupport)
+func New(cfg config.App, authSupport serverbootstrap.AuthSupport, background *shelltool.Manager) (*Core, error) {
+	return NewWithContext(context.Background(), cfg, authSupport, background)
 }
 
-func NewWithContext(ctx context.Context, cfg config.App, authSupport serverbootstrap.AuthSupport, runtimeSupport serverbootstrap.RuntimeSupport) (*Core, error) {
-	return NewWithContextOptions(ctx, cfg, authSupport, runtimeSupport, Options{})
+func NewWithContext(ctx context.Context, cfg config.App, authSupport serverbootstrap.AuthSupport, background *shelltool.Manager) (*Core, error) {
+	return NewWithContextOptions(ctx, cfg, authSupport, background, Options{})
 }
 
 type Options struct {
@@ -59,7 +60,7 @@ type Options struct {
 	WorkspaceConfigLoadOptions config.LoadOptions
 }
 
-func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serverbootstrap.AuthSupport, runtimeSupport serverbootstrap.RuntimeSupport, opts Options) (*Core, error) {
+func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serverbootstrap.AuthSupport, background *shelltool.Manager, opts Options) (*Core, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,12 +83,10 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			_ = rootLease.Close()
 		}
 	}
-	generatedSupport, err := serverbootstrap.BuildGeneratedSupport(ctx, cfg.PersistenceRoot)
-	if err != nil {
+	if _, err := prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(cfg.PersistenceRoot)}); err != nil {
 		closeRootLeaseOnFailure()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
 	}
-	runtimeSupport.Generated = generatedSupport
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		closeRootLeaseOnFailure()
@@ -98,7 +97,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = metadataStore.Close()
 		return nil, err
 	}
-	if err := validateRuntimeBundleSupport(runtimeSupport); err != nil {
+	if err := validateRuntimeBundleSupport(background); err != nil {
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
 		return nil, err
@@ -113,7 +112,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		Debug:           cfg.Settings.Debug,
 		PersistenceRoot: cfg.PersistenceRoot,
 		AuthManager:     authSupport.AuthManager,
-		Background:      runtimeSupport.Background,
+		Background:      background,
 		StoreOptions:    storeOptions,
 		PromptFeed:      runtimeRegistry,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
@@ -153,7 +152,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	capabilityFactsService := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg})
 	askService := promptcontrol.NewAskViewService(runtimeRegistry)
 	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
-	processService := processview.NewProcessViewService(runtimeSupport.Background, metadataStore)
+	processService := processview.NewProcessViewService(background, metadataStore)
 	sessionRuntimeAPI := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{
 		RuntimeClientFactory:   opts.RuntimeClientFactory,
 		ManagedWorktreeBaseDir: cfg.Settings.Worktrees.BaseDir,
@@ -175,9 +174,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	projectService.WithRuntimeAuthority(runtimeAuthority)
 	promptControlService := promptcontrol.NewPromptControlService(authorityPromptResponder{authority: runtimeAuthority})
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
-	if runtimeSupport.Background != nil {
-		runtimeRegistry.WithBackgroundProcessSnapshots(runtimeSupport.Background.List)
-	}
+	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority).
 		WithRuntimeActivityResolver(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
@@ -191,8 +188,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		metadataStore: metadataStore,
 	})
 	gitInspector := worktree.NewGitInspector(nil)
-	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, runtimeSupport.Background)
-	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, runtimeSupport.Background, worktree.ServiceOptions{
+	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, background)
+	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, background, worktree.ServiceOptions{
 		PersistenceRoot:   cfg.PersistenceRoot,
 		BaseDir:           cfg.Settings.Worktrees.BaseDir,
 		SessionRetargeter: sessionWorkspaceRetargeter,
@@ -208,9 +205,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	serverStatusService := serverstatus.NewServerStatusService(authBootstrapService, cfg, updateStatusService)
 	sessionViewService := sessionview.NewService(metadataStore, runtimeRegistry, metadataStore).
 		WithPromptHistoryReader(metadataStore).
-		WithExecutionEnvironmentConfig(cfg).
-		WithExecutionEnvironmentAuth(authStatusService).
-		WithExecutionEnvironmentGit(gitInspector).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
 	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, authSupport.AuthManager).
@@ -227,9 +221,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = runtimeAuthority.Close(context.Background())
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
-		if runtimeSupport.Background != nil {
-			_ = runtimeSupport.Background.Close()
-		}
+		_ = background.Close()
 		return nil, fmt.Errorf("Chat operation owner: %w", err)
 	}
 	var workflowRuntimeStarter *workflowrunner.Starter
@@ -246,9 +238,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = runtimeAuthority.Close(context.Background())
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
-		if runtimeSupport.Background != nil {
-			_ = runtimeSupport.Background.Close()
-		}
+		_ = background.Close()
 	}
 	workflowRoleResolver := configRoleResolver{app: cfg}
 	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
@@ -291,7 +281,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		RuntimeClientFactory: opts.RuntimeClientFactory,
 		RuntimeAuthority:     runtimeAuthority,
 		TaskDependencies:     workflowTaskDependencyCounter,
-		ExecutionTargets:     workflowExecutionTargets,
 	})
 	if err != nil {
 		cleanupNewFailure()
@@ -303,9 +292,9 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		runtimeAuthority,
 		workflowTaskMutations,
 		workflowexecution.CurrentNodeControllerConfig{
-			AgentConcurrency:  cfg.Settings.Workflow.Concurrency,
-			Attention:         workflowAttentionFinalizer,
-			AssignmentSteerer: workflowRuntimeStarter,
+			AgentConcurrency: cfg.Settings.Workflow.Concurrency,
+			Attention:        workflowAttentionFinalizer,
+			ExecutionTargets: workflowExecutionTargets,
 		},
 	)
 	if err != nil {
@@ -375,7 +364,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,
 		capabilityFactsService:  capabilityFactsService,
-		runtimeSupport:          runtimeSupport,
+		background:              background,
 		rootLease:               rootLease,
 		metadataStore:           metadataStore,
 		runtimeRegistry:         runtimeRegistry,

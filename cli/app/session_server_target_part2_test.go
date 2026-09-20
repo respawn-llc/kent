@@ -25,7 +25,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		Model: "gpt-5",
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)

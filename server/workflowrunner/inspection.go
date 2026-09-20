@@ -148,7 +148,7 @@ func persistedInspectionCompletionMode(plan launch.SessionPlan, input workflowst
 		if err != nil {
 			return "", err
 		}
-		selection.ProviderCapabilities = provider.Capabilities
+		selection.ProviderCapabilities = provider
 	}
 	mode, err := workflowruntime.SelectCompletionMode(selection)
 	if err != nil {

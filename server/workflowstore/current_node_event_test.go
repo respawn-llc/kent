@@ -60,7 +60,7 @@ func TestCompleteCurrentNodePublishesCompletionEventAfterCommittedMutation(t *te
 	publisher := &recordingCurrentNodeEventPublisher{}
 	store.SetWorkflowEventPublisher(publisher)
 
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "completed"},
@@ -83,7 +83,7 @@ func TestCompleteCurrentNodeReturnsCommittedResultWithPublicationDiagnostic(t *t
 	publicationErr := errors.New("wake unavailable")
 	store.SetWorkflowEventPublisher(&recordingCurrentNodeEventPublisher{err: publicationErr})
 
-	outcome, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	outcome, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "completed"},

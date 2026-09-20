@@ -25,10 +25,10 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
-	Choice           *chatsettingspb.AgentChoice
-	Settings         PreparedChatSettings
-	ResolvedSettings config.Settings
-	comparison       preparedChatAgentComparison
+	ConnectionID config.ConnectionID
+	Choice       *chatsettingspb.AgentChoice
+	Settings     PreparedChatSettings
+	comparison   preparedChatAgentComparison
 }
 
 type PreparedChatAgentCatalog struct {
@@ -54,7 +54,40 @@ func PrepareChatAgentCatalog(
 }
 
 func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
-	return prepareChatAgentCatalog(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
+	catalog, err := prepareChatAgentCatalog(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
+	if err != nil || meta.Locked != nil {
+		return catalog, err
+	}
+	state, err := session.ChatSettingsStateFromMeta(meta)
+	if err != nil {
+		return PreparedChatAgentCatalog{}, err
+	}
+	for index := range catalog.entries {
+		entry := &catalog.entries[index]
+		if entry.Choice.Role != state.AgentSelector() {
+			continue
+		}
+		target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(meta)
+		if err != nil {
+			return PreparedChatAgentCatalog{}, err
+		}
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(target.Settings)
+		if err != nil {
+			return PreparedChatAgentCatalog{}, err
+		}
+		prepared, err := PrepareChatSettingsForPreparedTarget(target, llm.SupportsFastModeProvider(capabilities))
+		if err != nil {
+			return PreparedChatAgentCatalog{}, err
+		}
+		// Baselines remain configuration-owned; current capabilities follow the
+		// Session's persisted target until an Agent change replaces that target.
+		prepared.Baseline = entry.Settings.Baseline
+		prepared.Baseline.Fast = prepared.Baseline.Fast && prepared.FastAvailable
+		prepared.Baseline.Questions = prepared.Baseline.Questions && prepared.QuestionsAvailable
+		entry.Settings = prepared
+		break
+	}
+	return catalog, nil
 }
 
 func defaultAgentMode(meta session.Meta) Mode {
@@ -150,6 +183,7 @@ func prepareChatAgentCatalogEntry(
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
 	role := app.Settings.Subagents[selector]
 	entry := PreparedChatAgentCatalogEntry{
+		ConnectionID: *target.Settings.Connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
 			Model:              strings.TrimSpace(target.Settings.Model),
@@ -158,8 +192,7 @@ func prepareChatAgentCatalogEntry(
 			CustomCapabilities: prepared.NamedTarget != nil && config.SubagentRoleHasCapabilityOverrides(role),
 			AgentCallable:      prepared.NamedTarget == nil || config.SubagentRoleCallable(role),
 		},
-		Settings:         settings,
-		ResolvedSettings: target.Settings,
+		Settings: settings,
 	}
 	entry.comparison = preparedChatAgentComparison{
 		Settings:             normalizeComparableSettings(target.Settings),
@@ -196,33 +229,6 @@ func PrepareChatSettingsForAgent(app config.App, agent string) (PreparedChatSett
 	)
 }
 
-func PrepareSessionChatSettingsForAgent(app config.App, meta session.Meta, agent string, promptFacing PreparedBaseTarget) (PreparedChatSettings, error) {
-	baselineTarget, prepared, err := prepareChatSettingsTargetForAgent(app, agent, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
-	if err != nil {
-		return PreparedChatSettings{}, err
-	}
-	if prepared.ProviderCapabilities == nil {
-		return PreparedChatSettings{}, errors.New("Chat settings provider capabilities were not prepared")
-	}
-	baseline, err := PrepareChatSettingsForPreparedTarget(
-		baselineTarget,
-		llm.SupportsFastModeProvider(*prepared.ProviderCapabilities),
-	)
-	if err != nil {
-		return PreparedChatSettings{}, err
-	}
-	capabilities, err := PrepareChatSettingsForTarget(promptFacing)
-	if err != nil {
-		return PreparedChatSettings{}, err
-	}
-	baseline.SupportedThinkingValues = capabilities.SupportedThinkingValues
-	baseline.FastAvailable = capabilities.FastAvailable
-	baseline.QuestionsAvailable = capabilities.QuestionsAvailable
-	baseline.Baseline.Fast = baseline.Baseline.Fast && capabilities.FastAvailable
-	baseline.Baseline.Questions = baseline.Baseline.Questions && capabilities.QuestionsAvailable
-	return baseline, nil
-}
-
 func prepareChatSettingsTargetForAgent(
 	app config.App,
 	agent string,
@@ -247,18 +253,6 @@ func prepareChatSettingsTargetForAgent(
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, fmt.Errorf("prepare Chat Agent %q returned no target", agent)
 	}
 	return *target, prepared, nil
-}
-
-func PrepareChatSettingsForTarget(target PreparedBaseTarget) (PreparedChatSettings, error) {
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(target.Settings)
-	if err != nil {
-		return PreparedChatSettings{}, err
-	}
-	return PrepareChatSettingsForPreparedTarget(target, llm.SupportsFastModeProvider(capabilities))
-}
-
-func PrepareChatSettingsForTargetWithoutProviderReadiness(target PreparedBaseTarget) (PreparedChatSettings, error) {
-	return PrepareChatSettingsForPreparedTarget(target, true)
 }
 
 func PrepareChatSettingsForPreparedTarget(target PreparedBaseTarget, fastAvailable bool) (PreparedChatSettings, error) {

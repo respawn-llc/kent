@@ -48,7 +48,6 @@ export function mainViewRead(sequence = 1): ChatMainViewRead {
         previousSessionID: null,
         parentAgentSessionID: null,
         navigationTargetSessionID: null,
-        lastCommittedAssistantFinalAnswer: null,
         thinkingLevel: "medium",
         compactionMode: "local",
         contextUsage: {

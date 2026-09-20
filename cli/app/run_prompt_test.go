@@ -112,19 +112,6 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	}
 }
 
-var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
-	_, created, err := config.WriteDefaultSettingsFile()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded, err := req.ReloadConfig()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded.Source.CreatedDefaultConfig = created
-	return reloaded, nil
-})
-
 func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 	t.Helper()
 	loadCfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -159,7 +146,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, autoOnboarding)
+	})
 
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)

@@ -2,6 +2,9 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	"errors"
 	"strings"
 	"testing"
@@ -27,6 +30,7 @@ func TestManagerSubscribeOutputWaitsForLogFlushNotification(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "sleep 0.15; printf 'flush-ready\\n'; sleep 1"},
 		DisplayCommand: "flush-notify",
 		Workdir:        workspace,

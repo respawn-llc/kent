@@ -3,7 +3,6 @@ package runtimeview
 import (
 	"core/server/goalview"
 	"core/server/runtime"
-	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -73,19 +72,18 @@ func StatusFromRuntime(engine *runtime.Engine) (*runtimepb.Status, error) {
 		return nil, err
 	}
 	status := &runtimepb.Status{
-		ReviewerFrequency:                 engine.ReviewerFrequency(),
-		ReviewerEnabled:                   engine.ReviewerEnabled(),
-		AutoCompactionEnabled:             engine.AutoCompactionEnabled(),
-		QuestionsEnabled:                  engine.QuestionsEnabled(),
-		FastModeAvailable:                 fastModeAvailable,
-		FastModeEnabled:                   engine.FastModeEnabled(),
-		ConversationFreshness:             ConversationFreshnessFromSession(freshness),
-		PreviousSessionId:                 protoapi.OptionalSessionIDToProto(engine.PreviousSessionID()),
-		ParentAgentSessionId:              protoapi.OptionalSessionIDToProto(engine.ParentAgentSessionID()),
-		NavigationTargetSessionId:         protoapi.OptionalSessionIDToProto(engine.NavigationTargetSessionID()),
-		LastCommittedAssistantFinalAnswer: engine.LastCommittedAssistantFinalAnswer(),
-		ThinkingLevel:                     engine.ThinkingLevel(),
-		CompactionMode:                    engine.CompactionMode(),
+		ReviewerFrequency:         engine.ReviewerFrequency(),
+		ReviewerEnabled:           engine.ReviewerEnabled(),
+		AutoCompactionEnabled:     engine.AutoCompactionEnabled(),
+		QuestionsEnabled:          engine.QuestionsEnabled(),
+		FastModeAvailable:         fastModeAvailable,
+		FastModeEnabled:           engine.FastModeEnabled(),
+		ConversationFreshness:     ConversationFreshnessFromSession(freshness),
+		PreviousSessionId:         protoapi.OptionalSessionIDToProto(engine.PreviousSessionID()),
+		ParentAgentSessionId:      protoapi.OptionalSessionIDToProto(engine.ParentAgentSessionID()),
+		NavigationTargetSessionId: protoapi.OptionalSessionIDToProto(engine.NavigationTargetSessionID()),
+		ThinkingLevel:             engine.ThinkingLevel(),
+		CompactionMode:            engine.CompactionMode(),
 		ContextUsage: &runtimepb.ContextUsage{
 			UsedTokens:   usedTokens,
 			WindowTokens: windowTokens,
@@ -168,23 +166,4 @@ func ConversationFreshnessFromSession(freshness session.ConversationFreshness) r
 		return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH
 	}
 	return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
-}
-
-func ActivityFromRuntimeSnapshot(snapshot *runtime.RunSnapshot, queueAccepting bool) *runtimepb.Activity {
-	var active *runtimeactivity.ActiveStepSnapshot
-	if snapshot != nil {
-		active = runtimeactivity.ActiveStepFromRuntimeSnapshot(snapshot)
-	}
-	activity, err := runtimeactivity.ResolveRuntimeActivity(runtimeactivity.ResolverSnapshot{
-		Registry: runtimeactivity.RegistrySnapshot{Registered: true, QueueAccepting: queueAccepting},
-		Active:   active,
-	})
-	if err != nil {
-		panic(err)
-	}
-	return activity
-}
-
-func ClientActiveKindFromRuntime(kind runtime.ActiveKind) runtimepb.ActivityActiveKind {
-	return runtimeactivity.MustClientActiveKindFromRuntime(kind)
 }

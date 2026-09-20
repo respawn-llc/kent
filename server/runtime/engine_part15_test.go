@@ -9,11 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -117,6 +120,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 	startShell := func(ownerSessionID, displayCommand string) shelltool.ExecResult {
 		t.Helper()
 		result, startErr := manager.Start(context.Background(), shelltool.ExecRequest{
+			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 			Command:        []string{"/bin/sh", "-c", "sleep 5"},
 			DisplayCommand: displayCommand,
 			OwnerSessionID: ownerSessionID,
@@ -273,6 +277,7 @@ func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(
 	})
 
 	finishing, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "read line"},
 		DisplayCommand: "finishing shell",
 		OwnerSessionID: store.Meta().SessionID,
@@ -287,6 +292,7 @@ func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(
 		t.Fatalf("finishing shell did not remain running: %+v", finishing)
 	}
 	remaining, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 30"},
 		DisplayCommand: "remaining shell",
 		OwnerSessionID: store.Meta().SessionID,
@@ -429,6 +435,7 @@ func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t
 		}
 	})
 	foreign, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 30"},
 		DisplayCommand: "foreign running shell",
 		OwnerSessionID: "foreign-session",
@@ -510,6 +517,7 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 	longUnicodeArgument := strings.Repeat("界", 150)
 	displayCommand := "kent run \\\n  --workspace /tmp/project \\\n  --message " + longUnicodeArgument
 	shell, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", "sleep 30"},
 		DisplayCommand: displayCommand,
 		OwnerSessionID: store.Meta().SessionID,
@@ -618,13 +626,11 @@ func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObs
 		t.Fatalf("lock prompt snapshots: %v", err)
 	}
 	client := &fakeCompactionClient{
-		inputTokenCount: 2_000,
 		caps: llm.ProviderCapabilities{
-			ProviderID:                     "openai",
-			SupportsResponsesAPI:           true,
-			SupportsResponsesCompact:       true,
-			SupportsRequestInputTokenCount: true,
-			IsOpenAIFirstParty:             true,
+			ProviderID:               "openai",
+			SupportsResponsesAPI:     true,
+			SupportsResponsesCompact: true,
+			IsOpenAIFirstParty:       true,
 		},
 		compactionResponses: []llm.CompactionResponse{{
 			Checkpoint: llm.ResponseItem{

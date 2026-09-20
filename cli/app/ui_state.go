@@ -209,15 +209,14 @@ type uiStatusFeatureState struct {
 }
 
 type uiTranscriptFeatureState struct {
-	runtimeConnection            clientui.RuntimeConnectionLifecycle
-	pendingWorkRefresh           pendingWorkRefreshOwner
-	runtimeMainViewToken         uint64
-	runtimeMainViewBusy          bool
-	runtimeMainViewActiveRequest runtimeMainViewRefreshRequest
-	runtimeMainViewPendingSet    bool
-	runtimeMainViewPending       runtimeMainViewRefreshRequest
-	detailTranscript             uiDetailTranscriptWindow
-	pendingDetailTranscript      *uiPendingDetailTranscriptRequest
+	runtimeConnection                            clientui.RuntimeConnectionLifecycle
+	pendingWorkRefresh                           pendingWorkRefreshOwner
+	runtimeMainViewToken                         uint64
+	runtimeMainViewBusy                          bool
+	runtimeMainViewPendingSet                    bool
+	runtimeMainViewPendingInterruptedSubmitToken *uint64
+	detailTranscript                             uiDetailTranscriptWindow
+	pendingDetailTranscript                      *uiPendingDetailTranscriptRequest
 }
 
 type uiKeyboardFeatureState struct {

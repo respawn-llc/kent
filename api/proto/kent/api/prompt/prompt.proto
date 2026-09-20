@@ -85,8 +85,6 @@ message ApprovalOption {
     defined_only: true
     not_in: [0]
   }];
-  reserved 2;
-  reserved "label";
 }
 
 message FileAccessTarget {

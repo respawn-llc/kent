@@ -191,29 +191,11 @@ func MaterializeSessionDescriptor(persistenceRoot string, descriptor SessionDesc
 		}
 		return OpenByID(persistenceRoot, value.sessionID.String(), options...)
 	case createSessionDescriptor:
-		store, err := NewLazyWithID(
-			value.sessionID,
-			value.containerDir,
-			value.containerName,
-			value.workspaceRoot,
-			value.category,
-			options...,
-		)
+		plan, err := PrepareCreation(CreationRequest{Descriptor: descriptor}, options...)
 		if err != nil {
 			return nil, err
 		}
-		if err := InitializeCreationContext(
-			store,
-			nil,
-			SessionCreationSourceIndependent,
-			ChildContextOptions{},
-		); err != nil {
-			return nil, err
-		}
-		if err := store.EnsureDurable(); err != nil {
-			return nil, err
-		}
-		return store, nil
+		return MaterializeCreation(context.Background(), plan, options...)
 	default:
 		return nil, fmt.Errorf("unsupported session descriptor %T", descriptor.value)
 	}
@@ -1349,8 +1331,12 @@ func (s *Store) ensurePersistedLocked() error {
 	if err := os.MkdirAll(s.sessionDir, 0o755); err != nil {
 		return fmt.Errorf("create session dir: %w", err)
 	}
-	if err := os.WriteFile(s.eventsFP, nil, 0o644); err != nil {
+	fp, err := os.OpenFile(s.eventsFP, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
 		return fmt.Errorf("initialize events file: %w", err)
+	}
+	if err := fp.Close(); err != nil {
+		return fmt.Errorf("close initialized events file: %w", err)
 	}
 	if err := initializeEventLogPersistenceLock(s.sessionDir); err != nil {
 		return err

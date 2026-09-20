@@ -24,7 +24,7 @@ func TestCompleteCurrentNodeWithoutApprovalDoesNotEmitQueryFailureDiagnostics(t 
 
 	diagnostics := testsetup.CaptureSlog(t)
 
-	if _, err := store.CompleteCurrentNode(metadata.WithQueryFailureDiagnostics(ctx), CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, metadata.WithQueryFailureDiagnostics(ctx), CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "completed"},
@@ -43,7 +43,7 @@ func TestCompleteCurrentNodeRejectsAgentSuppliedSessionID(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	_, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	_, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{
@@ -57,17 +57,17 @@ func TestCompleteCurrentNodeRejectsAgentSuppliedSessionID(t *testing.T) {
 }
 
 func TestCompleteCurrentNodeAssociationReadFailureIsDefinitelyUncommitted(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, source.Reference)
+	currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
 	if _, err := store.db.ExecContext(ctx, `DROP TABLE session_workflow_node_associations`); err != nil {
 		t.Fatalf("drop association table: %v", err)
 	}
 
-	outcome, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	outcome, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "completed"},
@@ -107,7 +107,7 @@ func TestCompleteCurrentNodeAtomicallyReplacesAgentAndReturnsSuccessorIntent(t *
 		t.Fatalf("NewCurrentNodeReference target: %v", err)
 	}
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -148,7 +148,7 @@ func TestCompleteCurrentNodeAtomicallyReplacesAgentAndReturnsSuccessorIntent(t *
 		t.Fatalf("current nodes after completion = %+v, want only ready review", currentNodes)
 	}
 
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "stale"},
@@ -190,7 +190,7 @@ func TestCompleteCurrentNodeWaitsForConcurrentWriterWithoutLosingItsSnapshot(t *
 	}
 	completed := make(chan completionOutcome, 1)
 	go func() {
-		result, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+		result, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 			Source:       source.Reference,
 			TransitionID: "review",
 			OutputValues: map[string]string{"summary": "completed after contention"},
@@ -227,7 +227,7 @@ func TestCompleteCurrentNodeInfersOnlyOutgoingFanoutTransition(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 	})
@@ -256,9 +256,9 @@ func TestCompleteCurrentNodeInfersOnlyOutgoingFanoutTransition(t *testing.T) {
 			t.Fatalf("fan-out automatic intent = %+v, want Agent Node kind", intent)
 		}
 	}
-	if completed.SourceSessionID != nil || completed.SessionReuseClassification != workflow.SessionReuseNone {
+	if completed.SourceSessionID == nil || *completed.SourceSessionID != *source.SessionID || completed.SessionReuseClassification != workflow.SessionReuseNone {
 		t.Fatalf(
-			"fan-out post-turn facts = session %v classification %q, want absent/none",
+			"fan-out post-turn facts = session %v classification %q, want exact source/none",
 			completed.SourceSessionID,
 			completed.SessionReuseClassification,
 		)
@@ -273,7 +273,7 @@ func TestCompleteCurrentNodeFanoutPendingApprovalCarriesCommentary(t *testing.T)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 		Commentary:   "  Both branches are ready for review.  ",
@@ -304,7 +304,7 @@ func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) 
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	split, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 	})
@@ -321,14 +321,14 @@ func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) 
 	}
 
 	first, second := split.Mutation.Created[0], split.Mutation.Created[1]
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       first.Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "branch complete"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode first join arrival: %v", err)
 	}
-	joined, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       second.Reference,
 		TransitionID: "join_b",
 		OutputValues: map[string]string{},
@@ -336,9 +336,9 @@ func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode second join arrival: %v", err)
 	}
-	if joined.SourceSessionID != nil || joined.SessionReuseClassification != workflow.SessionReuseNone {
+	if joined.SourceSessionID == nil || *joined.SourceSessionID != *second.SessionID || joined.SessionReuseClassification != workflow.SessionReuseNone {
 		t.Fatalf(
-			"Join post-turn facts = session %v classification %q, want absent/none",
+			"Join post-turn facts = session %v classification %q, want exact source/none",
 			joined.SourceSessionID,
 			joined.SessionReuseClassification,
 		)
@@ -400,7 +400,7 @@ func TestCompleteCurrentNodeFanoutPreviousTargetOrNewRetainsBranchSessions(t *te
 		)
 	}
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -427,7 +427,7 @@ func TestCompleteCurrentNodeFanoutPreviousTargetOrNewRetainsBranchSessions(t *te
 }
 
 func TestCompleteCurrentNodeJoinCreatesScriptWithAggregatedInput(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
 		script := nodeByKey(t, def, "synth")
@@ -445,7 +445,7 @@ func TestCompleteCurrentNodeJoinCreatesScriptWithAggregatedInput(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	split, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 	})
@@ -459,16 +459,16 @@ func TestCompleteCurrentNodeJoinCreatesScriptWithAggregatedInput(t *testing.T) {
 			t.Fatalf("fan-out Current Node = %+v, want branch scope", currentNode)
 		}
 		branches[branchKey] = currentNode
-		associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, currentNode.Reference)
+		currentNodeSessionForStoreTest(t, ctx, store, currentNode.Reference)
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "branch aggregate"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode first join arrival: %v", err)
 	}
-	joined, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_b",
 	})
@@ -485,8 +485,8 @@ func TestCompleteCurrentNodeJoinCreatesScriptWithAggregatedInput(t *testing.T) {
 	}
 }
 
-func TestCompleteCurrentNodeJoinScriptCarriesSharedActiveSourceToRetainedTarget(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+func TestCompleteCurrentNodeJoinScriptCarriesBranchSourceToRetainedTarget(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
 		plan := nodeByKey(t, def, "plan")
@@ -537,16 +537,9 @@ func TestCompleteCurrentNodeJoinScriptCarriesSharedActiveSourceToRetainedTarget(
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	activeSourceSessionID := associateAndBindCurrentNodeSessionForTest(
-		t,
-		ctx,
-		store,
-		binding,
-		cfg,
-		plan.Reference,
-	)
+	activeSourceSessionID := currentNodeSessionForStoreTest(t, ctx, store, plan.Reference)
 
-	split, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 	})
@@ -561,14 +554,14 @@ func TestCompleteCurrentNodeJoinScriptCarriesSharedActiveSourceToRetainedTarget(
 		}
 		branches[branchKey] = branch
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "branch aggregate"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode first join arrival: %v", err)
 	}
-	joined, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_b",
 	})
@@ -580,16 +573,16 @@ func TestCompleteCurrentNodeJoinScriptCarriesSharedActiveSourceToRetainedTarget(
 	}
 	script := joined.Mutation.Created[0]
 	scriptSourceSessionID, exact := script.ContinuationSource.ExactSessionID()
-	if !exact || scriptSourceSessionID != activeSourceSessionID {
+	if !exact || scriptSourceSessionID != *branches["split_b"].SessionID {
 		t.Fatalf(
 			"Script active source = (%q, %v), want exact Session %q",
 			scriptSourceSessionID,
 			exact,
-			activeSourceSessionID,
+			*branches["split_b"].SessionID,
 		)
 	}
 
-	returned, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	returned, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       script.Reference,
 		TransitionID: "done",
 	})
@@ -634,7 +627,7 @@ func TestCompleteCurrentNodeRequiresTransitionIDForSeveralOutgoingTransitions(t 
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 
-	_, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	_, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		OutputValues: map[string]string{"summary": "plan complete"},
 	})
@@ -647,7 +640,7 @@ func TestCompleteCurrentNodeRequiresTransitionIDForSeveralOutgoingTransitions(t 
 }
 
 func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -668,9 +661,9 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	sourceSessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, source.Reference)
+	sourceSessionID := currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "frozen plan"},
@@ -728,8 +721,8 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	if len(currentNodes) != 1 ||
 		!currentNodes[0].Reference.Equal(source.Reference) ||
 		currentNodes[0].Scheduling == nil ||
-		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady {
-		t.Fatalf("current nodes while pending = %+v, want retained ready source with no waiting scheduling state", currentNodes)
+		currentNodes[0].Scheduling.State != source.Scheduling.State {
+		t.Fatalf("current nodes while pending = %+v, want unchanged source scheduling", currentNodes)
 	}
 	eligible, err := store.IsCurrentNodeExecutionEligible(ctx, source.Reference)
 	if err != nil {
@@ -759,7 +752,7 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	if saved.Saved || workflowGraphSaveBlockerCount(saved.Blockers, "edge_task_references") != 1 {
 		t.Fatalf("frozen target edge removal save = %+v, want blocked save", saved)
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "must stay pending"},
@@ -792,7 +785,7 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 		frozenAfterEdit[0].Branches[0].EffectiveEdge.TargetNodeID != workflow.NodeIDOf(reviewNode) {
 		t.Fatalf("approval after graph edit = %+v, want frozen edge configuration", frozenAfterEdit)
 	}
-	applied, err := store.ApplyPendingApproval(ctx, approval.ID)
+	applied, err := applyPendingApproval(t, store, ctx, approval.ID)
 	if err != nil {
 		t.Fatalf("ApplyPendingApproval: %v", err)
 	}
@@ -832,7 +825,7 @@ func TestDeleteTaskRemovesPendingApprovalBeforeCurrentNodeCascade(t *testing.T) 
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "delete me"},
@@ -874,7 +867,7 @@ func TestDeleteWorkflowRemovesPendingApprovalsBeforeCurrentNodeCascade(t *testin
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "delete workflow"},
@@ -912,7 +905,7 @@ func TestDeleteProjectRemovesPendingApprovalsBeforeCurrentNodeCascade(t *testing
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "delete project"},
@@ -935,15 +928,15 @@ func TestDeleteProjectRemovesPendingApprovalsBeforeCurrentNodeCascade(t *testing
 }
 
 func TestCompleteCurrentNodeNewSessionTargetDoesNotRetainSourceSession(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	source := started.Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, source.Reference)
+	currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
 
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -951,22 +944,22 @@ func TestCompleteCurrentNodeNewSessionTargetDoesNotRetainSourceSession(t *testin
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode: %v", err)
 	}
-	if len(completed.Mutation.Created) != 1 || completed.Mutation.Created[0].SessionID != nil {
-		t.Fatalf("new-session target = %+v, want an unbound current node", completed.Mutation.Created)
+	if len(completed.Mutation.Created) != 1 || completed.Mutation.Created[0].SessionID == nil || *completed.Mutation.Created[0].SessionID == *source.SessionID {
+		t.Fatalf("new-session target = %+v, want a fresh exact Session", completed.Mutation.Created)
 	}
 	currentNodes, err := store.ListCurrentNodes(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListCurrentNodes: %v", err)
 	}
-	if len(currentNodes) != 1 || currentNodes[0].SessionID != nil {
-		t.Fatalf("persisted new-session target = %+v, want an unbound current node", currentNodes)
+	if len(currentNodes) != 1 || currentNodes[0].SessionID == nil || *currentNodes[0].SessionID != *completed.Mutation.Created[0].SessionID {
+		t.Fatalf("persisted new-session target = %+v, want the prepared exact Session", currentNodes)
 	}
 }
 
 func TestCompleteCurrentNodeContinueSessionUsesImmediateSourceSession(t *testing.T) {
 	fixture := newImmediateContextCompletionFixture(t, workflow.ContextModeContinueSession)
 
-	completed, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -984,7 +977,7 @@ func TestCompleteCurrentNodeContinueSessionUsesImmediateSourceSession(t *testing
 func TestCompleteCurrentNodeCompactAndContinueSessionUsesImmediateSourceSession(t *testing.T) {
 	fixture := newImmediateContextCompletionFixture(t, workflow.ContextModeCompactAndContinueSession)
 
-	completed, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.source.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -1025,8 +1018,8 @@ func TestCompleteCurrentNodeSelectedNodeContextUsesLatestAssociatedSession(t *te
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	plan := started.Mutation.Created[0]
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, plan.Reference)
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	currentNodeSessionForStoreTest(t, ctx, store, plan.Reference)
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -1044,9 +1037,9 @@ func TestCompleteCurrentNodeSelectedNodeContextUsesLatestAssociatedSession(t *te
 		plan.Reference,
 		time.UnixMilli(1_700_000_000_001).UTC(),
 	)
-	associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, review.Reference)
+	currentNodeSessionForStoreTest(t, ctx, store, review.Reference)
 
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Reference,
 		TransitionID: "audit",
 	})
@@ -1080,7 +1073,7 @@ func TestCompleteCurrentNodePreviousTargetContextUsesLatestAssociatedSession(t *
 		fixture.review.Reference,
 		time.UnixMilli(1_700_000_000_001).UTC(),
 	)
-	reworkResult, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	reworkResult, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.audit.Reference,
 		TransitionID: "rework",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -1097,8 +1090,9 @@ func TestCompleteCurrentNodePreviousTargetContextUsesLatestAssociatedSession(t *
 
 func TestCompleteCurrentNodePreviousTargetContextFailsWithoutAssociatedSession(t *testing.T) {
 	fixture := newReworkContextCompletionFixture(t, workflow.ContextSourcePreviousTarget)
+	removeRetainedSessionHistoryForTest(t, fixture.ctx, fixture.store, fixture.review.Reference)
 
-	if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.audit.Reference,
 		TransitionID: "rework",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -1116,8 +1110,9 @@ func TestCompleteCurrentNodePreviousTargetContextFailsWithoutAssociatedSession(t
 
 func TestCompleteCurrentNodePreviousTargetOrNewContextFallsBackToNewSession(t *testing.T) {
 	fixture := newReworkContextCompletionFixture(t, workflow.ContextSourcePreviousTargetOrNew)
+	removeRetainedSessionHistoryForTest(t, fixture.ctx, fixture.store, fixture.review.Reference)
 
-	reworkResult, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	reworkResult, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.audit.Reference,
 		TransitionID: "rework",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -1125,8 +1120,8 @@ func TestCompleteCurrentNodePreviousTargetOrNewContextFallsBackToNewSession(t *t
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode audit: %v", err)
 	}
-	if len(reworkResult.Mutation.Created) != 1 || reworkResult.Mutation.Created[0].SessionID != nil {
-		t.Fatalf("previous-target-or-new current node = %+v, want an unbound target", reworkResult.Mutation.Created)
+	if len(reworkResult.Mutation.Created) != 1 || reworkResult.Mutation.Created[0].SessionID == nil || *reworkResult.Mutation.Created[0].SessionID == *fixture.review.SessionID {
+		t.Fatalf("previous-target-or-new current node = %+v, want a fresh exact Session", reworkResult.Mutation.Created)
 	}
 }
 
@@ -1142,7 +1137,7 @@ func TestCompleteCurrentNodePreviousTargetOrNewContextUsesLatestAssociatedSessio
 		time.UnixMilli(1_700_000_000_000).UTC(),
 	)
 
-	reworkResult, err := fixture.store.CompleteCurrentNode(fixture.ctx, CurrentNodeCompletionRequest{
+	reworkResult, err := completeCurrentNode(t, fixture.store, fixture.ctx, CurrentNodeCompletionRequest{
 		Source:       fixture.audit.Reference,
 		TransitionID: "rework",
 		OutputValues: map[string]string{"summary": "review again"},
@@ -1204,7 +1199,7 @@ func newReworkContextCompletionFixture(t *testing.T, contextSource workflow.Cont
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "plan complete"},
@@ -1212,7 +1207,7 @@ func newReworkContextCompletionFixture(t *testing.T, contextSource workflow.Cont
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode plan: %v", err)
 	}
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       reviewResult.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 	})
@@ -1239,7 +1234,7 @@ type immediateContextCompletionFixture struct {
 
 func newImmediateContextCompletionFixture(t *testing.T, contextMode workflow.ContextMode) immediateContextCompletionFixture {
 	t.Helper()
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1255,7 +1250,7 @@ func newImmediateContextCompletionFixture(t *testing.T, contextMode workflow.Con
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	source := started.Mutation.Created[0]
-	sessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, source.Reference)
+	sessionID := currentNodeSessionForStoreTest(t, ctx, store, source.Reference)
 	return immediateContextCompletionFixture{
 		ctx:       ctx,
 		store:     store,
@@ -1264,28 +1259,24 @@ func newImmediateContextCompletionFixture(t *testing.T, contextMode workflow.Con
 	}
 }
 
-func associateAndBindCurrentNodeSessionForTest(
+func currentNodeSessionForStoreTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	binding metadata.Binding,
-	cfg config.App,
 	currentNode workflow.CurrentNodeReference,
 ) runtimeids.SessionID {
 	t.Helper()
-	sessionID := associateTaskSessionForTest(t, ctx, store, binding, cfg, currentNode, time.UnixMilli(1_700_000_000_000).UTC())
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_current_nodes
-SET session_id = ?
-WHERE task_id = ?
-  AND node_id = ?
-  AND transition_branch_key IS NULL`,
-		sessionID.String(),
-		string(currentNode.TaskID),
-		string(currentNode.NodeID),
-	); err != nil {
-		t.Fatalf("bind current node session: %v", err)
+	nodes, err := store.ListCurrentNodes(ctx, currentNode.TaskID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return sessionID
+	for _, node := range nodes {
+		if node.Reference.Equal(currentNode) && node.SessionID != nil {
+			return *node.SessionID
+		}
+	}
+	t.Fatalf("Current Node has no committed exact Session: %+v", currentNode)
+	return runtimeids.SessionID{}
 }
 
 func associateTaskSessionForTest(

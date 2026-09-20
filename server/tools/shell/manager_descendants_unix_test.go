@@ -14,7 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/internal/testprocess"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 const (
@@ -37,6 +40,7 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
@@ -82,6 +86,7 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "managed descendant test helper",
 		Workdir:        t.TempDir(),
@@ -124,6 +129,7 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "completed managed helper",
 		Workdir:        t.TempDir(),
@@ -165,6 +171,7 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
 		DisplayCommand: "completed managed process group helper",
 		Workdir:        t.TempDir(),

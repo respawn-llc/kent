@@ -57,7 +57,6 @@ message RunPromptOverrides {
     }
   ];
   optional string model = 2 [(buf.validate.field).string.min_len = 1];
-  reserved 3, 8;
   optional string thinking_level = 4 [(buf.validate.field).string.min_len = 1];
   optional string theme = 5 [
     (buf.validate.field).string = {
@@ -143,10 +142,10 @@ message ModelCapabilitiesOverride {
 }
 
 message ProviderCapabilitiesOverride {
+
   string provider_id = 1;
   bool supports_responses_api = 2;
   bool supports_responses_compact = 3;
-  bool supports_request_input_token_count = 4;
   bool supports_prompt_cache_key = 5;
   bool supports_native_web_search = 6;
   bool supports_reasoning_encrypted = 7;
@@ -190,7 +189,6 @@ message WorkflowSettings {
 }
 
 message ReviewerSettings {
-  reserved 5, 6, 8, 10, 11;
   string frequency = 1;
   string model = 2;
   string thinking_level = 3;
@@ -204,8 +202,6 @@ message ReviewerSettings {
 }
 
 message SubagentRole {
-  reserved 2, 5, 7;
-  reserved "agent_callable_set", "workflow_subagent_set";
   Settings settings = 1 [(buf.validate.field).required = true];
   repeated SourceFact sources = 8;
   string description = 3 [(buf.validate.field).string.max_len = 5000];
@@ -299,8 +295,6 @@ message ToolEnabledFact {
 }
 
 message Settings {
-  reserved 4, 5;
-  reserved "system_prompt_files";
   option (buf.validate.message).cel = {
     id: "kent.session_launch.compaction_threshold_below_model_window"
     message: "context_compaction_threshold_tokens must be less than model_context_window"
@@ -327,7 +321,6 @@ message Settings {
     }
   ];
   string web_search = 14;
-  reserved 15, 17, 18;
   string provider_identifier = 16;
   optional string connection = 40 [(buf.validate.field).string.min_len = 1];
   bool store = 19;
@@ -365,8 +358,6 @@ message Settings {
 }
 
 message SourceReport {
-  reserved 1, 2, 4, 5, 6, 7, 8, 9;
-  reserved "settings_path", "settings_file_exists", "home_settings_path", "home_settings_file_exists", "workspace_settings_path", "workspace_settings_file_exists", "workspace_settings_layer_enabled";
   bool created_default_config = 3;
   repeated SourceFact sources = 10;
   repeated ConfigFileReport files = 11;
@@ -438,8 +429,6 @@ message SessionPlan {
       expression: "this.trim() != ''"
     }
   ];
-  reserved 6;
-  reserved "prompt_history";
   bool model_contract_locked = 7;
   bool questions_enabled = 8;
   bool auto_compaction_enabled = 9;

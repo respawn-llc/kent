@@ -560,17 +560,19 @@ func TestTaskSetupGuidanceContracts(t *testing.T) {
 	}
 	start, err := projectTaskSetupGuidance(taskSetupObservedActionStart, "task-1", nil, failed, nil)
 	if err != nil ||
-		start.Outcome != taskSetupOutcomeStartInterruptedSetupFailure ||
+		start.Outcome != taskSetupOutcomeObservedSetupFailure ||
 		start.RetainedRoot == nil ||
 		*start.RetainedRoot != "/tmp/retained" ||
 		start.RetainedPreviousRoot == nil ||
 		len(start.Actions) != 5 ||
 		start.Actions[0].Kind != taskSetupActionRetry ||
+		start.Actions[0].Args[2] != "start" ||
 		start.Actions[0].Args[len(start.Actions[0].Args)-1] != "head" {
 		t.Fatalf("start setup guidance=%+v err=%v", start, err)
 	}
 	resume, err := projectTaskSetupGuidance(taskSetupObservedActionResume, "task-1", nil, failed, nil)
-	if err != nil || resume.Outcome != taskSetupOutcomeResumeInterruptedSetupFailure {
+	if err != nil || resume.Outcome != taskSetupOutcomeObservedSetupFailure ||
+		resume.Actions[0].Args[2] != "resume" {
 		t.Fatalf("resume setup guidance=%+v err=%v", resume, err)
 	}
 	completed, err := projectTaskSetupGuidance(taskSetupObservedActionStart, "task-1", nil, &worktreepb.SetupEvent{
@@ -631,7 +633,7 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 	if err := serverapi.DecodeWorkflowSetupRetainedError(setupErr.RPCErrorData(), "failed"); !errors.As(err, &decoded) {
 		t.Fatalf("retained setup round trip: %v", err)
 	}
-	guidance, err := projectMoveSetupGuidance(base, &target, decoded)
+	guidance, err := projectRetainedSetupGuidance(base, &target, decoded)
 	if err != nil ||
 		guidance.Outcome != taskSetupOutcomeMoveSetupFailure ||
 		guidance.RetainedRoot == nil ||
@@ -643,17 +645,17 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
 	}
 	decoded.Details.Diagnostic = " "
-	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+	if _, err := projectRetainedSetupGuidance(base, &target, decoded); err == nil {
 		t.Fatal("missing retained setup diagnostic accepted")
 	}
 	decoded.Details.Diagnostic = setupErr.Details.Diagnostic
 	decoded.Details.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+	if _, err := projectRetainedSetupGuidance(base, &target, decoded); err == nil {
 		t.Fatal("mismatched retained setup root accepted")
 	}
 	decoded.Details.Worktree.Kent.CanonicalRoot = decoded.Details.Worktree.Git.CanonicalRoot
 	decoded.Details.RetainedPreviousWorktree.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectMoveSetupGuidance(base, &target, decoded); err == nil {
+	if _, err := projectRetainedSetupGuidance(base, &target, decoded); err == nil {
 		t.Fatal("mismatched previous retained setup root accepted")
 	}
 }
@@ -667,7 +669,7 @@ func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
 			Diagnostic:          "setup process failed", ScriptPath: "/repo/setup.sh",
 		},
 	}
-	guidance, err := projectMoveSetupGuidance(base, nil, setupErr)
+	guidance, err := projectRetainedSetupGuidance(base, nil, setupErr)
 	if err != nil {
 		t.Fatal(err)
 	}

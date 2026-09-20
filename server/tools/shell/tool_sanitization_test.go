@@ -2,34 +2,40 @@ package shell
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
-func mustPostprocessRunner(t *testing.T, settings postprocess.Settings) *postprocess.Runner {
-	t.Helper()
-	settings.PersistenceRoot = t.TempDir()
-	runner, err := postprocess.NewRunner(settings)
-	if err != nil {
-		t.Fatalf("new postprocess runner: %v", err)
+func TestManagerRejectsMissingPostprocessorBeforeLaunch(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	workdir := t.TempDir()
+	for _, raw := range []bool{false, true} {
+		_, err := manager.Start(context.Background(), ExecRequest{
+			Command: []string{"/bin/sh", "-c", "touch launched"},
+			Workdir: workdir,
+			Raw:     raw,
+		})
+		if err == nil {
+			t.Fatal("expected missing shell postprocessor to fail command launch")
+		}
 	}
-	return runner
-}
-
-func TestNewManagerRejectsNilPostprocessor(t *testing.T) {
-	if _, err := NewManager(t.TempDir(), WithPostprocessor(nil)); err == nil {
-		t.Fatal("expected nil shell postprocessor to fail manager construction")
+	if _, err := os.Stat(filepath.Join(workdir, "launched")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid request launched a command: %v", err)
 	}
 }
 
 func TestExecCommandSanitizesAnsiInDefaultProcessing(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "ansi-sanitized", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m\\rblue\\007'",
@@ -49,7 +55,7 @@ func TestExecCommandSanitizesAnsiInDefaultProcessing(t *testing.T) {
 func TestExecCommandRawPreservesAnsi(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "ansi-raw", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m'",
@@ -69,14 +75,8 @@ func TestExecCommandRawPreservesAnsi(t *testing.T) {
 
 func TestExecCommandPostprocessingNonePreservesAnsi(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := NewManager(t.TempDir(), WithMinimumExecToBgTime(250*time.Millisecond),
-		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),
-		WithPostprocessor(mustPostprocessRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone})))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeNone}))
 
 	result := callExecCommand(t, execTool, "ansi-none", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m'",
@@ -96,7 +96,7 @@ func TestExecCommandPostprocessingNonePreservesAnsi(t *testing.T) {
 func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	execTool := NewExecCommandTool(workspace, 16_000, 200_000, manager, "")
+	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	stdinTool := NewWriteStdinTool(16_000, 200_000, manager)
 
 	result := callExecCommand(t, execTool, "raw-bg", map[string]any{
@@ -158,7 +158,14 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 		return true
 	})
 	start := func(command string, yield time.Duration, stdin bool) (ExecResult, error) {
-		return manager.Start(context.Background(), ExecRequest{Command: []string{"/bin/sh", "-c", command}, Workdir: t.TempDir(), YieldTime: yield, MaxOutputChars: 16_000, KeepStdinOpen: stdin})
+		return manager.Start(context.Background(), ExecRequest{
+			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+			Command:        []string{"/bin/sh", "-c", command},
+			Workdir:        t.TempDir(),
+			YieldTime:      yield,
+			MaxOutputChars: 16_000,
+			KeepStdinOpen:  stdin,
+		})
 	}
 	foreground, _ := start("sleep .1; "+command, 5*time.Second, false)
 	if foreground.Backgrounded || foreground.Output != want {

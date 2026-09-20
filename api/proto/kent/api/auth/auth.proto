@@ -26,9 +26,6 @@ message BootstrapOAuthConfig {
 message BootstrapStatus {
   bool auth_ready = 1;
   bool auth_required = 2;
-  reserved 3;
-  bool auth_bootstrap_supported = 4;
-  repeated string allowed_pre_auth_methods = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
   repeated BootstrapMode supported_modes = 6 [
     (buf.validate.field).repeated = {
       unique: true
@@ -57,7 +54,6 @@ message CompleteBootstrapRequest {
     }
   ];
   bool force = 2;
-  reserved 3;
   optional string callback_input = 4 [(buf.validate.field).string.min_len = 1];
   optional string redirect_uri = 5 [(buf.validate.field).string.min_len = 1];
   optional string oauth_state = 6 [(buf.validate.field).string.min_len = 1];
@@ -92,7 +88,6 @@ message CompleteBootstrapRequest {
 
 message BootstrapCompletion {
   bool auth_ready = 1;
-  reserved 2;
   AuthMethod method = 3 [(buf.validate.field).enum.defined_only = true];
   optional string account_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string email = 5 [(buf.validate.field).string.min_len = 1];
@@ -161,7 +156,6 @@ message CompleteBootstrapResult {
 
 message ProviderSelection {
   string connection_id = 1 [(buf.validate.field).string.min_len = 1];
-  reserved 2, 3, 4;
 }
 
 message GetStatusRequest {
@@ -256,7 +250,6 @@ message ProviderFacts {
 message StatusFacts {
   AuthMethod method = 1 [(buf.validate.field).enum.defined_only = true];
   ProviderFacts provider = 2 [(buf.validate.field).required = true];
-  reserved 3;
   string connection_id = 7 [(buf.validate.field).string.min_len = 1];
   oneof method_facts {
     OAuthFacts oauth = 4;

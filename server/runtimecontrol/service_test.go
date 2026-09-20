@@ -611,7 +611,7 @@ func (fakeShellHandler) Call(_ context.Context, call tools.Call) (tools.Result, 
 	return tools.Result{
 		CallID: call.ID,
 		Name:   call.Name,
-		Output: json.RawMessage(`{"output":"ok","exit_code":0,"truncated":false}`),
+		Output: json.RawMessage(`"ok"`),
 	}, nil
 }
 
@@ -2957,7 +2957,8 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, client,
 		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{
 			OnEvent: func(event runtime.Event) {
-				if event.Kind == runtime.EventToolCallStarted {
+				if event.Kind == runtime.EventRunStateChanged && event.RunState != nil &&
+					event.RunState.ActiveKind == runtime.ActiveKindUserShell {
 					markStarted()
 				}
 			},
@@ -3462,23 +3463,12 @@ func countDirectShellCommandMessages(t *testing.T, store *session.Store, command
 	t.Helper()
 	count := 0
 	for _, message := range runtimeControlMessageRecords(t, store) {
-		if message.Role != session.MessageRoleAssistant {
+		if message.Role != session.MessageRoleUser || message.MessageType == nil ||
+			*message.MessageType != session.MessageTypeUserShellCommand {
 			continue
 		}
-		for _, call := range message.ToolCalls {
-			if call.Name != string(toolspec.ToolExecCommand) {
-				continue
-			}
-			var in struct {
-				Cmd           string `json:"cmd"`
-				UserInitiated bool   `json:"user_initiated"`
-			}
-			if err := json.Unmarshal(call.Input, &in); err != nil {
-				continue
-			}
-			if in.UserInitiated && in.Cmd == command {
-				count++
-			}
+		if message.CompactContent != nil && *message.CompactContent == command {
+			count++
 		}
 	}
 	return count

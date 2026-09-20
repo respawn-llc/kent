@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,22 +21,17 @@ import (
 // merely interrupted; that is an unreachable state, not one to silently repair.
 const missingToolOutputAfterCollapseInvariant = "compaction request still has a tool call without an output after overflow collapse; collapse preserves output items, so a missing-tool-output provider error here is an invariant violation"
 
-// missingToolOutputInterruptedOutput is the honest result recorded for a tool
+// missingToolOutputInterruptedMessage is the honest result recorded for a tool
 // call that was left unanswered (typically interrupted) and can no longer be
 // re-executed. It tells the model the call never produced a result rather than
 // fabricating a successful one or silently erasing the call from history.
-var missingToolOutputInterruptedOutput = json.RawMessage(`{"error":"Tool execution was interrupted before a result was produced. No output is available for this call."}`)
+const missingToolOutputInterruptedMessage = "Tool execution was interrupted before a result was produced. No output is available for this call."
 
 func missingToolOutputInterruptedResult(callID string, name toolspec.ID) tools.Result {
-	return tools.Result{
-		CallID:  callID,
-		Name:    name,
-		IsError: true,
-		Output:  append(json.RawMessage(nil), missingToolOutputInterruptedOutput...),
-	}
+	return toolErrorResult(tools.Call{ID: callID, Name: name}, missingToolOutputInterruptedMessage)
 }
 
-var missingToolOutputUnavailableOutput = json.RawMessage(`{"error":"No committed output is available for this tool call."}`)
+const missingToolOutputUnavailableMessage = "No committed output is available for this tool call."
 
 type missingToolOutputRepairDisposition uint8
 
@@ -47,7 +41,7 @@ const (
 )
 
 type missingToolOutputRepairPolicy struct {
-	output                   json.RawMessage
+	message                  string
 	repairKind               transcript.ToolOutputRepairKind
 	deferToPendingToolStarts bool
 }
@@ -56,12 +50,12 @@ func missingToolOutputPolicy(disposition missingToolOutputRepairDisposition) (mi
 	switch disposition {
 	case missingToolOutputRepairFreshResource:
 		return missingToolOutputRepairPolicy{
-			output:     missingToolOutputUnavailableOutput,
+			message:    missingToolOutputUnavailableMessage,
 			repairKind: transcript.ToolOutputRepairFreshResource,
 		}, nil
 	case missingToolOutputRepairLiveProvider400:
 		return missingToolOutputRepairPolicy{
-			output:                   missingToolOutputInterruptedOutput,
+			message:                  missingToolOutputInterruptedMessage,
 			repairKind:               transcript.ToolOutputRepairLiveProviderRejection,
 			deferToPendingToolStarts: true,
 		}, nil
@@ -158,8 +152,7 @@ func (e *Engine) repairMissingToolOutputsByAppendingRaw(
 	prepared := make([]preparedFinalizedToolCompletion, 0, len(dangling))
 	inputs := make([]session.EventRecordAppendInput, 0, len(dangling)+1)
 	for index, call := range dangling {
-		result := missingToolOutputInterruptedResult(call.callID, toolspec.ID(call.name))
-		result.Output = append(json.RawMessage(nil), policy.output...)
+		result := toolErrorResult(tools.Call{ID: call.callID, Name: toolspec.ID(call.name)}, policy.message)
 		finalized := e.finalizeLiveToolCompletion(result)
 		if finalized.OperatorFeedback != nil {
 			return 0, fmt.Errorf(

@@ -1,6 +1,7 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
 	"testing"
 
 	"core/server/workflow"
@@ -38,7 +39,7 @@ func TestTaskDependenciesProjectsCompleteDirectionsOrderingAndAvailability(t *te
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       doneBlocker.ID,
 		TargetNodeID: terminalNodeID(t, definition),
 	}); err != nil {
@@ -122,7 +123,7 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       blocker.ID,
 		TargetNodeID: terminalNodeID(t, doneDefinition),
 	}); err != nil {
@@ -145,7 +146,7 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	if got := viewTaskUpdatedAt(t, fixture, emptyTask.ID); got != beforeUpdatedAt {
 		t.Fatalf("blocked task timestamp = %d, want unchanged %d", got, beforeUpdatedAt)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       blocker.ID,
 		TargetNodeID: backlogNodeID(t, doneDefinition),
 	}); err != nil {
@@ -217,7 +218,7 @@ func TestListTaskDependenciesSortsBothDirectionsUnfinishedFirstThenShortID(t *te
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	for _, task := range []workflowstore.TaskRecord{blockerDone, blockedDone} {
-		if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+		if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 			TaskID:       task.ID,
 			TargetNodeID: terminalNodeID(t, definition),
 		}); err != nil {

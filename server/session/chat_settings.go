@@ -98,8 +98,9 @@ type ChatDraftState struct {
 
 type ChatSettingsState struct {
 	// A nil role selects interactive base settings; "default" is the headless role.
-	AgentRole *string
-	Settings  *ChatSettingsOverrides
+	AgentRole    *string
+	ConnectionID *config.ConnectionID
+	Settings     *ChatSettingsOverrides
 }
 
 func (s ChatSettingsState) AgentSelector() string {
@@ -143,6 +144,11 @@ type ChatSettingsCommitResult struct {
 }
 
 func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, error) {
+	if target.ConnectionID != nil {
+		if _, err := config.ParseConnectionID(string(*target.ConnectionID)); err != nil {
+			return Meta{}, false, err
+		}
+	}
 	currentMeta := cloneMeta(meta)
 	if err := normalizeMetaContinuation(&currentMeta); err != nil {
 		return Meta{}, false, err
@@ -163,7 +169,8 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	}
 	current := chatSettingsStateFromNormalizedMeta(currentMeta)
 	next := ChatSettingsState{
-		Settings: cloneChatSettingsOverrides(settings),
+		Settings:     cloneChatSettingsOverrides(settings),
+		ConnectionID: textutil.Pointer(target.ConnectionID),
 	}
 	if selection != nil {
 		next.AgentRole = selection.AgentRole
@@ -173,10 +180,11 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 		return currentMeta, false, nil
 	}
 	agentChanged := !textutil.EqualOptional(current.AgentRole, next.AgentRole)
-	if currentMeta.Locked != nil && agentChanged {
+	if currentMeta.Locked != nil && (agentChanged || !textutil.EqualOptional(currentMeta.ConnectionID, next.ConnectionID)) {
 		return Meta{}, false, ErrChatAgentLocked
 	}
 	currentMeta.ChatSettings = cloneChatSettingsOverrides(next.Settings)
+	currentMeta.ConnectionID = textutil.Pointer(next.ConnectionID)
 	continuation := cloneContinuationContext(currentMeta.Continuation)
 	if continuation == nil {
 		continuation = &ContinuationContext{}
@@ -209,6 +217,7 @@ func (s *Store) CommitChatSettingsState(target ChatSettingsState) (ChatSettingsC
 	}
 	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.ChatSettings = projected.ChatSettings
+	s.meta.ConnectionID = projected.ConnectionID
 	s.meta.Continuation = projected.Continuation
 	s.meta.UpdatedAt = storeTimestamp(s.options)
 
@@ -365,13 +374,16 @@ func normalizeMetaChatSettings(meta *Meta) error {
 
 func chatSettingsStateFromNormalizedMeta(meta Meta) ChatSettingsState {
 	return ChatSettingsState{
-		AgentRole: ContinuationAgentRole(meta),
-		Settings:  cloneChatSettingsOverrides(meta.ChatSettings),
+		AgentRole:    ContinuationAgentRole(meta),
+		ConnectionID: textutil.Pointer(meta.ConnectionID),
+		Settings:     cloneChatSettingsOverrides(meta.ChatSettings),
 	}
 }
 
 func chatSettingsStatesEqual(left ChatSettingsState, right ChatSettingsState) bool {
-	return textutil.EqualOptional(left.AgentRole, right.AgentRole) && chatSettingsOverridesEqual(left.Settings, right.Settings)
+	return textutil.EqualOptional(left.AgentRole, right.AgentRole) &&
+		textutil.EqualOptional(left.ConnectionID, right.ConnectionID) &&
+		chatSettingsOverridesEqual(left.Settings, right.Settings)
 }
 
 func chatSettingsOverridesEqual(left *ChatSettingsOverrides, right *ChatSettingsOverrides) bool {

@@ -10,7 +10,7 @@ This repository contains Kent - a coding agent focused on output quality, built 
 - `server/bootstrap`
   - Server-owned bootstrap composition for config/container resolution, auth-manager creation, and runtime-support setup.
 - `server/startup`
-  - `kent serve` composition root; owns startup orchestration across bootstrap, auth, onboarding, and server capability activation.
+  - `kent serve` composition root; owns startup orchestration across bootstrap, auth, onboarding, and Core activation.
 - `server/authservice`
   - Server-owned auth readiness, bootstrap/status services, and env-backed auth-store policy used by CLI auth UX.
 - `server/sessionservice`

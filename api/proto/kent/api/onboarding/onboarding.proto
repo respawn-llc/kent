@@ -233,7 +233,6 @@ message FinalizeRequest {
       not_in: [0]
     }
   ];
-  reserved 2;
   ModelChoice model = 3;
   ContextWindowChoice context_window = 4;
   ThinkingChoice thinking = 5;

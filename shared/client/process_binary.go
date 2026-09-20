@@ -11,7 +11,7 @@ func (c *Remote) ListProcesses(ctx context.Context, request *processpb.ListReque
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(processpb.File_kent_api_process_process_proto, "ViewService", "List"),
 		request, &processpb.ListResult{}, func(failure *processpb.ListError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -19,7 +19,7 @@ func (c *Remote) GetProcess(ctx context.Context, request *processpb.GetRequest) 
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(processpb.File_kent_api_process_process_proto, "ViewService", "Get"),
 		request, &processpb.GetResult{}, func(failure *processpb.GetError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -27,7 +27,7 @@ func (c *Remote) KillProcess(ctx context.Context, request *processpb.KillRequest
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(processpb.File_kent_api_process_process_proto, "ControlService", "Kill"),
 		request, &processpb.KillResult{}, func(failure *processpb.KillError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -35,6 +35,6 @@ func (c *Remote) GetInlineOutput(ctx context.Context, request *processpb.InlineO
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(processpb.File_kent_api_process_process_proto, "ControlService", "InlineOutput"),
 		request, &processpb.InlineOutputResult{}, func(failure *processpb.InlineOutputError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }

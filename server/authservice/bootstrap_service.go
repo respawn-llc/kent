@@ -31,7 +31,6 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.G
 	status := &authpb.BootstrapStatus{
 		ConnectionId: string(snapshot.connection.ID), Method: method,
 		AuthReady: snapshot.failure == nil, AuthRequired: method != authpb.AuthMethod_AUTH_METHOD_NONE,
-		AuthBootstrapSupported: true,
 	}
 	switch method {
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:

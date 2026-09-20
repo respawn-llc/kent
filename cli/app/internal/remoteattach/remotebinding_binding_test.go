@@ -301,7 +301,6 @@ func serveRemoteBindingBinary(
 					Ready:           true,
 					ServerId:        "binding-test",
 					ServerVersion:   "test",
-					ServerBuild:     "test",
 					ProtocolVersion: protocol.Version,
 				},
 			}},

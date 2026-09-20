@@ -284,7 +284,6 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
 			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
 		}},
-		inputTokenCount: 1_900,
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
@@ -323,7 +322,6 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("handoff summary")},
 			Usage:     llm.Usage{InputTokens: 1_900, WindowTokens: 2_000},
 		}},
-		inputTokenCount: 1_900,
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
@@ -409,28 +407,11 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 	}
 	assertRequestsPreserveCacheIdentity(t, client.calls[0], client.calls[1])
 
-	foundFailedOutputs := map[string]bool{}
-	for _, item := range client.calls[1].Items {
-		if item.Type != llm.ResponseItemTypeFunctionCallOutput {
-			continue
-		}
-		var payload struct {
-			Error string `json:"error"`
-		}
-		if err := json.Unmarshal(item.Output, &payload); err != nil {
-			t.Fatalf("unmarshal failed tool output: %v", err)
-		}
-		if payload.Error == localCompactionToolsDisabledMessage {
-			if item.CallID == nil {
-				t.Fatalf("failed tool output has no call id: %+v", item)
-			}
-			foundFailedOutputs[*item.CallID] = true
-		}
-	}
-	for _, callID := range []string{"call_summary_tool", "call_search_summary_tool"} {
-		if !foundFailedOutputs[callID] {
-			t.Fatalf("expected failed handoff tool output for %s, got items=%+v", callID, client.calls[1].Items)
-		}
+	for _, call := range []llm.ToolCall{
+		{ID: "call_summary_tool", Name: string(toolspec.ToolExecCommand)},
+		{ID: "call_search_summary_tool", Name: string(toolspec.ToolWebSearch)},
+	} {
+		assertRequestHasCompactionToolError(t, client.calls[1], call)
 	}
 }
 

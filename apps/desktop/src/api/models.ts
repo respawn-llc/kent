@@ -52,7 +52,6 @@ export type ServerReadiness = Readonly<{
   ready: boolean;
   serverID: string;
   serverVersion: string;
-  serverBuild: string;
   protocolVersion: string;
   authReady: boolean;
   authRequired: boolean;

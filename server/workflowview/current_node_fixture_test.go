@@ -223,9 +223,26 @@ func (f currentNodeViewFixture) startTask(t *testing.T, title string) startedCur
 
 func (f currentNodeViewFixture) startExistingTask(t *testing.T, task workflowstore.TaskRecord) startedCurrentNodeViewTask {
 	t.Helper()
-	started, err := f.store.StartTask(f.ctx, task.ID)
+	target, err := f.store.GetTaskExecutionTargetContext(f.ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := f.store.PlanTaskStart(f.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, creations := workflowfixture.PrepareCurrentNodeSessionArtifacts(t, f.ctx, f.metadata, plan.StartContexts())
+	started, err := f.store.CommitTaskStart(f.ctx, plan, sessions)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
+	}
+	for _, creation := range creations {
+		if _, err := session.MaterializeCommittedCreation(f.ctx, creation, f.metadata.AuthoritativeSessionStoreOptions()...); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("StartTask mutation = %+v, want one Current Node", started.Mutation)
@@ -250,17 +267,17 @@ func (f currentNodeViewFixture) createBacklogTask(t *testing.T, title string) wo
 
 func (f currentNodeViewFixture) bindCurrentNodeSession(t *testing.T, started startedCurrentNodeViewTask) runtimeids.SessionID {
 	t.Helper()
-	sessionID := f.newCurrentNodeViewSession(t)
-	if _, err := f.store.BindSessionToCurrentNode(f.ctx, workflowstore.CurrentNodeSessionBindingRequest{
-		Association: workflowstore.TaskSessionAssociationRequest{
-			SessionID:    sessionID,
-			CurrentNode:  started.currentNode,
-			AssociatedAt: time.Now().UTC(),
-		},
-	}); err != nil {
-		t.Fatalf("BindSessionToCurrentNode: %v", err)
+	nodes, err := f.store.ListCurrentNodes(f.ctx, started.task.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return sessionID
+	for _, node := range nodes {
+		if node.Reference.Equal(started.currentNode) && node.SessionID != nil {
+			return *node.SessionID
+		}
+	}
+	t.Fatal("started Agent has no committed Session")
+	return runtimeids.SessionID{}
 }
 
 func (f currentNodeViewFixture) newCurrentNodeViewSession(t *testing.T) runtimeids.SessionID {

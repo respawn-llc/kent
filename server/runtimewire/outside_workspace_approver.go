@@ -37,6 +37,7 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 	}
 	var consumerOnce sync.Once
 	var consumerErr error
+	var approval tools.FileAccessApproval
 	request := tools.AskQuestionRequest{
 		Approval:      true,
 		AccessTargets: targets,
@@ -50,9 +51,8 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 		},
 		ApprovalConsumer: func(answer tools.AskQuestionApproval) error {
 			consumerOnce.Do(func() {
-				approval, err := OutsideWorkspaceApprovalFromResolution(answer)
-				consumerErr = err
-				if err == nil && approval.Kind == tools.FileAccessApprovalAllowSession {
+				approval, consumerErr = OutsideWorkspaceApprovalFromResolution(answer)
+				if consumerErr == nil && approval.Kind == tools.FileAccessApprovalAllowSession {
 					a.mu.Lock()
 					a.sessionAllowed = true
 					a.mu.Unlock()
@@ -61,15 +61,11 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 			return consumerErr
 		},
 	}
-	resp, err := a.broker.Ask(ctx, request)
+	_, err = a.broker.Ask(ctx, request)
 	if err != nil {
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, err
 	}
 
-	approval, err := OutsideWorkspaceApprovalFromResolution(resp)
-	if err != nil {
-		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, err
-	}
 	return approval, nil
 }
 

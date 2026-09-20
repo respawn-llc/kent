@@ -28,7 +28,6 @@ type RuntimeClientRequest struct {
 	SessionID      string
 	ActiveSettings config.Settings
 	EnabledTools   []toolspec.ID
-	WorkspaceRoot  string
 	Sources        map[string]config.Origin
 	Connection     authservice.ResolvedConnection
 }

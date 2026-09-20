@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func TestManagerRunsCommandAfterTemporaryDirectoryIsDeleted(t *testing.T) {
@@ -19,9 +23,10 @@ func TestManagerRunsCommandAfterTemporaryDirectoryIsDeleted(t *testing.T) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Command:   []string{executable, "-test.run=^$"},
-		Workdir:   t.TempDir(),
-		YieldTime: 15 * time.Second,
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:       []string{executable, "-test.run=^$"},
+		Workdir:       t.TempDir(),
+		YieldTime:     15 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("start command after directory deletion: %v", err)

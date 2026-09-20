@@ -25,11 +25,10 @@ import (
 )
 
 type RuntimeWiring struct {
-	Engine      *runtime.Engine
-	AskBroker   *askquestion.AskQuestionBroker
-	EventBridge *EventBridge
-	Background  *shelltool.Manager
-	LocalTools  *LocalToolRegistryBinding
+	Engine     *runtime.Engine
+	AskBroker  *askquestion.AskQuestionBroker
+	Background *shelltool.Manager
+	LocalTools *LocalToolRegistryBinding
 }
 
 func (w *RuntimeWiring) Close() error {
@@ -126,7 +125,7 @@ func NewRuntimeWiringWithBackground(
 		}
 		return NewRuntimeClient(factoryContext, factory, RuntimeClientRequest{
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
-			EnabledTools: enabledTools, WorkspaceRoot: workingDirectory, Sources: opts.Sources, Connection: connection,
+			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
 		})
 	}
 	var client llm.Client
@@ -164,11 +163,10 @@ func NewRuntimeWiringWithBackground(
 		}
 	}
 
-	provider, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
+	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
 	if err != nil {
 		return nil, err
 	}
-	providerCapabilities := provider.Capabilities
 	if opts.ProviderCapabilitiesOverride != nil {
 		providerCapabilities = *opts.ProviderCapabilitiesOverride
 	}
@@ -204,15 +202,7 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
-	toolRegistry := localTools.Registry()
-	eventBridge := NewEventBridge(2048, func(total uint64, evt runtime.Event) {
-		if logger == nil {
-			return
-		}
-		if total == 1 || total%100 == 0 {
-			logger.Logf("runtime.event.drop count=%d kind=%s", total, evt.Kind)
-		}
-	})
+	toolRegistry := localTools.registry
 	promptReloader := opts.PromptFacingSnapshotReloader
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
@@ -270,12 +260,7 @@ func NewRuntimeWiringWithBackground(
 			Client:            reviewerClient,
 			ClientFactory:     newReviewerClient,
 		},
-		OnEvent: func(evt runtime.Event) {
-			if opts.OnEvent != nil {
-				opts.OnEvent(evt)
-			}
-			eventBridge.Publish(evt)
-		},
+		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
@@ -286,11 +271,10 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	return &RuntimeWiring{
-		Engine:      eng,
-		AskBroker:   askBroker,
-		EventBridge: eventBridge,
-		Background:  background,
-		LocalTools:  localTools,
+		Engine:     eng,
+		AskBroker:  askBroker,
+		Background: background,
+		LocalTools: localTools,
 	}, nil
 }
 

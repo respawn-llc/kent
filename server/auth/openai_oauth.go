@@ -59,7 +59,6 @@ type deviceTokenPollResponse struct {
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	IDToken      string `json:"id_token"`
 }
@@ -308,10 +307,6 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 		return Method{}, errors.New("token exchange response missing access token")
 	}
 
-	tokenType := parsed.TokenType
-	if tokenType == "" {
-		tokenType = "Bearer"
-	}
 	expiresAt := time.Now().UTC().Add(time.Hour)
 	if parsed.ExpiresIn > 0 {
 		expiresAt = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
@@ -322,7 +317,6 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 		OAuth: &OAuthMethod{
 			AccessToken:  parsed.AccessToken,
 			RefreshToken: parsed.RefreshToken,
-			TokenType:    tokenType,
 			Expiry:       expiresAt,
 			AccountID:    extractAccountID(parsed),
 			Email:        extractEmail(parsed),
@@ -383,12 +377,6 @@ func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method
 	updated.OAuth.AccessToken = parsed.AccessToken
 	if strings.TrimSpace(parsed.RefreshToken) != "" {
 		updated.OAuth.RefreshToken = parsed.RefreshToken
-	}
-	if strings.TrimSpace(parsed.TokenType) != "" {
-		updated.OAuth.TokenType = parsed.TokenType
-	}
-	if strings.TrimSpace(updated.OAuth.TokenType) == "" {
-		updated.OAuth.TokenType = "Bearer"
 	}
 	if accountID := extractAccountID(parsed); strings.TrimSpace(accountID) != "" {
 		updated.OAuth.AccountID = accountID

@@ -1881,7 +1881,6 @@ func TestExecutionCleanupAlwaysReleasesWorkflowBinding(t *testing.T) {
 			finalizing := &execution{
 				scope: newAgentExecutionScope(
 					executionConfig.ScopeID,
-					ExecutionGeneration(1),
 					attachment.Resource(),
 					nil,
 				),
@@ -2839,7 +2838,6 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	workflowRef := workflowExecutionRefForTest(t, "task-prompt-lock", "node-prompt-lock", nil)
 	scope := newAgentExecutionScope(
 		runtimeids.NewExecutionScopeID(),
-		1,
 		resource,
 		&workflowRef,
 	)

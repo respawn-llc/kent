@@ -5,6 +5,8 @@ description: Configure Kent's shell command post-processing and ship your own ho
 
 Kent post-processes shell command output before it is shown to the model to normalize output, reduce command noise, and add useful execution context.
 
+Command execution, background polling, and shell errors return plaintext to the model. Commands you run yourself enter model context as user messages containing the command and its formatted output. The transcript shows a compact shell entry; expand it in detail mode to inspect the full text.
+
 ## Config
 
 Configure command post-processing under `[shell]` in `~/.kent/config.toml`:
@@ -43,8 +45,8 @@ Kent sends JSON like:
   "parsed_args": ["go", "test", "./..."],
   "command_name": "go",
   "workdir": "/abs/workdir",
-  "original_output": "...sanitized command output...",
-  "current_output": "...built-in processed output or original output...",
+  "original_output": "...raw command output...",
+  "current_output": "...sanitized and built-in processed output...",
   "exit_code": 0,
   "backgrounded": false,
   "max_display_chars": 16000
@@ -53,8 +55,8 @@ Kent sends JSON like:
 
 Your hook receives both:
 
-- `original_output`: sanitized command output before built-in processing
-- `current_output`: command output after built-in processing, or `original_output` when unchanged
+- `original_output`: raw command output before sanitization or built-in processing
+- `current_output`: command output after sanitization and enabled built-in processing
 
 Hook **must** return JSON like:
 

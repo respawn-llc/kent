@@ -55,7 +55,7 @@ func TestCompactionEnablesAstraImageHandlerInExistingRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, ok := wiring.LocalTools.Registry().Get(toolspec.ToolViewImage)
+	handler, ok := wiring.LocalTools.registry.Get(toolspec.ToolViewImage)
 	if !ok {
 		t.Fatal("view_image handler is missing")
 	}

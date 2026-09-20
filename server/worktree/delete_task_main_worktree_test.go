@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
@@ -53,7 +54,7 @@ func TestDeleteTaskWorktreeBlocksGitMainBeforeCleanupSideEffects(t *testing.T) {
 	}
 	requestedRef := "HEAD"
 	commitOID := strings.Repeat("a", 40)
-	if err := workflowStore.LockTaskExecutionTarget(env.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+	plan, err := workflowStore.PlanTaskStart(env.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
 		Snapshot: workflowstore.ExecutionTargetSnapshot{
 			Mode:         workflow.ExecutionTargetModeHead,
 			RequestedRef: &requestedRef,
@@ -68,8 +69,12 @@ func TestDeleteTaskWorktreeBlocksGitMainBeforeCleanupSideEffects(t *testing.T) {
 				Root:       targetRoot,
 			},
 		},
-	}); err != nil {
-		t.Fatalf("LockTaskExecutionTarget: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("PlanTaskStart: %v", err)
+	}
+	if _, err := workflowStore.CommitTaskStart(env.ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, env.ctx, env.store, plan.StartContexts())); err != nil {
+		t.Fatalf("CommitTaskStart: %v", err)
 	}
 	updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, worktreeID, "pkg")
 	reminder := &session.WorktreeReminderState{

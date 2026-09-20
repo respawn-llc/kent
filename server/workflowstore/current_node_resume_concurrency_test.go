@@ -23,6 +23,12 @@ func TestResumeCurrentNodeWaitsForConcurrentWriterBeforeReadingInterruption(t *t
 		t.Fatalf("InterruptCurrentNode: %v", err)
 	}
 	resumeStore, writerStore := openConcurrentWorkflowStores(t, cfg)
+	resumeStore.roleResolver = store.roleResolver
+	plan, err := resumeStore.PlanTaskResume(ctx, task.ID, []workflow.CurrentNodeReference{reference}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := plannedSessionsForStoreTest(t, ctx, resumeStore, plan.StartContexts())
 	writer, err := writerStore.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("begin competing writer: %v", err)
@@ -40,7 +46,7 @@ func TestResumeCurrentNodeWaitsForConcurrentWriterBeforeReadingInterruption(t *t
 	defer cancel()
 	resumed := make(chan error, 1)
 	go func() {
-		_, _, err := resumeStore.ResumeCurrentNode(resumeCtx, reference)
+		_, err := resumeStore.CommitTaskResume(resumeCtx, plan, sessions)
 		resumed <- err
 	}()
 	select {

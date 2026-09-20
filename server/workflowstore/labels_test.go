@@ -796,10 +796,7 @@ func TestTaskLabelAssignmentSupportsEveryTaskLifecycleState(t *testing.T) {
 	startTask(t, ctx, store, active.ID)
 
 	admitted := createDefaultTask(t, ctx, store, binding.ProjectID)
-	admittedStart := startTask(t, ctx, store, admitted.ID)
-	if _, err := store.AdmitCurrentNode(ctx, admittedStart.Mutation.Created[0].Reference); err != nil {
-		t.Fatalf("AdmitCurrentNode: %v", err)
-	}
+	startTask(t, ctx, store, admitted.ID)
 
 	interrupted := createDefaultTask(t, ctx, store, binding.ProjectID)
 	interruptedStart := startTask(t, ctx, store, interrupted.ID)
@@ -809,7 +806,7 @@ func TestTaskLabelAssignmentSupportsEveryTaskLifecycleState(t *testing.T) {
 
 	done := createDefaultTask(t, ctx, store, binding.ProjectID)
 	doneStart := startTask(t, ctx, store, done.ID)
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       doneStart.Mutation.Created[0].Reference,
 		TransitionID: "done",
 	}); err != nil {

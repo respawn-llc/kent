@@ -146,22 +146,23 @@ func TestReviewerRebuildRetainsGenerationSkillsWithoutMutatingMainTranscript(t *
 		persistedSkills,
 		{Role: llm.RoleUser, Content: textutil.Value("request")},
 	}
-	original := append([]llm.Message(nil), messages...)
+	items := reviewerItemsFromMessages(messages)
+	original := llm.CloneResponseItems(items)
 	disabledPolicy := config.ResolveSkillPolicy(config.Settings{SkillToggles: map[string]bool{"review-skill": false}})
-	rebuilt, err := buildReviewerRequestMessagesWithBuilder(
-		messages,
+	rebuilt, err := buildReviewerRequestItemsWithBuilder(
+		items,
 		newMetaContextBuilder(workspace, "gpt-5", "medium", disabledPolicy, time.Now()),
 		false,
 	)
 	if err != nil {
 		t.Fatalf("build reviewer request messages: %v", err)
 	}
-	content, found := skillMessageContent(rebuilt)
+	content, found := skillMessageContent(llm.MessagesFromItems(rebuilt))
 	if !found || content != messageContent(persistedSkills) {
 		t.Fatalf("reviewer rebuild changed generation skills context: %+v", rebuilt)
 	}
-	if !reflect.DeepEqual(messages, original) {
-		t.Fatalf("reviewer rebuild mutated main transcript\nbefore=%+v\nafter=%+v", original, messages)
+	if !reflect.DeepEqual(items, original) {
+		t.Fatalf("reviewer rebuild mutated main transcript\nbefore=%+v\nafter=%+v", original, items)
 	}
 }
 

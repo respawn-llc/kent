@@ -206,21 +206,6 @@ func TestVisionDefaultsRespectProviderAndCatalog(t *testing.T) {
 	}
 }
 
-func TestSupportsVerbosityModel(t *testing.T) {
-	tests := []modelSupportCase{
-		{model: "gpt-5.6-sol", want: true},
-		{model: "gpt-5.4", want: true},
-		{model: "gpt-5.4-mini", want: true},
-		{model: "gpt-5.4-nano", want: true},
-		{model: "gpt-5.3-codex", want: true},
-		{model: "gpt-5.3-codex-spark", want: true},
-		{model: " GPT-5-preview ", want: false},
-		{model: "custom-alias", want: false},
-		{model: "", want: false},
-	}
-	requireModelSupport(t, "SupportsVerbosityModel", SupportsVerbosityModel, tests)
-}
-
 func TestVerbositySupportForModelAndProvider(t *testing.T) {
 	providerEnabled := ProviderCapabilities{
 		ProviderID:                "custom-enabled",

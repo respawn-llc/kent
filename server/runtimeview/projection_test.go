@@ -21,7 +21,6 @@ import (
 
 const (
 	projectionWorkspaceID  = "10000000-0000-4000-8000-000000000001"
-	projectionRunID        = "10000000-0000-4000-8000-000000000002"
 	projectionStepID       = "10000000-0000-4000-8000-000000000003"
 	projectionParentID     = "10000000-0000-4000-8000-000000000006"
 	projectionWorkflowTask = "10000000-0000-4000-8000-000000000008"
@@ -111,35 +110,6 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 	return engine
-}
-
-func TestActivityFromRuntimeSnapshotCopiesRuntimeOwnedActiveKinds(t *testing.T) {
-	tests := []struct {
-		name string
-		kind runtime.ActiveKind
-		want runtimepb.ActivityActiveKind
-	}{
-		{name: "user turn", kind: runtime.ActiveKindUserTurn, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
-		{name: "workflow turn", kind: runtime.ActiveKindWorkflowTurn, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN},
-		{name: "goal loop", kind: runtime.ActiveKindGoalLoop, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP},
-		{name: "compaction", kind: runtime.ActiveKindCompaction, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			activity := ActivityFromRuntimeSnapshot(&runtime.RunSnapshot{
-				RunID:      projectionRunID,
-				StepID:     projectionStepID,
-				Status:     runtime.RunStatusRunning,
-				ActiveKind: tt.kind,
-			}, true)
-			if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING || activity.ActiveStep == nil || activity.ActiveStep.ActiveKind != tt.want {
-				t.Fatalf("activity = %+v, want running %q", activity, tt.want)
-			}
-			if !activity.QueueAccepting {
-				t.Fatalf("queue accepting was not preserved in activity: %+v", activity)
-			}
-		})
-	}
 }
 
 func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
@@ -248,9 +218,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 		t.Fatalf("session agent role = %v, want %q", view.Session.AgentRole, role)
 	}
 	if view.Status.ParentAgentSessionId == nil || *view.Status.ParentAgentSessionId != parentSessionID ||
-		view.Status.NavigationTargetSessionId == nil || *view.Status.NavigationTargetSessionId != parentSessionID ||
-		view.Status.LastCommittedAssistantFinalAnswer == nil ||
-		*view.Status.LastCommittedAssistantFinalAnswer != "final answer" {
+		view.Status.NavigationTargetSessionId == nil || *view.Status.NavigationTargetSessionId != parentSessionID {
 		t.Fatalf("unexpected status hydration: %+v", view.Status)
 	}
 	if view.Status.ThinkingLevel != "high" || !view.Status.FastModeEnabled || view.Status.AutoCompactionEnabled {

@@ -15,8 +15,8 @@ import (
 
 type serveCommandServer = ServeServer
 
-var startServeServer = func(ctx context.Context, req serverstartup.Request, onboardingHandler serverstartup.OnboardingHandler) (serveCommandServer, error) {
-	return serverstartup.StartServeServer(ctx, req, onboardingHandler)
+var startServeServer = func(ctx context.Context, req serverstartup.Request) (serveCommandServer, error) {
+	return serverstartup.StartServeServer(ctx, req)
 }
 
 func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -45,7 +45,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	ctx = installServiceShutdownTrigger(ctx)
 	server, err := startServeServer(ctx, serverstartup.Request{
 		LoadOptions: brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
-	}, serverstartup.HeadlessOnboarding)
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, context.Canceled) {

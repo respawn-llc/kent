@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunningShells(t *testing.T) {
@@ -120,6 +123,7 @@ func startRetainedShell(
 ) ExecResult {
 	t.Helper()
 	result, err := manager.Start(context.Background(), ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %s ]; do sleep 0.01; done", releaseName)},
 		DisplayCommand: "wait for release",
 		Workdir:        workdir,
