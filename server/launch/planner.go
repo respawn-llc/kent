@@ -255,7 +255,7 @@ func resolveReadOnlySessionContextSettings(
 	active, source := baseActive, app.Source
 	if meta.Continuation != nil {
 		var err error
-		active, source, err = applyPersistedSubagentRoleSettings(baseActive, source, meta.Continuation.AgentRole, meta.Locked == nil, !skipContinuationAgentRoleValidation)
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, source, meta.Continuation.AgentRole, meta.ConnectionID, meta.Locked == nil, !skipContinuationAgentRoleValidation)
 		if err != nil {
 			return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, err
 		}
@@ -482,7 +482,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 		source = cloneSourceReport(req.PreparedPromptFacingTarget.Source)
 		enabledTools = append([]toolspec.ID(nil), req.PreparedPromptFacingTarget.EnabledTools...)
 	} else if meta.Continuation != nil {
-		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation)
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.ConnectionID, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation)
 		if err != nil {
 			return SessionPlan{}, err
 		}
@@ -583,7 +583,7 @@ func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID st
 	return target, nil
 }
 
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName *string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
+func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName *string, savedConnection *config.ConnectionID, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
 	if roleName == nil {
 		return base, source, nil
 	}
@@ -599,6 +599,11 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
 	}
+	connection, _, err := ResolveSessionConnection(providerSettings, savedConnection)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, err
+	}
+	providerSettings.Connection = &connection
 	providerID, err := persistedRoleProviderID(providerSettings)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
