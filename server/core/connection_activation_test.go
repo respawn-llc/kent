@@ -14,8 +14,8 @@ import (
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/serverapi"
 	"core/shared/runtimeinput"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
