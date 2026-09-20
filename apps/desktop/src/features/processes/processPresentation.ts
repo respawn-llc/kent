@@ -22,7 +22,7 @@ export function projectProcessPresentation(
   observationTime: number,
   pendingTermination: boolean,
 ): ProcessPresentation {
-  const stopping = process.killRequested || pendingTermination;
+  const stopping = process.running && (process.killRequested || pendingTermination);
   const state = process.state.trim();
   return {
     age: processAge(process, observationTime),
