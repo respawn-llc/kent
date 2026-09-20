@@ -32,6 +32,7 @@ type ProviderClientOptions struct {
 	Store                        bool
 	ContextWindowTokens          int
 	ProviderCapabilitiesOverride *ProviderCapabilities
+	RequestCapabilities          *ProviderCapabilities
 }
 
 type ProviderClientFactory func(opts ProviderClientOptions) (Client, error)
@@ -302,6 +303,10 @@ func newOpenAIHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) 
 	if opts.ProviderCapabilitiesOverride != nil {
 		caps := *opts.ProviderCapabilitiesOverride
 		transport.ProviderCapabilitiesOverride = &caps
+	}
+	if opts.RequestCapabilities != nil {
+		caps := *opts.RequestCapabilities
+		transport.RequestCapabilities = &caps
 	}
 	transport.Store = opts.Store
 	return transport, nil

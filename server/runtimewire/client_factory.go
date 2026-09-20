@@ -24,12 +24,13 @@ const (
 )
 
 type RuntimeClientRequest struct {
-	Purpose        RuntimeClientPurpose
-	SessionID      string
-	ActiveSettings config.Settings
-	EnabledTools   []toolspec.ID
-	Sources        map[string]config.Origin
-	Connection     authservice.ResolvedConnection
+	Purpose             RuntimeClientPurpose
+	SessionID           string
+	ActiveSettings      config.Settings
+	EnabledTools        []toolspec.ID
+	Sources             map[string]config.Origin
+	Connection          authservice.ResolvedConnection
+	RequestCapabilities llm.ProviderCapabilities
 }
 
 type RuntimeClientFactory interface {
@@ -73,6 +74,7 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 		OpenAIBaseURL: endpoint, ModelVerbosity: string(active.ModelVerbosity),
 		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,
 		ContextWindowTokens: active.ModelContextWindow, ProviderCapabilitiesOverride: &capabilities,
+		RequestCapabilities: &request.RequestCapabilities,
 	})
 }
 

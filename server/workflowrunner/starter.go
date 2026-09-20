@@ -778,10 +778,15 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 	if err != nil {
 		return nil, err
 	}
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(plan.Locked, active)
+	if err != nil {
+		return nil, err
+	}
 	return runtimewire.NewRuntimeClient(ctx, s.runtimeClientFactory, runtimewire.RuntimeClientRequest{
 		Purpose: runtimewire.RuntimeClientPurposeWorkflow, SessionID: plan.Descriptor.SessionID().String(),
 		ActiveSettings: active, EnabledTools: plan.EnabledTools,
 		Sources: plan.Source.Sources, Connection: connection,
+		RequestCapabilities: capabilities,
 	})
 }
 

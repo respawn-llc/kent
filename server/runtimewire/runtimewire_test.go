@@ -66,6 +66,7 @@ func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, even
 		options.GlobalConfigDir = t.TempDir()
 	}
 	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
+	config.InheritReviewerSettings(&active, options.Sources)
 	return NewRuntimeWiringWithBackground(store, eventLog, active, enabled, manager, logger, background, options)
 }
 

@@ -17,9 +17,10 @@ import (
 var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 
 type openAIRequestPayloadBuilder struct {
-	store          bool
-	modelVerbosity string
-	capabilities   ProviderCapabilities
+	store                  bool
+	modelVerbosity         string
+	capabilities           ProviderCapabilities
+	connectionCapabilities ProviderCapabilities
 }
 
 type openAIPayloadToolControls struct {
@@ -35,12 +36,22 @@ func effectiveServiceTier(fastMode bool, capabilities ProviderCapabilities) *res
 	return nil
 }
 
-func newOpenAIRequestPayloadBuilder(store bool, modelVerbosity string, capabilities ProviderCapabilities) openAIRequestPayloadBuilder {
-	return openAIRequestPayloadBuilder{store: store, modelVerbosity: strings.ToLower(strings.TrimSpace(modelVerbosity)), capabilities: capabilities}
+func (t *HTTPTransport) effectiveRequestCapabilities(connectionCapabilities ProviderCapabilities) ProviderCapabilities {
+	if t.RequestCapabilities != nil {
+		return *t.RequestCapabilities
+	}
+	return connectionCapabilities
+}
+
+func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities) openAIRequestPayloadBuilder {
+	return openAIRequestPayloadBuilder{
+		store: t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
+		capabilities: t.effectiveRequestCapabilities(connectionCapabilities), connectionCapabilities: connectionCapabilities,
+	}
 }
 
 func (t *HTTPTransport) buildPayload(request OpenAIRequest, mode OpenAIAuthMode, capabilities ProviderCapabilities) (responses.ResponseNewParams, error) {
-	builder := newOpenAIRequestPayloadBuilder(t.Store, t.ModelVerbosity, capabilities)
+	builder := t.requestPayloadBuilder(capabilities)
 	return builder.BuildResponse(request, mode)
 }
 
@@ -59,7 +70,7 @@ func (t *HTTPTransport) buildDispatchPayload(
 }
 
 func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode OpenAIAuthMode) (responses.ResponseNewParams, error) {
-	if err := validateRetainedConnectionContext(request.Items, b.capabilities); err != nil {
+	if err := validateRetainedConnectionContext(request.Items, b.connectionCapabilities); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
 	input, err := buildResponsesInput(request.Items)

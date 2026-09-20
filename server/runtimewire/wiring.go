@@ -89,17 +89,6 @@ func NewRuntimeWiringWithBackground(
 	if opts.Client != nil && opts.ClientFactory != nil {
 		return nil, ErrRuntimeClientFactoryConflict
 	}
-	catalog, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: opts.GlobalConfigDir})
-	if err != nil {
-		return nil, err
-	}
-	active.Connections = catalog.Settings.Connections
-	selected, _, err := launch.ResolveSessionConnection(active, store.Meta().ConnectionID)
-	if err != nil {
-		return nil, err
-	}
-	active.Connection = &selected
-	config.InheritReviewerSettings(&active, opts.Sources)
 	shellPostprocessor, err := postprocess.NewRunner(postprocess.Settings{
 		PersistenceRoot: opts.GlobalConfigDir,
 		Mode:            active.Shell.PostprocessingMode,
@@ -119,7 +108,7 @@ func NewRuntimeWiringWithBackground(
 	}
 
 	resolver := authservice.NewConnectionResolver(opts.GlobalConfigDir, mgr, opts.Environment)
-	newClient := func(settings config.Settings, purpose RuntimeClientPurpose, factory RuntimeClientFactory) (llm.Client, error) {
+	newClient := func(settings config.Settings, purpose RuntimeClientPurpose, factory RuntimeClientFactory, capabilities llm.ProviderCapabilities) (llm.Client, error) {
 		connection, err := resolver.Resolve(settings)
 		if err != nil {
 			return nil, err
@@ -127,13 +116,21 @@ func NewRuntimeWiringWithBackground(
 		return NewRuntimeClient(factoryContext, factory, RuntimeClientRequest{
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
 			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
+			RequestCapabilities: capabilities,
 		})
+	}
+	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
+	if err != nil {
+		return nil, err
+	}
+	if opts.ProviderCapabilitiesOverride != nil {
+		providerCapabilities = *opts.ProviderCapabilitiesOverride
 	}
 	var client llm.Client
 	if opts.Client != nil {
 		client = opts.Client
 	} else {
-		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory)
+		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory, providerCapabilities)
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +150,11 @@ func NewRuntimeWiringWithBackground(
 		settings.ModelCapabilities = active.Reviewer.ModelCapabilities
 		settings.Timeouts.ModelRequestSeconds = active.Reviewer.TimeoutSeconds
 		settings.Store = false
-		return newClient(settings, RuntimeClientPurposeReviewer, factory)
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+		if err != nil {
+			return nil, err
+		}
+		return newClient(settings, RuntimeClientPurposeReviewer, factory, capabilities)
 	}
 
 	var reviewerClient llm.Client
@@ -164,13 +165,6 @@ func NewRuntimeWiringWithBackground(
 		}
 	}
 
-	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
-	if err != nil {
-		return nil, err
-	}
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilities = *opts.ProviderCapabilitiesOverride
-	}
 	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{

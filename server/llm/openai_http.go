@@ -67,6 +67,7 @@ type HTTPTransport struct {
 	ContextWindowTokens          int
 	ProviderIdentifier           string
 	ProviderCapabilitiesOverride *ProviderCapabilities
+	RequestCapabilities          *ProviderCapabilities
 
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int
@@ -369,7 +370,7 @@ func (t *HTTPTransport) prepareDispatch(
 		model,
 		dispatch,
 		isChatGPTCodex,
-		effectiveServiceTier(fastMode, providerCaps),
+		effectiveServiceTier(fastMode, t.effectiveRequestCapabilities(providerCaps)),
 	)
 	if err != nil {
 		return openAIDispatchPreparation{}, err
@@ -384,7 +385,7 @@ func (t *HTTPTransport) prepareDispatch(
 }
 
 func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request OpenAIRequest, authHeader string, mode OpenAIAuthMode, variant ProviderVariantContract, providerCaps ProviderCapabilities, windowTokens int, projection *codexDispatchProjection) (OpenAICompactionResponse, error) {
-	payload, err := newOpenAIRequestPayloadBuilder(t.Store, t.ModelVerbosity, providerCaps).BuildCompactV2(request, mode)
+	payload, err := t.requestPayloadBuilder(providerCaps).BuildCompactV2(request, mode)
 	if err != nil {
 		return OpenAICompactionResponse{}, err
 	}

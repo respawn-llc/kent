@@ -188,7 +188,7 @@ func TestRuntimeClientFactoryErrorDoesNotFallBackToProvider(t *testing.T) {
 	}
 }
 
-func TestResumedMainClientUsesActualConnectionCapabilitiesForDispatch(t *testing.T) {
+func TestResumedMainClientPreservesLockedGenerationCapabilities(t *testing.T) {
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "locked-provider-verbosity")
 	lockedVerbosity := true
@@ -269,11 +269,14 @@ func TestResumedMainClientUsesActualConnectionCapabilitiesForDispatch(t *testing
 	}
 
 	observed := recorder.Snapshot().Observed
+	if len(observed) != 1 {
+		t.Fatalf("captured dispatches = %d, want one", len(observed))
+	}
 	for _, call := range observed {
 		var payload struct {
 			Text map[string]string `json:"text"`
 		}
-		if err := json.Unmarshal(call.Body, &payload); err != nil || payload.Text["verbosity"] != "" {
+		if err := json.Unmarshal(call.Body, &payload); err != nil || payload.Text["verbosity"] != "high" {
 			t.Fatalf("%s request verbosity = %q, %v", call.Route, payload.Text["verbosity"], err)
 		}
 	}
