@@ -22,6 +22,6 @@ func FilesystemContext(t testing.TB, root string) tools.FilesystemContext {
 	return tools.FilesystemContext{Access: tools.FileAccessScope{
 		WorkingDirectory:    filesystemRoot,
 		ExecutionTargetRoot: filesystemRoot,
-		ProjectWorkspace:    tools.ProjectWorkspaceScope{ProjectID: "test"},
+		ProjectID:           "test",
 	}}
 }

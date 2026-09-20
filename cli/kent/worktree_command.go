@@ -475,7 +475,7 @@ func runScheduledWorktreeCommand(
 		defer cancel()
 		ack, err := call(ctx, remote)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, formatSessionRetargetCommandError(err))
 			return 1
 		}
 		if jsonOut {

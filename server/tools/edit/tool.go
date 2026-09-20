@@ -40,6 +40,7 @@ func New(filesystemContext tools.FilesystemContext, opts ...Option) (*Tool, erro
 		}
 	}
 	fileAccess, err := tools.NewFileAccessPolicy(tools.FileAccessPolicyConfig{
+		Permissions:           settings.permissions,
 		Context:               filesystemContext,
 		Mode:                  tools.FileAccessMutation,
 		AllowOutsideWorkspace: settings.allowOutsideWorkspace,

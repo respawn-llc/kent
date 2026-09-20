@@ -526,10 +526,8 @@ func newPersistedEffectFixture(
 	broker *tools.AskQuestionBroker,
 ) persistedEffectFixture {
 	t.Helper()
-	approver := func(
-		ctx context.Context,
-		_ tools.FileAccessApprovalRequest,
-	) (tools.FileAccessApproval, error) {
+	approver := runtimewirefixture.FileAccessApprover(func(ctx context.Context,
+		_ tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 		identity, err := tools.ExecutionIdentityFromContext(ctx)
 		if err != nil {
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, err
@@ -552,7 +550,7 @@ func newPersistedEffectFixture(
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny}, nil
 		}
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-	}
+	})
 	filesystemContext := runtimewirefixture.FilesystemContext(t, workspace)
 	switch toolID {
 	case toolspec.ToolPatch:

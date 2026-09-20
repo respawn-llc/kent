@@ -122,7 +122,7 @@ This is needed to enable functionality related to project management and allows 
 - `kent rebind <session-id> <new-path>` retargets a session to a target path's only attached project, prefers the source project when the path is shared with it, and requires `--project` when the path is shared by multiple other projects.
 - `kent rebind --project <project-id> <session-id> <new-path>` selects a non-workflow session's project explicitly and attaches an unbound target workspace.
 
-For a live session, Kent acknowledges the scheduled move and applies it between agent steps, preserving the running agent and queued input even across projects. Existing background commands continue in their original directories; new commands use the destination. Dormant session moves complete synchronously and reject running session-owned background commands.
+Kent validates the destination before scheduling a move; workflow sessions cannot move across projects. For a live session, Kent acknowledges a valid scheduled move and applies it between agent steps, preserving the running agent and queued input even across projects. Existing background commands continue in their original directories; new commands use the destination. Dormant session moves complete synchronously and reject running session-owned background commands.
 
 Detach and default-workspace selection require an explicit project ID. Path selectors are converted to absolute server paths before the request. A shared path can be detached from one project without changing its binding in another project.
 

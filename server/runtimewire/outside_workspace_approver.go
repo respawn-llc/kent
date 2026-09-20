@@ -19,6 +19,12 @@ func NewOutsideWorkspaceApprover(broker *tools.AskQuestionBroker) *OutsideWorksp
 	return &OutsideWorkspaceApprover{broker: broker}
 }
 
+func (a *OutsideWorkspaceApprover) SessionAllowed() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sessionAllowed
+}
+
 func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 	a.mu.Lock()
 	if a.sessionAllowed {

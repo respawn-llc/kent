@@ -15,7 +15,6 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -3285,13 +3284,19 @@ func workflowExecutionRefForTestPointer(
 }
 
 func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, client llm.Client, onEvent ...func(runtime.Event)) AgentRuntimePlan {
+	projectID, err := fixture.metadata.ResolveSessionProjectID(t.Context(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot)
+	filesystem.Access.ProjectID = projectID
 	settings := fixture.config.Settings
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	options := AgentRuntimePlanOptions{
 		Settings:          settings,
-		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot),
+		MainWorkspaceRoot: fixture.config.WorkspaceRoot, FilesystemContext: filesystem,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		Client:                client,
@@ -3308,7 +3313,7 @@ func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, clien
 
 func runtimeTestFilesystemContext(t *testing.T, root string) tools.FilesystemContext {
 	t.Helper()
-	context, err := runtimewire.NewFilesystemContext(root, root, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+	context, err := runtimewire.NewFilesystemContext(root, root, "test")
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}

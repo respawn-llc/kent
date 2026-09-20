@@ -247,11 +247,11 @@ func newTestHeadlessSessionLaunch(
 		persistence = persistences[0]
 	}
 	return sessionlaunch.NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             persistence.Options(),
-		PersistedSessions:        persistence,
-		ProjectWorkspaceBoundary: fixedProjectWorkspaceBoundaryResolver{root: cfg.WorkspaceRoot},
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      persistence.Options(),
+		PersistedSessions: persistence,
+		SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
 		ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:    cfg.WorkspaceRoot,
 			CwdRelpath:       ".",
@@ -260,16 +260,13 @@ func newTestHeadlessSessionLaunch(
 	}).WithAuthStateReader(authManager)
 }
 
-type fixedProjectWorkspaceBoundaryResolver struct{ root string }
+type fixedSessionProjectResolver struct{}
 
-func (r fixedProjectWorkspaceBoundaryResolver) ResolveSessionProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error) {
-	return metadata.ProjectWorkspaceBoundary{
-		ProjectID:  "test-project",
-		Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: r.root}},
-	}, nil
+func (fixedSessionProjectResolver) ResolveSessionProjectID(context.Context, string) (string, error) {
+	return "test-project", nil
 }
 
-func (r fixedProjectWorkspaceBoundaryResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
+func (fixedSessionProjectResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
 	return nil, nil
 }
 
@@ -339,10 +336,7 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 				Root: currentWorktree,
 			},
 		},
-		ProjectWorkspaceBoundary: metadata.ProjectWorkspaceBoundary{
-			ProjectID:  "project-a",
-			Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: workspace}},
-		},
+		ProjectID:            "project-a",
 		ManagedWorktreeRoots: []string{currentWorktree},
 	}, nil, nil)
 	if err != nil {
@@ -465,11 +459,11 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   cfg,
-			ContainerDir:             containerDir,
-			StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-			PersistedSessions:        meta,
-			ProjectWorkspaceBoundary: meta,
+			Config:            cfg,
+			ContainerDir:      containerDir,
+			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta,
+			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}).WithAuthStateReader(authManager),
 		RuntimeAuthority: authority,
 	})
@@ -625,11 +619,11 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   cfg,
-			ContainerDir:             containerDir,
-			StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-			PersistedSessions:        meta,
-			ProjectWorkspaceBoundary: meta,
+			Config:            cfg,
+			ContainerDir:      containerDir,
+			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta,
+			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}).WithAuthStateReader(authManager),
 		RuntimeAuthority:       authority,
 		PromptHistory:          meta,
@@ -807,11 +801,11 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, nil, nil, meta.AuthoritativeSessionStoreOptions()...)
 	sessionLauncher := sessionlaunch.NewService(launch.Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        meta,
-		ProjectWorkspaceBoundary: meta,
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: meta,
+		SessionProjects:   meta, ManagedWorktreeRoots: meta,
 	})
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    sessionLauncher,
@@ -1012,11 +1006,11 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   cfg,
-			ContainerDir:             containerDir,
-			StoreOptions:             meta.AuthoritativeSessionStoreOptions(),
-			PersistedSessions:        meta,
-			ProjectWorkspaceBoundary: meta,
+			Config:            cfg,
+			ContainerDir:      containerDir,
+			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: meta,
+			SessionProjects:   meta, ManagedWorktreeRoots: meta,
 		}).WithAuthStateReader(authManager),
 		RuntimeAuthority: authority,
 		PromptHistory:    meta,

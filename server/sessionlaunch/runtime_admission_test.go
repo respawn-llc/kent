@@ -7,7 +7,6 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -60,7 +59,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspace,
 		workspace,
-		metadata.ProjectWorkspaceBoundary{ProjectID: "test"},
+		"test",
 	)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)

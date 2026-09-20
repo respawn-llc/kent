@@ -80,18 +80,15 @@ func resolveSessionWorkspaceRetargetContext(
 	if trimmedWorkspaceID == "" {
 		return nil, errors.New("workspace id is required for workspace retarget context")
 	}
-	overview, err := projectViews.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: trimmedProjectID})
+	result, err := projectViews.GetProjectWorkspace(ctx, &projectpb.GetProjectWorkspaceRequest{
+		ProjectId: trimmedProjectID,
+		Selector:  &projectpb.GetProjectWorkspaceRequest_WorkspaceId{WorkspaceId: trimmedWorkspaceID},
+	})
 	if err != nil {
 		return nil, err
 	}
-	workspaces, err := client.ProjectWorkspaceSummariesFromProto(overview.Overview.Workspaces)
-	if err != nil {
-		return nil, err
-	}
-	for _, workspace := range workspaces {
-		if workspace.WorkspaceID == trimmedWorkspaceID {
-			return newSessionWorkspaceRetargetContext(workspace.RootPath, theme)
-		}
+	if result.Workspace != nil {
+		return newSessionWorkspaceRetargetContext(result.Workspace.RootPath, theme)
 	}
 	return nil, fmt.Errorf("workspace %q is not attached to project %q", trimmedWorkspaceID, trimmedProjectID)
 }

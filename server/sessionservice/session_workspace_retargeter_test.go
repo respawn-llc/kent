@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/scriptedllm"
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtime"
@@ -24,12 +26,62 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 	"core/shared/worktreecontract"
 
 	"github.com/google/uuid"
 )
 
 type retargetProcessSource []shelltool.Snapshot
+
+func TestSessionWorkspaceRetargeterRejectsInvalidDestinationBeforeScheduling(t *testing.T) {
+	for _, scheduled := range []bool{false, true} {
+		t.Run(fmt.Sprint(scheduled), func(t *testing.T) {
+			f := newRealSessionRetargetFixture(t, false)
+			client := &selfRetargetRuntimeClient{}
+			engine := f.openRuntimeWithClient(t, client)
+			workflowID := uuid.New()
+			linkID, taskID := uuid.NewString(), uuid.NewString()
+			for _, seed := range []struct {
+				query string
+				args  []any
+			}{
+				{`INSERT INTO workflows (id, name, description, version, created_at_unix_ms, updated_at_unix_ms) VALUES (?, 'Move', '', 1, 1, 1)`, []any{workflowID[:]}},
+				{`INSERT INTO project_workflow_links (id, project_id, workflow_id, created_at_unix_ms, updated_at_unix_ms) VALUES (?, ?, ?, 1, 1)`, []any{linkID, f.sourceBinding.ProjectID, workflowID[:]}},
+				{`INSERT INTO tasks (id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id, title, body, created_at_unix_ms, updated_at_unix_ms, metadata_json) VALUES (?, ?, 1, 1, 'MOV-1', 'Move', '', 1, 1, '{}')`, []any{taskID, linkID}},
+				{`UPDATE sessions SET task_id = ? WHERE id = ?`, []any{taskID, f.childID.String()}},
+			} {
+				if _, err := f.metadata.DB().ExecContext(t.Context(), seed.query, seed.args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			retargeter := f.retargeter(f.metadata, retargetProcessSource{})
+			req := metadata.SessionWorkspaceRetargetRequest{
+				SessionID: f.childID.String(), WorkspaceRoot: f.targetWorkspaceRoot, ProjectID: &f.targetProject.ProjectID,
+			}
+			client.run = func() error {
+				var err error
+				if scheduled {
+					active := engine.ActiveRun()
+					_, err = retargeter.ScheduleWorkspaceRetarget(t.Context(), req, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID())
+				} else {
+					_, err = retargeter.RetargetWorkspace(t.Context(), req)
+				}
+				var failure *serverapi.SessionRetargetError
+				if !errors.As(err, &failure) || failure.Reason != serverapi.SessionRetargetWorkflowOwned {
+					t.Errorf("invalid destination acknowledged: %v", err)
+				}
+				return nil
+			}
+			if _, err := engine.SubmitUserMessage(t.Context(), "move"); err != nil {
+				t.Fatal(err)
+			}
+			if projectID, err := f.metadata.ResolveSessionProjectID(t.Context(), f.childID.String()); err != nil || projectID != f.sourceBinding.ProjectID {
+				t.Fatalf("Workflow Session ownership changed: %q, %v", projectID, err)
+			}
+		})
+	}
+}
 
 func (s retargetProcessSource) List() []shelltool.Snapshot {
 	return append([]shelltool.Snapshot(nil), s...)
@@ -105,7 +157,7 @@ type realSessionRetargetFixture struct {
 	observer            *blockingSessionMetadataObserver
 }
 
-func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool) realSessionRetargetFixture {
+func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourceRoots ...string) realSessionRetargetFixture {
 	t.Helper()
 	ctx := context.Background()
 	persistenceRoot := t.TempDir()
@@ -116,6 +168,9 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool) realS
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	managedBase := t.TempDir()
 	sourceRoot := filepath.Join(managedBase, "source")
+	if len(sourceRoots) != 0 {
+		sourceRoot = sourceRoots[0]
+	}
 	targetRoot := filepath.Join(managedBase, "target")
 	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll source: %v", err)
@@ -176,8 +231,9 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool) realS
 		t.Fatalf("ParseSessionID child: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: persistenceRoot,
-		StoreOptions:    storeOptions,
+		WorkspaceMembership: metadataStore,
+		PersistenceRoot:     persistenceRoot,
+		StoreOptions:        storeOptions,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -208,7 +264,7 @@ func completeWorkspaceRetarget(t *testing.T, retargeter *SessionWorkspaceRetarge
 	t.Helper()
 	completed := make(chan error, 1)
 	_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
-		t.Context(), req.SessionID, nil, worktreecontract.NewOperationID(),
+		t.Context(), req, nil, worktreecontract.NewOperationID(),
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil },
 		func(err error) { completed <- err },
 	)
@@ -228,10 +284,11 @@ func (f realSessionRetargetFixture) openRuntime(t *testing.T) {
 	f.openRuntimeWithClient(t, retargetRuntimeClient{})
 }
 
-func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client) sessionruntime.AgentRuntimePlan {
+func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client, enabled ...toolspec.ID) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: f.sourceBinding.CanonicalRoot,
+		EnabledTools:      enabled,
 		Settings: config.Settings{
 			Model:    "gpt-5",
 			Reviewer: config.ReviewerSettings{Frequency: "off"},
@@ -240,7 +297,7 @@ func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client)
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(f.sourceBinding.CanonicalRoot, f.sourceBinding.CanonicalRoot, metadata.ProjectWorkspaceBoundary{ProjectID: f.sourceBinding.ProjectID})
+			context, err := runtimewire.NewFilesystemContext(f.sourceBinding.CanonicalRoot, f.sourceBinding.CanonicalRoot, f.sourceBinding.ProjectID)
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -258,9 +315,9 @@ func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client)
 	return plan
 }
 
-func (f realSessionRetargetFixture) openRuntimeWithClient(t *testing.T, client llm.Client) *runtime.Engine {
+func (f realSessionRetargetFixture) openRuntimeWithClient(t *testing.T, client llm.Client, enabled ...toolspec.ID) *runtime.Engine {
 	t.Helper()
-	plan := f.runtimePlan(t, client)
+	plan := f.runtimePlan(t, client, enabled...)
 	_, err := f.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: f.childID,
 		OwnerID:   "retarget-test",
@@ -308,6 +365,71 @@ func (f realSessionRetargetFixture) runtimeAvailable(t *testing.T) bool {
 }
 
 type retargetRuntimeClient struct{}
+
+func TestSessionWorkspaceMoveRetainsFormerExecutionRoot(t *testing.T) {
+	source := testsetup.NonTemporaryDirectory(t, "kent-retarget-source-", tools.IsPathInTemporaryDir)
+	f := newRealSessionRetargetFixture(t, false, source)
+	path := filepath.Join(source, "plan.txt")
+	patch := "*** Begin Patch\n*** Add File: " + path + "\n+continued\n*** End Patch\n"
+	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{
+		scriptedllm.ToolBatch("continue", llm.ToolCall{ID: "former-root", Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &patch}),
+		scriptedllm.FinalAnswer("done"),
+	}})
+	engine := f.openRuntimeWithClient(t, client, toolspec.ToolPatch)
+	if err := completeWorkspaceRetarget(t, f.retargeter(f.metadata, retargetProcessSource{}), metadata.SessionWorkspaceRetargetRequest{
+		SessionID: f.childID.String(), WorkspaceRoot: f.targetWorkspaceRoot, ProjectID: &f.targetProject.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.SubmitUserMessage(t.Context(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("former Execution Target access did not complete: %v", err)
+	}
+}
+
+func TestSessionWorkspaceMoveKeepsLearnedRootsAndQueriesDestinationProject(t *testing.T) {
+	f := newRealSessionRetargetFixture(t, false)
+	learned := testsetup.NonTemporaryDirectory(t, "kent-retarget-learned-", tools.IsPathInTemporaryDir)
+	destination := testsetup.NonTemporaryDirectory(t, "kent-retarget-destination-", tools.IsPathInTemporaryDir)
+	for projectID, root := range map[string]string{f.sourceBinding.ProjectID: learned, f.targetProject.ProjectID: destination} {
+		if _, err := f.metadata.AttachWorkspaceToProject(t.Context(), projectID, root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstPath := filepath.Join(learned, "first.txt")
+	learnedPath := filepath.Join(learned, "later.txt")
+	destinationPath := filepath.Join(destination, "new.txt")
+	first := "*** Begin Patch\n*** Add File: " + firstPath + "\n+learned\n*** End Patch\n"
+	later := "*** Begin Patch\n*** Add File: " + learnedPath + "\n+retained\n*** Add File: " + destinationPath + "\n+destination\n*** End Patch\n"
+	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{
+		scriptedllm.ToolBatch("learn", llm.ToolCall{ID: "learn", Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &first}),
+		scriptedllm.FinalAnswer("ready"),
+		scriptedllm.ToolBatch("continue", llm.ToolCall{ID: "destination", Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &later}),
+		scriptedllm.FinalAnswer("done"),
+	}})
+	engine := f.openRuntimeWithClient(t, client, toolspec.ToolPatch)
+	if _, err := engine.SubmitUserMessage(t.Context(), "learn"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := completeWorkspaceRetarget(t, f.retargeter(f.metadata, retargetProcessSource{}), metadata.SessionWorkspaceRetargetRequest{
+		SessionID: f.childID.String(), WorkspaceRoot: f.targetWorkspaceRoot, ProjectID: &f.targetProject.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.SubmitUserMessage(t.Context(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{learnedPath, destinationPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("access after move: %v", err)
+		}
+	}
+}
 
 func (retargetRuntimeClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	return llm.Response{}, nil
@@ -467,7 +589,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		requestCtx, cancelRequest := context.WithCancel(t.Context())
 		_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 			requestCtx,
-			request.SessionID,
+			request,
 			&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
 			worktreecontract.NewOperationID(),
 			func(resolveCtx context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
@@ -553,20 +675,22 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 
 func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		metadata func(*metadata.Store, error) sessionRetargetMetadata
+		name          string
+		metadata      func(*metadata.Store, error) sessionRetargetMetadata
+		afterSchedule func(string) error
 	}{
 		{
 			name: "apply failure",
 			metadata: func(store *metadata.Store, failure error) sessionRetargetMetadata {
-				return failingSessionRetargetBoundary{Store: store, err: failure}
+				return failingSessionRetargetCommit{Store: store, err: failure}
 			},
 		},
 		{
 			name: "planning failure",
 			metadata: func(store *metadata.Store, failure error) sessionRetargetMetadata {
-				return failingSessionRetargetPlan{Store: store, err: failure}
+				return store
 			},
+			afterSchedule: func(root string) error { return os.Rename(root, root+"-moved") },
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -594,6 +718,9 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 					t.Context(),
 					request, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID(),
 				)
+				if err == nil && test.afterSchedule != nil {
+					return test.afterSchedule(fixture.targetWorkspaceRoot)
+				}
 				return err
 			}
 
@@ -651,31 +778,13 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 	}
 }
 
-type failingSessionRetargetPlan struct {
-	*metadata.Store
-	err error
-}
-
-func (s failingSessionRetargetPlan) PlanSessionWorkspaceRetarget(
-	context.Context,
-	metadata.SessionWorkspaceRetargetRequest,
-) (metadata.SessionWorkspaceRetargetPlan, error) {
-	return metadata.SessionWorkspaceRetargetPlan{}, s.err
-}
-
 func projectContainsWorkspaceRoot(t *testing.T, store *metadata.Store, projectID string, workspaceRoot string) bool {
 	t.Helper()
-	workspaces, err := store.ListProjectWorkspaces(context.Background(), projectID)
+	attached, err := store.ProjectWorkspaceAttached(context.Background(), projectID, canonicalRetargetTestPath(t, workspaceRoot))
 	if err != nil {
-		t.Fatalf("ListProjectWorkspaces: %v", err)
+		t.Fatalf("ProjectWorkspaceAttached: %v", err)
 	}
-	targetRoot := canonicalRetargetTestPath(t, workspaceRoot)
-	for _, workspace := range workspaces {
-		if canonicalRetargetTestPath(t, workspace.RootPath) == targetRoot {
-			return true
-		}
-	}
-	return false
+	return attached
 }
 
 func canonicalRetargetTestPath(t *testing.T, path string) string {
@@ -1022,15 +1131,6 @@ func (s failingSessionRetargetCommit) CommitSessionWorkspaceRetarget(context.Con
 	return metadata.SessionWorkspaceRetargetResult{}, s.err
 }
 
-type failingSessionRetargetBoundary struct {
-	*metadata.Store
-	err error
-}
-
-func (s failingSessionRetargetBoundary) ResolveProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error) {
-	return metadata.ProjectWorkspaceBoundary{}, s.err
-}
-
 func TestSessionWorkspaceRetargeterPreservesSameProjectWorkspaceSnapshot(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
 	fixture.openRuntime(t)
@@ -1053,49 +1153,23 @@ func TestSessionWorkspaceRetargeterPreservesSameProjectWorkspaceSnapshot(t *test
 	}); err != nil {
 		t.Fatalf("inspect same-project filesystem context: %v", err)
 	}
-	if rebound.Access.ProjectWorkspace.ProjectID != fixture.sourceBinding.ProjectID {
-		t.Fatalf("rebound Project ID = %q, want %q", rebound.Access.ProjectWorkspace.ProjectID, fixture.sourceBinding.ProjectID)
-	}
-	if len(rebound.Access.ProjectWorkspace.Roots) != 0 {
-		t.Fatalf("same-project retarget refreshed Workspace roots after activation: %+v", rebound.Access.ProjectWorkspace.Roots)
+	if rebound.Access.ProjectID != fixture.sourceBinding.ProjectID {
+		t.Fatalf("rebound Project ID = %q, want %q", rebound.Access.ProjectID, fixture.sourceBinding.ProjectID)
 	}
 	if canonicalRetargetTestPath(t, rebound.Access.ExecutionTargetRoot.LexicalPath) != canonicalRetargetTestPath(t, fixture.targetWorkspaceRoot) {
 		t.Fatalf("execution target root = %q, want %q", rebound.Access.ExecutionTargetRoot.LexicalPath, fixture.targetWorkspaceRoot)
 	}
 }
 
-func TestSessionWorkspaceRetargeterSurfacesTargetBoundaryLookupFailureBeforeMovingArtifact(t *testing.T) {
-	fixture := newRealSessionRetargetFixture(t, false)
-	fixture.openRuntime(t)
-	req := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     fixture.child.Meta().SessionID,
-		WorkspaceRoot: fixture.targetWorkspaceRoot,
-		ProjectID:     &fixture.targetProject.ProjectID,
-	}
-	plan, err := fixture.metadata.PlanSessionWorkspaceRetarget(context.Background(), req)
-	if err != nil {
-		t.Fatalf("PlanSessionWorkspaceRetarget: %v", err)
-	}
-	beforeWorkdir := fixture.runtimeWorkdir(t)
-	lookupErr := errors.New("target boundary lookup failed")
-
-	err = completeWorkspaceRetarget(t, fixture.retargeter(failingSessionRetargetBoundary{Store: fixture.metadata, err: lookupErr}, retargetProcessSource{}), req)
-	if !errors.Is(err, lookupErr) {
-		t.Fatalf("RetargetWorkspace error = %v, want %v", err, lookupErr)
-	}
-	if info, statErr := os.Stat(plan.SourceSessionDir); statErr != nil || !info.IsDir() {
-		t.Fatalf("source artifact changed: %v, %v", info, statErr)
-	}
-	if _, statErr := os.Stat(plan.TargetSessionDir); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("target artifact exists: %v", statErr)
-	}
-	if afterWorkdir := fixture.runtimeWorkdir(t); afterWorkdir != beforeWorkdir {
-		t.Fatalf("runtime workdir = %q, want %q", afterWorkdir, beforeWorkdir)
-	}
-}
-
 func TestSessionWorkspaceRetargeterRestoresArtifactOwnershipAndRuntimeWorkdirAfterCommitFailure(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
+	fixture.targetWorkspaceRoot = testsetup.NonTemporaryDirectory(t, "kent-uncommitted-target-", tools.IsPathInTemporaryDir)
+	uncommittedPath := filepath.Join(fixture.targetWorkspaceRoot, "not-authorized.txt")
+	patch := "*** Begin Patch\n*** Add File: " + uncommittedPath + "\n+unexpected\n*** End Patch\n"
+	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{
+		scriptedllm.ToolBatch("try target", llm.ToolCall{ID: "uncommitted", Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &patch}),
+		scriptedllm.FinalAnswer("done"),
+	}})
 	targetProjectID := fixture.targetProject.ProjectID
 	req := metadata.SessionWorkspaceRetargetRequest{
 		SessionID:     fixture.child.Meta().SessionID,
@@ -1106,7 +1180,7 @@ func TestSessionWorkspaceRetargeterRestoresArtifactOwnershipAndRuntimeWorkdirAft
 	if err != nil {
 		t.Fatalf("PlanSessionWorkspaceRetarget: %v", err)
 	}
-	fixture.openRuntime(t)
+	engine := fixture.openRuntimeWithClient(t, client, toolspec.ToolPatch)
 	beforeWorkdir := fixture.runtimeWorkdir(t)
 	var beforeContext tools.FilesystemContext
 	if err := fixture.authority.RunSessionMaintenance(context.Background(), fixture.childID.String(), func(_ context.Context, _ *session.Store, maintenance *sessionruntime.ActiveRuntimeMaintenance) error {
@@ -1140,6 +1214,12 @@ func TestSessionWorkspaceRetargeterRestoresArtifactOwnershipAndRuntimeWorkdirAft
 	}
 	if !afterContext.Equal(beforeContext) {
 		t.Fatalf("filesystem context changed after failed retarget: before=%+v after=%+v", beforeContext, afterContext)
+	}
+	if _, err := engine.SubmitUserMessage(t.Context(), "try uncommitted destination"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(uncommittedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed move authorized uncommitted destination: %v", err)
 	}
 	childInSource, err := fixture.metadata.SessionBelongsToProject(context.Background(), fixture.child.Meta().SessionID, fixture.sourceBinding.ProjectID)
 	if err != nil {
