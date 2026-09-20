@@ -36,7 +36,7 @@ func (m *Manager) SaveOAuth(ctx context.Context, id config.ConnectionID, credent
 	if _, err := config.ParseConnectionID(string(id)); err != nil {
 		return err
 	}
-	if err := (Method{Type: MethodOAuth, OAuth: &credential}).Validate(); err != nil {
+	if err := credential.Validate(); err != nil {
 		return err
 	}
 	m.mutationMu.Lock()
@@ -65,7 +65,7 @@ func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID) (OAu
 	if m.refresher == nil {
 		return credential, nil
 	}
-	updated, refreshed, err := m.refresher.MaybeRefresh(ctx, Method{Type: MethodOAuth, OAuth: &credential})
+	updated, refreshed, err := m.refresher.MaybeRefresh(ctx, credential)
 	if err != nil {
 		return OAuthMethod{}, fmt.Errorf("connection %s: %w", id, err)
 	}
@@ -75,13 +75,10 @@ func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID) (OAu
 	if err := updated.Validate(); err != nil {
 		return OAuthMethod{}, err
 	}
-	if updated.Type != MethodOAuth {
-		return OAuthMethod{}, errors.New("OAuth refresh returned a non-OAuth credential")
-	}
-	if err := m.save(ctx, state, id, *updated.OAuth); err != nil {
+	if err := m.save(ctx, state, id, updated); err != nil {
 		return OAuthMethod{}, err
 	}
-	return *updated.OAuth, nil
+	return updated, nil
 }
 
 func (m *Manager) save(ctx context.Context, state State, id config.ConnectionID, credential OAuthMethod) error {

@@ -147,20 +147,20 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		OpenErr:      openErr,
 	}, func(waitCtx context.Context) (authui.OAuthBrowserCallback, error) {
 		return listener.Wait(waitCtx, opts.PollTimeout)
-	}, func(_ context.Context, input string) (authui.AuthMethod, error) {
+	}, func(_ context.Context, input string) error {
 		parsed, err := serverauth.ParseOAuthCallbackInput(input)
 		if err != nil {
-			return authui.AuthMethod{}, err
+			return err
 		}
 		sessionState := strings.TrimSpace(session.State)
 		parsedState := strings.TrimSpace(parsed.State)
 		if sessionState != "" && parsedState != "" && parsedState != sessionState {
-			return authui.AuthMethod{}, ErrOAuthStateMismatch
+			return ErrOAuthStateMismatch
 		}
 		if strings.TrimSpace(parsed.Code) == "" {
-			return authui.AuthMethod{}, errors.New("oauth callback is missing code")
+			return errors.New("oauth callback is missing code")
 		}
-		return authui.AuthMethod{Type: "oauth"}, nil
+		return nil
 	})
 	if err != nil {
 		return nil, err

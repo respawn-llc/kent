@@ -43,8 +43,8 @@ func TestCurrentOAuthSurfacesRefreshFailureWithoutChangingCredentials(t *testing
 	refreshErr := errors.New("refresh failed")
 	manager := NewManager(store, NewOAuthRefresher(
 		func() time.Time { return managerTestNow }, 30*time.Second,
-		func(context.Context, Method) (Method, error) {
-			return Method{}, errors.Join(ErrOAuthRefreshFailed, refreshErr)
+		func(context.Context, OAuthMethod) (OAuthMethod, error) {
+			return OAuthMethod{}, errors.Join(ErrOAuthRefreshFailed, refreshErr)
 		},
 	))
 	if _, err := manager.CurrentOAuth(t.Context(), "work"); !errors.Is(err, refreshErr) {
@@ -68,8 +68,8 @@ func TestCurrentOAuthRefreshesAndPersistsSelectedConnection(t *testing.T) {
 	refreshed.Expiry = managerTestNow.Add(time.Hour)
 	manager := NewManager(store, NewOAuthRefresher(
 		func() time.Time { return managerTestNow }, 30*time.Second,
-		func(context.Context, Method) (Method, error) {
-			return Method{Type: MethodOAuth, OAuth: &refreshed}, nil
+		func(context.Context, OAuthMethod) (OAuthMethod, error) {
+			return refreshed, nil
 		},
 	))
 	current, err := manager.CurrentOAuth(t.Context(), "work")
@@ -88,13 +88,13 @@ func TestCredentialStatusDoesNotWaitForRefresh(t *testing.T) {
 	defer close(release)
 	manager := NewManager(NewMemoryStore(initial), NewOAuthRefresher(
 		func() time.Time { return managerTestNow.Add(2 * time.Hour) }, 30*time.Second,
-		func(ctx context.Context, method Method) (Method, error) {
+		func(ctx context.Context, method OAuthMethod) (OAuthMethod, error) {
 			close(started)
 			select {
 			case <-release:
 				return method, nil
 			case <-ctx.Done():
-				return Method{}, ctx.Err()
+				return OAuthMethod{}, ctx.Err()
 			}
 		},
 	))

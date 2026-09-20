@@ -63,7 +63,7 @@ func (s *BootstrapService) CompleteBootstrap(ctx context.Context, req *authpb.Co
 		if s.connections.manager == nil {
 			return nil, auth.ErrAuthNotConfigured
 		}
-		var credential auth.Method
+		var credential auth.OAuthMethod
 		switch req.Mode {
 		case authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL, authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE:
 			credential, err = auth.CompleteOpenAIBrowserFlow(ctx, s.oauthOptions, auth.BrowserAuthSession{
@@ -77,10 +77,10 @@ func (s *BootstrapService) CompleteBootstrap(ctx context.Context, req *authpb.Co
 		if err != nil {
 			return nil, err
 		}
-		if err := s.connections.manager.SaveOAuth(ctx, snapshot.connection.ID, *credential.OAuth); err != nil {
+		if err := s.connections.manager.SaveOAuth(ctx, snapshot.connection.ID, credential); err != nil {
 			return nil, err
 		}
-		snapshot.oauth, snapshot.failure = credential.OAuth, nil
+		snapshot.oauth, snapshot.failure = &credential, nil
 	} else if method != authpb.AuthMethod_AUTH_METHOD_OAUTH {
 		expected := authpb.BootstrapMode_BOOTSTRAP_MODE_NONE
 		if method == authpb.AuthMethod_AUTH_METHOD_API_KEY {

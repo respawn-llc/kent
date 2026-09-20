@@ -14,15 +14,6 @@ var (
 	ErrDeviceCodeUnsupported = errors.New("device code login is not enabled")
 )
 
-type MethodType string
-
-const MethodOAuth MethodType = "oauth"
-
-type Method struct {
-	Type  MethodType   `json:"type"`
-	OAuth *OAuthMethod `json:"oauth"`
-}
-
 type OAuthMethod struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
@@ -31,19 +22,16 @@ type OAuthMethod struct {
 	Email        string    `json:"email,omitempty"`
 }
 
-func (m Method) Validate() error {
-	if m.Type != MethodOAuth || m.OAuth == nil {
-		return fmt.Errorf("%w: OAuth credential is required", ErrInvalidAuthMethod)
-	}
-	if strings.TrimSpace(m.OAuth.AccessToken) == "" {
+func (m OAuthMethod) Validate() error {
+	if strings.TrimSpace(m.AccessToken) == "" {
 		return fmt.Errorf("%w: OAuth access token is empty", ErrInvalidAuthMethod)
 	}
 	return nil
 }
 
-func (m Method) AuthHeaderValue() (string, error) {
+func (m OAuthMethod) AuthHeaderValue() (string, error) {
 	if err := m.Validate(); err != nil {
 		return "", err
 	}
-	return "Bearer " + m.OAuth.AccessToken, nil
+	return "Bearer " + m.AccessToken, nil
 }

@@ -15,12 +15,6 @@ var (
 	ErrDeviceCodeUnsupported = sharedauth.ErrDeviceCodeUnsupported
 )
 
-type MethodType = sharedauth.MethodType
-
-const (
-	MethodOAuth = sharedauth.MethodOAuth
-)
-
 type State struct {
 	Connections map[config.ConnectionID]OAuthMethod `json:"connections"`
 }
@@ -33,14 +27,13 @@ func (s State) Validate() error {
 		if _, err := config.ParseConnectionID(string(id)); err != nil {
 			return err
 		}
-		if err := (Method{Type: MethodOAuth, OAuth: &credential}).Validate(); err != nil {
+		if err := credential.Validate(); err != nil {
 			return fmt.Errorf("connection %s: %w", id, err)
 		}
 	}
 	return nil
 }
 
-type Method = sharedauth.Method
 type OAuthMethod = sharedauth.OAuthMethod
 
 func EmptyState() State {

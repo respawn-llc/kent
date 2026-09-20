@@ -122,7 +122,7 @@ type usageWindow struct {
 }
 
 func fetchUsagePayload(ctx context.Context, baseURL string, credential auth.OAuthMethod) (usagePayload, error) {
-	authorization, err := (auth.Method{Type: auth.MethodOAuth, OAuth: &credential}).AuthHeaderValue()
+	authorization, err := credential.AuthHeaderValue()
 	if err != nil {
 		return usagePayload{}, err
 	}
