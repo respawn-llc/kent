@@ -1,70 +1,113 @@
 package workflowview
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/shared/clientui"
+	"core/shared/invariant"
 	"core/shared/serverapi"
 )
 
-type boardProjectWorkspaceFacts struct {
-	primary   serverapi.ProjectWorkspaceSummary
-	byID      map[string]serverapi.ProjectWorkspaceSummary
-	count     int
-	defaultID string
+type projectFactsReader interface {
+	GetProjectEditMetadata(context.Context, string) (sqlitegen.GetProjectEditMetadataRow, error)
+	GetProjectPrimaryWorkspaceID(context.Context, string) (string, error)
+	CountProjectWorkspaces(context.Context, string) (int64, error)
+	GetWorkspaceByID(context.Context, string) (sqlitegen.Workspace, error)
 }
 
-func projectBoardProject(project clientui.ProjectOverview, workspaceContext boardProjectWorkspaceFacts) serverapi.ProjectBoardProject {
+func projectWorkspaceFacts(ctx context.Context, q projectFactsReader, projectID string) (serverapi.ProjectBoardProject, error) {
+	project, err := q.GetProjectEditMetadata(ctx, projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return serverapi.ProjectBoardProject{}, serverapi.ErrProjectNotFound
+	}
+	if err != nil {
+		return serverapi.ProjectBoardProject{}, err
+	}
+	defaultID, err := metadata.ResolveProjectSourceWorkspaceID(ctx, q, projectID)
+	if err != nil {
+		return serverapi.ProjectBoardProject{}, err
+	}
+	count, err := q.CountProjectWorkspaces(ctx, projectID)
+	if err != nil {
+		return serverapi.ProjectBoardProject{}, err
+	}
 	return serverapi.ProjectBoardProject{
-		ProjectKey:             project.Project.ProjectKey,
-		DisplayName:            project.Project.DisplayName,
-		DefaultWorkspaceID:     workspaceContext.defaultID,
-		AttachedWorkspaceCount: workspaceContext.count,
-	}
+		ProjectKey: project.ProjectKey, DisplayName: project.DisplayName,
+		DefaultWorkspaceID: defaultID, AttachedWorkspaceCount: int(count),
+	}, nil
 }
 
-func projectWorkspaceSummary(workspace clientui.ProjectWorkspaceSummary) serverapi.ProjectWorkspaceSummary {
-	return serverapi.ProjectWorkspaceSummary{WorkspaceID: workspace.WorkspaceID, DisplayName: workspace.DisplayName, RootPath: workspace.RootPath, Availability: string(workspace.Availability), IsPrimary: workspace.IsPrimary, UpdatedAtUnixMs: workspace.UpdatedAt.UnixMilli()}
+type sourceWorkspaceReader interface {
+	GetWorkspaceByID(context.Context, string) (sqlitegen.Workspace, error)
 }
 
-func boardProjectWorkspaceContext(project clientui.ProjectOverview) boardProjectWorkspaceFacts {
-	context := boardProjectWorkspaceFacts{
-		byID:  make(map[string]serverapi.ProjectWorkspaceSummary, len(project.Workspaces)),
-		count: len(project.Workspaces),
-	}
-	for _, workspace := range project.Workspaces {
-		dto := projectWorkspaceSummary(workspace)
-		context.byID[dto.WorkspaceID] = dto
-		if workspace.IsPrimary {
-			context.primary = dto
-			context.defaultID = dto.WorkspaceID
+func taskSourceWorkspace(ctx context.Context, q sourceWorkspaceReader, task sqlitegen.TaskRecord, primaryWorkspaceID string) (serverapi.ProjectWorkspaceSummary, error) {
+	if task.SourceWorkspaceID.Valid {
+		source, err := attachedTaskSourceWorkspace(ctx, q, task, task.SourceWorkspaceID.String, primaryWorkspaceID)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return source, err
 		}
 	}
-	return context
-}
-
-func sourceWorkspaceForTask(task sqlitegen.TaskRecord, workspacesByID map[string]serverapi.ProjectWorkspaceSummary, fallback serverapi.ProjectWorkspaceSummary) serverapi.ProjectWorkspaceSummary {
-	if workspace, ok := workspacesByID[strings.TrimSpace(task.SourceWorkspaceID.String)]; ok {
-		return workspace
-	}
 	snapshot := struct {
-		SourceWorkspaceSnapshot struct {
+		SourceWorkspaceSnapshot json.RawMessage `json:"source_workspace_snapshot"`
+	}{}
+	if err := workflow.UnmarshalString(task.MetadataJson, &snapshot); err != nil {
+		return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(err)
+	}
+	if snapshot.SourceWorkspaceSnapshot != nil {
+		var saved struct {
 			WorkspaceID string `json:"workspace_id"`
 			DisplayName string `json:"display_name"`
 			RootPath    string `json:"root_path"`
-		} `json:"source_workspace_snapshot"`
-	}{}
-	if err := workflow.UnmarshalString(task.MetadataJson, &snapshot); err == nil {
-		if strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.RootPath) != "" {
-			return serverapi.ProjectWorkspaceSummary{
-				WorkspaceID:  strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.WorkspaceID),
-				DisplayName:  strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.DisplayName),
-				RootPath:     strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.RootPath),
-				Availability: string(clientui.ProjectAvailabilityUnlinked),
-			}
 		}
+		if err := json.Unmarshal(snapshot.SourceWorkspaceSnapshot, &saved); err != nil {
+			return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(err)
+		}
+		if strings.TrimSpace(saved.WorkspaceID) == "" || strings.TrimSpace(saved.RootPath) == "" {
+			return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(fmt.Errorf("task %q source Workspace snapshot has invalid durable identity", task.ID))
+		}
+		if strings.TrimSpace(saved.DisplayName) == "" {
+			saved.DisplayName = displayNameForPath(saved.RootPath)
+		}
+		return serverapi.ProjectWorkspaceSummary{
+			WorkspaceID: saved.WorkspaceID, DisplayName: saved.DisplayName, RootPath: saved.RootPath,
+			Availability: string(clientui.ProjectAvailabilityUnlinked),
+		}, nil
 	}
-	return fallback
+	if task.SourceWorkspaceID.Valid {
+		return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(fmt.Errorf("task %q has no retained source Workspace facts", task.ID))
+	}
+	return attachedTaskSourceWorkspace(ctx, q, task, primaryWorkspaceID, primaryWorkspaceID)
+}
+
+func invalidTaskSource(err error) error {
+	invariant.NewPolicy().Check(false, invariant.FailureDiagnostic(invariant.ScopeReadModelPublication, "resolve Task source Workspace", err))
+	return err
+}
+
+func attachedTaskSourceWorkspace(ctx context.Context, q sourceWorkspaceReader, task sqlitegen.TaskRecord, sourceWorkspaceID, primaryWorkspaceID string) (serverapi.ProjectWorkspaceSummary, error) {
+	row, err := q.GetWorkspaceByID(ctx, sourceWorkspaceID)
+	if err == nil {
+		if row.ProjectID != task.ProjectID {
+			return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(fmt.Errorf("task %q source workspace %q belongs to project %q", task.ID, row.ID, row.ProjectID))
+		}
+		displayName := displayNameForPath(row.CanonicalRootPath)
+		if strings.TrimSpace(row.ID) == "" || strings.TrimSpace(row.CanonicalRootPath) == "" || displayName == "" {
+			return serverapi.ProjectWorkspaceSummary{}, invalidTaskSource(fmt.Errorf("task %q source workspace %q has invalid durable identity", task.ID, row.ID))
+		}
+		return serverapi.ProjectWorkspaceSummary{
+			WorkspaceID: row.ID, DisplayName: displayName, RootPath: row.CanonicalRootPath,
+			Availability: string(clientui.ProjectAvailabilityAvailable),
+			IsPrimary:    row.ID == primaryWorkspaceID, UpdatedAtUnixMs: row.UpdatedAtUnixMs,
+		}, nil
+	}
+	return serverapi.ProjectWorkspaceSummary{}, err
 }

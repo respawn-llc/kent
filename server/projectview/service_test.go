@@ -52,7 +52,7 @@ func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	if _, err := os.Stat(created.Dir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session dir stat = %v, want not exists", err)
 	}
-	if _, err := svc.GetProjectOverview(context.Background(), &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(context.Background(), &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("expected deleted project lookup to fail")
 	}
 	if _, err := os.Stat(binding.CanonicalRoot); err != nil {
@@ -86,7 +86,7 @@ func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
 	if !deleted.Deleted || len(deleted.Blockers) != 0 {
 		t.Fatalf("delete response = %+v, want deleted without backlog blockers", deleted)
 	}
-	if _, err := svc.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("expected deleted backlog-only project lookup to fail")
 	}
 }
@@ -114,8 +114,8 @@ func TestServiceProjectDeleteRevalidatesWorkflowTasksAtCommit(t *testing.T) {
 	if _, err := svc.DeleteProject(ctx, &projectpb.DeleteProjectRequest{ProjectId: binding.ProjectID}); !errors.Is(err, workflowexecution.ErrTaskExecutionNotQuiescent) {
 		t.Fatalf("DeleteProject error = %v, want %v", err, workflowexecution.ErrTaskExecutionNotQuiescent)
 	}
-	if _, err := svc.GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err != nil {
-		t.Fatalf("GetProjectOverview after rejected delete: %v", err)
+	if _, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err != nil {
+		t.Fatalf("GetProjectEdit after rejected delete: %v", err)
 	}
 }
 
@@ -164,7 +164,7 @@ func TestServiceProjectDeleteSurfacesArtifactCleanupFailureAfterCommit(t *testin
 	if err == nil || !errors.Is(err, ErrSessionArtifactEscapesRoot) {
 		t.Fatalf("DeleteProject error = %v, want cleanup escape rejection", err)
 	}
-	if _, err := svc.GetProjectOverview(context.Background(), &projectpb.GetOverviewRequest{ProjectId: binding.ProjectID}); err == nil {
+	if _, err := svc.GetProjectEdit(context.Background(), &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID}); err == nil {
 		t.Fatal("project metadata remained after post-commit cleanup failure")
 	}
 	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
@@ -1006,7 +1006,7 @@ func newProjectViewRuntimeAuthority(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, contextErr := runtimewire.NewFilesystemContext(sessionStore.Meta().WorkspaceRoot, sessionStore.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, contextErr := runtimewire.NewFilesystemContext(sessionStore.Meta().WorkspaceRoot, sessionStore.Meta().WorkspaceRoot, "test")
 			if contextErr != nil {
 				t.Fatalf("NewFilesystemContext: %v", contextErr)
 			}

@@ -215,9 +215,10 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	fixture.runtimes = registry.NewRuntimeRegistry()
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      fixture.runtimes,
+		WorkspaceMembership: fixture.metadata,
+		PersistenceRoot:     cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -417,9 +418,10 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.runtimes = registry.NewRuntimeRegistry()
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: f.cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      f.runtimes,
+		WorkspaceMembership: f.metadata,
+		PersistenceRoot:     f.cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -637,11 +639,7 @@ func (f *currentNodeRunnerFixture) openRetainedRuntime(
 	if prepared == nil {
 		t.Fatalf("runtime client was never prepared for Session %s", sessionID)
 	}
-	boundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
-	if err != nil {
-		t.Fatalf("resolve Project Workspace boundary: %v", err)
-	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, boundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
 	if err != nil {
 		t.Fatalf("create retained runtime filesystem context: %v", err)
 	}
@@ -928,12 +926,12 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   f.cfg,
-			ContainerDir:             filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
-			StoreOptions:             f.metadata.AuthoritativeSessionStoreOptions(),
-			PersistedSessions:        f.metadata,
-			ExecutionTargets:         f.metadata,
-			ProjectWorkspaceBoundary: f.metadata,
+			Config:            f.cfg,
+			ContainerDir:      filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+			StoreOptions:      f.metadata.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: f.metadata,
+			ExecutionTargets:  f.metadata,
+			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
 		}),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
@@ -2473,11 +2471,7 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 			if _, err := f.commitCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
 				t.Fatal(err)
 			}
-			projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(ctx, f.projectID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, projectBoundary)
+			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, f.projectID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2619,26 +2613,9 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, canonicalSiblingWorkspace); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
-	projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, projectBoundary)
+	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
-	}
-	if len(interactiveFilesystemContext.Access.ProjectWorkspace.Roots) != 2 {
-		t.Fatalf("workflow runtime Project Workspace roots = %+v, want source and sibling", interactiveFilesystemContext.Access.ProjectWorkspace.Roots)
-	}
-	foundSibling := false
-	for _, root := range interactiveFilesystemContext.Access.ProjectWorkspace.Roots {
-		if root.RealPath == canonicalSiblingWorkspace {
-			foundSibling = true
-			break
-		}
-	}
-	if !foundSibling {
-		t.Fatalf("workflow runtime roots = %+v, want sibling %q", interactiveFilesystemContext.Access.ProjectWorkspace.Roots, canonicalSiblingWorkspace)
 	}
 	interactivePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     f.workspace,

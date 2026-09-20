@@ -34,10 +34,10 @@ func (f outsidePatchFixture) denyPolicyTool(root string, approvals *int, opts ..
 	opts = append(
 		opts,
 		WithPathDenyPolicy(compileLiteralTreeDenyPolicy(f.T, root, "synthetic deny")),
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			(*approvals)++
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-		}),
+		})),
 	)
 	return f.tool(opts...)
 }
@@ -68,9 +68,9 @@ func outsideUpdateApprovalError(
 
 func TestOutsideWorkspaceRejectionIncludesUserCommentary(t *testing.T) {
 	commentary := "not allowed by policy"
-	result, target := outsideUpdateApprovalError(t, "deny-commentary", func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+	result, target := outsideUpdateApprovalError(t, "deny-commentary", runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 		return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny, Commentary: &commentary}, nil
-	})
+	}))
 	if result.CallID != "deny-commentary" || result.QuestionAnswer != nil {
 		t.Fatalf("terminal denied result = %+v", result)
 	}
@@ -84,9 +84,9 @@ func TestOutsideWorkspaceRejectionIncludesUserCommentary(t *testing.T) {
 }
 
 func TestOutsideWorkspaceApprovalFailureUsesPatchSpecificWording(t *testing.T) {
-	result, _ := outsideUpdateApprovalError(t, "deny-approval-error", func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+	result, _ := outsideUpdateApprovalError(t, "deny-approval-error", runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 		return tools.FileAccessApproval{}, errors.New("ask failed")
-	})
+	}))
 	errMessage := toolError(t, result)
 	if !strings.Contains(errMessage, "Patch failed: file edit approval failed") {
 		t.Fatalf("expected patch approval failure wording, got %q", errMessage)

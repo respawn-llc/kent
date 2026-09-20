@@ -9,7 +9,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/runtimewire"
@@ -77,7 +76,7 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}

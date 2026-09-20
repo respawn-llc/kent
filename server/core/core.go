@@ -65,7 +65,7 @@ func (s *Core) ProjectExists(ctx context.Context, projectID string) error {
 	if s == nil || s.safeBundles().Persistence.metadataStore == nil {
 		return errors.New("metadata store is required")
 	}
-	_, err := s.safeBundles().Persistence.metadataStore.GetProjectOverview(ctx, strings.TrimSpace(projectID))
+	_, err := s.safeBundles().Persistence.metadataStore.GetProjectEditMetadata(ctx, strings.TrimSpace(projectID))
 	return err
 }
 
@@ -197,22 +197,7 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 			return projectContext{}, err
 		}
 	}
-	overview, err := s.safeBundles().Persistence.metadataStore.GetProjectOverview(ctx, trimmedProjectID)
-	if err != nil {
-		return projectContext{}, err
-	}
-	if strings.TrimSpace(overview.Project.RootPath) == "" {
-		return projectContext{}, fmt.Errorf("project %q has no root path", trimmedProjectID)
-	}
-	switch overview.Project.Availability {
-	case clientui.ProjectAvailabilityMissing, clientui.ProjectAvailabilityInaccessible:
-		return projectContext{}, serverapi.ProjectUnavailableError{
-			ProjectID:    trimmedProjectID,
-			RootPath:     overview.Project.RootPath,
-			Availability: overview.Project.Availability,
-		}
-	}
-	projectCfg, err := s.configForWorkspace(overview.Project.RootPath)
+	_, err := s.safeBundles().Persistence.metadataStore.GetProjectEditMetadata(ctx, trimmedProjectID)
 	if err != nil {
 		return projectContext{}, err
 	}
@@ -220,11 +205,27 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 	if err != nil {
 		return projectContext{}, err
 	}
+	if strings.TrimSpace(primaryWorkspace.CanonicalRootPath) == "" {
+		return projectContext{}, fmt.Errorf("project %q has no root path", trimmedProjectID)
+	}
+	availability := metadata.PathAvailability(primaryWorkspace.CanonicalRootPath)
+	switch availability {
+	case clientui.ProjectAvailabilityMissing, clientui.ProjectAvailabilityInaccessible:
+		return projectContext{}, serverapi.ProjectUnavailableError{
+			ProjectID:    trimmedProjectID,
+			RootPath:     primaryWorkspace.CanonicalRootPath,
+			Availability: availability,
+		}
+	}
+	projectCfg, err := s.configForWorkspace(primaryWorkspace.CanonicalRootPath)
+	if err != nil {
+		return projectContext{}, err
+	}
 	return projectContext{
 		config:         projectCfg,
 		projectID:      trimmedProjectID,
 		workspaceID:    primaryWorkspace.ID,
-		projectRoot:    overview.Project.RootPath,
+		projectRoot:    primaryWorkspace.CanonicalRootPath,
 		projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 	}, nil
 }
@@ -289,12 +290,12 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 
 func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch.Service {
 	return sessionlaunch.NewService(launch.Planner{
-		Config:                   projectCtx.config,
-		ContainerDir:             projectCtx.projectSession,
-		StoreOptions:             s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:        s.safeBundles().Persistence.metadataStore,
-		ExecutionTargets:         s.safeBundles().Persistence.metadataStore,
-		ProjectWorkspaceBoundary: s.safeBundles().Persistence.metadataStore,
+		Config:            projectCtx.config,
+		ContainerDir:      projectCtx.projectSession,
+		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: s.safeBundles().Persistence.metadataStore,
+		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
+		SessionProjects:   s.safeBundles().Persistence.metadataStore, ManagedWorktreeRoots: s.safeBundles().Persistence.metadataStore,
 		ReloadConfig: func() (config.App, error) {
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},

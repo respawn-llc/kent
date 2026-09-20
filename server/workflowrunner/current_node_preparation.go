@@ -63,15 +63,11 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	boundary, err := s.metadata.ResolveProjectWorkspaceBoundary(ctx, input.Task.ProjectID)
-	if err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
-	}
 	roots, err := s.metadata.ListManagedWorktreeRoots(ctx)
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	execution := launch.PreparedExecutionContext{ExecutionTarget: target, ProjectWorkspaceBoundary: boundary, ManagedWorktreeRoots: roots}
+	execution := launch.PreparedExecutionContext{ExecutionTarget: target, ProjectID: input.Task.ProjectID, ManagedWorktreeRoots: roots}
 	cfg := s.cfg
 	cfg.WorkspaceRoot = root.SourceWorkspaceRoot
 	planner := launch.Planner{
@@ -84,7 +80,7 @@ func (s *Starter) PrepareCurrentNode(
 	if fresh && input.CurrentNode.SessionID == nil {
 		prepared, err := planner.PrepareSession(ctx, launch.SessionPreparationRequest{
 			Request:   launch.SessionRequest{Mode: launch.ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())},
-			SessionID: *id, ExecutionTarget: target, ProjectWorkspaceBoundary: boundary, ManagedWorktreeRoots: roots,
+			SessionID: *id, ExecutionTarget: target, ProjectID: input.Task.ProjectID, ManagedWorktreeRoots: roots,
 		})
 		if err != nil {
 			return workflowexecution.CurrentNodePreparation{}, err

@@ -36,8 +36,11 @@ type SessionExecutionTargetResolver interface {
 	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error)
 }
 
-type SessionWorkspaceContextResolver interface {
-	ResolveSessionProjectWorkspaceBoundary(ctx context.Context, sessionID string) (metadata.ProjectWorkspaceBoundary, error)
+type SessionProjectResolver interface {
+	ResolveSessionProjectID(ctx context.Context, sessionID string) (string, error)
+}
+
+type SessionManagedWorktreeRootsResolver interface {
 	ListManagedWorktreeRoots(ctx context.Context) ([]string, error)
 }
 
@@ -53,14 +56,15 @@ type MetadataExecutionTargetStore interface {
 type MetadataExecutionTargetStoreOpener func(persistenceRoot string) (MetadataExecutionTargetStore, error)
 
 type Planner struct {
-	Config                   config.App
-	ContainerDir             string
-	StoreOptions             []session.StoreOption
-	ReloadConfig             func() (config.App, error)
-	PersistedSessions        session.PersistedSessionResolver
-	ExecutionTargets         SessionExecutionTargetResolver
-	ProjectWorkspaceBoundary SessionWorkspaceContextResolver
-	MetadataStoreOpener      MetadataExecutionTargetStoreOpener
+	Config               config.App
+	ContainerDir         string
+	StoreOptions         []session.StoreOption
+	ReloadConfig         func() (config.App, error)
+	PersistedSessions    session.PersistedSessionResolver
+	ExecutionTargets     SessionExecutionTargetResolver
+	SessionProjects      SessionProjectResolver
+	ManagedWorktreeRoots SessionManagedWorktreeRootsResolver
+	MetadataStoreOpener  MetadataExecutionTargetStoreOpener
 }
 
 type SessionRequest struct {
@@ -87,7 +91,7 @@ type SessionPlan struct {
 	SkipContinuationAgentRoleValidation bool
 	WorkspaceRoot                       string
 	ExecutionTarget                     *worktreepb.SessionExecutionTarget
-	ProjectWorkspaceBoundary            metadata.ProjectWorkspaceBoundary
+	ProjectID                           string
 	ManagedWorktreeRoots                []string
 	Source                              config.SourceReport
 	BaseSource                          config.SourceReport
@@ -551,7 +555,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
 		ExplicitToolSelection:               explicitTools,
 		ExecutionTarget:                     executionContext.ExecutionTarget,
-		ProjectWorkspaceBoundary:            executionContext.ProjectWorkspaceBoundary.Clone(),
+		ProjectID:                           executionContext.ProjectID,
 		ManagedWorktreeRoots:                append([]string(nil), executionContext.ManagedWorktreeRoots...),
 		Source:                              source,
 		BaseSource:                          baseSource,

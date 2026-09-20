@@ -133,9 +133,10 @@ func newApprovalActionHarness(t *testing.T, options approvalActionHarnessOptions
 	client := &approvalActionClient{responses: responses}
 	feed := newApprovalActionFeed(options)
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    append(fixture.metadata.AuthoritativeSessionStoreOptions(), options.storeOptions...),
-		PromptFeed:      feed,
+		WorkspaceMembership: fixture.metadata,
+		PersistenceRoot:     fixture.config.PersistenceRoot,
+		StoreOptions:        append(fixture.metadata.AuthoritativeSessionStoreOptions(), options.storeOptions...),
+		PromptFeed:          feed,
 	})
 	h := &approvalActionHarness{
 		authority: authority, feed: feed, sessionID: sessionID,

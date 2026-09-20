@@ -405,8 +405,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
 ) (sessionruntime.AgentRuntimePlan, error) {
-	projectWorkspaceBoundary := prepared.plan.ProjectWorkspaceBoundary.Clone()
-	filesystemContext, err := runtimewire.NewFilesystemContext(prepared.root.EffectiveRoot(), prepared.root.EffectiveRoot(), projectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(prepared.root.EffectiveRoot(), prepared.root.EffectiveRoot(), input.Task.ProjectID)
 	if err != nil {
 		return sessionruntime.AgentRuntimePlan{}, err
 	}

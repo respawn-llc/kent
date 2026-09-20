@@ -12,7 +12,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -119,7 +118,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filesystem, err := runtimewire.NewFilesystemContext(workspace, workspace, metadata.ProjectWorkspaceBoundary{ProjectID: binding.ProjectID})
+	filesystem, err := runtimewire.NewFilesystemContext(workspace, workspace, binding.ProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}

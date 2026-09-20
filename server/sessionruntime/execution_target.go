@@ -271,6 +271,9 @@ func runActiveRuntimeMaintenance(
 	callbackErr := fn(maintenance)
 	active = false
 	retire := false
+	if callbackErr == nil && resource.localTools != nil && !currentContext.Equal(previousContext) {
+		resource.localTools.RetainExecutionTarget(previousContext.Access.ExecutionTargetRoot)
+	}
 	if callbackErr == nil || currentContext.Equal(previousContext) {
 		return retire, callbackErr
 	}
@@ -745,6 +748,9 @@ func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine
 			return true, errors.Join(err, rollbackErr)
 		}
 		return false, err
+	}
+	if resource.localTools != nil {
+		resource.localTools.RetainExecutionTarget(previousContext.Access.ExecutionTargetRoot)
 	}
 	return false, nil
 }

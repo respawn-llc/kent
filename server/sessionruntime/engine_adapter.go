@@ -117,15 +117,16 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
-	environment       func(string) (string, bool)
-	debug             bool
-	persistenceRoot   string
-	authManager       *auth.Manager
-	background        *shelltool.Manager
-	storeOptions      []session.StoreOption
-	eventFeed         AgentResourceEventFeed
-	resourceLifecycle AgentResourceLifecycle
-	stepLifecycle     AgentResourceStepLifecycle
+	environment         func(string) (string, bool)
+	workspaceMembership runtimewire.WorkspaceMembership
+	debug               bool
+	persistenceRoot     string
+	authManager         *auth.Manager
+	background          *shelltool.Manager
+	storeOptions        []session.StoreOption
+	eventFeed           AgentResourceEventFeed
+	resourceLifecycle   AgentResourceLifecycle
+	stepLifecycle       AgentResourceStepLifecycle
 }
 
 type runtimeStoreAdmission struct {
@@ -135,15 +136,16 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
-		environment:       options.Environment,
-		debug:             options.Debug,
-		persistenceRoot:   options.PersistenceRoot,
-		authManager:       options.AuthManager,
-		background:        options.Background,
-		storeOptions:      append([]session.StoreOption(nil), options.StoreOptions...),
-		eventFeed:         options.EventFeed,
-		resourceLifecycle: options.ResourceLifecycle,
-		stepLifecycle:     options.StepLifecycle,
+		environment:         options.Environment,
+		workspaceMembership: options.WorkspaceMembership,
+		debug:               options.Debug,
+		persistenceRoot:     options.PersistenceRoot,
+		authManager:         options.AuthManager,
+		background:          options.Background,
+		storeOptions:        append([]session.StoreOption(nil), options.StoreOptions...),
+		eventFeed:           options.EventFeed,
+		resourceLifecycle:   options.ResourceLifecycle,
+		stepLifecycle:       options.StepLifecycle,
 	}
 }
 
@@ -296,6 +298,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
 		Environment:                         a.options.environment,
+		WorkspaceMembership:                 a.options.workspaceMembership,
 		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
 		RequiredTools:                       options.RequiredTools,
 		Context:                             resource.ctx,

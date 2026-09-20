@@ -190,22 +190,27 @@ func captureSessionRequest(
 	if activeSettings.Connection != nil {
 		mode.AccountID = authState.Connections[*activeSettings.Connection].AccountID
 	}
+	executionRoot := workingDirectory
 	if workflowPrompt == nil {
 		target, targetErr := md.ResolveSessionExecutionTarget(ctx, sessionID)
 		if targetErr != nil {
 			return capturedRequest{}, fmt.Errorf("resolve session execution target: %w", targetErr)
 		}
 		workingDirectory = target.EffectiveWorkdir
+		executionRoot = target.WorkspaceRoot
+		if target.Worktree != nil {
+			executionRoot = target.Worktree.Root
+		}
 	}
 	var providerCapabilitiesOverride *llm.ProviderCapabilities
 	if forceProviderContract {
 		providerCapabilitiesOverride = &caps
 	}
-	projectWorkspaceBoundary, err := md.ResolveSessionProjectWorkspaceBoundary(ctx, sessionID)
+	projectID, err := md.ResolveSessionProjectID(ctx, sessionID)
 	if err != nil {
-		return capturedRequest{}, fmt.Errorf("resolve session project workspace boundary: %w", err)
+		return capturedRequest{}, fmt.Errorf("resolve Session Project: %w", err)
 	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(workingDirectory, workingDirectory, projectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(workingDirectory, executionRoot, projectID)
 	if err != nil {
 		return capturedRequest{}, fmt.Errorf("prepare filesystem context: %w", err)
 	}
@@ -222,6 +227,7 @@ func captureSessionRequest(
 			QuestionsEnabled:                    textutil.Value(resolved.QuestionsEnabled),
 			AutoCompactionEnabled:               textutil.Value(resolved.AutoCompactionEnabled),
 			FilesystemContext:                   filesystemContext,
+			WorkspaceMembership:                 md,
 			Context:                             ctx,
 			Client:                              inspectionCapabilityClient{capabilities: caps},
 			Headless:                            headless,

@@ -36,26 +36,6 @@ func projectSummaryToGenerated(summary clientui.ProjectSummary) (*projectpb.Proj
 	}, nil
 }
 
-func projectWorkspaceSummaryToGenerated(summary clientui.ProjectWorkspaceSummary) (*projectpb.ProjectWorkspaceSummary, error) {
-	availability, err := protoapi.ProjectAvailabilityToProto(summary.Availability)
-	if err != nil {
-		return nil, err
-	}
-	sessionCount, err := nonNegativeInt32(summary.SessionCount, "project workspace session count")
-	if err != nil {
-		return nil, err
-	}
-	return &projectpb.ProjectWorkspaceSummary{
-		WorkspaceId:  summary.WorkspaceID,
-		DisplayName:  summary.DisplayName,
-		RootPath:     summary.RootPath,
-		Availability: availability,
-		IsPrimary:    summary.IsPrimary,
-		SessionCount: sessionCount,
-		UpdatedAt:    timestamppb.New(summary.UpdatedAt),
-	}, nil
-}
-
 func projectHomeSummaryToGenerated(summary serverapi.ProjectHomeSummary) (*projectpb.ProjectHomeSummary, error) {
 	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(summary.PrimaryWorkspace.Availability))
 	if err != nil {

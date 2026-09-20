@@ -32,25 +32,20 @@ var testSessionStores sync.Map
 func newTestPlanner(cfg config.App, containerDir string, storeOptions ...session.StoreOption) Planner {
 	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
 	return Planner{
-		Config:                   cfg,
-		ContainerDir:             containerDir,
-		StoreOptions:             storeOptions,
-		ProjectWorkspaceBoundary: testProjectBoundaryResolver{root: cfg.WorkspaceRoot},
+		Config:          cfg,
+		ContainerDir:    containerDir,
+		StoreOptions:    storeOptions,
+		SessionProjects: testSessionProjectResolver{}, ManagedWorktreeRoots: testSessionProjectResolver{},
 	}
 }
 
-type testProjectBoundaryResolver struct {
-	root string
+type testSessionProjectResolver struct{}
+
+func (testSessionProjectResolver) ResolveSessionProjectID(context.Context, string) (string, error) {
+	return testProjectID, nil
 }
 
-func (r testProjectBoundaryResolver) ResolveSessionProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error) {
-	return metadata.ProjectWorkspaceBoundary{
-		ProjectID:  testProjectID,
-		Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: r.root}},
-	}, nil
-}
-
-func (r testProjectBoundaryResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
+func (testSessionProjectResolver) ListManagedWorktreeRoots(context.Context) ([]string, error) {
 	return nil, nil
 }
 

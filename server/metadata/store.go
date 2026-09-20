@@ -1942,71 +1942,6 @@ func (s *Store) listProjectHomeSummaries(ctx context.Context, projectID sql.Null
 	return out, nil
 }
 
-func (s *Store) GetProjectOverview(ctx context.Context, projectID string) (clientui.ProjectOverview, error) {
-	if s == nil || s.queries == nil {
-		return clientui.ProjectOverview{}, errors.New("metadata store is required")
-	}
-	project, err := s.queries.GetProjectSummary(ctx, strings.TrimSpace(projectID))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return clientui.ProjectOverview{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(projectID))
-		}
-		return clientui.ProjectOverview{}, fmt.Errorf("get project summary: %w", err)
-	}
-	workspaces, err := s.ListProjectWorkspaces(ctx, projectID)
-	if err != nil {
-		return clientui.ProjectOverview{}, err
-	}
-	return clientui.ProjectOverview{
-		Project:    projectSummaryFromRow(project.ID, project.ProjectKey, project.DisplayName, project.RootPath, project.SessionCount, project.LatestActivityUnixMs),
-		Workspaces: workspaces,
-	}, nil
-}
-
-func (s *Store) ListProjectWorkspaces(ctx context.Context, projectID string) ([]clientui.ProjectWorkspaceSummary, error) {
-	if s == nil || s.queries == nil {
-		return nil, errors.New("metadata store is required")
-	}
-	rows, err := s.queries.ListProjectWorkspaces(ctx, sqlitegen.ListProjectWorkspacesParams{
-		ProjectID:                strings.TrimSpace(projectID),
-		WorkspaceCollectionLimit: int64(ProjectWorkspaceCollectionLimit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list project workspaces: %w", err)
-	}
-	out := make([]clientui.ProjectWorkspaceSummary, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, projectWorkspaceSummaryFromRow(row.ID, row.RootPath, row.IsPrimary != 0, row.SessionCount, row.LatestActivityUnixMs))
-	}
-	return out, nil
-}
-
-func (s *Store) ListProjectWorkspacesPage(ctx context.Context, projectID string, pageSize int, offset int) ([]clientui.ProjectWorkspaceSummary, error) {
-	if s == nil || s.queries == nil {
-		return nil, errors.New("metadata store is required")
-	}
-	if pageSize < 0 {
-		return nil, errors.New("page size must be non-negative")
-	}
-	if offset < 0 {
-		return nil, errors.New("offset must be non-negative")
-	}
-	rows, err := s.queries.ListProjectWorkspacesPage(ctx, sqlitegen.ListProjectWorkspacesPageParams{
-		ProjectID:                strings.TrimSpace(projectID),
-		WorkspaceCollectionLimit: int64(ProjectWorkspaceCollectionLimit),
-		LimitRows:                int64(pageSize),
-		OffsetRows:               int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list project workspaces page: %w", err)
-	}
-	out := make([]clientui.ProjectWorkspaceSummary, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, projectWorkspaceSummaryFromRow(row.ID, row.RootPath, row.IsPrimary != 0, row.SessionCount, row.LatestActivityUnixMs))
-	}
-	return out, nil
-}
-
 func (s *Store) ListSessionPage(
 	ctx context.Context,
 	projectID string,
@@ -2108,58 +2043,6 @@ func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID s
 		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
 	return binding, nil
-}
-
-func (s *Store) ResolveSessionProjectWorkspaceBoundary(ctx context.Context, sessionID string) (ProjectWorkspaceBoundary, error) {
-	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
-	if err != nil {
-		return ProjectWorkspaceBoundary{}, err
-	}
-	projectID := strings.TrimSpace(row.ProjectID)
-	if projectID == "" {
-		return ProjectWorkspaceBoundary{}, errors.New("session project id is required")
-	}
-	return s.ResolveProjectWorkspaceBoundary(ctx, projectID)
-}
-
-func (s *Store) ResolveProjectWorkspaceBoundary(ctx context.Context, projectID string) (ProjectWorkspaceBoundary, error) {
-	if s == nil || s.queries == nil {
-		return ProjectWorkspaceBoundary{}, errors.New("metadata store is required")
-	}
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return ProjectWorkspaceBoundary{}, errors.New("project id is required")
-	}
-	workspaces, err := s.queries.ListProjectWorkspaceBoundary(ctx, sqlitegen.ListProjectWorkspaceBoundaryParams{
-		ProjectID:                projectID,
-		WorkspaceCollectionLimit: int64(ProjectWorkspaceCollectionLimit),
-	})
-	if err != nil {
-		return ProjectWorkspaceBoundary{}, err
-	}
-	boundary := ProjectWorkspaceBoundary{
-		ProjectID:  projectID,
-		Workspaces: make([]ProjectWorkspace, 0, len(workspaces)),
-	}
-	for _, workspace := range workspaces {
-		root := strings.TrimSpace(workspace.RootPath)
-		if root == "" {
-			return ProjectWorkspaceBoundary{}, fmt.Errorf("project workspace %q has empty root path", workspace.ID)
-		}
-		workspaceID := strings.TrimSpace(workspace.ID)
-		if workspaceID == "" {
-			return ProjectWorkspaceBoundary{}, fmt.Errorf("project workspace %q has empty workspace id", root)
-		}
-		boundary.Workspaces = append(boundary.Workspaces, ProjectWorkspace{
-			WorkspaceID:       &workspaceID,
-			CanonicalRoot:     root,
-			AttachmentOrdinal: len(boundary.Workspaces),
-		})
-	}
-	if err := boundary.Validate(); err != nil {
-		return ProjectWorkspaceBoundary{}, err
-	}
-	return boundary, nil
 }
 
 func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, root string) (bool, error) {
@@ -2871,18 +2754,6 @@ func projectSummaryFromRow(projectID string, projectKey string, displayName stri
 		DisplayName:  displayName,
 		RootPath:     rootPath,
 		Availability: clientui.ProjectAvailability(availabilityForPath(rootPath)),
-		SessionCount: int(sessionCount),
-		UpdatedAt:    timeFromStoredTimestamp(latestActivityUnixMs),
-	}
-}
-
-func projectWorkspaceSummaryFromRow(workspaceID string, rootPath string, isPrimary bool, sessionCount int64, latestActivityUnixMs int64) clientui.ProjectWorkspaceSummary {
-	return clientui.ProjectWorkspaceSummary{
-		WorkspaceID:  workspaceID,
-		DisplayName:  displayNameForPath(rootPath),
-		RootPath:     rootPath,
-		Availability: clientui.ProjectAvailability(availabilityForPath(rootPath)),
-		IsPrimary:    isPrimary,
 		SessionCount: int(sessionCount),
 		UpdatedAt:    timeFromStoredTimestamp(latestActivityUnixMs),
 	}

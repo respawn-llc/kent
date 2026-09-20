@@ -172,7 +172,7 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		currentWorktreeRoot = &root
 		executionRoot = root
 	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(workdir, executionRoot, plan.ProjectWorkspaceBoundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(workdir, executionRoot, plan.ProjectID)
 	if err != nil {
 		return nil, err
 	}
