@@ -45,10 +45,15 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 	home = newAppTestHome(t)
 	workspace = t.TempDir()
 	registerAppWorkspace(t, workspace)
-	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
+	writeAppTestSettings(t)
+	return home, workspace
+}
+
+func writeAppTestSettings(t *testing.T) {
+	t.Helper()
+	if _, _, err := config.WriteDefaultSettingsFile(); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
-	return home, workspace
 }
 
 func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, workspace string) {
@@ -89,6 +94,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 
 func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler serverstartup.AuthHandler) func() {
 	t.Helper()
+	writeAppTestSettings(t)
 	releasePortProbe := reserveAppTestServerPort(t)
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
@@ -96,7 +102,7 @@ func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         openAIBaseURL,
 		OpenAIBaseURLExplicit: openAIBaseURL != "",
-	}, authHandler, autoOnboarding)
+	}, authHandler)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}

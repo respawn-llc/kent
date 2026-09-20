@@ -22,9 +22,6 @@ func TestSessionReadRequestsRequireSessionIdentity(t *testing.T) {
 	if err := protoapi.Validate(&sessionpb.MainViewRequest{}); err == nil {
 		t.Fatal("accepted main view request without Session")
 	}
-	if err := protoapi.Validate(&sessionpb.ExecutionEnvironmentRequest{}); err == nil {
-		t.Fatal("accepted environment request without Session")
-	}
 	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{}); err == nil {
 		t.Fatal("accepted latest answer request without Session")
 	}

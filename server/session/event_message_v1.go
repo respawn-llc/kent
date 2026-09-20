@@ -22,6 +22,7 @@ const (
 	MessageTypeHandoffFutureMessage   MessageType = "handoff_future_message"
 	MessageTypeReviewerFeedback       MessageType = "reviewer_feedback"
 	MessageTypeBackgroundNotice       MessageType = "background_notice"
+	MessageTypeUserShellCommand       MessageType = "user_shell_command"
 	MessageTypeCustomToolCallOutput   MessageType = "custom_tool_call_output"
 	// MessageTypeCompactionPreservedUserMessage retains its legacy serialized
 	// value so existing Session logs remain readable without migration.
@@ -107,6 +108,10 @@ func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
 	}
 	if message.CompactContent, err = normalizeOptionalEventText("compact content", message.CompactContent); err != nil {
 		return MessageRecord{}, err
+	}
+	if message.MessageType != nil && *message.MessageType == MessageTypeUserShellCommand &&
+		(message.Role != MessageRoleUser || message.Content == nil || message.CompactContent == nil || len(message.ToolCalls) != 0) {
+		return MessageRecord{}, fmt.Errorf("user shell command requires user text, a compact command, and no tool calls")
 	}
 	if message.Name, err = normalizeOptionalEventIdentity("message name", message.Name); err != nil {
 		return MessageRecord{}, err
@@ -202,7 +207,7 @@ func normalizeOptionalMessageType(messageType *MessageType) (*MessageType, error
 	case MessageTypeAgentsMD, MessageTypeSkills, MessageTypeSubagents, MessageTypeEnvironment,
 		MessageTypeCompactionSummary, MessageTypeInterruption, MessageTypeErrorFeedback,
 		MessageTypeCompactionSoonReminder, MessageTypeHandoffFutureMessage,
-		MessageTypeReviewerFeedback, MessageTypeBackgroundNotice, MessageTypeCustomToolCallOutput,
+		MessageTypeReviewerFeedback, MessageTypeBackgroundNotice, MessageTypeUserShellCommand, MessageTypeCustomToolCallOutput,
 		MessageTypeCompactionPreservedUserMessage, MessageTypeHeadlessMode, MessageTypeHeadlessModeExit,
 		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,
 		MessageTypeGoal, MessageTypeActiveGoalContinuation, MessageTypeAgentSteer:

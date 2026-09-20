@@ -10,35 +10,6 @@ import (
 
 const RecentTailEntryLimit = 500
 
-func TranscriptPageFromRuntime(engine *runtime.Engine, req *transcriptpb.PageRequest) (*transcriptpb.Page, error) {
-	if engine == nil {
-		return nil, nil
-	}
-	var segment runtime.TranscriptSegmentPage
-	var err error
-	switch direction := req.Direction.(type) {
-	case *transcriptpb.PageRequest_NewerCursor:
-		segment, err = engine.TranscriptSegmentPageForward(direction.NewerCursor)
-	case *transcriptpb.PageRequest_Cursor:
-		segment, err = engine.TranscriptSegmentPage(direction.Cursor)
-	default:
-		segment, err = engine.TranscriptNewestSegmentPage()
-	}
-	if err != nil {
-		return nil, err
-	}
-	freshness, err := engine.ConversationFreshness()
-	if err != nil {
-		return nil, err
-	}
-	return TranscriptPageFromSegment(
-		engine.SessionID(),
-		engine.SessionName(),
-		ConversationFreshnessFromSession(freshness),
-		segment,
-	)
-}
-
 func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page)
 	if err != nil {

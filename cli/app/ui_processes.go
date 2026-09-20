@@ -77,7 +77,6 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.Backg
 	}
 	if activity.Preview != nil {
 		update.RecentOutput = *activity.Preview
-		update.OutputAvailable = true
 	}
 	for index, existing := range m.processList.entries {
 		if existing.Id != processID {
@@ -112,7 +111,6 @@ func mergeBackgroundProcessCacheEntry(existing, update *processpb.BackgroundProc
 	}
 	if update.RecentOutput != "" {
 		next.RecentOutput = update.RecentOutput
-		next.OutputAvailable = update.OutputAvailable
 	}
 	if update.ExitCode != nil {
 		next.ExitCode = update.ExitCode

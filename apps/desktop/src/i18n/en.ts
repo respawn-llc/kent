@@ -407,6 +407,8 @@ export const englishResources = {
       stopping: "Stopping",
     },
     task: {
+      contextSelectionRequired:
+        "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
       accessApprovalQuestion: "Allow this access?",
       sessionStarted: "Session started",

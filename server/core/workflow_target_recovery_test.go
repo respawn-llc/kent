@@ -90,21 +90,27 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 		t.Fatal(err)
 	}
 	taskID := createCoreInitialBranchTask(t, store, binding.ProjectID)
-	nodes, err := store.ListCurrentNodes(ctx, taskID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	target, err := store.GetTaskExecutionTargetContext(ctx, taskID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.task, f.store, f.app, f.binding, f.client = target.Task, store, app, binding, client
-	f.moveTarget = addCoreRecoveryMoveTarget(t, store, taskID, nodes[0].Reference.NodeID)
-	if err := store.InterruptCurrentNode(ctx, nodes[0].Reference, workflow.CurrentNodeInterruptionReasonUserInterrupt,
-		workflow.NewCurrentNodeInterruptionDetail("user_interrupt", nil)); err != nil {
+	definition, _, err := store.GetDefinition(ctx, target.Task.WorkflowID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = app.WorkflowClient().ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
+	var agent *workflow.NodeID
+	for _, node := range definition.Nodes {
+		if node.Kind() == workflow.NodeKindAgent {
+			id := workflow.NodeIDOf(node)
+			agent = &id
+		}
+	}
+	if agent == nil {
+		t.Fatal("recovery fixture has no Agent Node")
+	}
+	f.moveTarget = addCoreRecoveryMoveTarget(t, store, taskID, *agent)
+	_, err = app.WorkflowClient().StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
 		TaskID: string(taskID), SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
 		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead},
 	})
@@ -150,6 +156,23 @@ func (f *taskRecoveryFixture) resume(t *testing.T, selection *serverapi.Workflow
 		t.Fatal(err)
 	}
 	return response
+}
+
+func (f *taskRecoveryFixture) resumeSetupFailure(t *testing.T, selection *serverapi.WorkflowExecutionTargetSelection, branch *string) *worktreepb.SetupRetainedDetails {
+	t.Helper()
+	response, err := f.app.WorkflowClient().ResumeWorkflowTask(context.Background(), serverapi.WorkflowTaskResumeRequest{
+		TaskID: string(f.task.ID), SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+		ExecutionTarget: selection, BranchName: branch,
+	})
+	var retained *serverapi.WorkflowSetupRetainedError
+	if !errors.As(err, &retained) || response.Applied != nil {
+		t.Fatalf("Resume setup failure lost its typed diagnostics: %+v, %v", response, err)
+	}
+	if retained.Details == nil || retained.Details.Worktree == nil ||
+		retained.Details.Worktree.Kent == nil || retained.Details.Worktree.Git == nil {
+		t.Fatalf("Resume setup failure omitted retained Worktree facts: %+v", retained.Details)
+	}
+	return retained.Details
 }
 
 func (f *taskRecoveryFixture) setup(t *testing.T, script string) string {
@@ -208,7 +231,7 @@ func TestWorkflowRestoredOriginalCanResumeAfterSetupFailure(t *testing.T) {
 	f.interruptAndDelete(t)
 	attempts := filepath.Join(t.TempDir(), "attempts")
 	f.setup(t, fmt.Sprintf("printf x >> %q\nexit 1\n", attempts))
-	f.resume(t, nil, nil)
+	f.resumeSetupFailure(t, nil, nil)
 	f.waitInterrupted(t)
 	if len(f.client.Requests()) != 1 {
 		t.Fatal("restoration setup failure started Agent work")
@@ -233,7 +256,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	f.interruptAndDelete(t)
 	attempts := filepath.Join(t.TempDir(), "attempts")
 	f.setup(t, fmt.Sprintf("printf x >> %q\nexit 1\n", attempts))
-	f.resume(t, nil, nil)
+	f.resumeSetupFailure(t, nil, nil)
 	node := f.waitInterrupted(t)
 	if node.SessionID == nil {
 		t.Fatal("restoration failure lost the retained Session")
@@ -396,20 +419,15 @@ func TestWorkflowFailedCustomRefReplacementRequiresFreshAttempt(t *testing.T) {
 	ref := strings.TrimSpace(testsetup.RunGit(t, f.binding.CanonicalRoot, "symbolic-ref", "HEAD"))
 	selection := &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeCustomRef, CustomRef: &ref}
 	branch := "failed-custom-base"
-	f.resume(t, selection, &branch)
-	node := f.waitInterrupted(t)
-	recovery := node.Scheduling.Interruption.Detail.SetupRecovery
-	if recovery == nil || recovery.RetainedWorktree == nil {
-		t.Fatalf("failed candidate diagnostics were not retained: %+v", node.Scheduling.Interruption)
-	}
-	if node.Scheduling.Interruption.Detail.OriginalExecutionTargetUnavailable == nil {
+	recovery := f.resumeSetupFailure(t, selection, &branch)
+	if recovery.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
 		t.Fatal("failed candidate recovery did not require original-target replacement")
 	}
 	after := f.assertEvidence(t)
 	if after.Task.ManagedWorktreeID == nil || *after.Task.ManagedWorktreeID != f.original.ID || len(f.client.Requests()) != 1 {
 		t.Fatal("failed candidate was adopted or executed")
 	}
-	failedRoot := recovery.RetainedWorktree.Root
+	failedRoot := recovery.Worktree.Git.CanonicalRoot
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +435,7 @@ func TestWorkflowFailedCustomRefReplacementRequiresFreshAttempt(t *testing.T) {
 	f.resume(t, selection, &newBranch)
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
 	after = f.assertEvidence(t)
-	if after.Task.ManagedWorktreeID == nil || *after.Task.ManagedWorktreeID == recovery.RetainedWorktree.WorktreeID {
+	if after.Task.ManagedWorktreeID == nil || *after.Task.ManagedWorktreeID == recovery.Worktree.Kent.WorktreeId {
 		t.Fatal("fresh attempt adopted the failed candidate")
 	}
 	if data, err := os.ReadFile(filepath.Join(failedRoot, "setup-output")); err != nil || string(data) != "preserved" {

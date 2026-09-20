@@ -34,7 +34,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-400",
-			cause: &llm.APIStatusError{StatusCode: 400},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 400) {
@@ -44,7 +44,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-401",
-			cause: &llm.APIStatusError{StatusCode: 401},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 401) {
@@ -54,7 +54,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-403",
-			cause: &llm.APIStatusError{StatusCode: 403},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: llm.UnifiedErrorCodeAuthentication},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 403) {
@@ -64,7 +64,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-404",
-			cause: &llm.APIStatusError{StatusCode: 404},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 404, Code: llm.UnifiedErrorCodeUnknown},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 404) {

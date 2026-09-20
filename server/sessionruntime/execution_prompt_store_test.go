@@ -201,7 +201,7 @@ func newExecutionPromptStoreForTest(t *testing.T, feed ExecutionPromptFeed) exec
 	if err != nil {
 		t.Fatalf("new session resource: %v", err)
 	}
-	scope := newAgentExecutionScope(runtimeids.NewExecutionScopeID(), 1, resource, nil)
+	scope := newAgentExecutionScope(runtimeids.NewExecutionScopeID(), resource, nil)
 	return newExecutionPromptStore(&Authority{}, scope, feed)
 }
 

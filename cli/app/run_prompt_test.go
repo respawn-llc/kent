@@ -38,12 +38,6 @@ func readyMemoryAuthHandler() memoryAuthHandler {
 }
 
 func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
-	state := apiKeyMemoryAuthState(key)
-	state.UpdatedAt = time.Now().UTC()
-	return memoryAuthHandler{state: state}
-}
-
-func apiKeyMemoryAuthHandlerWithoutTimestamp(key string) memoryAuthHandler {
 	return memoryAuthHandler{state: apiKeyMemoryAuthState(key)}
 }
 
@@ -177,19 +171,6 @@ func (h memoryAuthHandler) LookupEnv(key string) string {
 	return ""
 }
 
-var autoOnboarding = serverstartup.OnboardingHandler(func(_ context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
-	_, created, err := config.WriteDefaultSettingsFile()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded, err := req.ReloadConfig()
-	if err != nil {
-		return config.App{}, err
-	}
-	reloaded.Source.CreatedDefaultConfig = created
-	return reloaded, nil
-})
-
 func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 	t.Helper()
 	loadCfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -225,7 +206,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -263,7 +244,7 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	}, apiKeyMemoryAuthHandler("test-key"))
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

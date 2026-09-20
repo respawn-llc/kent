@@ -1,13 +1,14 @@
 package registry
 
 import (
+	"core/server/runtimeview"
 	shelltool "core/server/tools/shell"
 	"github.com/google/uuid"
 	"testing"
 )
 
 func TestBackgroundHydrationFiltersSessionProcessesAndOmitsPreview(t *testing.T) {
-	activities, err := transcriptBackgroundActivitiesFromProcessSnapshots("session-1", []shelltool.Snapshot{
+	activities, err := runtimeview.TranscriptBackgroundActivitiesFromProcessSnapshots("session-1", []shelltool.Snapshot{
 		{
 			ID: "process-1", ActivityID: uuid.MustParse("66666666-6666-4666-8666-666666666666"),
 			OwnerSessionID: "session-1", OwnerRunID: "11111111-1111-4111-8111-111111111111",

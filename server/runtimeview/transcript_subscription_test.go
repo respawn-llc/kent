@@ -162,7 +162,7 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 
 func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
 	requestID := runtimeids.NewCompactionRequestID()
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventCompactionCompleted,
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 		Compaction: &runtime.CompactionStatus{
@@ -171,6 +171,9 @@ func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing
 			Count:     1,
 		},
 	})
+	if err != nil {
+		t.Fatalf("project compaction status: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("compaction messages = %+v, want one", messages)
 	}
@@ -187,10 +190,13 @@ func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 		Kind:           runtimeinput.PendingWorkItemKindWorktreeTransition,
 		CanonicalInput: "/wt leave",
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                   runtime.EventPendingWorkRestored,
 		PendingWorkRestoration: &restoration,
 	})
+	if err != nil {
+		t.Fatalf("project pending work restoration: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("technical restoration messages = %+v, want one", messages)
 	}
@@ -206,7 +212,10 @@ func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 }
 
 func TestTranscriptPendingWorkChangedProjectionCarriesNoCollection(t *testing.T) {
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{Kind: runtime.EventPendingWorkChanged})
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{Kind: runtime.EventPendingWorkChanged})
+	if err != nil {
+		t.Fatalf("project pending work change: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("Pending Work Changed messages = %+v, want one", messages)
 	}
@@ -401,26 +410,31 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 		t.Fatalf("hydrated reasoning order = %+v", hydration.ActiveReasoningTraces)
 	}
 	output := int64(0)
-	live := append(
-		TranscriptMessagesFromRuntimeEvent(runtime.Event{
-			Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-			ReasoningDelta: &llm.ReasoningSummaryDelta{
-				SourceCoordinate: &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &firstIndex},
-				Text:             "first",
-			},
-			ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{Kent: &firstID},
-		}),
-		TranscriptMessagesFromRuntimeEvent(runtime.Event{
-			Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-			ReasoningDelta: &llm.ReasoningSummaryDelta{
-				SourceCoordinate: &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &secondIndex},
-				Text:             "second",
-			},
-			ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{
-				Provider: &llm.ReasoningItemIdentity{ItemID: "second", PartIndex: &secondIndex},
-			},
-		})...,
-	)
+	firstLive, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta: &llm.ReasoningSummaryDelta{
+			SourceCoordinate: &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &firstIndex},
+			Text:             "first",
+		},
+		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{Kent: &firstID},
+	})
+	if err != nil {
+		t.Fatalf("project first live reasoning event: %v", err)
+	}
+	secondLive, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta: &llm.ReasoningSummaryDelta{
+			SourceCoordinate: &llm.ReasoningSourceCoordinate{OutputIndex: &output, PartIndex: &secondIndex},
+			Text:             "second",
+		},
+		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{
+			Provider: &llm.ReasoningItemIdentity{ItemID: "second", PartIndex: &secondIndex},
+		},
+	})
+	if err != nil {
+		t.Fatalf("project second live reasoning event: %v", err)
+	}
+	live := append(firstLive, secondLive...)
 	if len(live) != 2 {
 		t.Fatalf("live reasoning messages = %+v", live)
 	}
@@ -435,7 +449,7 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 }
 
 func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventLocalEntryAdded,
 		StepID:              runtimeStepIDPointer(transcriptProjectionStepID),
 		LocalEntryProjected: true,
@@ -448,6 +462,9 @@ func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatalf("project runtime visibility row: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one committed row", messages)
 	}
@@ -485,11 +502,14 @@ func TestDeveloperMessageProjectsAsRegularNotice(t *testing.T) {
 			EventSequence: 1,
 		},
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventLocalEntryAdded,
 		LocalEntryProjected: true,
 		LocalEntry:          &entry,
 	})
+	if err != nil {
+		t.Fatalf("project developer context row: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("native reminder events = %d, want one", len(messages))
 	}
@@ -675,7 +695,7 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) {
 	part := int64(0)
 	durationMs := int64(321)
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventLocalEntryAdded,
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 		LocalEntry: &runtime.ChatEntry{
@@ -689,6 +709,9 @@ func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) 
 		},
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
 	})
+	if err != nil {
+		t.Fatalf("project reasoning row: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("reasoning messages = %+v, want one committed row", messages)
 	}
@@ -796,7 +819,10 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 		t.Fatalf("emitted presentation = %+v, want original input preserved", completion.ToolResult.Presentation)
 	}
 
-	messages := TranscriptMessagesFromRuntimeEvent(completion)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(completion)
+	if err != nil {
+		t.Fatalf("project failed tool completion: %v", err)
+	}
 	var row *transcriptpb.CommittedRow
 	for _, message := range messages {
 		if message.GetCommittedRow() != nil {
@@ -1045,21 +1071,27 @@ func TestTranscriptHydrationRejectsAssistantStreamWithoutRuntimeIdentity(t *test
 
 func TestTranscriptMessagesIgnoreEmptyAssistantDelta(t *testing.T) {
 	streamID := uuid.New()
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                        runtime.EventAssistantDelta,
 		AssistantDelta:              "",
 		AssistantTranscriptStreamID: &streamID,
 	})
+	if err != nil {
+		t.Fatalf("project empty assistant delta: %v", err)
+	}
 	if len(messages) != 0 {
 		t.Fatalf("empty assistant delta messages = %+v, want none", messages)
 	}
 }
 
 func TestTranscriptMessagesIgnoreNoopAssistantResetWithoutStream(t *testing.T) {
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                       runtime.EventAssistantDeltaReset,
 		AssistantStreamAbortReason: string(runtime.AssistantStreamAbortSuperseded),
 	})
+	if err != nil {
+		t.Fatalf("project noop assistant reset: %v", err)
+	}
 	if len(messages) != 0 {
 		t.Fatalf("noop assistant reset messages = %+v, want none", messages)
 	}
@@ -1067,11 +1099,14 @@ func TestTranscriptMessagesIgnoreNoopAssistantResetWithoutStream(t *testing.T) {
 
 func TestTranscriptMessagesIgnoreFinalizedAssistantReset(t *testing.T) {
 	streamID := uuid.New()
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                        runtime.EventAssistantDeltaReset,
 		StepID:                      runtimeStepIDPointer(transcriptProjectionStepID),
 		AssistantTranscriptStreamID: &streamID,
 	})
+	if err != nil {
+		t.Fatalf("project finalized assistant reset: %v", err)
+	}
 	if len(messages) != 0 {
 		t.Fatalf("finalized assistant reset messages = %+v, want committed assistant row to remain the sole terminal", messages)
 	}
@@ -1079,7 +1114,7 @@ func TestTranscriptMessagesIgnoreFinalizedAssistantReset(t *testing.T) {
 
 func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	activityID := uuid.New()
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventBackgroundUpdated,
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 		Background: &runtime.BackgroundShellEvent{
@@ -1094,6 +1129,9 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 			Preview:     "tests",
 		},
 	})
+	if err != nil {
+		t.Fatalf("project background activity: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one background activity", messages)
 	}
@@ -1116,7 +1154,7 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+			messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 				Kind:   runtime.EventBackgroundUpdated,
 				StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 				Background: &runtime.BackgroundShellEvent{
@@ -1131,6 +1169,9 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					PreviewRemoved: tt.previewRemoved,
 				},
 			})
+			if err != nil {
+				t.Fatalf("project background activity: %v", err)
+			}
 			if len(messages) != 1 {
 				t.Fatalf("messages = %+v, want one background activity", messages)
 			}
@@ -1145,7 +1186,7 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 	exitCode := 3
 	activityID := uuid.New()
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventConversationUpdated,
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
@@ -1161,6 +1202,9 @@ func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 			BackgroundExitCode:   &exitCode,
 		},
 	})
+	if err != nil {
+		t.Fatalf("project background notice: %v", err)
+	}
 
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one background notice", messages)
@@ -1185,7 +1229,7 @@ func TestTranscriptWorktreeNoticeCarriesTypedContextWithoutServerPresentation(t 
 			EffectiveCwd:  "/tmp/worktree/pkg",
 		},
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind: runtime.EventConversationUpdated,
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
 			EventSequence: 2,
@@ -1198,6 +1242,9 @@ func TestTranscriptWorktreeNoticeCarriesTypedContextWithoutServerPresentation(t 
 			Content:         textutil.Value("model-visible worktree context"),
 		},
 	})
+	if err != nil {
+		t.Fatalf("project worktree notice: %v", err)
+	}
 
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one worktree notice", messages)
@@ -1230,7 +1277,7 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 		WorkspaceRoot: "/tmp/workspace",
 		EffectiveCwd:  "/tmp/detached-worktree",
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind: runtime.EventConversationUpdated,
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
 			EventSequence: 3,
@@ -1242,6 +1289,9 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 			Content:         textutil.Value("model-visible detached worktree context"),
 		},
 	})
+	if err != nil {
+		t.Fatalf("project detached worktree notice: %v", err)
+	}
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one typed worktree notice", messages)
 	}
@@ -1255,13 +1305,7 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 }
 
 func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected missing background activity id panic")
-		}
-	}()
-
-	_ = TranscriptMessagesFromRuntimeEvent(runtime.Event{
+	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventBackgroundUpdated,
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 		Background: &runtime.BackgroundShellEvent{
@@ -1275,12 +1319,15 @@ func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.
 			Preview:     "tests",
 		},
 	})
+	if err == nil {
+		t.Fatal("expected missing background activity id to be rejected")
+	}
 }
 
 func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 	for _, kind := range []runtime.EventKind{runtime.EventAssistantMessage, runtime.EventConversationUpdated} {
 		t.Run(string(kind), func(t *testing.T) {
-			messages := TranscriptMessagesFromRuntimeEvent(runtime.Event{
+			messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 				Kind:   kind,
 				StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 				CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
@@ -1296,6 +1343,9 @@ func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 					}},
 				},
 			})
+			if err != nil {
+				t.Fatalf("project assistant transcript event: %v", err)
+			}
 			if len(messages) != 1 {
 				t.Fatalf("messages = %+v, want only assistant committed row", messages)
 			}
@@ -1319,7 +1369,10 @@ func TestInFlightClearFailureIsOperationalDiagnosticOnly(t *testing.T) {
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("in-flight clear failure committed facts = %+v, want none", facts)
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(event)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+	if err != nil {
+		t.Fatalf("project in-flight clear failure: %v", err)
+	}
 	if len(messages) != 1 || messages[0].GetOperationalDiagnostic() == nil {
 		t.Fatalf("in-flight clear failure messages = %+v, want one operational diagnostic", messages)
 	}
@@ -1338,7 +1391,10 @@ func TestContextFactPersistenceFailureIsOperationalDiagnosticOnly(t *testing.T) 
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("Context-fact persistence failure committed facts = %+v, want none", facts)
 	}
-	messages := TranscriptMessagesFromRuntimeEvent(event)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+	if err != nil {
+		t.Fatalf("project context-fact persistence failure: %v", err)
+	}
 	if len(messages) != 1 || messages[0].GetOperationalDiagnostic() == nil {
 		t.Fatalf("Context-fact persistence failure messages = %+v, want one operational diagnostic", messages)
 	}

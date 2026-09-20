@@ -648,22 +648,6 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 	}
 }
 
-func TestSplitMetaContextMessagesTreatsSubagentsAsMeta(t *testing.T) {
-	t.Parallel()
-	subagents := llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value("Available subagent roles:")}
-	messages := []llm.Message{
-		subagents,
-		{Role: llm.RoleUser, Content: textutil.Value("request")},
-	}
-	meta, transcript := splitMetaContextMessages(messages)
-	if len(meta) != 1 || meta[0].MessageType == nil || *meta[0].MessageType != llm.MessageTypeSubagents {
-		t.Fatalf("expected subagents meta message, got %+v", meta)
-	}
-	if len(transcript) != 1 || transcript[0].Role != llm.RoleUser {
-		t.Fatalf("expected user transcript, got %+v", transcript)
-	}
-}
-
 func TestSubagentsMetaContextVisibilityIsDetailOnly(t *testing.T) {
 	t.Parallel()
 	entry, ok := visibleDeveloperChatEntry(llm.Message{
@@ -713,11 +697,11 @@ func TestReviewerPromptIncludesSubagentsMetaContext(t *testing.T) {
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value("Available subagent roles:\n- worker: specialist")},
 		{Role: llm.RoleUser, Content: textutil.Value("request")},
 	}
-	got, err := buildReviewerRequestMessagesWithBuilder(messages, newMetaContextBuilder(t.TempDir(), "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)), false)
+	got, err := buildReviewerRequestItemsWithBuilder(reviewerItemsFromMessages(messages), newMetaContextBuilder(t.TempDir(), "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)), false)
 	if err != nil {
-		t.Fatalf("buildReviewerRequestMessagesWithBuilder: %v", err)
+		t.Fatalf("buildReviewerRequestItemsWithBuilder: %v", err)
 	}
-	if !hasSubagentMetaMessage(got) {
+	if !hasSubagentMetaMessage(llm.MessagesFromItems(got)) {
 		t.Fatalf("reviewer messages omitted shared subagent context: %+v", got)
 	}
 }

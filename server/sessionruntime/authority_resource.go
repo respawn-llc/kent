@@ -188,7 +188,6 @@ type agentResource struct {
 	ownerlessDisposition agentResourceOwnerlessDisposition
 	store                *session.Store
 	engine               *runtime.Engine
-	eventBridge          *runtimewire.EventBridge
 	logger               *runlog.RunLogger
 	localTools           *runtimewire.LocalToolRegistryBinding
 	askBroker            *tools.AskQuestionBroker
@@ -822,8 +821,7 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 		return nil, err
 	}
 	scopeID := runtimeids.NewExecutionScopeID()
-	executionGeneration := a.nextExecutionGenerationLocked()
-	scope := newAgentExecutionScope(scopeID, executionGeneration, resource.ref, workflowRef)
+	scope := newAgentExecutionScope(scopeID, resource.ref, workflowRef)
 	var workflowBinding *runtime.CurrentNodeExecutionBinding
 	if request.Workflow != nil && request.Workflow.Config != nil {
 		config := *request.Workflow.Config

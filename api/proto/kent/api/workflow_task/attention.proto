@@ -30,7 +30,6 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
-  reserved 3;
 }
 
 enum AttentionNotificationKind {
@@ -61,20 +60,6 @@ enum ExecutionTargetUnavailableCause {
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_MISSING = 3;
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_AMBIGUOUS = 4;
   EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE = 5;
-}
-
-enum AttentionSetupRecoveryCause {
-  ATTENTION_SETUP_RECOVERY_CAUSE_UNSPECIFIED = 0;
-  ATTENTION_SETUP_RECOVERY_CAUSE_PROCESS_EXIT = 1;
-  ATTENTION_SETUP_RECOVERY_CAUSE_TIMEOUT = 2;
-  ATTENTION_SETUP_RECOVERY_CAUSE_TARGET_PREPARATION = 3;
-  ATTENTION_SETUP_RECOVERY_CAUSE_OPERATIONAL = 4;
-}
-
-enum AttentionSetupRequirement {
-  ATTENTION_SETUP_REQUIREMENT_UNSPECIFIED = 0;
-  ATTENTION_SETUP_REQUIREMENT_REQUIRED = 1;
-  ATTENTION_SETUP_REQUIREMENT_ALREADY_COMPLETED = 2;
 }
 
 enum AttentionRequestValidationCode {
@@ -263,105 +248,6 @@ message ConfiguredExecutionTargetUnavailableDetails {
   };
 }
 
-message SetupExecutionTarget {
-  kent.api.workflow_definition.ExecutionTargetMode mode = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  optional string custom_ref = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_custom_ref_nonblank"
-      message: "custom_ref must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_execution_target"
-    message: "custom_ref is required only for custom-ref mode"
-    expression:
-      "(this.mode == 4 && has(this.custom_ref)) || "
-      "(this.mode != 4 && !has(this.custom_ref))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_execution_target_concrete"
-    message: "setup recovery execution target must be concrete"
-    expression: "this.mode in [1, 2, 3, 4]"
-  };
-}
-
-message RetainedWorktree {
-  string worktree_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.retained_worktree_id_nonblank"
-      message: "worktree_id must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  string root = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.retained_worktree_root_nonblank"
-      message: "root must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
-
-message SetupRecoveryDetails {
-  string setup_operation_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  AttentionSetupRecoveryCause cause = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  string diagnostic = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_recovery_diagnostic_nonblank"
-      message: "diagnostic must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  optional string script_path = 4 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.setup_recovery_script_path_nonblank"
-      message: "script_path must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-  AttentionSetupRequirement setup_requirement = 5 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  SetupExecutionTarget execution_target = 6 [(buf.validate.field).required = true];
-  optional RetainedWorktree retained_worktree = 7;
-  optional RetainedWorktree retained_previous_worktree = 8;
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_script_facts"
-    message: "setup script recovery requires script and retained-worktree facts; target preparation does not carry a script"
-    expression:
-      "(this.cause == 3 && !has(this.script_path)) || "
-      "(this.cause != 3 && has(this.script_path) && this.setup_requirement == 1 && has(this.retained_worktree))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_completed_worktree"
-    message: "completed setup recovery requires a retained worktree"
-    expression: "this.setup_requirement != 2 || has(this.retained_worktree)"
-  };
-}
-
-message ConfiguredExecutionTargetSetupRecoveryDetails {
-  ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 1 [(buf.validate.field).required = true];
-  SetupRecoveryDetails setup_recovery = 2 [(buf.validate.field).required = true];
-}
-
 message InterruptedCurrentNodeDetails {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -376,26 +262,12 @@ message InterruptedCurrentNodeDetails {
     option (buf.validate.oneof).required = true;
     GenericInterruptionDetails generic = 3;
     ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 4;
-    SetupRecoveryDetails setup_recovery = 5;
-    ConfiguredExecutionTargetSetupRecoveryDetails configured_execution_target_unavailable_with_setup_recovery = 6;
   }
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.interruption_detail_field_names_unique"
     message: "interruption detail field names must be unique"
     expression: "this.fields.map(field, field.name).unique()"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.setup_recovery_diagnostic_not_duplicated"
-    message: "setup recovery diagnostic must not be duplicated in interruption fields"
-    expression: "!has(this.setup_recovery) || !this.fields.exists(field, field.name == 'error')"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.combined_setup_recovery_diagnostic_not_duplicated"
-    message: "combined setup recovery diagnostic must not be duplicated in interruption fields"
-    expression:
-      "!has(this.configured_execution_target_unavailable_with_setup_recovery) || "
-      "!this.fields.exists(field, field.name == 'error')"
   };
 }
 
@@ -768,7 +640,6 @@ message ResolvedAttentionNotification {
 }
 
 message AttentionNotificationEvent {
-  reserved 2, 6;
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991

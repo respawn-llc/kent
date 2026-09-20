@@ -1,6 +1,7 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -18,7 +19,7 @@ import (
 func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T) {
 	approvalFixture := newCurrentNodeViewFixture(t, true)
 	approvalStarted := approvalFixture.startTask(t, "Approval task")
-	completed, err := approvalFixture.store.CompleteCurrentNode(approvalFixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, approvalFixture.ctx, approvalFixture.metadata, approvalFixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       approvalStarted.currentNode,
 		TransitionID: "done",
 		Commentary:   "Ready to merge.",
@@ -111,7 +112,7 @@ func requireAttentionMessageOmitted(t *testing.T, item serverapi.WorkflowAttenti
 func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, true)
 	approvalTask := fixture.startTask(t, "Approval")
-	completed, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	completed, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       approvalTask.currentNode,
 		TransitionID: "done",
 	})

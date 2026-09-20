@@ -2,11 +2,14 @@ package shell
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func TestManagerConcurrentShellLimitReleasesCapacity(t *testing.T) {
@@ -14,6 +17,7 @@ func TestManagerConcurrentShellLimitReleasesCapacity(t *testing.T) {
 	req := ExecRequest{
 		Command: []string{"/bin/sh", "-c", "read value"},
 		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	}
 	first, err := manager.Start(context.Background(), req)
 	if err != nil {
@@ -40,6 +44,7 @@ func TestManagerConcurrentStartsRespectLimit(t *testing.T) {
 	req := ExecRequest{
 		Command: []string{"/bin/sh", "-c", "read value"},
 		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	}
 	const attempts = 12
 	results := make(chan error, attempts)
@@ -70,7 +75,10 @@ func TestManagerConcurrentStartsRespectLimit(t *testing.T) {
 
 func TestManagerFailedStartReleasesCapacity(t *testing.T) {
 	manager := newShellTestManager(t, time.Millisecond, WithMaxConcurrent(1))
-	req := ExecRequest{Command: []string{"/does-not-exist"}, Workdir: t.TempDir()}
+	req := ExecRequest{
+		Command: []string{"/does-not-exist"}, Workdir: t.TempDir(),
+		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+	}
 	if _, err := manager.Start(context.Background(), req); err == nil {
 		t.Fatal("nonexistent command succeeded")
 	}
@@ -82,7 +90,7 @@ func TestManagerFailedStartReleasesCapacity(t *testing.T) {
 
 func TestExecCommandConcurrentLimitIsRecoverableToolError(t *testing.T) {
 	manager := newShellTestManager(t, time.Millisecond, WithMaxConcurrent(1))
-	tool := NewExecCommandTool(t.TempDir(), 16_000, 100_000, manager, "session")
+	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 100_000, manager, "session", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	input := map[string]any{"cmd": "read value", "tty": true, "yield_time_ms": 1}
 	first := callExecCommand(t, tool, "first", input)
 	if first.IsError {
@@ -92,13 +100,7 @@ func TestExecCommandConcurrentLimitIsRecoverableToolError(t *testing.T) {
 	if !rejected.IsError || rejected.Terminal {
 		t.Fatalf("expected non-terminal tool error: %+v", rejected)
 	}
-	var output struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(rejected.Output, &output); err != nil {
-		t.Fatal(err)
-	}
-	if output.Error == "" {
+	if decodeStringToolOutput(t, rejected) == "" {
 		t.Fatal("model-visible error is empty")
 	}
 }

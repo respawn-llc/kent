@@ -1,6 +1,8 @@
 package workflowview
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -101,6 +103,15 @@ func TestTaskDetailMaterializesAndOrdersLiveScripts(t *testing.T) {
 	}
 	slices.Sort(scriptNodeIDs)
 	scriptPaths := []string{"scripts/a.sh", "scripts/b.sh"}
+	for _, script := range scriptPaths {
+		path := filepath.Join(fixture.binding.CanonicalRoot, script)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	joinNodeID := workflow.NodeID("node-" + uuid.NewString())
 	splitAEdgeID := workflow.EdgeID("edge-" + uuid.NewString())
 	splitBEdgeID := workflow.EdgeID("edge-" + uuid.NewString())
@@ -136,7 +147,7 @@ func TestTaskDetailMaterializesAndOrdersLiveScripts(t *testing.T) {
 			workflowstore.EdgeRecord{ID: finishEdgeID, WorkflowID: fixture.workflowID, TransitionGroupID: groupIDs[3], Key: "finish", TargetNodeID: terminalNodeID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 		)
 	})
-	split, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	split, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       started.currentNode,
 		TransitionID: "split",
 	})
@@ -648,7 +659,7 @@ func TestTaskListProjectsDurableDoneRunningAndQueued(t *testing.T) {
 	doneExecution := liveAgent(done, false)
 	runningExecution := liveAgent(running, false)
 	queuedExecution := liveAgent(queued, true)
-	if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+	if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       done.currentNode,
 		TransitionID: "done",
 	}); err != nil {
@@ -745,7 +756,7 @@ func TestTaskDetailProjectsDurableCurrentStateMatrix(t *testing.T) {
 	t.Run("waiting approval", func(t *testing.T) {
 		fixture := newCurrentNodeViewFixture(t, true)
 		started := fixture.startTask(t, "Approval")
-		completed, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+		completed, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 			Source:       started.currentNode,
 			TransitionID: "done",
 		})
@@ -770,7 +781,7 @@ func TestTaskDetailProjectsDurableCurrentStateMatrix(t *testing.T) {
 	t.Run("done", func(t *testing.T) {
 		fixture := newCurrentNodeViewFixture(t, false)
 		started := fixture.startTask(t, "Done")
-		if _, err := fixture.store.CompleteCurrentNode(fixture.ctx, workflowstore.CurrentNodeCompletionRequest{
+		if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
 			Source:       started.currentNode,
 			TransitionID: "done",
 		}); err != nil {

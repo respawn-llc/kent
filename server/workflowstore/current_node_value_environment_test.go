@@ -19,7 +19,7 @@ func TestCompleteCurrentNodeMaterializesChainedInputsAndPriorTransitionParameter
 	if len(started.Mutation.Created) != 1 {
 		t.Fatalf("StartTask mutation = %+v, want plan current node", started.Mutation)
 	}
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       started.Mutation.Created[0].Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -38,7 +38,7 @@ func TestCompleteCurrentNodeMaterializesChainedInputsAndPriorTransitionParameter
 		t.Fatalf("review prior Transition parameters = %+v, want review transition summary retained for downstream audit", review.PriorValues)
 	}
 
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Reference,
 		TransitionID: "audit",
 	})
@@ -68,7 +68,7 @@ func TestCompleteCurrentNodeMaterializesChainedInputsAndPriorTransitionParameter
 		currentNodes[0].PriorValues.TransitionParameters["review"]["summary"] != "approved plan" {
 		t.Fatalf("current nodes = %+v, want audit-owned materialized values", currentNodes)
 	}
-	doneResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	doneResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       audit.Reference,
 		TransitionID: "done",
 	})
@@ -77,7 +77,7 @@ func TestCompleteCurrentNodeMaterializesChainedInputsAndPriorTransitionParameter
 	}
 	if !doneResult.CommitReceipt.Committed ||
 		len(doneResult.AutomaticIntents) != 0 ||
-		doneResult.SourceSessionID != nil ||
+		doneResult.SourceSessionID == nil || *doneResult.SourceSessionID != *audit.SessionID ||
 		doneResult.SessionReuseClassification != workflow.SessionReuseNone {
 		t.Fatalf("terminal completion outcome = %+v, want complete no-successor facts", doneResult)
 	}
@@ -110,7 +110,7 @@ func TestCompleteCurrentNodeMaterializesCurrentAndPriorTransitionCommentary(t *t
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -134,7 +134,7 @@ func TestCompleteCurrentNodeMaterializesCurrentAndPriorTransitionCommentary(t *t
 		t.Fatalf("review start parameters = %+v, want direct commentary", reviewStart.ParameterValues)
 	}
 
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Reference,
 		TransitionID: "audit",
 		Commentary:   "review handoff",
@@ -152,7 +152,7 @@ func TestCompleteCurrentNodeMaterializesCurrentAndPriorTransitionCommentary(t *t
 }
 
 func TestResolveCurrentNodeStartContextResolvesLatestEnteringSourceSessionID(t *testing.T) {
-	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
 		workflowGraphSaveEdgeRecord(
@@ -164,9 +164,9 @@ func TestResolveCurrentNodeStartContextResolvesLatestEnteringSourceSessionID(t *
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	sourceSessionID := associateAndBindCurrentNodeSessionForTest(t, ctx, store, binding, cfg, plan.Reference)
+	sourceSessionID := currentNodeSessionForStoreTest(t, ctx, store, plan.Reference)
 
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -197,7 +197,7 @@ func TestResolveCurrentNodeStartContextRendersMissingEnteringSourceSessionIDAsEm
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -205,6 +205,7 @@ func TestResolveCurrentNodeStartContextRendersMissingEnteringSourceSessionIDAsEm
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode plan: %v", err)
 	}
+	removeRetainedSessionHistoryForTest(t, ctx, store, plan.Reference)
 	startContext, err := store.ResolveCurrentNodeStartContext(ctx, reviewResult.Mutation.Created[0].Reference)
 	if err != nil {
 		t.Fatalf("ResolveCurrentNodeStartContext review: %v", err)
@@ -227,7 +228,7 @@ func TestResolveCurrentNodeStartContextResolvesLatestPriorTransitionSessionID(t 
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -236,7 +237,7 @@ func TestResolveCurrentNodeStartContextResolvesLatestPriorTransitionSessionID(t 
 		t.Fatalf("CompleteCurrentNode plan: %v", err)
 	}
 	review := reviewResult.Mutation.Created[0]
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Reference,
 		TransitionID: "audit",
 	})
@@ -273,7 +274,7 @@ func TestResolveCurrentNodeStartContextRendersMissingPriorTransitionSessionIDAsE
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -281,13 +282,14 @@ func TestResolveCurrentNodeStartContextRendersMissingPriorTransitionSessionIDAsE
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode plan: %v", err)
 	}
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       reviewResult.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 	})
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode review: %v", err)
 	}
+	removeRetainedSessionHistoryForTest(t, ctx, store, plan.Reference)
 	startContext, err := store.ResolveCurrentNodeStartContext(ctx, auditResult.Mutation.Created[0].Reference)
 	if err != nil {
 		t.Fatalf("ResolveCurrentNodeStartContext audit: %v", err)
@@ -347,7 +349,7 @@ func TestResolveCurrentNodeStartContextUsesLatestSourceSessionAfterRepeatedVisit
 		firstPlan.Reference,
 		time.UnixMilli(1_700_000_000_000).UTC(),
 	)
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstPlan.Reference,
 		TransitionID: "next",
 		OutputValues: map[string]string{"summary": "first plan"},
@@ -355,7 +357,7 @@ func TestResolveCurrentNodeStartContextUsesLatestSourceSessionAfterRepeatedVisit
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode first plan: %v", err)
 	}
-	retryResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	retryResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       reviewResult.Mutation.Created[0].Reference,
 		TransitionID: "retry",
 	})
@@ -378,7 +380,7 @@ func TestResolveCurrentNodeStartContextUsesLatestSourceSessionAfterRepeatedVisit
 	if secondSessionID == firstSessionID {
 		t.Fatalf("repeated plan Sessions reused %q, want distinct Sessions", secondSessionID)
 	}
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       secondPlan.Reference,
 		TransitionID: "alternate",
 	})
@@ -405,7 +407,7 @@ func TestCompleteCurrentNodeRecoversEnteringTransitionParameterFromCurrentInput(
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	reviewResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reviewResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -428,7 +430,7 @@ WHERE task_id = ?
 		t.Fatalf("simulate Current Node missing its entering Transition namespace: %v", err)
 	}
 
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Reference,
 		TransitionID: "audit",
 	})
@@ -458,7 +460,7 @@ func TestCompleteCurrentNodeUsesTransitionParametersInsteadOfTargetInputFields(t
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	completed, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -516,7 +518,7 @@ func TestCompleteCurrentNodePreservesPathSpecificPriorParametersAcrossLoop(t *te
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	review, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "review",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -524,7 +526,7 @@ func TestCompleteCurrentNodePreservesPathSpecificPriorParametersAcrossLoop(t *te
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode plan: %v", err)
 	}
-	audit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	audit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       review.Mutation.Created[0].Reference,
 		TransitionID: "audit",
 		OutputValues: map[string]string{"summary": "blocking findings"},
@@ -535,7 +537,7 @@ func TestCompleteCurrentNodePreservesPathSpecificPriorParametersAcrossLoop(t *te
 	if audit.Mutation.Created[0].PriorValues.TransitionParameters["audit"]["summary"] != "blocking findings" {
 		t.Fatalf("audit prior values = %+v, want path-specific findings", audit.Mutation.Created[0].PriorValues)
 	}
-	reworked, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	reworked, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       audit.Mutation.Created[0].Reference,
 		TransitionID: "rework",
 	})
@@ -602,7 +604,7 @@ func TestCompleteCurrentNodeJoinCarriesPriorParametersAndMaterializesJoinOutput(
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	split, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -619,14 +621,14 @@ func TestCompleteCurrentNodeJoinCarriesPriorParametersAndMaterializesJoinOutput(
 		}
 		branches[branchKey] = branch
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined implementation"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode join A: %v", err)
 	}
-	joined, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_b",
 	})
@@ -647,7 +649,7 @@ func TestCompleteCurrentNodeJoinCarriesPriorParametersAndMaterializesJoinOutput(
 		t.Fatalf("synth prior parameter values = %+v, want join transition output under synthesize namespace", synth.PriorValues)
 	}
 
-	auditResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	auditResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       synth.Reference,
 		TransitionID: "audit",
 	})
@@ -675,7 +677,7 @@ func TestResolveCurrentNodeStartContextResolvesRequiredJoinPredecessorSessionIDs
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	splitResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	splitResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -718,14 +720,14 @@ func TestResolveCurrentNodeStartContextResolvesRequiredJoinPredecessorSessionIDs
 		branches["split_b"].Reference,
 		time.UnixMilli(1_700_000_002_000).UTC(),
 	)
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined A"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode branch A: %v", err)
 	}
-	joinResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joinResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_b",
 	})
@@ -771,7 +773,7 @@ func TestResolveCurrentNodeStartContextResolvesFanoutSourceSessionID(t *testing.
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 	sourceSessionID := associateTaskSessionForTest(t, ctx, store, binding, cfg, plan.Reference, time.UnixMilli(1_700_000_000_000).UTC())
-	splitResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	splitResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -803,7 +805,7 @@ func TestResolveCurrentNodeStartContextPreservesEarlierFanoutSessionAcrossLaterF
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
 	associateTaskSessionForTest(t, ctx, store, binding, cfg, plan.Reference, time.UnixMilli(1_700_000_000_000).UTC())
 
-	firstSplit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	firstSplit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -837,14 +839,14 @@ func TestResolveCurrentNodeStartContextPreservesEarlierFanoutSessionAcrossLaterF
 		firstBranches["split_b"].Reference,
 		time.UnixMilli(1_700_000_002_000).UTC(),
 	)
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstBranches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined A"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode first branch A: %v", err)
 	}
-	firstJoin, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	firstJoin, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstBranches["split_b"].Reference,
 		TransitionID: "join_b",
 	})
@@ -854,7 +856,7 @@ func TestResolveCurrentNodeStartContextPreservesEarlierFanoutSessionAcrossLaterF
 	if len(firstJoin.Mutation.Created) != 1 {
 		t.Fatalf("first Join completion = %+v, want synthesize Current Node", firstJoin.Mutation.Created)
 	}
-	secondSplit, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	secondSplit, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       firstJoin.Mutation.Created[0].Reference,
 		TransitionID: "verify",
 	})
@@ -915,7 +917,7 @@ func TestResolveCurrentNodeStartContextRendersEmptyForAmbiguousFanoutSessionScop
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	splitResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	splitResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -949,14 +951,14 @@ func TestResolveCurrentNodeStartContextRendersEmptyForAmbiguousFanoutSessionScop
 		branches["split_b"].Reference,
 		time.UnixMilli(1_700_000_002_000).UTC(),
 	)
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined A"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode branch A: %v", err)
 	}
-	joinResult, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joinResult, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined B"},
@@ -1033,7 +1035,7 @@ func TestCompleteCurrentNodeJoinDerivesProvidersFromThreeIncomingBranches(t *tes
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
 	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
-	split, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	split, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       plan.Reference,
 		TransitionID: "split",
 		OutputValues: map[string]string{"summary": "approved plan"},
@@ -1049,20 +1051,20 @@ func TestCompleteCurrentNodeJoinDerivesProvidersFromThreeIncomingBranches(t *tes
 		}
 		branches[branchKey] = branch
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_a"].Reference,
 		TransitionID: "join_a",
 		OutputValues: map[string]string{"joined": "joined implementation"},
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode join A: %v", err)
 	}
-	if _, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_b"].Reference,
 		TransitionID: "join_b",
 	}); err != nil {
 		t.Fatalf("CompleteCurrentNode join B: %v", err)
 	}
-	joined, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+	joined, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       branches["split_c"].Reference,
 		TransitionID: "join_c",
 		OutputValues: map[string]string{"compliance_findings": "approved"},

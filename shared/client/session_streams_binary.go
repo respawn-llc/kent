@@ -47,7 +47,7 @@ func (c *Remote) SubscribeSessionTranscript(ctx context.Context, request *transc
 		bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "StreamService", "Subscribe"),
 		request, &transcriptpb.SubscribeResult{},
 		func(failure *transcriptpb.SubscribeError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		}, func() *transcriptpb.Message { return &transcriptpb.Message{} })
 	if err != nil {
 		if installHandoff {
@@ -69,7 +69,7 @@ func (c *Remote) SubscribeQuestionHistory(ctx context.Context, request *sessionp
 		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "QuestionHistoryService", "Subscribe"),
 		request, &sessionpb.QuestionHistorySubscribeResult{},
 		func(failure *sessionpb.QuestionHistorySubscribeError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		}, func() *sessionpb.QuestionHistoryEvent { return &sessionpb.QuestionHistoryEvent{} })
 }
 
@@ -78,7 +78,7 @@ func (c *Remote) SubscribeFollowUp(ctx context.Context, request *promptpb.Follow
 		bootstrapMethod(promptpb.File_kent_api_prompt_prompt_proto, "FollowUpService", "Watch"),
 		request, &promptpb.FollowUpStartResult{},
 		func(failure *promptpb.FollowUpWatchError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		}, func() *promptpb.FollowUpEvent { return &promptpb.FollowUpEvent{} })
 }
 
@@ -87,7 +87,7 @@ func (c *Remote) SubscribeSessionAttentionNotifications(ctx context.Context, req
 		bootstrapMethod(attentionpb.File_kent_api_attention_attention_proto, "SessionService", "Subscribe"),
 		request, &attentionpb.StartResult{},
 		func(failure *attentionpb.StartError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		}, func() *attentionpb.NotificationEvent { return &attentionpb.NotificationEvent{} })
 }
 
@@ -96,6 +96,6 @@ func (c *Remote) SubscribeGoalObservation(ctx context.Context, request *runtimep
 		bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "GoalService", "Observe"),
 		request, &runtimepb.GoalObserveResult{},
 		func(failure *runtimepb.GoalObserveError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		}, func() *runtimepb.GoalObservation { return &runtimepb.GoalObservation{} })
 }

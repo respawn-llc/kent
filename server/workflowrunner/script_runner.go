@@ -60,9 +60,6 @@ func (s *Starter) PrepareScriptPublication(
 	if input.Node.Kind != workflow.NodeKindScript {
 		return nil, nil
 	}
-	if err := s.prepareExecutableTarget(ctx, input); err != nil {
-		return nil, err
-	}
 	command, err := currentNodeScriptCommand(input)
 	if err != nil {
 		return nil, err
@@ -154,7 +151,7 @@ func (s *Starter) finalizeCurrentNodeScript(
 			"error", outcome.Diagnostic,
 		)
 	}
-	return controller.ContinueCurrentNode(context.WithoutCancel(ctx), outcome.CommittedResult, nil)
+	return outcome.Continuation.Continue(context.WithoutCancel(ctx), nil)
 }
 
 func scriptExecutionFailure(result sessionruntime.ScriptResult, runErr error) error {

@@ -1,17 +1,154 @@
 package app
 
 import (
+	"io"
 	"reflect"
 	"testing"
 
 	"core/cli/tui/ongoing"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"google.golang.org/protobuf/proto"
 )
+
+func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "success"},
+		{name: "connection failure", err: io.EOF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initial := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
+			latest := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
+			reads := &flakySessionViewClient{
+				responses: []*sessionpb.MainViewSuccess{{MainView: initial}, {MainView: latest}},
+				errs:      []error{tc.err},
+			}
+			client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+			client.storeMainView(initial)
+			m := newProjectedTestUIModel(client)
+			first := m.startRuntimeMainViewRefresh(nil)
+			for range 3 {
+				if cmd := m.startRuntimeMainViewRefresh(nil); cmd != nil {
+					t.Fatal("refresh started another read before the current completion")
+				}
+			}
+			firstResult := first().(runtimeMainViewRefreshedMsg)
+			if reads.count != 1 {
+				t.Fatalf("reads before completion = %d, want 1", reads.count)
+			}
+			next := m.handleRuntimeMainViewRefreshed(firstResult)
+			if m.runtimeDisconnectStatusVisible() != (tc.err != nil) {
+				t.Fatal("completion did not project connection availability")
+			}
+			if next == nil {
+				t.Fatal("completion did not schedule the pending refresh")
+			}
+			lastResult := next().(runtimeMainViewRefreshedMsg)
+			if cmd := m.handleRuntimeMainViewRefreshed(lastResult); cmd != nil {
+				t.Fatal("coalesced requests scheduled more than one follow-up")
+			}
+			if reads.count != 2 {
+				t.Fatalf("total reads = %d, want 2", reads.count)
+			}
+			assertRuntimeTupleView(t, client.MainView(), latest)
+			if !m.runtimeActivityBlocksInput() || m.runtimeDisconnectStatusVisible() {
+				t.Fatal("successful follow-up did not project current activity and connection")
+			}
+		})
+	}
+}
+
+func TestInterruptRefreshRestoresOnlyCapturedSubmissionAfterCoalescing(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		queued bool
+		newer  bool
+	}{
+		{name: "immediate"},
+		{name: "coalesced", queued: true},
+		{name: "newer submission", queued: true, newer: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
+			m := newProjectedClosedUIModel(&runtimeControlFakeClient{mainView: view})
+			m.sessionID = view.Session.SessionId
+			m.activeSubmit = activeSubmitState{token: 1, text: "interrupted"}
+			token := m.activeSubmit.token
+			if tc.queued {
+				inFlight := m.startRuntimeMainViewRefresh(nil)
+				if cmd := m.startRuntimeMainViewRefresh(&token); cmd != nil {
+					t.Fatal("interrupt recovery started a concurrent read")
+				}
+				m.startRuntimeMainViewRefresh(nil)
+				next := m.handleRuntimeMainViewRefreshed(inFlight().(runtimeMainViewRefreshedMsg))
+				if m.activeSubmit.token != 1 {
+					t.Fatal("earlier read restored the interrupted submission")
+				}
+				if tc.newer {
+					m.activeSubmit = activeSubmitState{token: 2, text: "new"}
+				}
+				m.handleRuntimeMainViewRefreshed(next().(runtimeMainViewRefreshedMsg))
+			} else {
+				cmd := m.startRuntimeMainViewRefresh(&token)
+				m.handleRuntimeMainViewRefreshed(cmd().(runtimeMainViewRefreshedMsg))
+			}
+			if tc.newer {
+				if m.activeSubmit.token != 2 {
+					t.Fatal("interrupt recovery cleared the newer submission")
+				}
+			} else if m.hasLocalDispatchPending() {
+				t.Fatal("idle refresh left the interrupted submission pending")
+			}
+		})
+	}
+}
+
+func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
+	initial := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
+	latest := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
+	reads := &countingSessionViewClient{view: initial}
+	client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	client.storeMainView(initial)
+	m := newProjectedTestUIModel(client)
+	first := m.startRuntimeMainViewRefresh(nil)
+	oldResult := first().(runtimeMainViewRefreshedMsg)
+	m.handleRuntimeMainViewRefreshed(oldResult)
+
+	reads.view = latest
+	current := m.startRuntimeMainViewRefresh(nil)
+	m.startRuntimeMainViewRefresh(nil)
+	for _, err := range []error{nil, io.EOF} {
+		oldResult.err = err
+		if cmd := m.handleRuntimeMainViewRefreshed(oldResult); cmd != nil {
+			t.Fatal("obsolete completion released a pending refresh")
+		}
+	}
+	if m.runtimeDisconnectStatusVisible() {
+		t.Fatal("obsolete failure changed connection availability")
+	}
+	assertRuntimeTupleView(t, client.MainView(), initial)
+	if cmd := m.startRuntimeMainViewRefresh(nil); cmd != nil {
+		t.Fatal("obsolete completion released the current read")
+	}
+	next := m.handleRuntimeMainViewRefreshed(current().(runtimeMainViewRefreshedMsg))
+	if next == nil {
+		t.Fatal("obsolete completion lost the pending refresh")
+	}
+	assertRuntimeTupleView(t, client.MainView(), latest)
+	if cmd := m.handleRuntimeMainViewRefreshed(next().(runtimeMainViewRefreshedMsg)); cmd != nil {
+		t.Fatal("pending refresh was not drained")
+	}
+	if reads.mainViewCount.Load() != 3 {
+		t.Fatalf("total reads = %d, want 3", reads.mainViewCount.Load())
+	}
+}
 
 func TestDelayedTranscriptRuntimeTupleCannotRollBackNewerUnaryState(t *testing.T) {
 	controls := newUnavailableRuntimeControlService()
@@ -96,13 +233,13 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 		t.Fatalf("accept initial hydration: %v", err)
 	}
 
-	decision := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual))
-	if decision.cmd == nil {
+	refresh := m.startRuntimeMainViewRefresh(nil)
+	if refresh == nil {
 		t.Fatal("refresh request did not return a command")
 	}
-	msg, ok := decision.cmd().(runtimeMainViewRefreshedMsg)
+	msg, ok := refresh().(runtimeMainViewRefreshedMsg)
 	if !ok {
-		t.Fatalf("refresh command returned %T, want runtimeMainViewRefreshedMsg", decision.cmd())
+		t.Fatalf("refresh command returned %T, want runtimeMainViewRefreshedMsg", refresh())
 	}
 	assertRuntimeTupleView(t, runtimeClient.MainView(), v9)
 	if !runtimeActivitiesEqual(m.runtimeActivityProjection, v9.Activity) {
@@ -141,8 +278,8 @@ func TestRuntimeMainViewRefreshPreservesMetadataChangedAfterRequestStarted(t *te
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
 
-	decision := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual))
-	msg, ok := decision.cmd().(runtimeMainViewRefreshedMsg)
+	refresh := m.startRuntimeMainViewRefresh(nil)
+	msg, ok := refresh().(runtimeMainViewRefreshedMsg)
 	if !ok {
 		t.Fatal("refresh command returned an unexpected message")
 	}

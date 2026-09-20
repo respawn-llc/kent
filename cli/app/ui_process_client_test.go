@@ -1,14 +1,17 @@
 package app
 
-import processpb "core/shared/protoapi/gen/kent/api/process"
 import (
 	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"core/internal/testharness/postprocessfixture"
 	"core/server/processview"
 	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -94,6 +97,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 7"},
 		DisplayCommand: "project-test",
 		OwnerSessionID: "session-1",
@@ -208,6 +212,7 @@ func TestUIProcessClientDoesNotBypassSharedReadBoundaryOnError(t *testing.T) {
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
 		DisplayCommand: "fallback-process",
 		OwnerSessionID: "session-1",
@@ -255,6 +260,7 @@ func TestUIProcessClientDoesNotBypassSharedControlBoundaryOnError(t *testing.T) 
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'fallback-control\n'; sleep 1"},
 		DisplayCommand: "fallback-control",
 		Workdir:        workdir,

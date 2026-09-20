@@ -42,7 +42,6 @@ type State struct {
 	Scope               Scope               `json:"scope"`
 	Method              Method              `json:"method"`
 	EnvAPIKeyPreference EnvAPIKeyPreference `json:"env_api_key_preference,omitempty"`
-	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
 func EmptyState() State {
@@ -95,26 +94,9 @@ type APIKeyMethod struct {
 	Key string `json:"key"`
 }
 
-func MaskedAPIKeySummary(apiKey *APIKeyMethod) string {
-	key := ""
-	if apiKey != nil {
-		key = strings.TrimSpace(apiKey.Key)
-	}
-	if key == "" {
-		return "API Key"
-	}
-	runes := []rune(key)
-	start := len(runes) - 4
-	if start < 0 {
-		start = 0
-	}
-	return "API Key ..." + string(runes[start:])
-}
-
 type OAuthMethod struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
-	TokenType    string    `json:"token_type"`
 	Expiry       time.Time `json:"expiry"`
 	AccountID    string    `json:"account_id,omitempty"`
 	Email        string    `json:"email,omitempty"`

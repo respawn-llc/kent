@@ -26,7 +26,6 @@ type RuntimeClientRequest struct {
 	SessionID        string
 	ActiveSettings   config.Settings
 	EnabledTools     []toolspec.ID
-	WorkspaceRoot    string
 	Sources          map[string]config.Origin
 	ProviderSettings RuntimeClientProviderSettings
 }
@@ -53,21 +52,7 @@ func (f RuntimeClientFactoryFunc) NewRuntimeClient(ctx context.Context, req Runt
 	return f(ctx, req)
 }
 
-func runtimeClientProviderSettings(settings providerRuntimeSettings) RuntimeClientProviderSettings {
-	return RuntimeClientProviderSettings{
-		Model:                        settings.Model,
-		ProviderOverride:             settings.ProviderOverride,
-		OpenAIBaseURL:                settings.OpenAIBaseURL,
-		ModelVerbosity:               settings.ModelVerbosity,
-		ProviderIdentifier:           settings.ProviderIdentifier,
-		Store:                        settings.Store,
-		ContextWindowTokens:          settings.ContextWindowTokens,
-		Auth:                         settings.Auth,
-		ProviderCapabilitiesOverride: settings.ProviderCapabilitiesOverride,
-	}
-}
-
-func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFactory, purpose RuntimeClientPurpose, storeSessionID string, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, sources map[string]config.Origin, provider providerRuntimeSettings) (llm.Client, error) {
+func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFactory, purpose RuntimeClientPurpose, storeSessionID string, active config.Settings, enabledTools []toolspec.ID, sources map[string]config.Origin, provider RuntimeClientProviderSettings) (llm.Client, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -76,9 +61,8 @@ func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFacto
 		SessionID:        storeSessionID,
 		ActiveSettings:   active,
 		EnabledTools:     append([]toolspec.ID(nil), enabledTools...),
-		WorkspaceRoot:    workspaceRoot,
 		Sources:          cloneSources(sources),
-		ProviderSettings: runtimeClientProviderSettings(provider),
+		ProviderSettings: provider,
 	})
 	if err != nil {
 		return nil, err

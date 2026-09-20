@@ -131,7 +131,6 @@ export type ChatRuntimeStatus = Readonly<{
   previousSessionID: string | null;
   parentAgentSessionID: string | null;
   navigationTargetSessionID: string | null;
-  lastCommittedAssistantFinalAnswer: string | null;
   thinkingLevel: string;
   compactionMode: string;
   contextUsage: Readonly<{

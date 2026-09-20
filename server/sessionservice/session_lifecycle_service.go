@@ -29,7 +29,6 @@ var errSessionWorkspaceRetargeterRequired = errors.New("session workspace retarg
 
 type SessionLifecycleService struct {
 	persistenceRoot string
-	containerDir    string
 	authority       *sessionruntime.Authority
 	retargeter      sessionWorkspaceRetargeter
 	navigation      sessionNavigationTargetResolver
@@ -58,27 +57,12 @@ type sessionNavigationTargetResolver interface {
 	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
-func NewSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager) *SessionLifecycleService {
-	return &SessionLifecycleService{
-		containerDir: strings.TrimSpace(persistenceRoot),
-		authority:    authority,
-		authManager:  authManager,
-	}
-}
-
 func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager) *SessionLifecycleService {
 	return &SessionLifecycleService{
 		persistenceRoot: strings.TrimSpace(persistenceRoot),
 		authority:       authority,
 		authManager:     authManager,
 	}
-}
-
-func (s *SessionLifecycleService) WithPersistenceRoot(root string) *SessionLifecycleService {
-	if s != nil {
-		s.persistenceRoot = strings.TrimSpace(root)
-	}
-	return s
 }
 
 func (s *SessionLifecycleService) WithWorkspaceRetargeter(retargeter sessionWorkspaceRetargeter) *SessionLifecycleService {
@@ -118,15 +102,7 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 	if s == nil || s.persisted == nil {
 		return session.Meta{}, errors.New("persisted Session resolver is required")
 	}
-	var (
-		record session.PersistedSessionRecord
-		err    error
-	)
-	if containerDir := strings.TrimSpace(s.containerDir); containerDir != "" {
-		record, err = session.ResolveScopedPersistedSessionRecord(ctx, s.persisted, containerDir, sessionID)
-	} else {
-		record, err = session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID)
-	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID)
 	if err != nil {
 		return session.Meta{}, err
 	}
@@ -339,12 +315,7 @@ func (s *SessionLifecycleService) withStore(
 	if err != nil {
 		return err
 	}
-	var descriptor session.SessionDescriptor
-	if containerDir := strings.TrimSpace(s.containerDir); containerDir != "" {
-		descriptor, err = session.NewScopedOpenSessionDescriptor(id, containerDir)
-	} else {
-		descriptor, err = session.NewOpenSessionDescriptor(id)
-	}
+	descriptor, err := session.NewOpenSessionDescriptor(id)
 	if err != nil {
 		return err
 	}

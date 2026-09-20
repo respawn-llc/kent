@@ -255,34 +255,34 @@ func (m *uiModel) setRuntimeGoal(objective string) (*runtimepb.GoalSetSuccess, e
 	return nil, nil
 }
 
-func (m *uiModel) pauseRuntimeGoal() (clientui.GoalMutationResult, error) {
+func (m *uiModel) pauseRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "pause goal")
 	if client := m.runtimeClient(); client != nil {
 		result, err := client.PauseGoal()
 		m.observeRuntimeRequestResult(err)
 		return result, err
 	}
-	return clientui.GoalMutationResult{}, nil
+	return nil, nil
 }
 
-func (m *uiModel) resumeRuntimeGoal() (clientui.GoalMutationResult, error) {
+func (m *uiModel) resumeRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "resume goal")
 	if client := m.runtimeClient(); client != nil {
 		result, err := client.ResumeGoal()
 		m.observeRuntimeRequestResult(err)
 		return result, err
 	}
-	return clientui.GoalMutationResult{}, nil
+	return nil, nil
 }
 
-func (m *uiModel) clearRuntimeGoal() (clientui.GoalMutationResult, error) {
+func (m *uiModel) clearRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "clear goal")
 	if client := m.runtimeClient(); client != nil {
 		result, err := client.ClearGoal()
 		m.observeRuntimeRequestResult(err)
 		return result, err
 	}
-	return clientui.GoalMutationResult{}, nil
+	return nil, nil
 }
 
 func (m *uiModel) submitRuntimeUserMessage(ctx context.Context, text string) (clientui.UserTurnSubmission, error) {
@@ -491,11 +491,11 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
 			m.setPendingInterrupt(false)
-			request := runtimeReadModelResetMainViewRefreshRequest()
+			var interruptedSubmitToken *uint64
 			if m.hasLocalDispatchPending() {
-				request.interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
+				interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
 			}
-			recovery = m.startRuntimeMainViewRefreshRequest(request).cmd
+			recovery = m.startRuntimeMainViewRefresh(interruptedSubmitToken)
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
@@ -527,8 +527,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			}
 		}
 		if merge.decision == runtimeTupleRefresh {
-			decision := m.startRuntimeMainViewRefreshRequest(runtimeReadModelResetMainViewRefreshRequest())
-			return tea.Batch(followUpCmd, decision.cmd)
+			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
 		}
 		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {

@@ -163,6 +163,13 @@ type CompletionResult struct {
 	State           string
 	CommittedResult workflowstore.CurrentNodeCompletionResult
 	Diagnostic      error
+	Continuation    CompletionContinuation `json:"-"`
+}
+
+// CompletionContinuation releases operation-local startup preparation after
+// the source turn's output and compaction barrier. It is never persisted.
+type CompletionContinuation interface {
+	Continue(context.Context, error) error
 }
 
 const CompletionStateApplied = "applied"
@@ -185,7 +192,6 @@ type ViolationResult struct {
 type Controller interface {
 	CompleteAgentCurrentNode(context.Context, AgentCompletionRequest) (CompletionResult, error)
 	CompleteScriptCurrentNode(context.Context, ScriptCompletionRequest) (CompletionResult, error)
-	ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult, error) error
 	RecordProtocolViolation(context.Context, ViolationRequest) (ViolationResult, error)
 	ResetProtocolViolationBudget(context.Context, ViolationResetRequest) error
 }

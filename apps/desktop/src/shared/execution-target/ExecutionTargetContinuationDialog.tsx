@@ -5,7 +5,6 @@ import type {
   WorkflowExecutionTargetSelection,
   WorkflowExecutionTargetSelectionMode,
   WorkflowExecutionTargetSelectionRequirement,
-  TaskSetupRecovery,
   WorktreeSetupRetainedError,
   ExecutionTargetChoiceFailure,
 } from "@/api";
@@ -34,18 +33,13 @@ export function TaskSetupRecoveryDialog({
   recovery,
   retrySelection,
   running,
-  recoveryDisposition,
   choiceFailure,
 }: Readonly<{
   onClose(): void;
   onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
-  recoveryDisposition: WorktreeSetupRetainedError["recoveryDisposition"];
   choiceFailure: ExecutionTargetChoiceFailure | null;
   open: boolean;
-  recovery: Pick<
-    TaskSetupRecovery,
-    "diagnostic" | "scriptPath" | "retainedWorktree" | "retainedPreviousWorktree"
-  >;
+  recovery: WorktreeSetupRetainedError;
   retrySelection?: WorkflowExecutionTargetSelection;
   running: boolean;
 }>) {
@@ -59,18 +53,26 @@ export function TaskSetupRecoveryDialog({
   };
   const selection = selectionDraft === null ? null : executionTargetSelectionFromDraft(selectionDraft);
   return (
-    <Dialog closeLabel={t("app.close")} onClose={close} open={open} title={t("task.interrupted")}>
+    <Dialog
+      closeLabel={t("app.close")}
+      onClose={close}
+      open={open}
+      title={t("executionTargetContinuation.preparationFailed")}
+    >
       <div className="grid gap-[var(--space-3)]">
         <p className="m-0 whitespace-pre-wrap font-mono text-sm text-[var(--color-error)]">
           {recovery.diagnostic}
         </p>
-        {[recovery.scriptPath, recovery.retainedWorktree?.root, recovery.retainedPreviousWorktree?.root].map(
-          (value) =>
-            value == null ? null : (
-              <p className="m-0 break-all font-mono text-sm" key={value}>
-                {value}
-              </p>
-            ),
+        {[
+          recovery.scriptPath,
+          recovery.worktree.kent.canonicalRoot,
+          recovery.retainedPreviousWorktree?.worktree.kent.canonicalRoot,
+        ].map((value) =>
+          value == null ? null : (
+            <p className="m-0 break-all font-mono text-sm" key={value}>
+              {value}
+            </p>
+          ),
         )}
         {selectionDraft === null ? (
           <div className="flex justify-end gap-[var(--space-2)]">
@@ -83,7 +85,7 @@ export function TaskSetupRecoveryDialog({
             >
               {t("executionTargetContinuation.title")}
             </Button>
-            {recoveryDisposition === "retry_existing" ? (
+            {recovery.recoveryDisposition === "retry_existing" ? (
               <Button
                 data-testid="setup-recovery-retry"
                 aria-busy={running}
@@ -109,7 +111,7 @@ export function TaskSetupRecoveryDialog({
               }}
               pending={{ selection: selectionDraft }}
               branch={
-                recoveryDisposition === "fresh_replacement"
+                recovery.recoveryDisposition === "fresh_replacement"
                   ? { value: branchName, onChange: setBranchName }
                   : undefined
               }
@@ -151,31 +153,11 @@ export type TaskInitiatingActionDialogResult =
 export function TaskInitiatingActionDialogs({
   continuation,
   onResult,
-  setupRecovery,
 }: Readonly<{
   continuation: TaskInitiatingActionController;
   onResult(result: TaskInitiatingActionDialogResult): void;
-  setupRecovery?:
-    | Readonly<{
-        onClose(): void;
-        onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
-        recovery: TaskSetupRecovery;
-        running: boolean;
-        retrySelection?: WorkflowExecutionTargetSelection;
-      }>
-    | undefined;
 }>) {
   const pending = continuation.pending;
-  if (setupRecovery !== undefined && pending === null) {
-    return (
-      <TaskSetupRecoveryDialog
-        {...setupRecovery}
-        recoveryDisposition={setupRecovery.recovery.recoveryDisposition}
-        choiceFailure={null}
-        open
-      />
-    );
-  }
   if (pending?.kind === "dependency_confirmation") {
     return <DependencyConfirmationDialog continuation={continuation} onResult={onResult} pending={pending} />;
   }
@@ -184,34 +166,19 @@ export function TaskInitiatingActionDialogs({
     return (
       <TaskSetupRecoveryDialog
         onClose={continuation.close}
-        recoveryDisposition={failure.recoveryDisposition}
         choiceFailure={pending.choiceFailure}
         onSubmit={(selection, branchName) => {
           onResult({
             kind: "continue",
             action:
-              failure.recoveryDisposition === "fresh_replacement"
-                ? { ...pending.action, input: { ...pending.action.input, branchName } }
+              failure.recoveryDisposition === "fresh_replacement" && selection !== undefined
+                ? taskActionWithBranchName(pending.action, selection, branchName ?? null)
                 : pending.action,
             ...(selection === undefined ? {} : { selection }),
           });
         }}
         open
-        recovery={{
-          diagnostic: failure.diagnostic,
-          scriptPath: failure.scriptPath,
-          retainedWorktree: {
-            root: failure.worktree.kent.canonicalRoot,
-            worktreeID: failure.worktree.kent.worktreeID,
-          },
-          retainedPreviousWorktree:
-            failure.retainedPreviousWorktree === null
-              ? null
-              : {
-                  root: failure.retainedPreviousWorktree.worktree.kent.canonicalRoot,
-                  worktreeID: failure.retainedPreviousWorktree.worktree.kent.worktreeID,
-                },
-        }}
+        recovery={failure}
         {...(pending.retrySelection === undefined ? {} : { retrySelection: pending.retrySelection })}
         running={continuation.running}
       />

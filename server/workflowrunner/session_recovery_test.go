@@ -3,19 +3,16 @@ package workflowrunner
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"reflect"
 	"testing"
-	"time"
 
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
-	"core/server/sessionruntime"
 	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/server/workflowstore"
-	"core/shared/config"
 	"core/shared/runtimeids"
-	"core/shared/sessioncontract"
 )
 
 type gatedMetadataSessionPersistence struct {
@@ -51,41 +48,6 @@ func (p gatedMetadataSessionPersistence) ResolvePersistedSession(ctx context.Con
 	return p.metadata.ResolvePersistedSession(ctx, sessionID)
 }
 
-func TestCurrentNodeSessionIntentReusesDirectRetainedSession(t *testing.T) {
-	sessionID := mustSessionID(t)
-	reference, err := workflow.NewCurrentNodeReference("task-retained-session", "node-reimplementation", nil)
-	if err != nil {
-		t.Fatalf("NewCurrentNodeReference: %v", err)
-	}
-	starter := &Starter{}
-
-	input := workflowstore.CurrentNodeStartContext{
-		CurrentNode: workflow.CurrentNode{
-			Reference: reference,
-			SessionID: &sessionID,
-		},
-		ContextMode: workflow.ContextModeContinueSession,
-	}
-	policy, err := resolveCurrentNodeSessionPolicy(input)
-	if err != nil {
-		t.Fatalf("resolveCurrentNodeSessionPolicy: %v", err)
-	}
-	intent, disposable, err := starter.currentNodeSessionIntent(input, t.TempDir(), policy)
-	if err != nil {
-		t.Fatalf("currentNodeSessionIntent: %v", err)
-	}
-	resolvedSessionID, existing := intent.SessionID()
-	if !existing || resolvedSessionID != sessionID || disposable {
-		t.Fatalf(
-			"retained current-node intent = session %q existing %t disposable %t, want existing retained session %q",
-			resolvedSessionID,
-			existing,
-			disposable,
-			sessionID,
-		)
-	}
-}
-
 func TestCurrentNodeSessionPolicyReusesTargetOwnedFanoutSession(t *testing.T) {
 	sessionID := mustSessionID(t)
 	policy, err := resolveCurrentNodeSessionPolicy(workflowstore.CurrentNodeStartContext{
@@ -111,273 +73,65 @@ func TestCurrentNodeSessionPolicyReusesTargetOwnedFanoutSession(t *testing.T) {
 	}
 }
 
-func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *testing.T) {
-	ctx := context.Background()
-	persistenceRoot := t.TempDir()
-	workspace := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("open metadata: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
-	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, workspace)
-	if err != nil {
-		t.Fatalf("register workspace: %v", err)
-	}
-	persistence := sessiontest.NewPersistence()
-	persisted := gatedMetadataSessionPersistence{
-		sessions: persistence,
-		metadata: metadataStore,
-	}
-	persistenceGate := sessiontest.NewPersistenceGate(persisted)
-	storeOptions := []session.StoreOption{
-		session.WithPersistenceObserver(persistenceGate),
-		session.WithPersistedSessionResolver(persisted),
-	}
-	containerDir := filepath.Join(persistenceRoot, "projects", binding.ProjectID, "sessions")
-	store, err := session.Create(
-		containerDir,
-		"sessions",
-		workspace,
-		sessioncontract.SessionCategoryMain,
-		storeOptions...,
-	)
-	if err != nil {
-		t.Fatalf("create retained workflow session: %v", err)
-	}
-	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: sessiontest.AgentRole("coder")}); err != nil {
-		t.Fatalf("set retained workflow role: %v", err)
-	}
-	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
-		t.Fatalf("lock retained workflow session: %v", err)
-	}
-	log, err := store.MaterializeEventLog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	step := "completed-source"
-	if _, _, err := log.AppendCompactionHistoryReplacement(&step, session.HistoryReplacementRecord{
-		Engine: "local", Mode: session.CompactionModeWorkflowPostCompletion,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("parse retained session id: %v", err)
-	}
-	t.Setenv("HOME", t.TempDir())
-	loaded, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("load workflow planning config: %v", err)
-	}
-	settings := loaded.Settings
-	settings.Model = "gpt-5"
-	settings.OpenAIBaseURL = "http://workflow-planning.example/v1"
-	settings.Reviewer.Frequency = "off"
-	settings.Shell.PostprocessingMode = config.ShellPostprocessingModeNone
-	coderSettings := settings
-	coderSettings.Model = "gpt-5"
-	coderSettings.Subagents = nil
-	reviewerSettings := settings
-	reviewerSettings.Model = "gpt-5-reviewer"
-	reviewerSettings.Subagents = nil
-	settings.Subagents = map[string]config.SubagentRole{
-		"coder": {
-			Settings: coderSettings,
-			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
-		},
-		"reviewer": {
-			Settings: reviewerSettings,
-			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
-		},
-	}
-	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: persistenceRoot,
-		StoreOptions:    storeOptions,
-	})
-	t.Cleanup(func() {
-		if closeErr := authority.Close(context.Background()); closeErr != nil {
-			t.Errorf("close authority: %v", closeErr)
-		}
-	})
-	starter := &Starter{
-		cfg: config.App{
-			PersistenceRoot: persistenceRoot,
-			WorkspaceRoot:   workspace,
-			Settings:        settings,
-			Source:          loaded.Source,
-		},
-		metadata:         metadataStore,
-		runtimeAuthority: authority,
-		storeOptions:     storeOptions,
-	}
-	reference, err := workflow.NewCurrentNodeReference(workflow.TaskID("task-retained-session"), workflow.NodeID("node-reimplementation"), nil)
-	if err != nil {
-		t.Fatalf("NewCurrentNodeReference: %v", err)
-	}
-	selection, err := workflow.NewAgentExecutionSelection(
-		"reviewer",
-		nil,
-		workflow.AssigneeOriginTransitionSelected,
-	)
-	if err != nil {
-		t.Fatalf("NewAgentExecutionSelection: %v", err)
-	}
-	input := workflowstore.CurrentNodeStartContext{
-		Task: workflowstore.TaskRecord{
-			ID:        reference.TaskID,
-			ProjectID: binding.ProjectID,
-		},
-		Node: workflowstore.NodeRecord{
-			ID:           reference.NodeID,
-			SubagentRole: "reviewer",
-		},
-		CurrentNode: workflow.CurrentNode{
-			Reference:               reference,
-			SessionID:               &sessionID,
-			AgentExecutionSelection: &selection,
-		},
-		ContextMode: workflow.ContextModeCompactAndContinueSession,
-		ExecutionRoot: &workflowstore.ExecutionRoot{
-			SourceWorkspaceID:   binding.WorkspaceID,
-			SourceWorkspaceRoot: workspace,
-		},
-	}
-	root, err := requireCurrentNodeExecutionRoot(input)
-	if err != nil {
-		t.Fatalf("requireCurrentNodeExecutionRoot: %v", err)
-	}
-
-	planningPersisted, releasePlanningPersistence := persistenceGate.BlockNext()
-	t.Cleanup(releasePlanningPersistence)
-	type planResult struct {
-		sessionID  runtimeids.SessionID
-		disposable bool
-		err        error
-	}
-	planned := make(chan planResult, 1)
-	go func() {
-		plan, disposable, planErr := starter.planCurrentNodeSession(ctx, input, root, false)
-		result := planResult{disposable: disposable, err: planErr}
-		if planErr == nil {
-			result.sessionID = plan.Descriptor.SessionID()
-		}
-		planned <- result
-	}()
-	select {
-	case <-planningPersisted:
-	case result := <-planned:
-		t.Fatalf("retained current-node planning failed before persistence: %v", result.err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("retained current-node planning did not reach persistence gate")
-	}
-
-	releasePlanningPersistence()
-	var plannedResult planResult
-	select {
-	case plannedResult = <-planned:
-	case <-time.After(3 * time.Second):
-		t.Fatal("retained current-node planning did not complete after persistence release")
-	}
-	if plannedResult.err != nil {
-		t.Fatalf("plan retained current-node session: %v", plannedResult.err)
-	}
-	if plannedResult.sessionID != sessionID || plannedResult.disposable {
-		t.Fatalf(
-			"retained current-node plan = session %q disposable %t, want restored session %q without disposal",
-			plannedResult.sessionID,
-			plannedResult.disposable,
-			sessionID,
-		)
-	}
-	record, err := metadataStore.ResolvePersistedSession(ctx, sessionID.String())
-	if err != nil {
-		t.Fatalf("resolve compacted workflow session: %v", err)
-	}
-	if record.Meta == nil || record.Meta.Continuation == nil || record.Meta.Continuation.AgentRole == nil || *record.Meta.Continuation.AgentRole != "reviewer" {
-		t.Fatalf("compacted workflow Session continuation = %+v, want reviewer", record.Meta)
-	}
-	if record.Meta.Locked != nil {
-		t.Fatalf("compacted workflow Session contract = locked %+v, want unlocked", record.Meta.Locked)
-	}
-
-	continuedStore, err := session.Create(
-		containerDir,
-		"sessions",
-		workspace,
-		sessioncontract.SessionCategoryMain,
-		storeOptions...,
-	)
-	if err != nil {
-		t.Fatalf("create direct continuation workflow session: %v", err)
-	}
-	if err := continuedStore.SetContinuationContext(session.ContinuationContext{AgentRole: sessiontest.AgentRole("coder")}); err != nil {
-		t.Fatalf("set direct continuation role: %v", err)
-	}
-	if err := continuedStore.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
-		t.Fatalf("lock direct continuation Session: %v", err)
-	}
-	continuedSessionID, err := runtimeids.ParseSessionID(continuedStore.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("parse direct continuation session id: %v", err)
-	}
-	input.CurrentNode.SessionID = &continuedSessionID
-	input.ContextMode = workflow.ContextModeContinueSession
-
-	directPlan, directDisposable, err := starter.planCurrentNodeSession(ctx, input, root, false)
-	if err != nil {
-		t.Fatalf("plan cross-role direct continuation: %v", err)
-	}
-	if directDisposable {
-		t.Fatal("cross-role direct continuation unexpectedly marked retained Session disposable")
-	}
-	if directPlan.Continuation == nil ||
-		directPlan.Continuation.AgentRole == nil ||
-		*directPlan.Continuation.AgentRole != "coder" {
-		t.Fatalf("direct continuation plan role = %+v, want preserved coder", directPlan.Continuation)
-	}
-	directRecord, err := metadataStore.ResolvePersistedSession(ctx, continuedSessionID.String())
-	if err != nil {
-		t.Fatalf("resolve direct continuation Session: %v", err)
-	}
-	if directRecord.Meta == nil ||
-		directRecord.Meta.Continuation == nil ||
-		directRecord.Meta.Continuation.AgentRole == nil ||
-		*directRecord.Meta.Continuation.AgentRole != "coder" {
-		t.Fatalf("direct continuation role = %+v, want preserved coder", directRecord.Meta)
-	}
-
-	input.IsFanoutBranch = true
-	input.EnteringEdge.ContextSource = workflow.ContextSource{
-		Kind: workflow.ContextSourcePreviousTargetOrNew,
-	}
-	targetOwnedPlan, targetOwnedDisposable, err := starter.planCurrentNodeSession(ctx, input, root, false)
-	if err != nil {
-		t.Fatalf("plan cross-role target-owned continuation: %v", err)
-	}
-	if targetOwnedDisposable {
-		t.Fatal("cross-role target-owned continuation unexpectedly marked retained Session disposable")
-	}
-	if targetOwnedPlan.Continuation == nil ||
-		targetOwnedPlan.Continuation.AgentRole == nil ||
-		*targetOwnedPlan.Continuation.AgentRole != "coder" {
-		t.Fatalf(
-			"target-owned continuation plan role = %+v, want preserved coder",
-			targetOwnedPlan.Continuation,
-		)
-	}
-	targetOwnedRecord, err := metadataStore.ResolvePersistedSession(ctx, continuedSessionID.String())
-	if err != nil {
-		t.Fatalf("resolve target-owned continuation Session: %v", err)
-	}
-	if targetOwnedRecord.Meta == nil ||
-		targetOwnedRecord.Meta.Continuation == nil ||
-		targetOwnedRecord.Meta.Continuation.AgentRole == nil ||
-		*targetOwnedRecord.Meta.Continuation.AgentRole != "coder" {
-		t.Fatalf(
-			"target-owned continuation role = %+v, want preserved coder",
-			targetOwnedRecord.Meta,
-		)
+func TestPreparingRetainedContextPreservesItsIdentityAndMetadata(t *testing.T) {
+	for _, source := range []workflow.ContextSourceKind{
+		workflow.ContextSourceImmediateSource,
+		workflow.ContextSourcePreviousTargetOrNew,
+	} {
+		t.Run(string(source), func(t *testing.T) {
+			f, input := newMaterializedRoleSelectionStart(t)
+			ctx := context.Background()
+			ids, err := f.metadata.ListProjectSessionIDs(ctx, f.projectID)
+			if err != nil || len(ids) != 2 {
+				t.Fatalf("source Sessions = %v, %v", ids, err)
+			}
+			var id runtimeids.SessionID
+			for _, candidate := range ids {
+				parsed, err := runtimeids.ParseSessionID(candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if input.CurrentNode.SessionID == nil || parsed != *input.CurrentNode.SessionID {
+					id = parsed
+				}
+			}
+			before, err := f.metadata.ResolvePersistedSession(ctx, id.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained, err := session.Open(before.SessionDir, f.metadata.AuthoritativeSessionStoreOptions()...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := retained.MarkModelDispatchLocked(session.LockedContract{Model: "workflow-coder"}); err != nil {
+				t.Fatal(err)
+			}
+			before, err = f.metadata.ResolvePersistedSession(ctx, id.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			input.CurrentNode.SessionID = &id
+			input.SourceSessionID = &id
+			input.ContextMode = workflow.ContextModeContinueSession
+			input.EnteringEdge.ContextMode = workflow.ContextModeContinueSession
+			input.EnteringEdge.ContextSource = workflow.ContextSource{Kind: source}
+			input.IsFanoutBranch = source == workflow.ContextSourcePreviousTargetOrNew
+			prepared, err := f.starter.PrepareCurrentNode(ctx, input, workflowruntime.TaskPromptDeliveryAssignment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prepared.Session == nil || prepared.Session.SessionID != id || prepared.Session.Snapshot != nil {
+				t.Fatalf("retained selection = %+v, want existing %s", prepared.Session, id)
+			}
+			after, err := f.metadata.ResolvePersistedSession(ctx, id.String())
+			if err != nil || !reflect.DeepEqual(before.Meta, after.Meta) {
+				t.Fatalf("preparation changed retained metadata: before=%+v after=%+v error=%v", before.Meta, after.Meta, err)
+			}
+			requests := f.runtimeRequests()
+			if model := requests[len(requests)-1].ActiveSettings.Model; model != "workflow-coder" {
+				t.Fatalf("retained model = %s, want source coder", model)
+			}
+		})
 	}
 }
 

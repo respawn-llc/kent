@@ -12,7 +12,6 @@ import (
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowstore"
 	"core/shared/runtimeids"
 )
 
@@ -21,8 +20,9 @@ func TestCurrentNodeControllerInterruptPersistsAfterCallerDeadline(t *testing.T)
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	reference := currentNodeReferenceForControllerTest(t, "task-interrupt-deadline", "node-agent")
-	store := &currentNodeControllerStore{
+	queue := newControllerQueueFixture(t, 1)
+	reference := queue.tasks[0].reference(t, 0)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue,
 		interruptStarted: make(chan struct{}),
 		interruptRelease: make(chan struct{}),
 	}
@@ -46,7 +46,7 @@ func TestCurrentNodeControllerInterruptPersistsAfterCallerDeadline(t *testing.T)
 		}
 	})
 
-	if err := startCurrentNodeForControllerTest(context.Background(), controller, store, reference); err != nil {
+	if err := queue.approve(context.Background(), controller, reference.TaskID); err != nil {
 		t.Fatalf("start current node: %v", err)
 	}
 	<-runner.started
@@ -80,21 +80,26 @@ func TestCurrentNodeControllerTaskInterruptPreservesSiblingPreparation(t *testin
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	running := currentNodeReferenceForControllerTest(t, "task-preparing-sibling", "node-running")
-	preparing := currentNodeReferenceForControllerTest(t, "task-preparing-sibling", "node-preparing")
-	store := &currentNodeControllerStore{}
+	queue := newControllerQueueFixture(t, 2)
+	running := queue.tasks[0].reference(t, 0)
+	preparing := queue.tasks[0].reference(t, 1)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
-	runner := &recordingScriptRunner{
-		authority: authority,
-		command: sessionruntime.ScriptCommand{
-			Path: shellPath,
-			Args: []string{"-c", "while :; do sleep 1; done"},
+	preparationRelease := make(chan struct{})
+	preparationStarted := make(chan struct{})
+	runner := &preparingSiblingScriptRunner{
+		preparing: preparing, entered: preparationStarted, release: preparationRelease,
+		recordingScriptRunner: recordingScriptRunner{
+			authority: authority,
+			command: sessionruntime.ScriptCommand{
+				Path: shellPath,
+				Args: []string{"-c", "while :; do sleep 1; done"},
+			},
+			started: make(chan workflow.CurrentNodeReference, 2),
 		},
-		started: make(chan workflow.CurrentNodeReference, 2),
 	}
 	controller = newCurrentNodeControllerForTest(t, store, runner, authority, 2)
-	preparationRelease := make(chan struct{})
 	t.Cleanup(func() {
 		select {
 		case <-preparationRelease:
@@ -109,7 +114,7 @@ func TestCurrentNodeControllerTaskInterruptPreservesSiblingPreparation(t *testin
 		}
 	})
 
-	if err := startCurrentNodeForControllerTest(context.Background(), controller, store, running); err != nil {
+	if err := queue.approve(context.Background(), controller, running.TaskID); err != nil {
 		t.Fatalf("start running Current Node: %v", err)
 	}
 	select {
@@ -122,38 +127,11 @@ func TestCurrentNodeControllerTaskInterruptPreservesSiblingPreparation(t *testin
 	}
 	waitForRunningCurrentNode(t, authority, running)
 
-	store.mu.Lock()
-	store.interrupted = []workflow.CurrentNode{{
-		Reference:  preparing,
-		Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted},
-	}}
-	store.mu.Unlock()
-	preparationStarted := make(chan struct{})
-	if _, err := controller.ResumeTaskWithPreparation(
-		context.Background(),
-		running.TaskID,
-		testTaskPreparation(func(ctx context.Context) error {
-			close(preparationStarted)
-			select {
-			case <-preparationRelease:
-				return nil
-			case <-ctx.Done():
-				return context.Cause(ctx)
-			}
-		}),
-		noOpTaskPreparationFinalizer,
-	); err != nil {
-		t.Fatalf("resume preparing sibling: %v", err)
-	}
 	select {
 	case <-preparationStarted:
 	case <-time.After(3 * time.Second):
 		t.Fatal("sibling preparation did not start")
 	}
-	if err := controller.InterruptForManualMove(context.Background(), running.TaskID, nil); !errors.Is(err, ErrManualMoveLifecycleConflict) {
-		t.Fatalf("Manual Move during preparation = %v, want %v", err, ErrManualMoveLifecycleConflict)
-	}
-
 	interruptDone := make(chan error, 1)
 	go func() {
 		interruptDone <- controller.Interrupt(context.Background(), InterruptSelector{TaskID: running.TaskID})
@@ -186,17 +164,10 @@ func TestCurrentNodeControllerTaskInterruptDoesNotCoordinateFinalizingSibling(t 
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	running := currentNodeReferenceForControllerTest(t, "task-finalizing-sibling", "node-running")
-	finalizing := currentNodeReferenceForControllerTest(t, "task-finalizing-sibling", "node-finalizing")
-	successor := currentNodeReferenceForControllerTest(t, "task-finalizing-sibling", "node-successor")
-	store := &currentNodeControllerStore{
-		interrupted: []workflow.CurrentNode{
-			{Reference: running, Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted}},
-			{Reference: finalizing, Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted}},
-		},
-		completion: workflowstore.CurrentNodeCompletionResult{
-			AutomaticIntents: []workflowstore.CurrentNodeAutomaticIntent{{CurrentNode: successor, NodeKind: workflow.NodeKindAgent}},
-		},
+	queue := newControllerQueueFixture(t, 2)
+	running := queue.tasks[0].reference(t, 0)
+	finalizing := queue.tasks[0].reference(t, 1)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue,
 		interruptStarted: make(chan struct{}),
 		interruptRelease: make(chan struct{}),
 	}
@@ -236,8 +207,8 @@ func TestCurrentNodeControllerTaskInterruptDoesNotCoordinateFinalizingSibling(t 
 		}
 	})
 
-	if _, err := controller.ResumeTask(context.Background(), running.TaskID); err != nil {
-		t.Fatalf("ResumeTask: %v", err)
+	if err := queue.approve(context.Background(), controller, queue.tasks[0].task.ID); err != nil {
+		t.Fatalf("approve parallel branches: %v", err)
 	}
 	select {
 	case <-runner.finalizerEntered:
@@ -287,18 +258,18 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	running := currentNodeReferenceForControllerTest(t, "task-finalizing-failure", "node-running")
-	finalizing := currentNodeReferenceForControllerTest(t, "task-finalizing-failure", "node-finalizing")
-	store := &currentNodeControllerStore{
-		interrupted: []workflow.CurrentNode{
-			{Reference: running, Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted}},
-			{Reference: finalizing, Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted}},
-		},
+	queue := newControllerQueueFixture(t, 2)
+	running := queue.tasks[0].reference(t, 0)
+	finalizing := queue.tasks[0].reference(t, 1)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue,
 		interruptStarted: make(chan struct{}),
 		interruptRelease: make(chan struct{}),
 	}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
+	runningRetirement := make(chan struct{})
+	var retireOnce sync.Once
+	retireRunning := func() { retireOnce.Do(func() { close(runningRetirement) }) }
 	runner := &runningAndFinalizingScriptRunner{
 		authority:           authority,
 		shellPath:           shellPath,
@@ -308,6 +279,7 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 		releaseFinalizer:    make(chan struct{}),
 		finalizerCompletion: make(chan error, 1),
 		successorStarted:    make(chan struct{}, 1),
+		runningRetirement:   runningRetirement,
 		finalize: func(ctx context.Context, scope sessionruntime.ExecutionScope, controller *CurrentNodeController) error {
 			return controller.FailCurrentNodeScope(ctx, scope.ID(), "workflow_script_failed", errors.New("script failed"))
 		},
@@ -328,6 +300,7 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 	t.Cleanup(func() {
 		releaseFinalizer()
 		releaseInterrupt()
+		retireRunning()
 		if err := controller.Close(); err != nil {
 			t.Errorf("close controller: %v", err)
 		}
@@ -336,8 +309,8 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 		}
 	})
 
-	if _, err := controller.ResumeTask(context.Background(), running.TaskID); err != nil {
-		t.Fatalf("ResumeTask: %v", err)
+	if err := queue.approve(context.Background(), controller, queue.tasks[0].task.ID); err != nil {
+		t.Fatalf("approve parallel branches: %v", err)
 	}
 	select {
 	case <-runner.finalizerEntered:
@@ -359,12 +332,13 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 	releaseInterrupt()
 	select {
 	case finalizerErr := <-runner.finalizerCompletion:
-		if !errors.Is(finalizerErr, ErrTaskExecutionNotQuiescent) {
-			t.Fatalf("finalizing scope failure = %v, want task fence conflict", finalizerErr)
+		if finalizerErr != nil {
+			t.Fatalf("unselected finalizing scope failure: %v", finalizerErr)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("finalizing scope failure did not resolve")
 	}
+	retireRunning()
 	select {
 	case err := <-interruptDone:
 		if err != nil {
@@ -372,6 +346,22 @@ func TestCurrentNodeControllerTaskInterruptDoesNotOverrideFinalizingScopeFailure
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Task Interrupt did not complete")
+	}
+	nodes, err := store.Store.ListCurrentNodes(t.Context(), running.TaskID)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("interrupted Task placement: %+v, %v", nodes, err)
+	}
+	for _, node := range nodes {
+		want := workflow.CurrentNodeInterruptionReasonUserInterrupt
+		if node.Reference.Equal(finalizing) {
+			want = "workflow_script_failed"
+		} else if !node.Reference.Equal(running) {
+			t.Fatalf("unexpected Current Node: %+v", node)
+		}
+		if node.Scheduling == nil || node.Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
+			node.Scheduling.Interruption == nil || node.Scheduling.Interruption.Reason != want {
+			t.Fatalf("Current Node %v lost its own interruption reason %q: %+v", node.Reference, want, node.Scheduling)
+		}
 	}
 }
 
@@ -458,9 +448,11 @@ func TestCurrentNodeControllerTaskInterruptDrainsReservationOnlyAlongsideLiveSco
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	live := currentNodeReferenceForControllerTest(t, "task-reservation-interrupt", "node-live")
-	reserved := currentNodeReferenceForControllerTest(t, "task-reservation-interrupt", "node-successor")
-	store := &currentNodeControllerStore{}
+	queue := newControllerQueueFixture(t, 2)
+	queue.tasks[0].moveBranches(t, queue.tasks[0].branchPlan(t))
+	live := queue.tasks[0].reference(t, 0)
+	reserved := queue.tasks[0].reference(t, 1)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
 	runner := &recordingScriptRunner{
@@ -481,10 +473,7 @@ func TestCurrentNodeControllerTaskInterruptDrainsReservationOnlyAlongsideLiveSco
 		}
 	})
 
-	if err := startCurrentNodeForControllerTest(context.Background(), controller, store, live); err != nil {
-		t.Fatalf("start live current node: %v", err)
-	}
-	<-runner.started
+	startLiveTestWorkflowScript(t, controller, authority, live, sessionruntime.ScriptExecutionRequest{Command: runner.command})
 	waitForRunningCurrentNode(t, authority, live)
 	reservedKey, err := reserved.Key()
 	if err != nil {
@@ -524,10 +513,11 @@ func TestCurrentNodeControllerInterruptingScriptDoesNotReleaseAgentCapacity(t *t
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	occupyingAgent := currentNodeReferenceForControllerTest(t, "task-interrupted-script-agent", "node-occupying-agent")
-	script := currentNodeReferenceForControllerTest(t, "task-interrupted-script", "node-script")
-	queuedAgent := currentNodeReferenceForControllerTest(t, "task-interrupted-script-queued-agent", "node-queued-agent")
-	store := &currentNodeControllerStore{}
+	queue := newControllerQueueFixture(t, 1, 1, 1)
+	occupyingAgent := queue.tasks[0].reference(t, 0)
+	script := queue.tasks[1].reference(t, 0)
+	queuedAgent := queue.tasks[2].reference(t, 0)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
 	runner := &recordingScriptRunner{
@@ -551,10 +541,10 @@ func TestCurrentNodeControllerInterruptingScriptDoesNotReleaseAgentCapacity(t *t
 		}
 	})
 
-	controller.enqueueStarts(automaticQueuedStarts([]CurrentNodeAutomaticIntent{{
+	queue.automaticIntents(controller, []CurrentNodeAutomaticIntent{{
 		CurrentNode: occupyingAgent,
 		NodeKind:    workflow.NodeKindAgent,
-	}}))
+	}})
 	select {
 	case started := <-runner.started:
 		if !started.Equal(occupyingAgent) {
@@ -564,10 +554,10 @@ func TestCurrentNodeControllerInterruptingScriptDoesNotReleaseAgentCapacity(t *t
 		t.Fatal("occupying Agent did not start")
 	}
 	waitForRunningCurrentNode(t, authority, occupyingAgent)
-	controller.enqueueStarts(automaticQueuedStarts([]CurrentNodeAutomaticIntent{
+	queue.automaticIntents(controller, []CurrentNodeAutomaticIntent{
 		{CurrentNode: script, NodeKind: workflow.NodeKindScript},
 		{CurrentNode: queuedAgent, NodeKind: workflow.NodeKindAgent},
-	}))
+	})
 	select {
 	case started := <-runner.started:
 		if !started.Equal(script) {
@@ -605,13 +595,10 @@ func TestCurrentNodeControllerTaskInterruptDrainsConcurrencyQueuedWorkAlongsideR
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	running := currentNodeReferenceForControllerTest(t, "task-queued-gate-interrupt", "node-running")
-	queued := currentNodeReferenceForControllerTest(t, "task-queued-gate-interrupt", "node-queued")
-	store := &currentNodeControllerStore{
-		interrupted: []workflow.CurrentNode{{
-			Reference:  queued,
-			Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted},
-		}},
+	queue := newControllerQueueFixture(t, 2)
+	running := queue.tasks[0].reference(t, 0)
+	queued := queue.tasks[0].reference(t, 1)
+	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue,
 		interruptStarted: make(chan struct{}),
 		interruptRelease: make(chan struct{}),
 	}
@@ -638,20 +625,16 @@ func TestCurrentNodeControllerTaskInterruptDrainsConcurrencyQueuedWorkAlongsideR
 		}
 	})
 
-	controller.enqueueStarts(automaticQueuedStarts([]CurrentNodeAutomaticIntent{{
-		CurrentNode: running,
-		NodeKind:    workflow.NodeKindAgent,
-	}}))
+	queue.automaticIntents(controller, []CurrentNodeAutomaticIntent{
+		{CurrentNode: running, NodeKind: workflow.NodeKindAgent},
+		{CurrentNode: queued, NodeKind: workflow.NodeKindAgent},
+	})
 	select {
 	case <-runner.runningStarted:
 	case <-time.After(3 * time.Second):
 		t.Fatal("running scope did not start")
 	}
 	waitForRunningCurrentNode(t, authority, running)
-	controller.enqueueStarts(automaticQueuedStarts([]CurrentNodeAutomaticIntent{{
-		CurrentNode: queued,
-		NodeKind:    workflow.NodeKindAgent,
-	}}))
 	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, func() bool {
 		observation, observationErr := controller.ObserveWorkflowTaskExecutions(nil)
 		return observationErr == nil && len(observation.ConcurrencyQueued[running.TaskID]) == 1 &&
@@ -811,8 +794,9 @@ func TestCurrentNodeControllerProtocolViolationCapStopsAndInterruptsLiveScope(t 
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	reference := currentNodeReferenceForControllerTest(t, "task-protocol", "node-agent")
-	store := &currentNodeControllerStore{}
+	queue := newControllerQueueFixture(t, 1)
+	reference := queue.tasks[0].reference(t, 0)
+	store := queue.store()
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
 	runner := &recordingScriptRunner{
@@ -833,7 +817,7 @@ func TestCurrentNodeControllerProtocolViolationCapStopsAndInterruptsLiveScope(t 
 		}
 	})
 
-	if err := startCurrentNodeForControllerTest(context.Background(), controller, store, reference); err != nil {
+	if err := queue.approve(context.Background(), controller, reference.TaskID); err != nil {
 		t.Fatalf("start current node: %v", err)
 	}
 	<-runner.started

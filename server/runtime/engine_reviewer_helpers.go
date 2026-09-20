@@ -74,31 +74,6 @@ func sanitizeReviewerSuggestions(in []string) []string {
 	return out
 }
 
-func buildReviewerRequestMessagesWithBuilder(messages []llm.Message, builder metaContextBuilder, headless bool) ([]llm.Message, error) {
-	metaMessages, transcriptSource := splitMetaContextMessages(messages)
-	sessionMode, err := metaContextSessionModeForMessages(metaMessages)
-	if err != nil {
-		return nil, err
-	}
-	metaResult, err := builder.Build(metaContextBuildOptions{
-		ExistingMessages:          metaMessages,
-		SessionMode:               sessionMode,
-		IncludeAgents:             true,
-		IncludeEnvironment:        true,
-		IncludeHeadless:           headless,
-		PermissiveAgentsReadError: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	metaMessages = metaResult.Projection().Messages()
-	out := make([]llm.Message, 0, len(metaMessages)+2+len(transcriptSource))
-	out = append(out, metaMessages...)
-	out = append(out, llm.Message{Role: llm.RoleDeveloper, Content: textutil.Value(reviewerMetaBoundaryMessage)})
-	out = append(out, buildReviewerTranscriptMessages(transcriptSource)...)
-	return out, nil
-}
-
 func buildReviewerRequestItemsWithBuilder(items []llm.ResponseItem, builder metaContextBuilder, headless bool) ([]llm.ResponseItem, error) {
 	metaMessages, transcriptSource := splitMetaContextItems(items)
 	sessionMode, err := metaContextSessionModeForMessages(metaMessages)

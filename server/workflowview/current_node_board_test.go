@@ -1,6 +1,7 @@
 package workflowview
 
 import (
+	"core/internal/testharness/workflowfixture"
 	"errors"
 	"testing"
 
@@ -297,7 +298,7 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if _, err := fixture.store.ManualMoveTask(fixture.ctx, workflowstore.ManualMoveRequest{
+	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
 		TaskID:       satisfiedBlocker.ID,
 		TargetNodeID: terminalNodeID(t, definition),
 	}); err != nil {

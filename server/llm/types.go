@@ -51,6 +51,7 @@ const (
 	MessageTypeHandoffFutureMessage           = clientui.MessageTypeHandoffFutureMessage
 	MessageTypeReviewerFeedback               = clientui.MessageTypeReviewerFeedback
 	MessageTypeBackgroundNotice               = clientui.MessageTypeBackgroundNotice
+	MessageTypeUserShellCommand               = clientui.MessageTypeUserShellCommand
 	MessageTypeCustomToolCallOutput           = clientui.MessageTypeCustomToolCallOutput
 	MessageTypeCompactionPreservedUserMessage = clientui.MessageTypeCompactionPreservedUserMessage
 	MessageTypeHeadlessMode                   = clientui.MessageTypeHeadlessMode
@@ -755,14 +756,6 @@ type StreamCallbacks struct {
 	OnAssistantDelta        func(delta AssistantDelta)
 	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
 	OnStreamActivity        func()
-}
-
-type RequestInputTokenCountClient interface {
-	CountRequestInputTokens(ctx context.Context, request Request) (int, error)
-}
-
-type RequestInputTokenCountSupportClient interface {
-	SupportsRequestInputTokenCount(ctx context.Context) (bool, error)
 }
 
 type ModelContextWindowClient interface {

@@ -114,11 +114,3 @@ func (e hydrationRuntimeTupleConflictError) facts() map[string]any {
 func hydrationRuntimeTupleError(current *runtimepb.MainView, incoming runtimeTupleCandidate) error {
 	return hydrationRuntimeTupleConflictError{current: current, incoming: incoming}
 }
-
-func runtimeReadModelResetMainViewRefreshRequest() runtimeMainViewRefreshRequest {
-	return runtimeMainViewRefreshRequest{
-		cause:    runtimeMainViewRefreshCauseManual,
-		class:    runtimeSyncPolicyClassAllowed,
-		priority: 100,
-	}
-}

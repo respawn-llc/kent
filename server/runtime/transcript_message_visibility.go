@@ -31,6 +31,16 @@ func visibleUserTranscriptEntry(msg llm.Message) (ChatEntry, bool) {
 	if messageType == llm.MessageTypeCompactionSummary {
 		return compactionSummaryChatEntry(msg), true
 	}
+	if messageType == llm.MessageTypeUserShellCommand {
+		return ChatEntry{
+			Visibility:    messageTypeTranscriptVisibility(msg.MessageType),
+			Role:          string(transcript.EntryRoleSystem),
+			Text:          *msg.Content,
+			MessageType:   messageType,
+			CompactLabel:  compactLabelForMessage(msg),
+			CondensedText: compactLabelForMessage(msg),
+		}, true
+	}
 	return ChatEntry{Visibility: transcript.EntryVisibilityOngoing, Role: "user", Text: *msg.Content, MessageType: messageType, SourcePath: sourcePath, CompactLabel: compactLabelForMessage(msg)}, true
 }
 
@@ -124,6 +134,7 @@ func isUnknownDeveloperMessageType(messageType *llm.MessageType) bool {
 		llm.MessageTypeHandoffFutureMessage,
 		llm.MessageTypeReviewerFeedback,
 		llm.MessageTypeBackgroundNotice,
+		llm.MessageTypeUserShellCommand,
 		llm.MessageTypeCustomToolCallOutput,
 		llm.MessageTypeCompactionPreservedUserMessage,
 		llm.MessageTypeHeadlessMode,
@@ -177,7 +188,7 @@ func messageTypeTranscriptVisibility(messageType *llm.MessageType) transcript.En
 		return transcript.EntryVisibilityDetail
 	case llm.MessageTypeActiveGoalContinuation:
 		return transcript.EntryVisibilityDetail
-	case llm.MessageTypeBackgroundNotice:
+	case llm.MessageTypeBackgroundNotice, llm.MessageTypeUserShellCommand:
 		return transcript.EntryVisibilityOngoingCollapsed
 	case llm.MessageTypeWorkflowMode, llm.MessageTypeWorkflowModeExit:
 		return transcript.EntryVisibilityOngoingCollapsed

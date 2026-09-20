@@ -46,10 +46,6 @@ func (s stubSessionViewClient) GetLatestCommittedAssistantFinalAnswer(ctx contex
 	return s.getLatestFinalAnswer(ctx, req)
 }
 
-func (s stubSessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
-	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
-}
-
 func updateUIModel(t *testing.T, m *uiModel, msg tea.Msg) *uiModel {
 	t.Helper()
 	next, command := m.Update(msg)
@@ -126,19 +122,6 @@ type stubProgressiveStatusCollector struct {
 	gitResult  uiStatusGitStageResult
 	envResult  uiStatusEnvironmentStageResult
 	gitCalls   int
-}
-
-func (s *stubProgressiveStatusCollector) Collect(_ context.Context, _ uiStatusRequest) (uiStatusSnapshot, error) {
-	snapshot := s.base
-	snapshot.Auth = s.authResult.Auth
-	snapshot.Subscription = s.authResult.Subscription
-	snapshot.Git = s.gitResult.Git
-	snapshot.Skills = s.envResult.Skills
-	snapshot.SkillTokenCounts = s.envResult.SkillTokenCounts
-	snapshot.AgentsPaths = s.envResult.AgentsPaths
-	snapshot.AgentTokenCounts = s.envResult.AgentTokenCounts
-	snapshot.CollectorWarning = s.envResult.CollectorWarning
-	return snapshot, nil
 }
 
 func (s *stubProgressiveStatusCollector) CollectBase(_ uiStatusRequest) uiStatusSnapshot {

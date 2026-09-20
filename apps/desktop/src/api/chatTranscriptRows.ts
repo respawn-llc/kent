@@ -73,6 +73,7 @@ function messageType(value: T.NoticeMessageType): string {
     [T.NoticeMessageType.AGENT_STEER]: "agent_steer",
     [T.NoticeMessageType.WORKFLOW_MODE_EXIT]: "workflow_mode_exit",
     [T.NoticeMessageType.SESSION_REBIND]: "session_rebind",
+    [T.NoticeMessageType.USER_SHELL_COMMAND]: "user_shell_command",
   });
 }
 

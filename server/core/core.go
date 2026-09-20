@@ -442,7 +442,11 @@ func (s *Core) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Capability.facts
+	capability := s.safeBundles().Capability
+	if capability == nil {
+		return nil
+	}
+	return capability
 }
 
 func (s *Core) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
@@ -489,7 +493,11 @@ func (s *Core) ProcessViewClient() apicontract.ProcessViewService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Processes.processViews
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
 }
 
 func (s *Core) RuntimeControlClient() apicontract.RuntimeControlService {
@@ -531,7 +539,11 @@ func (s *Core) ProcessControlClient() apicontract.ProcessControlService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Processes.processControls
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
 }
 
 func (s *Core) SessionTranscriptClient() apicontract.SessionTranscriptService {

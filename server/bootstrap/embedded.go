@@ -1,19 +1,15 @@
 package bootstrap
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"core/prompts"
 	"core/server/auth"
 	"core/server/chatcontext"
 	"core/server/launch"
 	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
 )
@@ -41,11 +37,6 @@ func ValidateSessionExists(persistenceRoot string, sessionID string) error {
 type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
-}
-
-type RuntimeSupport struct {
-	Background *shelltool.Manager
-	Generated  prompts.GeneratedSyncResult
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
@@ -104,37 +95,15 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func(
 		AuthManager: auth.NewManager(
 			store,
 			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
-			now,
 		),
 	}, nil
 }
 
-func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
-	runner, err := postprocess.NewRunner(postprocess.Settings{
-		Mode:     cfg.Settings.Shell.PostprocessingMode,
-		HookPath: cfg.Settings.Shell.PostprocessHook,
-	})
-	if err != nil {
-		return RuntimeSupport{}, fmt.Errorf("compile shell postprocessor: %w", err)
-	}
-	background, err := shelltool.NewManager(
+func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
+	return shelltool.NewManager(
 		shelltool.WithMaxConcurrent(cfg.Settings.Shell.MaxConcurrent),
 		shelltool.WithMinimumExecToBgTime(time.Duration(cfg.Settings.MinimumExecToBgSeconds)*time.Second),
-		shelltool.WithPostprocessor(runner),
 	)
-	if err != nil {
-		return RuntimeSupport{}, err
-	}
-	return RuntimeSupport{
-		Background: background,
-	}, nil
-}
-
-func BuildGeneratedSupport(ctx context.Context, persistenceRoot string) (prompts.GeneratedSyncResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(persistenceRoot)})
 }
 
 func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {

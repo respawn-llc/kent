@@ -3,6 +3,7 @@ import {
   decodeWorkflowTaskDependencyError,
   isProjectMissingError,
   isTaskMissingError,
+  isTaskContextSelectionRequiredError,
   RpcError,
   WorkflowLabelError,
   WorkflowTaskDependencyError,
@@ -10,6 +11,25 @@ import {
 import { rpcErrorCodes } from "./rpcErrorCodes";
 
 const labelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
+
+describe("Task context selection restriction", () => {
+  const data = { type: "workflow_task_context_selection_required", task_id: "task-1" };
+  const error = (code: number, payload: Readonly<Record<string, string>>) =>
+    new RpcError({ code, data: payload, message: "diagnostic", method: "workflow.task.resume" });
+
+  it("requires both the typed error code and valid Task identity", () => {
+    expect(
+      isTaskContextSelectionRequiredError(error(rpcErrorCodes.workflowTaskContextSelectionRequired, data)),
+    ).toBe(true);
+    expect(isTaskContextSelectionRequiredError(error(rpcErrorCodes.internal, data))).toBe(false);
+    expect(
+      isTaskContextSelectionRequiredError(
+        error(rpcErrorCodes.workflowTaskContextSelectionRequired, { ...data, task_id: "" }),
+      ),
+    ).toBe(false);
+    expect(isTaskContextSelectionRequiredError(new Error(data.type))).toBe(false);
+  });
+});
 
 describe("sidebar missing-entity errors", () => {
   it("recognizes typed Task and Project missing errors without parsing messages", () => {

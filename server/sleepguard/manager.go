@@ -80,35 +80,28 @@ func NewManager(mode config.SleepPreventionMode, onError func(err error), opts .
 	m.guard = guard
 
 	switch mode {
-	case config.SleepPreventionModeAlways:
-		always := newAlwaysController(guard, cfg.retryDelay, cfg.timerFactory, onError, true)
+	case config.SleepPreventionModeAlways, config.SleepPreventionModeActive:
+		controller := newModeController(mode, cfg, guard, onError)
 		guard.SetErrorHandler(func(err error) {
 			log.Printf("sleepguard: inhibitor restart failed: %v", err)
 			if onError != nil {
 				onError(err)
 			}
-			always.OnInhibitorFailed()
+			controller.OnInhibitorFailed()
 		})
-		m.controller = always
+		m.controller = controller
+		if mode == config.SleepPreventionModeActive {
+			m.runtimeObserver = controller.OnActiveStateChanged
+			break
+		}
 		if err := guard.Acquire(); err != nil {
 			log.Printf("sleepguard: always-mode acquire failed: %v", err)
 			if onError != nil {
 				onError(err)
 			}
-			always.OnInhibitorFailed()
+			controller.OnInhibitorFailed()
 			return m, err
 		}
-	case config.SleepPreventionModeActive:
-		active := newActiveController(guard, cfg.idleGrace, cfg.retryDelay, cfg.timerFactory, onError)
-		guard.SetErrorHandler(func(err error) {
-			log.Printf("sleepguard: inhibitor restart failed: %v", err)
-			if onError != nil {
-				onError(err)
-			}
-			active.OnInhibitorFailed()
-		})
-		m.controller = active
-		m.runtimeObserver = active.OnActiveStateChanged
 	default:
 		m.controller = noopController{}
 	}
@@ -157,215 +150,88 @@ type noopController struct{}
 
 func (noopController) Close() {}
 
-type alwaysCommandKind int
+type controllerCommandKind int
 
 const (
-	alwaysCommandInhibitorFailed alwaysCommandKind = iota
-	alwaysCommandRetryAcquire
-	alwaysCommandClose
+	controllerCommandStateChanged controllerCommandKind = iota
+	controllerCommandTimerFired
+	controllerCommandRetryAcquire
+	controllerCommandInhibitorFailed
+	controllerCommandClose
 )
 
-type alwaysCommand struct {
-	kind  alwaysCommandKind
-	epoch uint64
-}
-
-// alwaysController keeps the inhibitor permanently held. Unlike a passive
-// holder, it re-acquires after an inhibitor failure and keeps retrying on a
-// timer, so a single transient restart failure can't leave always-mode sleep
-// prevention disabled for the rest of the process lifetime.
-type alwaysController struct {
-	guard        sleepInhibitor
-	retryDelay   time.Duration
-	timerFactory releaseTimerFactory
-	onError      func(error)
-
-	commands chan alwaysCommand
-	done     chan struct{}
-	closed   atomic.Bool
-}
-
-func newAlwaysController(guard sleepInhibitor, retryDelay time.Duration, timerFactory releaseTimerFactory, onError func(error), held bool) *alwaysController {
-	controller := &alwaysController{
-		guard:        guard,
-		retryDelay:   retryDelay,
-		timerFactory: timerFactory,
-		onError:      onError,
-		commands:     make(chan alwaysCommand, 32),
-		done:         make(chan struct{}),
-	}
-	go controller.run(held)
-	return controller
-}
-
-func (c *alwaysController) OnInhibitorFailed() {
-	if c == nil || c.closed.Load() {
-		return
-	}
-	select {
-	case c.commands <- alwaysCommand{kind: alwaysCommandInhibitorFailed}:
-	case <-c.done:
-	}
-}
-
-func (c *alwaysController) Close() {
-	if c == nil || !c.closed.CompareAndSwap(false, true) {
-		return
-	}
-	select {
-	case c.commands <- alwaysCommand{kind: alwaysCommandClose}:
-	case <-c.done:
-		return
-	}
-	<-c.done
-}
-
-func (c *alwaysController) run(held bool) {
-	defer close(c.done)
-	var epoch uint64
-	var retryTimer releaseTimer
-	cancelRetry := func() {
-		if retryTimer != nil {
-			retryTimer.Stop()
-			retryTimer = nil
-		}
-	}
-	scheduleRetry := func() {
-		if retryTimer != nil {
-			return
-		}
-		epoch++
-		timerEpoch := epoch
-		retryTimer = c.timerFactory(c.retryDelay, func() {
-			c.enqueueTimer(alwaysCommandRetryAcquire, timerEpoch)
-		})
-	}
-	tryAcquire := func() {
-		if held {
-			return
-		}
-		if err := c.guard.Acquire(); err != nil {
-			if c.onError != nil {
-				c.onError(err)
-			}
-			scheduleRetry()
-			return
-		}
-		cancelRetry()
-		held = true
-	}
-	if !held {
-		scheduleRetry()
-	}
-	for cmd := range c.commands {
-		switch cmd.kind {
-		case alwaysCommandInhibitorFailed:
-			held = false
-			tryAcquire()
-		case alwaysCommandRetryAcquire:
-			if cmd.epoch != epoch || held {
-				continue
-			}
-			retryTimer = nil
-			tryAcquire()
-		case alwaysCommandClose:
-			cancelRetry()
-			if held {
-				c.guard.Release()
-			}
-			return
-		}
-	}
-}
-
-func (c *alwaysController) enqueueTimer(kind alwaysCommandKind, epoch uint64) {
-	if c.closed.Load() {
-		return
-	}
-	select {
-	case c.commands <- alwaysCommand{kind: kind, epoch: epoch}:
-	case <-c.done:
-	}
-}
-
-type activeCommandKind int
-
-const (
-	activeCommandStateChanged activeCommandKind = iota
-	activeCommandTimerFired
-	activeCommandRetryAcquire
-	activeCommandInhibitorFailed
-	activeCommandClose
-)
-
-type activeCommand struct {
-	kind   activeCommandKind
+type controllerCommand struct {
+	kind   controllerCommandKind
 	active bool
 	epoch  uint64
 }
 
-type activeController struct {
+type modeController struct {
+	mode         config.SleepPreventionMode
 	guard        sleepInhibitor
 	idleGrace    time.Duration
 	retryDelay   time.Duration
 	timerFactory releaseTimerFactory
 	onError      func(error)
 
-	commands chan activeCommand
+	commands chan controllerCommand
 	done     chan struct{}
 	closed   atomic.Bool
 }
 
-func newActiveController(guard sleepInhibitor, idleGrace time.Duration, retryDelay time.Duration, timerFactory releaseTimerFactory, onError func(error)) *activeController {
-	controller := &activeController{
+func newModeController(mode config.SleepPreventionMode, cfg managerConfig, guard sleepInhibitor, onError func(error)) *modeController {
+	controller := &modeController{
+		mode:         mode,
 		guard:        guard,
-		idleGrace:    idleGrace,
-		retryDelay:   retryDelay,
-		timerFactory: timerFactory,
+		idleGrace:    cfg.idleGrace,
+		retryDelay:   cfg.retryDelay,
+		timerFactory: cfg.timerFactory,
 		onError:      onError,
-		commands:     make(chan activeCommand, 32),
+		commands:     make(chan controllerCommand, 32),
 		done:         make(chan struct{}),
 	}
 	go controller.run()
 	return controller
 }
 
-func (c *activeController) OnActiveStateChanged(active bool) {
+func (c *modeController) OnActiveStateChanged(active bool) {
 	if c == nil || c.closed.Load() {
 		return
 	}
 	select {
-	case c.commands <- activeCommand{kind: activeCommandStateChanged, active: active}:
+	case c.commands <- controllerCommand{kind: controllerCommandStateChanged, active: active}:
 	case <-c.done:
 	}
 }
 
-func (c *activeController) OnInhibitorFailed() {
+func (c *modeController) OnInhibitorFailed() {
 	if c == nil || c.closed.Load() {
 		return
 	}
 	select {
-	case c.commands <- activeCommand{kind: activeCommandInhibitorFailed}:
+	case c.commands <- controllerCommand{kind: controllerCommandInhibitorFailed}:
 	case <-c.done:
 	}
 }
 
-func (c *activeController) Close() {
+func (c *modeController) Close() {
 	if c == nil || !c.closed.CompareAndSwap(false, true) {
 		return
 	}
 	select {
-	case c.commands <- activeCommand{kind: activeCommandClose}:
+	case c.commands <- controllerCommand{kind: controllerCommandClose}:
 	case <-c.done:
 		return
 	}
 	<-c.done
 }
 
-func (c *activeController) run() {
+func (c *modeController) run() {
 	defer close(c.done)
-	var held bool
-	var active bool
+	// Always acquires synchronously in NewManager; a failed startup is queued
+	// like later inhibitor failures. Only Active receives activity changes.
+	held := c.mode == config.SleepPreventionModeAlways
+	active := c.mode == config.SleepPreventionModeAlways
 	var epoch uint64
 	var idleTimer releaseTimer
 	var retryTimer releaseTimer
@@ -388,7 +254,7 @@ func (c *activeController) run() {
 		epoch++
 		timerEpoch := epoch
 		retryTimer = c.timerFactory(c.retryDelay, func() {
-			c.enqueueTimer(activeCommandRetryAcquire, timerEpoch)
+			c.enqueueTimer(controllerCommandRetryAcquire, timerEpoch)
 		})
 	}
 	tryAcquire := func() {
@@ -396,7 +262,9 @@ func (c *activeController) run() {
 			return
 		}
 		if err := c.guard.Acquire(); err != nil {
-			log.Printf("sleepguard: active-mode acquire failed: %v", err)
+			if c.mode == config.SleepPreventionModeActive {
+				log.Printf("sleepguard: active-mode acquire failed: %v", err)
+			}
 			if c.onError != nil {
 				c.onError(err)
 			}
@@ -408,7 +276,7 @@ func (c *activeController) run() {
 	}
 	for cmd := range c.commands {
 		switch cmd.kind {
-		case activeCommandStateChanged:
+		case controllerCommandStateChanged:
 			if cmd.active {
 				active = true
 				epoch++
@@ -422,28 +290,26 @@ func (c *activeController) run() {
 				epoch++
 				timerEpoch := epoch
 				idleTimer = c.timerFactory(c.idleGrace, func() {
-					c.enqueueTimer(activeCommandTimerFired, timerEpoch)
+					c.enqueueTimer(controllerCommandTimerFired, timerEpoch)
 				})
 			}
-		case activeCommandTimerFired:
+		case controllerCommandTimerFired:
 			if cmd.epoch != epoch || active || !held {
 				continue
 			}
 			idleTimer = nil
 			held = false
 			c.guard.Release()
-		case activeCommandRetryAcquire:
+		case controllerCommandRetryAcquire:
 			if cmd.epoch != epoch || !active || held {
 				continue
 			}
 			retryTimer = nil
 			tryAcquire()
-		case activeCommandInhibitorFailed:
-			if held {
-				held = false
-			}
+		case controllerCommandInhibitorFailed:
+			held = false
 			tryAcquire()
-		case activeCommandClose:
+		case controllerCommandClose:
 			cancelRelease()
 			cancelRetry()
 			if held {
@@ -454,12 +320,12 @@ func (c *activeController) run() {
 	}
 }
 
-func (c *activeController) enqueueTimer(kind activeCommandKind, epoch uint64) {
+func (c *modeController) enqueueTimer(kind controllerCommandKind, epoch uint64) {
 	if c.closed.Load() {
 		return
 	}
 	select {
-	case c.commands <- activeCommand{kind: kind, epoch: epoch}:
+	case c.commands <- controllerCommand{kind: kind, epoch: epoch}:
 	case <-c.done:
 	}
 }

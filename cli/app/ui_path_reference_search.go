@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"core/shared/gitenv"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sahilm/fuzzy"
 )
@@ -39,7 +41,7 @@ type execUIPathReferenceCommandRunner struct{}
 func (execUIPathReferenceCommandRunner) Output(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = sanitizedGitEnv(os.Environ())
+	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
 	return cmd.Output()
 }
 

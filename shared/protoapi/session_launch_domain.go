@@ -21,8 +21,6 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 		return err
 	}
 	switch detail := failure.Detail.(type) {
-	case *sessionlaunchpb.SessionPlanError_AuthRequired:
-		return serverapi.ErrServerAuthRequired
 	case *sessionlaunchpb.SessionPlanError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *sessionlaunchpb.SessionPlanError_SubagentLaunchDenied:
@@ -54,8 +52,6 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 			visited = append(visited, sessionID)
 		}
 		return protocol.NewLineageCorruptSubagentLaunchPolicyError(repeated, visited)
-	case *sessionlaunchpb.SessionPlanError_InternalFailure:
-		return InternalFailureFromProto(detail.InternalFailure)
 	default:
 		return fmt.Errorf("session plan failure %q has unsupported detail %T", failure.Code, failure.Detail)
 	}

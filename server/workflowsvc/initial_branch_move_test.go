@@ -156,8 +156,8 @@ func TestServiceManualMoveCarriesBranchAssertionAndDoesNotApplyOnMismatch(t *tes
 		*targets.materializeRequest.InitialBranchAssertion != branchName {
 		t.Fatalf("materialization assertion = %v, want %q", targets.materializeRequest.InitialBranchAssertion, branchName)
 	}
-	if len(execution.interruptTaskIDs) != 0 || len(execution.started) != 0 {
-		t.Fatalf("move mutated lifecycle after mismatch: interrupts=%v starts=%v", execution.interruptTaskIDs, execution.started)
+	if len(execution.started) != 0 {
+		t.Fatalf("move started execution after branch mismatch: %v", execution.started)
 	}
 }
 
@@ -221,6 +221,10 @@ func TestServiceManualMoveAcceptedBranchReturnsConflictWhenFinalRevalidationBeco
 	}
 	service.executionTargets = targets
 	execution.interruptHook = func() {
+		if _, err := targets.materialize(taskID); err != nil {
+			t.Errorf("materialize concurrent Manual Move: %v", err)
+			return
+		}
 		prepared, err := service.store.PrepareManualMove(ctx, workflowstore.ManualMoveRequest{
 			TaskID: taskID, TargetNodeID: targetNodeID,
 		})
@@ -286,46 +290,57 @@ func TestServiceManualMoveAcceptedBranchReturnsConflictWhenFinalRevalidationBeco
 func workflowServiceTestManualMoveAssignments(
 	t *testing.T,
 	metadataStore *metadata.Store,
-) workflowstore.ManualMoveTargetAssignmentPreparer {
+) func(context.Context, []workflowstore.CurrentNodeStartContext) ([]workflowstore.PlannedCurrentNodeSession, error) {
 	t.Helper()
 	return func(
-		_ context.Context,
+		ctx context.Context,
 		inputs []workflowstore.CurrentNodeStartContext,
-	) (workflowstore.ManualMoveTargetAssignmentPreparation, error) {
-		assignments := make([]workflowstore.ManualMoveTargetAssignment, 0, len(inputs))
+	) ([]workflowstore.PlannedCurrentNodeSession, error) {
+		assignments := make([]workflowstore.PlannedCurrentNodeSession, 0, len(inputs))
 		for _, input := range inputs {
 			if input.Node.Kind != workflow.NodeKindAgent {
 				continue
 			}
 			if input.CurrentNode.SessionID != nil {
-				assignments = append(assignments, workflowstore.ManualMoveTargetAssignment{
+				assignments = append(assignments, workflowstore.PlannedCurrentNodeSession{
 					CurrentNode: input.CurrentNode.Reference,
 					SessionID:   *input.CurrentNode.SessionID,
 				})
 				continue
 			}
-			sessionStore, err := session.Create(
+			sessionID := runtimeids.NewSessionID()
+			descriptor, err := session.NewCreateSessionDescriptor(
+				sessionID,
 				filepath.Join(metadataStore.PersistenceRoot(), "projects", input.Task.ProjectID, "sessions"),
 				filepath.Base(input.ExecutionRoot.SourceWorkspaceRoot),
 				input.ExecutionRoot.SourceWorkspaceRoot,
 				sessioncontract.SessionCategoryMain,
-				metadataStore.AuthoritativeSessionStoreOptions()...,
 			)
 			if err != nil {
-				return workflowstore.ManualMoveTargetAssignmentPreparation{}, err
+				return nil, err
 			}
-			if err := sessionStore.EnsureDurable(); err != nil {
-				return workflowstore.ManualMoveTargetAssignmentPreparation{}, err
-			}
-			sessionID, err := runtimeids.ParseSessionID(sessionStore.Meta().SessionID)
+			creation, err := session.PrepareCreation(session.CreationRequest{Descriptor: descriptor})
 			if err != nil {
-				return workflowstore.ManualMoveTargetAssignmentPreparation{}, err
+				return nil, err
 			}
-			assignments = append(assignments, workflowstore.ManualMoveTargetAssignment{
+			target := metadata.SessionExecutionTargetUpdate{
+				SessionID:  sessionID.String(),
+				Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: input.ExecutionRoot.SourceWorkspaceID},
+				CwdRelpath: ".",
+			}
+			if input.ExecutionRoot.Managed != nil {
+				target.Worktree = &metadata.SessionExecutionTargetUpdateWorktree{ID: input.ExecutionRoot.Managed.WorktreeID}
+			}
+			snapshot, err := metadataStore.PrepareSessionSnapshot(ctx, creation.Snapshot(), target)
+			if err != nil {
+				return nil, err
+			}
+			assignments = append(assignments, workflowstore.PlannedCurrentNodeSession{
 				CurrentNode: input.CurrentNode.Reference,
 				SessionID:   sessionID,
+				Snapshot:    &snapshot,
 			})
 		}
-		return workflowstore.ManualMoveTargetAssignmentPreparation{Assignments: assignments}, nil
+		return assignments, nil
 	}
 }

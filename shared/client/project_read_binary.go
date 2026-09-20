@@ -7,7 +7,6 @@ import (
 
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -26,7 +25,7 @@ func (c *Remote) ListProjects(ctx context.Context, request *emptypb.Empty) (*pro
 	return callGeneratedBinary(c, ctx, projectCatalogMethod("List"), request,
 		&projectpb.ProjectListResult{},
 		func(failure *projectpb.ProjectListError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -34,7 +33,7 @@ func (c *Remote) ListProjectHome(ctx context.Context, request *projectpb.Project
 	return callGeneratedBinary(c, ctx, projectCatalogMethod("ListHome"), request,
 		&projectpb.ProjectHomeListResult{},
 		func(failure *projectpb.ProjectHomeListError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -45,8 +44,6 @@ func (c *Remote) ResolveProjectPath(ctx context.Context, request *projectpb.Reso
 			switch failure.Code {
 			case "workspace_binding_ambiguous":
 				return workspaceBindingAmbiguousError(failure.GetWorkspaceBindingAmbiguous())
-			case "internal_failure":
-				return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}
@@ -57,7 +54,7 @@ func (c *Remote) PlanWorkspaceBinding(ctx context.Context, request *projectpb.Pl
 	return callGeneratedBinary(c, ctx, projectCatalogMethod("PlanWorkspaceBinding"), request,
 		&projectpb.PlanWorkspaceBindingResult{},
 		func(failure *projectpb.PlanWorkspaceBindingError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -66,7 +63,7 @@ func (c *Remote) GetProjectEdit(ctx context.Context, request *projectpb.ProjectE
 		&projectpb.GetProjectEditResult{},
 		func(failure *projectpb.GetProjectEditError) error {
 			return projectNotFoundGeneratedError(
-				failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+				failure.Code, failure.GetProjectNotFound())
 		})
 	if err != nil {
 		return nil, err
@@ -86,7 +83,7 @@ func (c *Remote) ListProjectWorkspaces(ctx context.Context, request *projectpb.P
 		&projectpb.ListProjectWorkspacesResult{},
 		func(failure *projectpb.ListProjectWorkspacesError) error {
 			return projectNotFoundGeneratedError(
-				failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+				failure.Code, failure.GetProjectNotFound())
 		})
 	if err != nil {
 		return nil, err
@@ -146,7 +143,7 @@ func (c *Remote) GetProjectWorkspace(ctx context.Context, request *projectpb.Get
 		&projectpb.GetProjectWorkspaceResult{},
 		func(failure *projectpb.GetProjectWorkspaceError) error {
 			return projectNotFoundGeneratedError(
-				failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+				failure.Code, failure.GetProjectNotFound())
 		})
 	if err != nil {
 		return nil, err
@@ -161,23 +158,13 @@ func (c *Remote) GetProjectWorkspace(ctx context.Context, request *projectpb.Get
 	return response, nil
 }
 
-func projectInternalGeneratedError(code string, internal *sharedpb.InternalFailureDetails) error {
-	if code == "internal_failure" {
-		return protoapi.InternalFailureFromProto(internal)
-	}
-	return generatedOperationFailure(code)
-}
-
 func projectNotFoundGeneratedError(
 	code string,
 	notFound *projectpb.ProjectNotFoundDetails,
-	internal *sharedpb.InternalFailureDetails,
 ) error {
 	switch code {
 	case "project_not_found":
 		return projectNotFoundError(notFound)
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(internal)
 	default:
 		return generatedOperationFailure(code)
 	}

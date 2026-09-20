@@ -600,7 +600,10 @@ func (l uiViewLayout) goalConfirmContentLines(width int, titleStyle, boldStyle, 
 	return builder.lines
 }
 
-func goalCoreFromMutationResult(result clientui.GoalMutationResult) *runtimepb.Goal {
+func goalCoreFromMutationResult(result *runtimepb.GoalMutationSuccess) *runtimepb.Goal {
+	if result == nil {
+		return nil
+	}
 	return cloneGoalCore(result.Goal)
 }
 

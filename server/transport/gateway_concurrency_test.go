@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	servercore "core/server/core"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -80,30 +82,25 @@ type gatewayConcurrencyDependencies struct {
 	debug    bool
 }
 
-type gatewayAutomaticFatalSteerer struct {
-	cause error
-}
-
-func (s gatewayAutomaticFatalSteerer) SteerCurrentNodeAssignment(
-	context.Context,
-	workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return nil, s.cause
-}
-
-func (gatewayAutomaticFatalSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, errors.New("Manual Move assignment preparation must not run")
-}
-
 type gatewayFailingRunner struct {
-	cause error
+	cause    error
+	t        testing.TB
+	metadata *metadata.Store
+	starts   *atomic.Int32
+}
+
+func (r gatewayFailingRunner) PrepareCurrentNode(
+	ctx context.Context,
+	input workflowstore.CurrentNodeStartContext,
+	_ workflowruntime.TaskPromptDelivery,
+) (workflowexecution.CurrentNodePreparation, error) {
+	sessions := workflowfixture.PrepareCurrentNodeSessions(r.t, ctx, r.metadata, []workflowstore.CurrentNodeStartContext{input})
+	if len(sessions) != 1 {
+		r.t.Fatal("gateway admission fixture requires one Agent Session")
+	}
+	return workflowexecution.CurrentNodePreparation{
+		Session: &sessions[0], Assignment: gatewayCommittedAssignment{},
+	}, nil
 }
 
 func (r gatewayFailingRunner) StartAgentCurrentNode(
@@ -114,6 +111,7 @@ func (r gatewayFailingRunner) StartAgentCurrentNode(
 	func(),
 	workflowruntime.Controller,
 ) (sessionruntime.ExecutionHandle, error) {
+	r.starts.Add(1)
 	return nil, r.cause
 }
 
@@ -123,45 +121,6 @@ func (gatewayFailingRunner) PrepareScriptPublication(
 	workflowruntime.Controller,
 ) (workflowexecution.CurrentNodeScriptPublication, error) {
 	return nil, nil
-}
-
-type gatewayFailingAgentPublication struct {
-	cause error
-}
-
-func (p gatewayFailingAgentPublication) Publish(
-	_ context.Context,
-	admit func() error,
-	_ func(sessionruntime.ExecutionHandle),
-) (sessionruntime.ExecutionHandle, func(), error) {
-	if err := admit(); err != nil {
-		return nil, nil, err
-	}
-	return nil, nil, p.cause
-}
-
-func (gatewayFailingAgentPublication) Cancel() error {
-	return nil
-}
-
-type gatewayCommittedAssignmentSteerer struct{}
-
-func (gatewayCommittedAssignmentSteerer) SteerCurrentNodeAssignment(
-	context.Context,
-	workflow.CurrentNodeReference,
-) (workflowexecution.CurrentNodeAssignmentSteer, error) {
-	return gatewayCommittedAssignment{}, nil
-}
-
-func (gatewayCommittedAssignmentSteerer) PrepareManualMoveAssignments(
-	context.Context,
-	[]workflowstore.CurrentNodeStartContext,
-) (
-	workflowstore.ManualMoveTargetAssignmentPreparation,
-	map[workflow.CurrentNodeReferenceKey]workflowexecution.CurrentNodeAssignmentSteer,
-	error,
-) {
-	return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, errors.New("Manual Move assignment preparation must not run")
 }
 
 type gatewayCommittedAssignment struct{}
@@ -440,12 +399,25 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 			taskID := workflow.TaskID(task.ID)
 			workflowStore := gatewayWorkflowStore(t, appCore)
 			operationFailure := errors.New("explicit admission failed")
-			var steerer workflowexecution.CurrentNodeAssignmentSteerer = gatewayAutomaticFatalSteerer{
-				cause: operationFailure,
+			var starts atomic.Int32
+			runner := gatewayFailingRunner{
+				cause: operationFailure, t: t, metadata: appCore.MetadataStore(), starts: &starts,
 			}
-			runner := gatewayFailingRunner{cause: errors.New("runner must not start")}
+			target, err := workflowStore.GetTaskExecutionTargetContext(context.Background(), taskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := &workflowstore.ExecutionTargetCandidate{
+				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
+			}
 			if test.resume {
-				started, err := workflowStore.StartTask(context.Background(), taskID)
+				ctx := context.Background()
+				plan, err := workflowStore.PlanTaskStart(ctx, taskID, candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				started, err := workflowStore.CommitTaskStart(ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, ctx, appCore.MetadataStore(), plan.StartContexts()))
 				if err != nil {
 					t.Fatalf("StartTask: %v", err)
 				}
@@ -460,8 +432,6 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 				); err != nil {
 					t.Fatalf("seed interrupted Current Node: %v", err)
 				}
-				steerer = gatewayCommittedAssignmentSteerer{}
-				runner = gatewayFailingRunner{cause: operationFailure}
 			}
 			installCurrentNodeInterruptionFailure(t, appCore)
 			authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
@@ -471,8 +441,7 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 				authority,
 				workflowexecution.NewTaskMutationCoordinator(),
 				workflowexecution.CurrentNodeControllerConfig{
-					AgentConcurrency:  1,
-					AssignmentSteerer: steerer,
+					AgentConcurrency: 1,
 				},
 			)
 			if err != nil {
@@ -486,11 +455,7 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 					started, startErr := controller.StartTask(
 						ctx,
 						taskID,
-						workflowexecution.TaskStartPreparation{
-							Prepare: func(context.Context) error { return nil },
-							Commit:  func(context.Context) error { return nil },
-						},
-						func(workflowexecution.TaskPreparationFinalization) {},
+						candidate,
 					)
 					if len(started.Mutation.Created) == 0 {
 						return serverapi.WorkflowTaskStartResponse{}, startErr
@@ -506,7 +471,7 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 					return response, startErr
 				},
 				resumeWorkflowTask: func(ctx context.Context, _ serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-					resumed, resumeErr := controller.ResumeTask(ctx, taskID)
+					resumed, resumeErr := controller.ResumeTask(ctx, taskID, nil)
 					if len(resumed.CurrentNodes) == 0 {
 						return serverapi.WorkflowTaskResumeResponse{}, resumeErr
 					}
@@ -547,6 +512,9 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 			_ = conn.Close()
 
 			requireControllerPersistenceFailure(t, controller, taskID, operationFailure)
+			if starts.Load() != 1 {
+				t.Fatalf("runner starts = %d, want exactly one attempted dispatch", starts.Load())
+			}
 			next := dialGateway(t, server)
 			handshakeGateway(t, next)
 			_ = next.Close()

@@ -10,6 +10,6 @@ func (c *Remote) GetChatContext(ctx context.Context, request *contextpb.GetReque
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(contextpb.File_kent_api_chat_context_chat_context_proto, "ChatContextService", "Get"),
 		request, &contextpb.GetResult{}, func(failure *contextpb.GetError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }

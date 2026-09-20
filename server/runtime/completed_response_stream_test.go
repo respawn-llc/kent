@@ -11,7 +11,6 @@ import (
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowstore"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -952,14 +951,6 @@ func (c *externallyCompletedWorkflowController) CompleteScriptCurrentNode(
 ) (workflowruntime.CompletionResult, error) {
 	err := errors.New("unexpected Script completion")
 	return workflowruntime.CompletionResult{}, err
-}
-
-func (c *externallyCompletedWorkflowController) ContinueCurrentNode(
-	context.Context,
-	workflowstore.CurrentNodeCompletionResult,
-	error,
-) error {
-	return nil
 }
 
 func (c *externallyCompletedWorkflowController) RecordProtocolViolation(

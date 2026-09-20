@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"sync"
-	"time"
 
 	sharedauth "core/shared/auth"
 )
@@ -12,22 +11,12 @@ type Manager struct {
 	mutationMu sync.Mutex
 	store      Store
 	refresher  *OAuthRefresher
-	now        func() time.Time
 }
 
-type CurrentStateResolution struct {
-	Loaded  *State
-	Current *State
-}
-
-func NewManager(store Store, refresher *OAuthRefresher, now func() time.Time) *Manager {
-	if now == nil {
-		now = time.Now
-	}
+func NewManager(store Store, refresher *OAuthRefresher) *Manager {
 	return &Manager{
 		store:     store,
 		refresher: refresher,
-		now:       now,
 	}
 }
 
@@ -69,39 +58,13 @@ func (m *Manager) loadState(ctx context.Context, persistedOnly bool) (State, err
 }
 
 func (m *Manager) CurrentState(ctx context.Context) (State, error) {
-	resolution, err := m.ResolveCurrentState(ctx)
-	if err != nil {
-		return State{}, err
-	}
-	return *resolution.Current, nil
-}
-
-func (m *Manager) ResolveCurrentState(ctx context.Context) (CurrentStateResolution, error) {
 	m.mutationMu.Lock()
 	defer m.mutationMu.Unlock()
 	state, err := m.Load(ctx)
 	if err != nil {
-		return CurrentStateResolution{}, err
+		return State{}, err
 	}
-	resolution := CurrentStateResolution{Loaded: &state}
-	current, err := m.resolveState(ctx, state)
-	if err != nil {
-		return resolution, err
-	}
-	resolution.Current = &current
-	return resolution, nil
-}
-
-func (m *Manager) EnsureStartupReady(ctx context.Context) error {
-	state, err := m.Load(ctx)
-	if err != nil {
-		return err
-	}
-	return EnsureStartupReady(state)
-}
-
-func (m *Manager) SwitchMethod(ctx context.Context, method Method, isIdle bool) (State, error) {
-	return m.SwitchMethodAndSetEnvAPIKeyPreference(ctx, method, EnvAPIKeyPreferenceUnspecified, false, isIdle)
+	return m.resolveState(ctx, state)
 }
 
 func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
@@ -131,30 +94,6 @@ func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
 	})
 }
 
-func (m *Manager) ClearMethod(ctx context.Context, isIdle bool) (State, error) {
-	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
-		return State{}, err
-	}
-	return m.updateState(ctx, func(state *State) error {
-		state.Method = Method{Type: MethodNone}
-		state.EnvAPIKeyPreference = EnvAPIKeyPreferenceUnspecified
-		return nil
-	})
-}
-
-func (m *Manager) SetEnvAPIKeyPreference(ctx context.Context, preference EnvAPIKeyPreference, isIdle bool) (State, error) {
-	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
-		return State{}, err
-	}
-	if err := preference.Validate(); err != nil {
-		return State{}, err
-	}
-	return m.updateState(ctx, func(state *State) error {
-		state.EnvAPIKeyPreference = preference
-		return nil
-	})
-}
-
 func (m *Manager) updateState(ctx context.Context, mutate func(*State) error) (State, error) {
 	m.mutationMu.Lock()
 	defer m.mutationMu.Unlock()
@@ -168,7 +107,6 @@ func (m *Manager) updateState(ctx context.Context, mutate func(*State) error) (S
 			return State{}, err
 		}
 	}
-	state.UpdatedAt = m.now().UTC()
 	if m.store != nil {
 		if err := m.store.Save(ctx, state); err != nil {
 			return State{}, err
@@ -223,7 +161,6 @@ func (m *Manager) resolveState(ctx context.Context, state State) (State, error) 
 		return state, nil
 	}
 	state.Method = updated
-	state.UpdatedAt = m.now().UTC()
 	if m.store != nil {
 		if err := m.store.Save(ctx, state); err != nil {
 			return State{}, err

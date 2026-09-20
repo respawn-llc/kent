@@ -1210,7 +1210,7 @@ func TestResolvePersistedSessionRoundTripsRequiredStructuredMetadata(t *testing.
 	}
 }
 
-func TestMissingEventLogRepairOccursAtEventUse(t *testing.T) {
+func TestMissingEventLogDoesNotEraseRetainedSessionFacts(t *testing.T) {
 	t.Parallel()
 	store, cfg, binding := newMetadataTestStore(t)
 	sess := createMetadataTestSession(t, store, cfg, binding)
@@ -1231,15 +1231,8 @@ func TestMissingEventLogRepairOccursAtEventUse(t *testing.T) {
 	if _, err := os.Stat(eventsPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata-only open repaired missing event log: %v", err)
 	}
-	repairedEventLog, err := repaired.MaterializeEventLog()
-	if err != nil {
+	if _, err := repaired.MaterializeEventLog(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("materialize missing event log: %v", err)
-	}
-	if mustEventLogRevision(repairedEventLog) != 0 {
-		t.Fatalf("repaired event-log revision = %d, want fresh empty conversation", mustEventLogRevision(repairedEventLog))
-	}
-	if mustEventLogFreshness(repairedEventLog) != session.ConversationFreshnessFresh {
-		t.Fatalf("repaired freshness = %q, want fresh", mustEventLogFreshness(repairedEventLog))
 	}
 
 	reopened, err := session.OpenByID(
@@ -1250,15 +1243,11 @@ func TestMissingEventLogRepairOccursAtEventUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session.OpenByID reopen: %v", err)
 	}
-	reopenedEventLog, err := reopened.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("materialize reopened event log: %v", err)
+	if _, err := reopened.MaterializeEventLog(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("materialize reopened missing event log: %v", err)
 	}
-	if mustEventLogRevision(reopenedEventLog) != 0 {
-		t.Fatalf("reopened event-log revision = %d, want fresh empty conversation", mustEventLogRevision(reopenedEventLog))
-	}
-	if mustEventLogFreshness(reopenedEventLog) != session.ConversationFreshnessFresh {
-		t.Fatalf("reopened freshness = %q, want fresh", mustEventLogFreshness(reopenedEventLog))
+	if meta := reopened.Meta(); !meta.ConversationEstablished || meta.LastSequence != sess.Meta().LastSequence {
+		t.Fatalf("failed event use erased retained Session facts: %+v", meta)
 	}
 }
 

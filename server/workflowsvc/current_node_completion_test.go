@@ -112,7 +112,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 		initialBranchControllerRunner{},
 		authority,
 		service.taskMutations,
-		workflowexecution.CurrentNodeControllerConfig{AgentConcurrency: 1, AssignmentSteerer: initialBranchControllerSteerer{}},
+		workflowexecution.CurrentNodeControllerConfig{AgentConcurrency: 1},
 	)
 	if err != nil {
 		t.Fatalf("NewCurrentNodeController: %v", err)
@@ -441,13 +441,11 @@ type currentNodeCompletionExecutionStub struct {
 	resumePreflight        workflowexecution.TaskResumePreflight
 	resumeEligibilityErr   error
 	resumeEligibilityCalls int
-	startPreparations      chan<- workflowexecution.TaskStartPreparation
-	startFinalizers        chan<- workflowexecution.TaskPreparationFinalizer
 	sessionID              runtimeids.SessionID
 	sessionResult          workflowstore.CurrentNodeCompletionResult
 	sessionDiagnostic      error
 	sessionErr             error
-	manualMoveAssignments  workflowstore.ManualMoveTargetAssignmentPreparer
+	manualMoveAssignments  func(context.Context, []workflowstore.CurrentNodeStartContext) ([]workflowstore.PlannedCurrentNodeSession, error)
 }
 
 func (s *currentNodeCompletionExecutionStub) configuredResumePreflight(
@@ -514,42 +512,23 @@ func (s *currentNodeCompletionExecutionStub) PreflightTaskResume(
 func (s *currentNodeCompletionExecutionStub) StartTask(
 	ctx context.Context,
 	taskID workflow.TaskID,
-	preparation workflowexecution.TaskStartPreparation,
-	finalizer workflowexecution.TaskPreparationFinalizer,
+	candidate *workflowstore.ExecutionTargetCandidate,
 ) (workflowstore.StartTaskResult, error) {
 	if s.store == nil {
 		return workflowstore.StartTaskResult{}, errors.New("workflow store is required")
 	}
-	started, err := s.store.StartTask(ctx, taskID)
+	plan, err := s.store.PlanTaskStart(ctx, taskID, candidate)
 	if err != nil {
-		return started, err
+		return workflowstore.StartTaskResult{}, err
 	}
-	if s.startPreparations != nil {
-		s.startPreparations <- preparation
-		if s.startFinalizers != nil {
-			s.startFinalizers <- finalizer
-		}
-		return started, nil
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.StartTaskResult{}, err
 	}
-	if err := preparation.Prepare(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
-		return started, err
-	}
-	if err := preparation.Commit(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
-		return started, err
-	}
-	finalizer(workflowexecution.TaskPreparationFinalization{Kind: workflowexecution.TaskPreparationHandedOff})
-	return started, nil
+	return s.store.CommitTaskStart(ctx, plan, sessions)
 }
 
-func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, taskID workflow.TaskID) (workflowexecution.TaskResumeResult, error) {
+func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, taskID workflow.TaskID, candidate *workflowstore.ExecutionTargetCandidate) (workflowexecution.TaskResumeResult, error) {
 	if s.store == nil {
 		return workflowexecution.TaskResumeResult{}, errors.New("workflow store is required")
 	}
@@ -557,53 +536,25 @@ func (s *currentNodeCompletionExecutionStub) ResumeTask(ctx context.Context, tas
 	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	for _, currentNode := range selected {
-		if _, _, err := s.store.ResumeCurrentNode(ctx, currentNode.Reference); err != nil {
-			return workflowexecution.TaskResumeResult{}, err
-		}
+	references := make([]workflow.CurrentNodeReference, len(selected))
+	for i, node := range selected {
+		references[i] = node.Reference
 	}
-	return workflowexecution.TaskResumeResult{
-		Outcome:      workflowexecution.TaskResumeApplied,
-		CurrentNodes: selected,
-	}, nil
-}
-
-func (s *currentNodeCompletionExecutionStub) ResumeTaskWithPreparation(
-	ctx context.Context,
-	taskID workflow.TaskID,
-	preparation workflowexecution.TaskStartPreparation,
-	finalizer workflowexecution.TaskPreparationFinalizer,
-) (workflowexecution.TaskResumeResult, error) {
-	if s.store == nil {
-		return workflowexecution.TaskResumeResult{}, errors.New("workflow store is required")
-	}
-	selected, err := s.store.InterruptedExecutableCurrentNodes(ctx, taskID)
+	plan, err := s.store.PlanTaskResume(ctx, taskID, references, candidate)
 	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	if err := preparation.Prepare(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	if err := preparation.Commit(ctx); err != nil {
-		finalizer(workflowexecution.TaskPreparationFinalization{
-			Kind:  workflowexecution.TaskPreparationFailed,
-			Cause: err,
-		})
+	resumed, err := s.store.CommitTaskResume(ctx, plan, sessions)
+	if err != nil {
 		return workflowexecution.TaskResumeResult{}, err
 	}
-	for _, currentNode := range selected {
-		if _, _, err := s.store.ResumeCurrentNode(ctx, currentNode.Reference); err != nil {
-			return workflowexecution.TaskResumeResult{}, err
-		}
-	}
-	finalizer(workflowexecution.TaskPreparationFinalization{Kind: workflowexecution.TaskPreparationHandedOff})
 	return workflowexecution.TaskResumeResult{
 		Outcome:      workflowexecution.TaskResumeApplied,
-		CurrentNodes: selected,
+		CurrentNodes: resumed.CurrentNodes,
 	}, nil
 }
 
@@ -611,7 +562,15 @@ func (s *currentNodeCompletionExecutionStub) ApplyPendingApproval(ctx context.Co
 	if s.store == nil {
 		return workflowstore.PendingApprovalApplyResult{}, errors.New("workflow store is required")
 	}
-	return s.store.ApplyPendingApproval(ctx, approvalID)
+	plan, err := s.store.PlanPendingApproval(ctx, approvalID)
+	if err != nil {
+		return workflowstore.PendingApprovalApplyResult{}, err
+	}
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.PendingApprovalApplyResult{}, err
+	}
+	return s.store.CommitPendingApproval(ctx, plan, sessions)
 }
 
 func (s *currentNodeCompletionExecutionStub) ApplyManualMove(
@@ -622,17 +581,22 @@ func (s *currentNodeCompletionExecutionStub) ApplyManualMove(
 	if s.store == nil {
 		return workflowstore.ManualMoveResult{}, errors.New("workflow store is required")
 	}
-	if s.manualMoveAssignments != nil {
-		return s.store.ApplyManualMoveWithTargetAssignments(ctx, prepared, candidate, s.manualMoveAssignments)
+	plan, err := s.store.PlanManualMove(ctx, prepared, candidate)
+	if err != nil {
+		return workflowstore.ManualMoveResult{}, err
 	}
-	return s.store.ApplyManualMove(ctx, prepared, candidate)
+	sessions, err := s.manualMoveAssignments(ctx, plan.StartContexts())
+	if err != nil {
+		return workflowstore.ManualMoveResult{}, err
+	}
+	return s.store.CommitManualMove(ctx, plan, sessions)
 }
 
 func (s *currentNodeCompletionExecutionStub) Interrupt(context.Context, workflowexecution.InterruptSelector) error {
 	return nil
 }
 
-func (*currentNodeCompletionExecutionStub) RunManualMove(ctx context.Context, operation func(context.Context) error) error {
+func (*currentNodeCompletionExecutionStub) RunTaskOperation(ctx context.Context, operation func(context.Context) error) error {
 	return operation(ctx)
 }
 

@@ -27,7 +27,6 @@ type Store struct {
 	priorValuesContract jsoncontract.Internal
 	roleResolver        workflow.RoleResolver
 	now                 func() time.Time
-	approvalGate        chan struct{}
 	graphSaves          *mutationlane.MutationLaneRegistry[runtimeids.WorkflowID]
 	eventMu             sync.RWMutex
 	eventSink           WorkflowEventPublisher
@@ -87,7 +86,6 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 		queries:             metadataStore.Queries(),
 		priorValuesContract: priorValues,
 		now:                 func() time.Time { return time.Now().UTC() },
-		approvalGate:        make(chan struct{}, 1),
 		graphSaves:          mutationlane.NewMutationLaneRegistry[runtimeids.WorkflowID](),
 		eventSink:           noopWorkflowEventPublisher{},
 		invariantPolicy:     invariant.NewPolicy(invariant.WithSink(workflowInvariantSlogSink{})),

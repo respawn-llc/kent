@@ -14,14 +14,12 @@ import (
 )
 
 type currentNodeFanoutTarget struct {
-	BranchKey      workflow.TransitionBranchKey
 	CurrentNode    workflow.CurrentNode
 	Node           workflow.Node
-	NodeKind       workflow.NodeKind
 	LegacyFallback *legacyContinuationSourceFallbackDetail
 }
 
-func completeCurrentNodeFanout(
+func planCurrentNodeFanout(
 	ctx context.Context,
 	q *sqlitegen.Queries,
 	policy invariant.Policy,
@@ -71,7 +69,6 @@ func completeCurrentNodeFanout(
 			checkLegacyContinuationSourceBeforeMutation(policy, *materializedTarget.LegacyFallback)
 		}
 		preparedTargets = append(preparedTargets, currentNodeFanoutTarget{
-			BranchKey:      branchKey,
 			CurrentNode:    targetCurrentNode,
 			Node:           target.Node,
 			LegacyFallback: materializedTarget.LegacyFallback,
@@ -106,9 +103,6 @@ func completeCurrentNodeFanout(
 		if err != nil {
 			return CurrentNodeCompletionResult{}, err
 		}
-		if err := insertPendingApproval(ctx, q, approval); err != nil {
-			return CurrentNodeCompletionResult{}, err
-		}
 		result := CurrentNodeCompletionResult{PendingApproval: &approval}
 		for _, target := range preparedTargets {
 			if target.LegacyFallback != nil {
@@ -116,9 +110,6 @@ func completeCurrentNodeFanout(
 			}
 		}
 		return result, nil
-	}
-	if err := replaceCurrentNodeWithFanout(ctx, q, currentSource.Reference, preparedTargets, createdAt); err != nil {
-		return CurrentNodeCompletionResult{}, err
 	}
 	created := make([]workflow.CurrentNode, 0, len(preparedTargets))
 	for _, target := range preparedTargets {
@@ -145,33 +136,6 @@ func completeCurrentNodeFanout(
 		}
 	}
 	return result, nil
-}
-
-func replaceCurrentNodeWithFanout(
-	ctx context.Context,
-	q *sqlitegen.Queries,
-	source workflow.CurrentNodeReference,
-	targets []currentNodeFanoutTarget,
-	associatedAt time.Time,
-) error {
-	if source.IsBranchScoped() {
-		return errors.New("nested fan-out current node completion is not supported")
-	}
-	created := make([]workflow.CurrentNode, 0, len(targets))
-	for _, target := range targets {
-		created = append(created, target.CurrentNode)
-	}
-	if err := validateFanoutTargets(source.TaskID, created); err != nil {
-		return err
-	}
-	removed, err := deleteTaskCurrentNode(ctx, q, source)
-	if err != nil {
-		return err
-	}
-	if removed != 1 {
-		return errors.New("fan-out source current node is no longer current")
-	}
-	return insertFrozenTaskFanoutTargets(ctx, q, source.TaskID, targets, associatedAt)
 }
 
 func validateFanoutTargets(taskID workflow.TaskID, targets []workflow.CurrentNode) error {
@@ -221,50 +185,4 @@ func insertTaskFanoutTargets(
 		}
 	}
 	return nil
-}
-
-func insertFrozenTaskFanoutTargets(
-	ctx context.Context,
-	q *sqlitegen.Queries,
-	taskID workflow.TaskID,
-	targets []currentNodeFanoutTarget,
-	associatedAt time.Time,
-) error {
-	created := make([]workflow.CurrentNode, 0, len(targets))
-	for _, target := range targets {
-		created = append(created, target.CurrentNode)
-	}
-	if err := validateFanoutTargets(taskID, created); err != nil {
-		return err
-	}
-	if err := q.InsertTaskActiveFanout(ctx, string(taskID)); err != nil {
-		return err
-	}
-	for _, target := range targets {
-		branchKey, _ := target.CurrentNode.Reference.TransitionBranchKey()
-		if err := q.InsertTaskActiveFanoutBranch(ctx, sqlitegen.InsertTaskActiveFanoutBranchParams{
-			TaskID:              string(taskID),
-			TransitionBranchKey: string(branchKey),
-		}); err != nil {
-			return err
-		}
-		nodeKind, err := target.nodeKind()
-		if err != nil {
-			return err
-		}
-		if err := insertTaskCurrentNodeWithKind(ctx, q, target.CurrentNode, nodeKind, associatedAt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (target currentNodeFanoutTarget) nodeKind() (workflow.NodeKind, error) {
-	if target.NodeKind != "" {
-		return target.NodeKind, nil
-	}
-	if target.Node != nil {
-		return target.Node.Kind(), nil
-	}
-	return "", errors.New("fan-out target node kind is required")
 }

@@ -35,10 +35,6 @@ type uiStatusConfig struct {
 }
 
 type uiStatusCollector interface {
-	Collect(ctx context.Context, req uiStatusRequest) (uiStatusSnapshot, error)
-}
-
-type uiStatusProgressiveCollector interface {
 	CollectBase(req uiStatusRequest) uiStatusSnapshot
 	CollectAuth(ctx context.Context, req uiStatusRequest, base uiStatusSnapshot) uiStatusAuthStageResult
 	CollectGit(ctx context.Context, req uiStatusRequest, base uiStatusSnapshot) uiStatusGitStageResult
@@ -69,12 +65,6 @@ type uiStatusSeedResult = status.SeedResult
 type uiStatusAuthStageResult = status.AuthStageResult
 type uiStatusGitStageResult = status.GitStageResult
 type uiStatusEnvironmentStageResult = status.EnvironmentStageResult
-
-type statusRefreshDoneMsg struct {
-	token    uint64
-	snapshot uiStatusSnapshot
-	err      error
-}
 
 type statusBaseRefreshDoneMsg struct {
 	token    uint64
@@ -188,14 +178,12 @@ func defaultUIStatusCollector() status.Collector {
 		RequestTimeout:         statusRefreshTimeout,
 		GitTimeout:             statusGitTimeout,
 		SessionNameReadTimeout: uiRuntimeReadTimeout,
-		EnvSanitizer:           sanitizedGitEnv,
 	}
 }
 
 func (m *uiModel) openStatusOverlay() {
 	m.status.open = true
 	m.status.scroll = 0
-	m.status.error = ""
 	m.status.loading = false
 	m.status.pendingSections = nil
 	m.status.sectionWarnings = nil
@@ -283,37 +271,28 @@ func (m *uiModel) statusRefreshCmd() tea.Cmd {
 	}
 	collectorRequest := request
 	collectorRequest.Runtime = m.engine
-	if progressive, ok := collector.(uiStatusProgressiveCollector); ok {
-		seedBase := defaultUIStatusCollector().CollectBase(request)
-		seed := uiStatusSeedResult{Snapshot: seedBase}
-		if m.statusRepository != nil {
-			seed = m.statusRepository.SeedSnapshot(request, seedBase, request.CurrentTime)
-		}
-		m.status.snapshot = seed.Snapshot
-		m.status.error = ""
-		m.status.pendingSections = nil
-		m.status.sectionWarnings = seed.Warnings
-		m.startStatusSectionRefresh(append([]uiStatusSection{uiStatusSectionBase}, seed.PendingSections...)...)
-		cmds := make([]tea.Cmd, 0, len(seed.PendingSections)+1)
-		cmds = append(cmds, m.statusBaseRefreshCmd(token, collectorRequest, progressive))
-		for _, section := range seed.PendingSections {
-			switch section {
-			case uiStatusSectionAuth:
-				cmds = append(cmds, m.statusAuthRefreshCmd(token, collectorRequest, progressive, seedBase))
-			case uiStatusSectionGit:
-				cmds = append(cmds, m.statusGitRefreshCmd(token, request.CacheKeys.Git, collectorRequest, progressive, seedBase, false))
-			case uiStatusSectionEnvironment:
-				cmds = append(cmds, m.statusEnvironmentRefreshCmd(token, request.CacheKeys.Environment, collectorRequest, progressive, seedBase))
-			}
-		}
-		return tea.Batch(cmds...)
+	seedBase := defaultUIStatusCollector().CollectBase(request)
+	seed := uiStatusSeedResult{Snapshot: seedBase}
+	if m.statusRepository != nil {
+		seed = m.statusRepository.SeedSnapshot(request, seedBase, request.CurrentTime)
 	}
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
-		defer cancel()
-		snapshot, err := collector.Collect(ctx, collectorRequest)
-		return statusRefreshDoneMsg{token: token, snapshot: snapshot, err: err}
+	m.status.snapshot = seed.Snapshot
+	m.status.pendingSections = nil
+	m.status.sectionWarnings = seed.Warnings
+	m.startStatusSectionRefresh(append([]uiStatusSection{uiStatusSectionBase}, seed.PendingSections...)...)
+	cmds := make([]tea.Cmd, 0, len(seed.PendingSections)+1)
+	cmds = append(cmds, m.statusBaseRefreshCmd(token, collectorRequest, collector))
+	for _, section := range seed.PendingSections {
+		switch section {
+		case uiStatusSectionAuth:
+			cmds = append(cmds, m.statusAuthRefreshCmd(token, collectorRequest, collector, seedBase))
+		case uiStatusSectionGit:
+			cmds = append(cmds, m.statusGitRefreshCmd(token, request.CacheKeys.Git, collectorRequest, collector, seedBase, false))
+		case uiStatusSectionEnvironment:
+			cmds = append(cmds, m.statusEnvironmentRefreshCmd(token, request.CacheKeys.Environment, collectorRequest, collector, seedBase))
+		}
 	}
+	return tea.Batch(cmds...)
 }
 
 func (m *uiModel) statusLineGitRefreshCmd() tea.Cmd {
@@ -323,10 +302,6 @@ func (m *uiModel) statusLineGitRefreshCmd() tea.Cmd {
 	if collector == nil {
 		collector = defaultUIStatusCollector()
 	}
-	progressive, ok := collector.(uiStatusProgressiveCollector)
-	if !ok {
-		progressive = defaultUIStatusCollector()
-	}
 	gitRoot := status.GitRoot(request)
 	if strings.TrimSpace(gitRoot) == "" {
 		return nil
@@ -335,10 +310,10 @@ func (m *uiModel) statusLineGitRefreshCmd() tea.Cmd {
 	cacheKey := status.GitCacheKey(gitRoot)
 	m.statusGitBackgroundInFlight = true
 	request.Runtime = m.engine
-	return m.statusGitRefreshCmd(token, cacheKey, request, progressive, base, true)
+	return m.statusGitRefreshCmd(token, cacheKey, request, collector, base, true)
 }
 
-func (m *uiModel) statusBaseRefreshCmd(token uint64, request uiStatusRequest, collector uiStatusProgressiveCollector) tea.Cmd {
+func (m *uiModel) statusBaseRefreshCmd(token uint64, request uiStatusRequest, collector uiStatusCollector) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
@@ -347,7 +322,7 @@ func (m *uiModel) statusBaseRefreshCmd(token uint64, request uiStatusRequest, co
 	}
 }
 
-func (m *uiModel) statusAuthRefreshCmd(token uint64, request uiStatusRequest, collector uiStatusProgressiveCollector, base uiStatusSnapshot) tea.Cmd {
+func (m *uiModel) statusAuthRefreshCmd(token uint64, request uiStatusRequest, collector uiStatusCollector, base uiStatusSnapshot) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
@@ -355,7 +330,7 @@ func (m *uiModel) statusAuthRefreshCmd(token uint64, request uiStatusRequest, co
 	}
 }
 
-func (m *uiModel) statusGitRefreshCmd(token uint64, cacheKey string, request uiStatusRequest, collector uiStatusProgressiveCollector, base uiStatusSnapshot, background bool) tea.Cmd {
+func (m *uiModel) statusGitRefreshCmd(token uint64, cacheKey string, request uiStatusRequest, collector uiStatusCollector, base uiStatusSnapshot, background bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
@@ -363,7 +338,7 @@ func (m *uiModel) statusGitRefreshCmd(token uint64, cacheKey string, request uiS
 	}
 }
 
-func (m *uiModel) statusEnvironmentRefreshCmd(token uint64, cacheKey string, request uiStatusRequest, collector uiStatusProgressiveCollector, base uiStatusSnapshot) tea.Cmd {
+func (m *uiModel) statusEnvironmentRefreshCmd(token uint64, cacheKey string, request uiStatusRequest, collector uiStatusCollector, base uiStatusSnapshot) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()

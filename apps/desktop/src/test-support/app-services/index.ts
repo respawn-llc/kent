@@ -143,7 +143,6 @@ export const startupRoutes: readonly FakeRoute[] = [
             ready: true,
             serverId: "server-1",
             serverVersion: "1.3.0",
-            serverBuild: "1.3.0",
             protocolVersion,
             authReady: true,
             authRequired: true,

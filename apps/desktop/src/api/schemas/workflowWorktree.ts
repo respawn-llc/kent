@@ -6,15 +6,10 @@ import {
   RegisteredFactsSchema,
   type RegisteredFacts,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
-import { LockedExecutionTargetDetailsSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 
 import { ContractError, RpcError } from "../errors";
 import { rpcErrorCodes } from "../rpcErrorCodes";
-import { parseSetupOperationID, type SetupOperationID } from "../setupOperationID";
-import { nonBlankString } from "./common";
-import { workflowExecutionTargetSelectionSchema } from "./workflowExecutionTarget";
 
-const nullableNonBlank = nonBlankString.nullable();
 const registeredWorktreeWireSchema = z
   .object({
     variant: z.literal("registered"),
@@ -44,84 +39,6 @@ export const retainedPreviousWorktreeSchema = z
   .object({ worktree: workflowRegisteredWorktreeSchema })
   .strict();
 export type RetainedPreviousWorktree = z.output<typeof retainedPreviousWorktreeSchema>;
-
-const recoveryWorktreeSchema = z
-  .object({ worktree_id: nonBlankString, root: nonBlankString })
-  .strict()
-  .transform((value) => ({ worktreeID: value.worktree_id, root: value.root }));
-const setupOperationIDSchema = z.string().transform((value, context): SetupOperationID => {
-  try {
-    return parseSetupOperationID(value);
-  } catch {
-    context.addIssue({ code: "custom", message: "Setup operation id must be a UUID v4." });
-    return z.NEVER;
-  }
-});
-const taskSetupRecoverySchema = z
-  .object({
-    setup_operation_id: setupOperationIDSchema,
-    cause: z.enum(["process_exit", "timeout", "target_preparation", "operational"]),
-    diagnostic: nonBlankString,
-    script_path: nullableNonBlank,
-    setup_requirement: z.enum(["required", "already_completed"]),
-    execution_target: workflowExecutionTargetSelectionSchema,
-    retained_worktree: recoveryWorktreeSchema.nullable(),
-    retained_previous_worktree: recoveryWorktreeSchema.nullable(),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    const scriptFailure = value.cause !== "target_preparation";
-    if (scriptFailure && (value.script_path === null || value.retained_worktree === null)) {
-      context.addIssue({ code: "custom", message: "Setup failure requires script and Worktree facts." });
-    }
-    if (!scriptFailure && value.script_path !== null) {
-      context.addIssue({ code: "custom", message: "Target preparation cannot include a setup script." });
-    }
-  })
-  .transform((value) => ({
-    setupOperationID: value.setup_operation_id,
-    cause: value.cause,
-    diagnostic: value.diagnostic,
-    scriptPath: value.script_path,
-    executionTarget: value.execution_target,
-    retainedWorktree: value.retained_worktree,
-    retainedPreviousWorktree: value.retained_previous_worktree,
-  }));
-export type TaskSetupRecovery = z.output<typeof taskSetupRecoverySchema> &
-  Readonly<{ recoveryDisposition: SetupRecoveryDisposition }>;
-const taskSetupRecoveryEnvelopeSchema = z
-  .object({
-    setup_recovery: taskSetupRecoverySchema.optional(),
-    original_execution_target_unavailable: z.json().optional(),
-  })
-  .loose();
-
-export function parseTaskSetupRecoveryDetail(detailJSON: string | null): TaskSetupRecovery | null {
-  if (detailJSON === null) return null;
-  let detail: unknown;
-  try {
-    detail = JSON.parse(detailJSON);
-  } catch {
-    throw new ContractError("Task setup recovery detail was not valid JSON.");
-  }
-  const parsed = taskSetupRecoveryEnvelopeSchema.safeParse(detail);
-  if (!parsed.success) {
-    throw new ContractError(
-      "Task setup recovery detail did not match GUI contract.",
-      parsed.error.issues.map((issue) => ({ code: issue.code, path: issue.path.map(String) })),
-    );
-  }
-  const recovery = parsed.data.setup_recovery;
-  if (recovery === undefined) return null;
-  const originalUnavailable = parsed.data.original_execution_target_unavailable;
-  if (originalUnavailable !== undefined) {
-    decodeJson(LockedExecutionTargetDetailsSchema, originalUnavailable);
-  }
-  return {
-    ...recovery,
-    recoveryDisposition: originalUnavailable === undefined ? "retry_existing" : "fresh_replacement",
-  };
-}
 
 type SetupRecoveryDisposition = "retry_existing" | "fresh_replacement";
 

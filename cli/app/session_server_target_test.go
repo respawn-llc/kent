@@ -126,7 +126,8 @@ func startConfiguredDaemonFixture(
 	authHandler serverstartup.AuthHandler,
 ) *configuredDaemonFixture {
 	t.Helper()
-	daemon, err := serverstartup.StartServeServer(context.Background(), request, authHandler, autoOnboarding)
+	writeAppTestSettings(t)
+	daemon, err := serverstartup.StartServeServer(context.Background(), request, authHandler)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -279,7 +280,7 @@ func TestStartupReadinessAllowsActivatedNoAuthOnboarding(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
-	}, memoryAuthHandler{}, nil)
+	}, memoryAuthHandler{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -925,30 +926,50 @@ func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActi
 		}
 
 		call := llm.ToolCall{
-			ID:   uuid.NewString(),
-			Name: string(toolspec.ToolExecCommand),
-			Input: mustJSON(map[string]any{
-				"cmd":            command,
-				"user_initiated": true,
-			}),
+			ID:    uuid.NewString(),
+			Name:  string(toolspec.ToolExecCommand),
+			Input: mustJSON(map[string]string{"cmd": command}),
 		}
-		committed, steerErr := runCommandAcceptance(accept, func() (bool, error) {
-			receipt, err := e.steerWithCommitReceipt(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}}))
-			return receipt.Committed, err
+		accepted, acceptErr := runCommandAcceptance(accept, func() (bool, error) {
+			// Acceptance commits live server-owned work. Its user message is
+			// recorded once the command tool has returned its formatted output.
+			return true, nil
 		})
-		if err := commandAcceptanceResult(committed, steerErr); err != nil {
+		if err := commandAcceptanceResult(accepted, acceptErr); err != nil {
 			return err
 		}
 		_, registered := e.registry.Get(toolspec.ToolExecCommand)
-		results, execErr := e.executeToolCalls(stepCtx, stepID, []llm.ToolCall{call})
-		if len(results) == 0 {
-			return errors.Join(execErr, errors.New("shell tool execution returned no result"))
+		var completed bool
+		var execErr error
+		result, completed, execErr = e.executePreparedToolCall(
+			stepCtx, stepID, activeRunIDForStep(e, stepID), call,
+			toolspec.ToolExecCommand, true, nil, nil,
+		)
+		if !completed {
+			if execErr == nil {
+				execErr = errors.New("shell tool execution returned no result")
+			}
+			result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
 		}
-		result = results[0]
+		var output string
+		if decodeErr := json.Unmarshal(result.Output, &output); decodeErr != nil {
+			return errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", decodeErr))
+		}
+		message := llm.Message{
+			Role:           llm.RoleUser,
+			MessageType:    textutil.Value(llm.MessageTypeUserShellCommand),
+			Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command, output)),
+			CompactContent: textutil.Value(command),
+		}
+		_, persistErr := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
+			return struct{}{}, e.steer(stepID, steerMessagesWithPersistenceIntent(
+				steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message},
+			))
+		})
 		if !registered {
-			return errors.Join(execErr, errUnknownTool)
+			execErr = errors.Join(execErr, errUnknownTool)
 		}
-		return execErr
+		return errors.Join(execErr, persistErr)
 	})
 	return result, err
 }

@@ -1,12 +1,9 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"context"
 	"core/cli/app/commands"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	"core/shared/textutil"
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
@@ -321,15 +318,14 @@ func TestSlashCommandPickerAuthRefreshUsesBoundedStatusTimeout(t *testing.T) {
 }
 
 func TestSlashCommandPickerAlwaysShowsCopyWithoutReadingCachedRuntimeStatus(t *testing.T) {
-	client := &runtimeControlFakeClient{
-		status: &runtimepb.Status{LastCommittedAssistantFinalAnswer: textutil.Value("done")}}
+	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client)
 	testSetMainInput(m, "/co")
 	m.refreshSlashCommandFilterFromInputWithAuth(true)
 
 	state := m.slashCommandPicker()
 	if !slashPickerContainsCommand(state, "copy") {
-		t.Fatalf("expected /copy from cached runtime status, got %+v", slashPickerCommandNames(state))
+		t.Fatalf("expected /copy without runtime status, got %+v", slashPickerCommandNames(state))
 	}
 	if client.refreshMainViewCalls != 0 {
 		t.Fatalf("slash picker refreshed runtime status %d times, want 0", client.refreshMainViewCalls)

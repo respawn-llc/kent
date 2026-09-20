@@ -112,6 +112,9 @@ func renderCommittedRow(
 		}
 		role, text := noticeRoleAndText(row.GetNotice(), row.Visibility, mode)
 		meta := toolMeta{}
+		if role == StyleRoleToolShell {
+			meta.RenderHint = &transcript.ToolRenderHint{Kind: transcript.ToolRenderKindPlain}
+		}
 		if noticeUsesConfigurationSymbol(row.GetNotice()) {
 			symbol := ConfigurationSymbol
 			meta.SymbolText = &symbol
@@ -901,6 +904,8 @@ func noticeStyleRole(row *transcriptpb.NoticeRow) StyleRole {
 		return StyleRoleNoticePrimary
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
 		return StyleRoleUser
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_USER_SHELL_COMMAND:
+		return StyleRoleToolShell
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE:
 		return StyleRoleNoticeForeground
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE_EXIT:

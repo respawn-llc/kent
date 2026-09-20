@@ -67,26 +67,6 @@ func (s *Store) ReplacePendingInitialManagedBranchName(ctx context.Context, task
 	return nil
 }
 
-func (s *Store) LockTaskExecutionTarget(ctx context.Context, taskID workflow.TaskID, candidate *ExecutionTargetCandidate) error {
-	task, err := s.queries.GetTask(ctx, string(taskID))
-	if err != nil {
-		return err
-	}
-	prepared, err := s.prepareExecutionTargetMutation(ctx, task, candidate)
-	if err != nil {
-		return err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := applyPreparedExecutionTargetMutation(ctx, s.queries.WithTx(tx), task, prepared, s.now().UnixMilli()); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func (s *Store) GetTaskExecutionTargetContext(ctx context.Context, taskID workflow.TaskID) (TaskExecutionTargetContext, error) {
 	task, err := s.queries.GetTask(ctx, strings.TrimSpace(string(taskID)))
 	if err != nil {
@@ -413,14 +393,14 @@ func validateExecutionTargetCandidateForTask(ctx context.Context, q *sqlitegen.Q
 	if candidate.Snapshot.Mode == workflow.ExecutionTargetModeNone {
 		return nil
 	}
+	root, err := executionRootForManagedWorktree(ctx, q, sourceWorkspace, candidate.Root.Managed.WorktreeID)
+	if err != nil {
+		return err
+	}
+	if root.EffectiveRoot() != candidate.Root.EffectiveRoot() {
+		return errors.New("execution root differs from registered Worktree")
+	}
 	if mode == executionTargetReplacement {
-		root, err := executionRootForManagedWorktree(ctx, q, sourceWorkspace, candidate.Root.Managed.WorktreeID)
-		if err != nil {
-			return err
-		}
-		if root.EffectiveRoot() != candidate.Root.EffectiveRoot() {
-			return errors.New("replacement execution root differs from registered Worktree")
-		}
 		count, err := q.CountTaskManagedWorktreeReferences(ctx, nullableString(candidate.Root.Managed.WorktreeID))
 		if err != nil {
 			return err

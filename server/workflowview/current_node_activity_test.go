@@ -106,6 +106,7 @@ func TestActivityOrdersAndPaginatesCanonicalSources(t *testing.T) {
 func TestActivityUsesActivityIDAsEqualTimeTieBreakerAndReflectsCommentEdits(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Activity ordering")
+	fixture.setSessionCreatedAt(t, fixture.bindCurrentNodeSession(t, started), 1_000)
 	first, err := fixture.store.AddComment(fixture.ctx, started.task.ID, "First", "user", "user-1")
 	if err != nil {
 		t.Fatalf("AddComment first: %v", err)
@@ -117,7 +118,7 @@ func TestActivityUsesActivityIDAsEqualTimeTieBreakerAndReflectsCommentEdits(t *t
 	fixture.setCommentUpdatedAt(t, first.ID, 5_000)
 	fixture.setCommentUpdatedAt(t, second.ID, 5_000)
 
-	limit := 10
+	limit := 2
 	page, err := fixture.activity.List(fixture.ctx, serverapi.WorkflowTaskOffsetPageRequest{
 		TaskID: string(started.task.ID),
 		Limit:  &limit,
@@ -183,7 +184,7 @@ func TestActivityPaginatesLargeTaskHistoryByOffset(t *testing.T) {
 		}
 		break
 	}
-	if total != 123 {
-		t.Fatalf("activity history returned %d items, want 123", total)
+	if total != 124 {
+		t.Fatalf("activity history returned %d items, want 123 comments and one Session", total)
 	}
 }

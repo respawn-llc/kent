@@ -97,6 +97,7 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 func TestTaskSessionsPaginatesActiveThenLargeIdleHistoryBoundedly(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Paginated Task Sessions")
+	fixture.setSessionCreatedAt(t, fixture.bindCurrentNodeSession(t, started), 500)
 	runningID := insertRetainedTaskSessionForViewTest(t, fixture, started, 2_000)
 	questionID := insertRetainedTaskSessionForViewTest(t, fixture, started, 3_000)
 	idleIDs := make([]runtimeids.SessionID, 0, 105)

@@ -349,8 +349,6 @@ message WorkspaceUnlinkBlocker {
         "'missing_history_snapshot', 'active_sessions']"
     }
   ];
-  reserved 2;
-  reserved "message";
   optional int32 count = 3 [(buf.validate.field).int32.gt = 0];
 
   option (buf.validate.message).cel = {
@@ -369,8 +367,6 @@ message ProjectDeleteBlocker {
       expression: "this in ['non_terminal_tasks', 'active_sessions']"
     }
   ];
-  reserved 2;
-  reserved "message";
   int32 count = 3 [(buf.validate.field).int32.gt = 0];
 }
 

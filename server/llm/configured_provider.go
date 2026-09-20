@@ -15,11 +15,6 @@ type EffectiveAuthStateReader interface {
 	Load(context.Context) (auth.State, error)
 }
 
-type EffectiveProviderResolution struct {
-	AuthState    auth.State
-	Capabilities ProviderCapabilities
-}
-
 // ResolveEffectiveProviderCapabilities is the sole authority for choosing
 // locked, explicitly configured, or effective-auth-derived provider
 // capabilities. A missing reader represents an effective no-auth state.
@@ -28,40 +23,26 @@ func ResolveEffectiveProviderCapabilities(
 	locked *session.LockedContract,
 	settings config.Settings,
 	authStates EffectiveAuthStateReader,
-) (EffectiveProviderResolution, error) {
+) (ProviderCapabilities, error) {
 	if capabilities, configured := ProviderCapabilitiesFromLockedOrOverride(
 		locked,
 		settings.ProviderCapabilities,
 	); configured {
 		resolved, err := ResolveRuntimeProviderCapabilities(auth.EmptyState(), settings)
 		if err != nil {
-			return EffectiveProviderResolution{}, err
+			return ProviderCapabilities{}, err
 		}
 		capabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
-		return EffectiveProviderResolution{
-			AuthState:    auth.EmptyState(),
-			Capabilities: capabilities,
-		}, nil
+		return capabilities, nil
 	}
 	authState := auth.EmptyState()
 	if authStates != nil {
 		var err error
 		authState, err = authStates.Load(ctx)
 		if err != nil {
-			return EffectiveProviderResolution{}, err
+			return ProviderCapabilities{}, err
 		}
 	}
-	capabilities, err := ProviderCapabilitiesForSettings(authState, settings)
-	if err != nil {
-		return EffectiveProviderResolution{}, err
-	}
-	return EffectiveProviderResolution{
-		AuthState:    authState,
-		Capabilities: capabilities,
-	}, nil
-}
-
-func ProviderCapabilitiesForSettings(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {
 	return ResolveRuntimeProviderCapabilities(authState, settings)
 }
 

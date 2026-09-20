@@ -707,7 +707,7 @@ func (s *Store) addManualMoveArrivedFanoutValues(
 	taskID workflow.TaskID,
 	environment *manualMoveValueEnvironment,
 ) error {
-	arrivals, _, err := currentFanoutJoinArrivals(ctx, q, taskID)
+	arrivals, _, err := currentFanoutJoinArrivals(ctx, q, taskID, nil)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil

@@ -6,20 +6,14 @@ import (
 
 	"core/server/auth"
 	"core/server/authservice"
-	"core/shared/config"
 )
 
 type headlessAuthHandler struct {
 	lookupEnv func(string) string
 }
 
-func NewHeadlessHandlers(lookupEnv func(string) string) (AuthHandler, OnboardingHandler) {
-	return headlessAuthHandler{lookupEnv: lookupEnv}, func(_ context.Context, req OnboardingRequest) (config.App, error) {
-		if !req.Config.Source.SettingsFileExists() {
-			return config.App{}, ErrOnboardingRequired
-		}
-		return req.Config, nil
-	}
+func NewHeadlessAuthHandler(lookupEnv func(string) string) AuthHandler {
+	return headlessAuthHandler{lookupEnv: lookupEnv}
 }
 
 func (h headlessAuthHandler) WrapStore(base auth.Store) auth.Store {

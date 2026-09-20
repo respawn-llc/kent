@@ -1,5 +1,6 @@
 export const executionTargetEnglish = {
   title: "Choose where this task runs",
+  preparationFailed: "Task preparation failed",
   choice: "Execution target",
   policyRequiresSelection:
     "This workflow asks you to choose an execution target the first time automation runs.",
