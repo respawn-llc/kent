@@ -12,6 +12,7 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"

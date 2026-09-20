@@ -3,6 +3,7 @@ package workflowview
 import (
 	"testing"
 
+	"core/internal/testharness/workflowfixture"
 	"core/server/workflowstore"
 	"core/shared/serverapi"
 )
@@ -47,7 +48,7 @@ func TestTaskSourceRetainsDetachedWorkspaceWithClearedReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	node := terminalNodeID(t, definition)
-	if _, err := f.store.ManualMoveTask(f.ctx, workflowstore.ManualMoveRequest{TaskID: task.ID, TargetNodeID: node}); err != nil {
+	if _, err := workflowfixture.MoveTask(t, f.ctx, f.metadata, f.store, workflowstore.ManualMoveRequest{TaskID: task.ID, TargetNodeID: node}); err != nil {
 		t.Fatal(err)
 	}
 	blockers, err := f.metadata.UnlinkProjectWorkspace(f.ctx, f.binding.ProjectID, source.WorkspaceID)
