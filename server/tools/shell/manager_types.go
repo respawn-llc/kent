@@ -391,11 +391,7 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 
 func (p *processEntry) setExited(exitCode int, state string) {
 	p.mu.Lock()
-	p.running = false
-	p.finishedAt = time.Now().UTC()
-	p.lastUpdatedAt = p.finishedAt
-	p.exitCode = &exitCode
-	p.state = state
+	p.recordExitLocked(exitCode, state)
 	stdin, log := p.detachResourcesLocked()
 	p.publishSnapshotLocked()
 	p.mu.Unlock()
@@ -411,11 +407,7 @@ func (p *processEntry) isBackgrounded() bool {
 
 func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	p.mu.Lock()
-	p.running = false
-	p.finishedAt = time.Now().UTC()
-	p.lastUpdatedAt = p.finishedAt
-	p.exitCode = &exitCode
-	p.state = state
+	p.recordExitLocked(exitCode, state)
 	stdin, log := p.detachResourcesLocked()
 	p.mu.Unlock()
 	closeDetachedResources(stdin, log)
@@ -425,6 +417,17 @@ func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	snapshot := p.publishSnapshotLocked()
 	p.mu.Unlock()
 	return snapshot
+}
+
+func (p *processEntry) recordExitLocked(exitCode int, state string) {
+	p.running = false
+	p.finishedAt = time.Now().UTC()
+	p.lastUpdatedAt = p.finishedAt
+	p.exitCode = &exitCode
+	p.state = state
+	if p.killRequested {
+		p.state = "killed"
+	}
 }
 
 func (p *processEntry) snapshot() Snapshot {
