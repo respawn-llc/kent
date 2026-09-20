@@ -362,7 +362,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	if replacement != nil {
-		if err := wiring.Engine.NotifyConnectionReplacement(*replacement); err != nil {
+		if err := wiring.Engine.PrepareConnectionReplacement(*replacement); err != nil {
 			_ = wiring.Close()
 			return nil, err
 		}

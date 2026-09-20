@@ -26,6 +26,7 @@ type transcriptRuntimeState struct {
 	liveTools               *transcriptLiveToolLedger
 	reasoning               *transcriptReasoningAggregate
 	latestRollbackCandidate *rollbacktarget.CandidateLocator
+	connectionReplacement   *config.ConnectionReplacement
 	now                     func() time.Time
 }
 
@@ -36,6 +37,18 @@ func newTranscriptRuntimeState(cwd string) *transcriptRuntimeState {
 		liveTools: newTranscriptLiveToolLedger(),
 		now:       time.Now,
 	}
+}
+
+func (s *transcriptRuntimeState) SetConnectionReplacement(replacement config.ConnectionReplacement) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connectionReplacement = &replacement
+}
+
+func (s *transcriptRuntimeState) ConnectionReplacement() *config.ConnectionReplacement {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return textutil.Pointer(s.connectionReplacement)
 }
 
 func (s *transcriptRuntimeState) SetWorkingDir(workdir string) bool {

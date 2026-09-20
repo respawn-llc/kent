@@ -111,6 +111,12 @@ function admitHydration(
   state: ChatProjectionState,
   hydration: ChatTranscriptPayloadByKind["hydration"],
 ): ChatProjectionResult {
+  const effects: ChatProjectionHostEffect[] = [
+    { kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID },
+  ];
+  if (hydration.ConnectionReplacement !== null) {
+    effects.push({ kind: "connection-replaced", replacement: hydration.ConnectionReplacement });
+  }
   const metadata: PendingMetadata = {
     sessionIdentity: hydration.SessionIdentity,
     ...statusMetadata(hydration.SessionStatus),
@@ -129,10 +135,7 @@ function admitHydration(
   return {
     state: next,
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
-    effects: [
-      { kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID },
-      ...idleEffects(next),
-    ],
+    effects: [...effects, ...idleEffects(next)],
   };
 }
 

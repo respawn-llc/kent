@@ -371,9 +371,12 @@ func (r *agentResource) publishReady(ctx context.Context) error {
 	descriptor := r.descriptorLocked()
 	engine := r.engine
 	r.mu.Unlock()
-	return r.authority.options.resourceLifecycle.ResourceReady(ctx, descriptor, engine, func() (io.Closer, error) {
+	if err := r.authority.options.resourceLifecycle.ResourceReady(ctx, descriptor, engine, func() (io.Closer, error) {
 		return r.authority.retainResource(r.ref)
-	})
+	}); err != nil {
+		return err
+	}
+	return engine.PublishConnectionReplacement()
 }
 
 func (r *agentResource) closeResource(ctx context.Context) error {

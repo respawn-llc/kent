@@ -100,13 +100,19 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 	case *transcriptpb.Event_OperationalDiagnostic:
 		return m.applyTranscriptOperationalDiagnostic(message.Event.GetOperationalDiagnostic())
 	case *transcriptpb.Event_ConnectionReplaced:
-		replacement := message.Event.GetConnectionReplaced()
-		return m.sendTransientStatusWithNoticeID(
-			fmt.Sprintf("Connection %s is unavailable; using %s.", replacement.PreviousId, replacement.CurrentId),
-			uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "",
-		)
+		return m.applyConnectionReplacement(message.Event.GetConnectionReplaced())
 	}
 	return nil
+}
+
+func (m *uiModel) applyConnectionReplacement(replacement *transcriptpb.ConnectionReplacement) tea.Cmd {
+	if replacement == nil {
+		return nil
+	}
+	return m.sendTransientStatusWithNoticeID(
+		fmt.Sprintf("Connection %s is unavailable; using %s.", replacement.PreviousId, replacement.CurrentId),
+		uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "",
+	)
 }
 
 func (m *uiModel) applyTranscriptHydration(
@@ -114,6 +120,7 @@ func (m *uiModel) applyTranscriptHydration(
 	admission runtimeTupleMergeResult,
 ) tea.Cmd {
 	var cmds []tea.Cmd
+	cmds = append(cmds, m.applyConnectionReplacement(hydration.ConnectionReplacement))
 	sessionID, err := runtimeids.ParseSessionID(hydration.SessionIdentity.SessionId)
 	if err != nil {
 		panic(err)

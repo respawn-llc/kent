@@ -146,9 +146,15 @@ function prompt(value: T.Prompt): Payloads["prompt"] {
   };
 }
 
+function connectionReplacement(value: T.ConnectionReplacement): Payloads["connection_replaced"] {
+  return { PreviousID: value.previousId, CurrentID: value.currentId };
+}
+
 function hydration(value: T.Hydration): Payloads["hydration"] {
   const tail = required(value.tailSegment);
   return {
+    ConnectionReplacement:
+      value.connectionReplacement === undefined ? null : connectionReplacement(value.connectionReplacement),
     SessionIdentity: sessionIdentity(required(value.sessionIdentity)),
     SessionStatus: sessionStatus(required(value.sessionStatus)),
     RuntimeReadModelUpdate: readModelUpdate(required(value.runtimeReadModelUpdate)),
@@ -439,7 +445,7 @@ const eventProjections: {
   connectionReplaced: (value, sequence) => ({
     sequence,
     kind: "connection_replaced",
-    payload: { PreviousID: value.previousId, CurrentID: value.currentId },
+    payload: connectionReplacement(value),
   }),
   liveRunFinished: (value, sequence) => ({
     sequence,

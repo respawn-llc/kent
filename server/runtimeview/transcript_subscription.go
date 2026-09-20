@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/shared/config"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -22,6 +23,15 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func transcriptConnectionReplacement(replacement *config.ConnectionReplacement) *transcriptpb.ConnectionReplacement {
+	if replacement == nil {
+		return nil
+	}
+	return &transcriptpb.ConnectionReplacement{
+		PreviousId: string(replacement.Previous), CurrentId: string(replacement.Current),
+	}
+}
 
 func TranscriptHydrationFromSnapshotChecked(
 	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
@@ -38,6 +48,7 @@ func TranscriptHydrationFromSnapshotChecked(
 		return nil, err
 	}
 	hydration := &transcriptpb.Hydration{TailSegment: tailSegment, ActiveAssistant: assistant}
+	hydration.ConnectionReplacement = transcriptConnectionReplacement(runtimeSnapshot.ConnectionReplacement)
 	hydration.ActiveThinkingStatus = transcriptThinkingStatusFromRuntime(runtimeSnapshot.ActiveThinkingStatus)
 	hydration.ActiveReasoningTraces, err = transcriptReasoningTracesFromRuntime(runtimeSnapshot.ActiveReasoningTraces)
 	if err != nil {
@@ -299,9 +310,7 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 		if evt.ConnectionReplacement == nil {
 			return nil, errors.New("connection replacement event has no binding change")
 		}
-		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ConnectionReplaced{ConnectionReplaced: &transcriptpb.ConnectionReplacement{
-			PreviousId: string(evt.ConnectionReplacement.Previous), CurrentId: string(evt.ConnectionReplacement.Current),
-		}}}}, nil
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ConnectionReplaced{ConnectionReplaced: transcriptConnectionReplacement(evt.ConnectionReplacement)}}}, nil
 	case runtime.EventSleepGuardFailed,
 		runtime.EventPromptHistoryPersistFailed,
 		runtime.EventContextFactsPersistFailed,

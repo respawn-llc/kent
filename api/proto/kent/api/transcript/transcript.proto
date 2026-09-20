@@ -1135,6 +1135,7 @@ message Hydration {
   repeated BackgroundActivity background_activities = 14 [(buf.validate.field).repeated.items.required = true];
   optional kent.api.runtime.ContextUsage context_usage = 15;
   optional kent.api.runtime.GoalView goal_status = 16;
+  optional ConnectionReplacement connection_replacement = 17;
   option (buf.validate.message).cel = {
     id: "kent.transcript.hydration_active_state"
     message: "hydrated active facts must be active"
