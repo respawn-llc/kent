@@ -341,35 +341,35 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 func (c *Remote) CreateWorkflow(ctx context.Context, req *workflowpb.CreateRequest) (*workflowpb.CreateSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Create"), req, &workflowpb.CreateResult{},
 		func(failure *workflowpb.CreateError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
 func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req *workflowpb.CreateAndLinkProjectRequest) (*workflowpb.CreateAndLinkProjectSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "CreateAndLinkProject"), req, &workflowpb.CreateAndLinkProjectResult{},
 		func(failure *workflowpb.CreateAndLinkProjectError) error {
-			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
 		})
 }
 
 func (c *Remote) UpdateWorkflow(ctx context.Context, req *workflowpb.UpdateRequest) (*workflowpb.GetSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Update"), req, &workflowpb.UpdateResult{},
 		func(failure *workflowpb.UpdateError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) ListWorkflows(ctx context.Context, req *workflowpb.ListRequest) (*workflowpb.ListSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "List"), req, &workflowpb.ListResult{},
 		func(failure *workflowpb.ListError) error {
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
 func (c *Remote) GetWorkflow(ctx context.Context, req *workflowpb.GetRequest) (*workflowpb.GetSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Get"), req, &workflowpb.GetResult{},
 		func(failure *workflowpb.GetError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
@@ -379,14 +379,14 @@ func (c *Remote) LinkWorkflowToProject(ctx context.Context, req *workflowpb.Link
 			if failure.GetProjectNotFound() != nil {
 				return projectNotFoundError(failure.GetProjectNotFound())
 			}
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req *workflowpb.ListProjectLinksRequest) (*workflowpb.ListProjectLinksSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("ProjectLinkService", "List"), req, &workflowpb.ListProjectLinksResult{},
 		func(failure *workflowpb.ProjectLinksListError) error {
-			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound(), failure.GetInternalFailure())
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
 		})
 }
 
@@ -396,7 +396,7 @@ func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req *workflo
 			if failure.GetProjectNotFound() != nil {
 				return projectNotFoundError(failure.GetProjectNotFound())
 			}
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
@@ -406,63 +406,63 @@ func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req *workflowpb.
 			if detail := failure.GetReplacementDefaultInvalid(); detail != nil {
 				return fmt.Errorf("replacement default workflow link is invalid for link %q", detail.LinkId)
 			}
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
 func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req *workflowpb.DeletePreviewRequest) (*workflowpb.DeletePreviewSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "DeletePreview"), req, &workflowpb.DeletePreviewResult{},
 		func(failure *workflowpb.DeletePreviewError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) DeleteWorkflow(ctx context.Context, req *workflowpb.DeleteRequest) (*workflowpb.DeleteSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Delete"), req, &workflowpb.DeleteResult{},
 		func(failure *workflowpb.DeleteError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) ValidateWorkflow(ctx context.Context, req *workflowpb.ValidateRequest) (*workflowpb.ValidateResponse, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "Validate"), req, &workflowpb.ValidateResult{},
 		func(failure *workflowpb.ValidateError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) ValidateWorkflowScriptPath(ctx context.Context, req *workflowpb.ScriptPathValidateRequest) (*workflowpb.ValidateResponse, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowDefinitionService", "ValidateScriptPath"), req, &workflowpb.ValidateScriptPathResult{},
 		func(failure *workflowpb.ValidateScriptPathError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req *workflowpb.GraphValidateDraftRequest) (*workflowpb.GraphValidateDraftSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "ValidateDraft"), req, &workflowpb.GraphValidateDraftResult{},
 		func(failure *workflowpb.GraphValidateDraftError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req *workflowpb.GraphDeriveWiringRequest) (*workflowpb.GraphDeriveWiringSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "DeriveWiring"), req, &workflowpb.GraphDeriveWiringResult{},
 		func(failure *workflowpb.GraphDeriveWiringError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req *workflowpb.GraphSavePreviewRequest) (*workflowpb.GraphSavePreviewSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "SavePreview"), req, &workflowpb.GraphSavePreviewResult{},
 		func(failure *workflowpb.GraphSavePreviewError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 
 func (c *Remote) SaveWorkflowGraph(ctx context.Context, req *workflowpb.GraphSaveRequest) (*workflowpb.GraphSaveSuccess, error) {
 	return callGeneratedBinary(c, ctx, workflowMethod("WorkflowGraphService", "Save"), req, &workflowpb.GraphSaveResult{},
 		func(failure *workflowpb.GraphSaveError) error {
-			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound(), failure.GetInternalFailure())
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
 		})
 }
 

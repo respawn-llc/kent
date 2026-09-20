@@ -79,7 +79,7 @@ func (c *Remote) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsGe
 			if detail := failure.GetTaskNotFound(); detail != nil {
 				return &WorkflowLabelError{Detail: detail}
 			}
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (c *Remote) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.Label
 			case *taskpb.LabelsUpdateError_Label:
 				return &WorkflowLabelError{Detail: detail.Label}
 			default:
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			}
 		}, func(err error) error {
 			if detail := protoapi.WorkflowTaskLabelValidationDetail(req.GetTaskId(), err); detail != nil {
@@ -132,7 +132,7 @@ func (c *Remote) CreateWorkflowProjectLabel(ctx context.Context, req *pb.Project
 			case *pb.ProjectLabelCreateError_InvalidMutation:
 				return &WorkflowLabelError{Detail: detail.InvalidMutation}
 			default:
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			}
 		}, workflowLabelRequestValidation(req.GetProjectId()))
 }
@@ -143,7 +143,7 @@ func (c *Remote) ListWorkflowProjectLabels(ctx context.Context, req *pb.ProjectL
 			if detail := failure.GetProjectNotFound(); detail != nil {
 				return &WorkflowLabelError{Detail: detail}
 			}
-			return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 	if err != nil {
 		return nil, err
@@ -169,7 +169,7 @@ func (c *Remote) RenameWorkflowProjectLabel(ctx context.Context, req *pb.Project
 			case *pb.ProjectLabelRenameError_InvalidMutation:
 				return &WorkflowLabelError{Detail: detail.InvalidMutation}
 			default:
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			}
 		}, workflowLabelRequestValidation(req.GetProjectId()))
 	if err != nil {
@@ -192,7 +192,7 @@ func (c *Remote) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.Project
 			case *pb.ProjectLabelDeleteError_InvalidMutation:
 				return &WorkflowLabelError{Detail: detail.InvalidMutation}
 			default:
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			}
 		}, workflowLabelRequestValidation(req.GetProjectId()))
 	if err != nil {
@@ -213,7 +213,7 @@ func (c *Remote) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proje
 			case *pb.ProjectLabelReorderError_InvalidMutation:
 				return &WorkflowLabelError{Detail: detail.InvalidMutation}
 			default:
-				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
+				return generatedOperationFailure(failure.Code)
 			}
 		}, workflowLabelRequestValidation(req.GetProjectId()))
 }

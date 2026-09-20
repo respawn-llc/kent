@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"core/shared/client"
+	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
 
@@ -214,13 +214,13 @@ func worktreeDeleteJSON(success *worktreepb.DeleteSuccess) (worktreeDeleteJSONOu
 }
 
 func worktreeExecutionTargetJSON(target *worktreepb.SessionExecutionTarget) (worktreeExecutionTargetOutput, error) {
-	availability, err := client.ProjectAvailabilityFromProto(target.WorkspaceAvailability)
+	availability, err := protoapi.ProjectAvailabilityFromProto(target.WorkspaceAvailability)
 	if err != nil {
 		return worktreeExecutionTargetOutput{}, err
 	}
 	var worktree *worktreeExecutionTargetItem
 	if value := target.Worktree; value != nil {
-		availability, err := client.ProjectAvailabilityFromProto(value.Availability)
+		availability, err := protoapi.ProjectAvailabilityFromProto(value.Availability)
 		if err != nil {
 			return worktreeExecutionTargetOutput{}, err
 		}
