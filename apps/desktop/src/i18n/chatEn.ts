@@ -8,6 +8,7 @@ const chatPickerEnglish = {
   declineShortcut: "Decline to answer (Ctrl+D)",
   decline: "Decline to answer",
   sendingFailed: "Sending failed",
+  sendingFailedBody: "Your answers are still here. Review them and submit again.",
 };
 
 export const chatEnglish = {

@@ -7,7 +7,7 @@ import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-faca
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
-import { parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
+import { RpcError, parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import {
   changedIdentity,
@@ -342,6 +342,50 @@ it("retries the failed opening page and observation independently once per activ
   expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
   expect(view.settings).toHaveBeenCalledOnce();
   expect(screen.getByRole("textbox")).toHaveValue("keep input");
+});
+
+it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
+  const failure = new RpcError({ code: -32603, method: "answer_batch", message: crypto.randomUUID() });
+  const view = sessionWithPrompts();
+  const prompt = question();
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    }),
+  );
+  const user = userEvent.setup();
+  await user.type(
+    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
+    "retained answer",
+  );
+  await user.click(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledOnce();
+  });
+  await act(async () => {
+    view.response.reject(failure);
+  });
+  await waitFor(() => {
+    expect(view.services.logger.entries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ context: { error: failure.message, sessionID: sessionTarget.sessionID } }),
+      ]),
+    );
+  });
+  expect(screen.getByRole("radio", { name: "one" })).toBeChecked();
+  expect(screen.getByDisplayValue("retained answer")).toBeInTheDocument();
+  expect(view.answer).toHaveBeenCalledOnce();
+  view.answer.mockResolvedValue({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
+  await user.click(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledTimes(2);
+  });
+  expect(view.answer.mock.calls[1]?.[0]).toEqual(view.answer.mock.calls[0]?.[0]);
 });
 
 it("retains pending prompt answers and commentary through a Settings read failure without replay", async () => {

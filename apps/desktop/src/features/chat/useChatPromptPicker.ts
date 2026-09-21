@@ -9,7 +9,7 @@ import { appI18n } from "@/i18n";
 import { createPromptPickerViewModel } from "./PromptPickerViewModel";
 
 export function useChatPromptPicker(target: ChatSettingsTarget | null) {
-  const { api } = useAppServices();
+  const { api, logger } = useAppServices();
   const client = useQueryClient();
   const owner = useOptionalChatRuntimeOwner();
   const presentation = useMemo(() => {
@@ -20,10 +20,14 @@ export function useChatPromptPicker(target: ChatSettingsTarget | null) {
       client,
       api: api.chat,
       onError: (error) => {
+        void logger.append("warn", "Chat prompt answer batch failed.", {
+          error: errorMessage(error),
+          sessionID: target.sessionID,
+        });
         showStatusToast({
           id: `chat-prompt-send:${target.sessionID}`,
           title: appI18n.t("chat.picker.sendingFailed"),
-          body: errorMessage(error),
+          body: appI18n.t("chat.picker.sendingFailedBody"),
           tone: "danger",
         });
       },
@@ -35,6 +39,6 @@ export function useChatPromptPicker(target: ChatSettingsTarget | null) {
       dispatch: model.dispatch,
       prompts: get(model.prompts),
     }));
-  }, [owner, client, api, target]);
+  }, [owner, client, api, logger, target]);
   return useAtomValue(presentation);
 }
