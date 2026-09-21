@@ -50,7 +50,7 @@ export { fieldLabelClassName } from "./fieldStyles";
 export { identifierInputAttributes } from "./inputAttributes";
 export { SelectField } from "./SelectField";
 export type { SelectFieldOption, SelectFieldPaging, SelectFieldProps } from "./SelectField";
-export { EmptyState, ErrorState, LoadingState } from "./StateViews";
+export { EmptyState, ErrorState, LoadingState, useDelayedAppearance } from "./StateViews";
 export { FloatingNoticeIsland } from "./FloatingNoticeIsland";
 export type { FloatingNoticeIslandProps, FloatingNoticeTone } from "./FloatingNoticeIsland";
 export { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";

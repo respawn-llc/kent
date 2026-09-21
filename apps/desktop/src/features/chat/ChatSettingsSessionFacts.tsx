@@ -46,7 +46,7 @@ export function ChatSettingsSessionFacts({
           as="button"
           onActivate={() => {
             closeAndNavigate(() => {
-              navigation.openParentSession(previousSessionID);
+              void navigation.openParentSession(previousSessionID);
             });
           }}
           reason={undefined}
@@ -80,7 +80,9 @@ export function ChatSettingsSessionFacts({
                 }}
                 reason={undefined}
               >
-                <span className="min-w-0 flex-1 truncate font-mono">{sessionID}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]">
+                  {sessionID}
+                </span>
               </SettingsRow>
             </div>
           </TooltipTrigger>

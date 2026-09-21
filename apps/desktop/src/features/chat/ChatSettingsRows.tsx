@@ -56,6 +56,7 @@ export function SettingsSwitch({
         <span className="truncate">{label}</span>
       </span>
       <Switch
+        className="after:inset-0"
         aria-label={label}
         checked={checked}
         disabled={reason !== undefined}

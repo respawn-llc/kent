@@ -2,6 +2,8 @@ import type { TFunction } from "i18next";
 
 import {
   ChatOperationError,
+  RpcError,
+  TransportError,
   errorMessage,
   type ChatError,
   type ChatSettings,
@@ -78,6 +80,7 @@ export function settingsDisabledReason(
 }
 
 const operationFailureLabels = {
+  opening: { internal: "chat.openingFailed", unknown: "chat.openingFailed" },
   settings: { internal: "chatSettings.errors.internalFailure", unknown: "chatSettings.errors.unknown" },
   edit: { internal: "chatTranscript.editFailed", unknown: "chatTranscript.editUnknownFailure" },
 } as const;
@@ -87,6 +90,11 @@ export function chatOperationFailureMessage(
   error: unknown,
   operation: keyof typeof operationFailureLabels,
 ): string {
+  if (
+    operation === "opening" &&
+    (error instanceof TransportError || (error instanceof RpcError && !(error instanceof ChatOperationError)))
+  )
+    return t("chat.openingFailed");
   if (!(error instanceof ChatOperationError)) return errorMessage(error);
   return typedChatOperationFailureMessage(t, error.detail, operationFailureLabels[operation]);
 }

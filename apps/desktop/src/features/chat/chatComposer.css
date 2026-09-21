@@ -1,5 +1,8 @@
 .chat-composer {
   min-width: 0;
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
   padding: var(--space-3);
 }
 
@@ -32,9 +35,44 @@
 
 .chat-composer-controls {
   display: flex;
+  flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
+}
+
+.chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
+.chat-composer-settings > div > button,
+.chat-composer-actions > * {
+  animation: surface-reveal var(--motion-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
+  .chat-composer-settings > div > button,
+  .chat-composer-actions > * {
+    animation: none;
+  }
+}
+
+.chat-composer-settings {
+  min-width: min(12rem, 100%);
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.chat-composer-worktree {
+  flex: 0 1 auto;
+  min-width: min(6rem, 100%);
+  max-width: 100%;
+}
+
+.chat-composer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 .chat-composer-sheet {

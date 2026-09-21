@@ -25,7 +25,7 @@ export function createComposerHistoryViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: Atom.Atom<ChatSettingsTarget>;
+  target: Atom.Atom<ChatSettingsTarget | null>;
   draft: ComposerDraftViewModel;
   pending: Atom.Atom<boolean>;
   t: TFunction;
@@ -33,14 +33,14 @@ export function createComposerHistoryViewModel({
   const owner = crypto.randomUUID();
   const current = Atom.make((get) => {
     const selected = get(target);
-    const key = ["chat-composer-history", owner, selected.kind === "session" ? selected.sessionID : null];
+    const key = ["chat-composer-history", owner, selected?.kind === "session" ? selected.sessionID : null];
     const observer = new QueryObserver<readonly string[], Error>(client, {
       ...composerReadOptions,
       queryKey: key,
       staleTime: Infinity,
       refetchOnMount: "always",
       queryFn:
-        selected.kind === "session"
+        selected?.kind === "session"
           ? async () => {
               try {
                 const entries = await services.api.chat.getPromptHistory(selected);
@@ -83,7 +83,7 @@ export function createComposerHistoryViewModel({
     (input, get) =>
       Effect.sync(() => {
         const text = input.trim();
-        if (text.length === 0 || get(target).kind !== "session") return;
+        if (text.length === 0 || get(target)?.kind !== "session") return;
         const { observer, key } = get(current);
         const entries = observer.getCurrentResult().data ?? [];
         const removed = Math.max(0, entries.length + 1 - historyLimit);

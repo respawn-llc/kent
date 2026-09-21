@@ -7,7 +7,7 @@ import type { ReadyNewChat, ReadySession, SettingsState } from "./chatSettingsSt
 
 export type ChatSettingsNavigation = Readonly<{
   openTask(taskID: string): void;
-  openParentSession(previousSessionID: string): void;
+  openParentSession(previousSessionID: string): void | Promise<void>;
 }>;
 export type ChatSettingsOptions = ChatSettingsNavigation &
   Readonly<{

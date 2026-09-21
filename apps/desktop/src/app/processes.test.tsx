@@ -30,13 +30,14 @@ it("keeps Processes polling, focus refresh and failed-Kill waiting under the pro
   vi.useFakeTimers();
   const client = createAppQueryClient();
   fixture.api.listProcesses.mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue([]);
-  const view = renderHook(() => useProcessesData("project-1"), {
+  const view = renderHook(() => useProcessesData({ projectID: "project-1", sessionID: "session-1" }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     ),
   });
   await act(async () => vi.advanceTimersByTimeAsync(1));
   expect(fixture.api.listProcesses).toHaveBeenCalledTimes(1);
+  expect(fixture.api.listProcesses).toHaveBeenCalledWith({ projectID: "project-1", sessionID: "session-1" });
   expect(view.result.current.isError).toBe(true);
   await act(async () => vi.advanceTimersByTimeAsync(1_500));
   expect(fixture.api.listProcesses).toHaveBeenCalledTimes(2);

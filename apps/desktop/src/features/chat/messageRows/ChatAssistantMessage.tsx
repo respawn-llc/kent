@@ -10,7 +10,7 @@ export function ChatAssistantMessage({
   neighbors,
 }: Readonly<{
   item: Extract<TranscriptRenderItem, { kind: "assistant" }>;
-  neighbors?: MessageNeighbors;
+  neighbors?: MessageNeighbors | undefined;
 }>) {
   return (
     <div

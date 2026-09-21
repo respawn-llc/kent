@@ -1143,14 +1143,15 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 
 func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testing.T) {
 	tests := []struct {
-		name           string
-		eventType      runtime.BackgroundShellEventType
-		previewRemoved int
-		wantLifecycle  transcriptpb.BackgroundLifecycle
+		name              string
+		eventType         runtime.BackgroundShellEventType
+		previewRemoved    int
+		userRequestedKill bool
+		wantLifecycle     transcriptpb.BackgroundLifecycle
 	}{
 		{name: "running truncated preview remains live", eventType: runtime.BackgroundShellEventBackgrounded, previewRemoved: 2, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED},
 		{name: "completed activity is terminal", eventType: runtime.BackgroundShellEventCompleted, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_COMPLETED},
-		{name: "killed activity is terminal", eventType: runtime.BackgroundShellEventKilled, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_KILLED},
+		{name: "killed activity is terminal", eventType: runtime.BackgroundShellEventKilled, userRequestedKill: true, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_KILLED},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1158,15 +1159,16 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 				Kind:   runtime.EventBackgroundUpdated,
 				StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 				Background: &runtime.BackgroundShellEvent{
-					Type:           tt.eventType,
-					ID:             uuid.NewString(),
-					ActivityID:     uuid.New(),
-					OwnerRunID:     transcriptProjectionRunID,
-					OwnerStepID:    transcriptProjectionStepID,
-					State:          string(tt.eventType),
-					Command:        "sleep 2",
-					Workdir:        "/tmp/workspace",
-					PreviewRemoved: tt.previewRemoved,
+					Type:              tt.eventType,
+					ID:                uuid.NewString(),
+					ActivityID:        uuid.New(),
+					OwnerRunID:        transcriptProjectionRunID,
+					OwnerStepID:       transcriptProjectionStepID,
+					State:             string(tt.eventType),
+					Command:           "sleep 2",
+					Workdir:           "/tmp/workspace",
+					PreviewRemoved:    tt.previewRemoved,
+					UserRequestedKill: tt.userRequestedKill,
 				},
 			})
 			if err != nil {

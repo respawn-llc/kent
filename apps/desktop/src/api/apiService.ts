@@ -90,6 +90,7 @@ import type {
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import type { ChatApi } from "./chat";
+import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
 import type { DesktopProcess } from "./processes";
 
@@ -100,7 +101,7 @@ export type ApiSubscription = Readonly<{
 export interface ApiService {
   readonly chat: ChatApi;
 
-  listProcesses(projectID: string): Promise<readonly DesktopProcess[]>;
+  listProcesses(target: ChatSessionTarget): Promise<readonly DesktopProcess[]>;
   killProcess(processID: string): Promise<void>;
   getReadiness(): Promise<ServerReadiness>;
   listProjects(pageToken: string | null): Promise<ProjectPage>;

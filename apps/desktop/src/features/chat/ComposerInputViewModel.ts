@@ -65,7 +65,7 @@ export function createComposerInputViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: Atom.Atom<ChatSettingsTarget>;
+  target: Atom.Atom<ChatSettingsTarget | null>;
   submission: Atom.Atom<ComposerSubmission>;
   draft: ComposerDraftViewModel;
   t: TFunction;
@@ -135,9 +135,10 @@ function submissionText(input: ComposerInputActivation, draft: string) {
 }
 
 function mutationTarget(
-  target: ChatSettingsTarget,
+  target: ChatSettingsTarget | null,
   submission: ComposerSubmission,
 ): ChatMutationTarget | null {
+  if (target === null) return null;
   if (target.kind === "session") return target;
   if (submission.kind !== "ready") return null;
   if (!("initialSettings" in submission)) throw new Error("Ready New Chat requires initial settings.");

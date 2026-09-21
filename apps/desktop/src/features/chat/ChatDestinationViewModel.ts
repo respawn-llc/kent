@@ -12,7 +12,7 @@ import { createNewChatGoalBinding } from "./goal/goalBinding";
 
 export type ChatDestinationOpening =
   | Extract<ChatSettingsTarget, { kind: "session" }>
-  | Readonly<{ kind: "new_chat"; projectID: string; workspace: WorkspaceCatalogRow }>;
+  | Readonly<{ kind: "new_chat"; projectID: string; workspace: WorkspaceCatalogRow | null }>;
 
 export function createChatDestinationViewModel({
   opening,
@@ -26,15 +26,17 @@ export function createChatDestinationViewModel({
   t: TFunction;
 }>) {
   const selection = Atom.make(opening);
-  const target = Atom.make<ChatSettingsTarget>((get) => {
+  const target = Atom.make<ChatSettingsTarget | null>((get) => {
     const selected = get(selection);
     return selected.kind === "session"
       ? selected
-      : {
-          kind: "new_chat",
-          projectID: selected.projectID,
-          workspace: { workspaceID: selected.workspace.id },
-        };
+      : selected.workspace === null
+        ? null
+        : {
+            kind: "new_chat",
+            projectID: selected.projectID,
+            workspace: { workspaceID: selected.workspace.id },
+          };
   });
   const settings = createChatSettingsViewModel({ services, client, t, target });
   const catalog = createChatCommandCatalogViewModel({ services, client, target });
@@ -44,15 +46,7 @@ export function createChatDestinationViewModel({
     if (value.kind === "ready-session") return { kind: "ready" };
     return "error" in value ? { kind: "failed", error: value.error } : { kind: "loading" };
   });
-  const initial: ChatSettingsTarget =
-    opening.kind === "session"
-      ? opening
-      : {
-          kind: "new_chat",
-          projectID: opening.projectID,
-          workspace: { workspaceID: opening.workspace.id },
-        };
-  const composer = createChatComposerViewModel({ services, client, target, submission, opening: initial, t });
+  const composer = createChatComposerViewModel({ services, client, target, submission, opening, t });
   const goal = createNewChatGoalBinding({
     api: services.api.chat,
     client,
@@ -92,7 +86,7 @@ export function createChatDestinationViewModel({
     (workspace, get) =>
       Effect.sync(() => {
         const current = get(selection);
-        if (current.kind !== "new_chat" || get(firstActionPending) || current.workspace.id === workspace.id)
+        if (current.kind !== "new_chat" || get(firstActionPending) || current.workspace?.id === workspace.id)
           return;
         get.set(selection, { ...current, workspace });
       }),

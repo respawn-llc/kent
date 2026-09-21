@@ -2,7 +2,7 @@ import { Circle, Square } from "lucide-react";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
+import { errorMessage, type ChatSessionTarget } from "@/api";
 import { useStatusController } from "@/app-facade";
 import {
   cx,
@@ -23,10 +23,10 @@ import { useProcessesData } from "./useProcessesData";
 const processRowEstimatedHeightPx = 80;
 const noLoad = () => undefined;
 
-export function ProcessesSidebar({ projectID }: Readonly<{ projectID: string }>): ReactElement {
+export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarget }>): ReactElement {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const data = useProcessesData(projectID);
+  const data = useProcessesData(target);
 
   if (data.processes === undefined) {
     if (data.isError) {

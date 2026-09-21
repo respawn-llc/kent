@@ -39,7 +39,7 @@ export function createNewChatGoalBinding(
   options: Readonly<{
     api: Pick<ChatApi, "setGoal">;
     client: QueryClient;
-    target: Atom.Atom<ChatSettingsTarget>;
+    target: Atom.Atom<ChatSettingsTarget | null>;
     settings: Pick<ChatSettingsViewModel, "state">;
     draft: Pick<ComposerDraftViewModel, "text" | "begin" | "resume">;
   }>,
@@ -71,7 +71,7 @@ export function createNewChatGoalBinding(
   const pending = Atom.make((get) => get(requests).isPending);
   const state = Atom.make((get): NewChatGoalBindingSnapshot => {
     const target = get(options.target);
-    if (target.kind === "session") return { kind: "resolved_session", target };
+    if (target?.kind === "session") return { kind: "resolved_session", target };
     const settings = get(options.settings.state);
     const choice =
       settings.kind === "ready-new-chat"
@@ -103,7 +103,7 @@ export function createNewChatGoalBinding(
           return;
         }
         if (
-          target.kind !== "new_chat" ||
+          target?.kind !== "new_chat" ||
           settings.kind !== "ready-new-chat" ||
           !("workspaceID" in target.workspace)
         ) {

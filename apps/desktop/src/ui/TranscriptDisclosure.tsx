@@ -147,7 +147,8 @@ function TranscriptDisclosureHeader({
   return (
     <header
       className={cx(
-        "relative grid min-h-9 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)]",
+        "relative grid min-h-[var(--space-6)] grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] gap-[var(--space-2)] px-[var(--space-2)]",
+        expanded && "py-[var(--space-1)]",
         summaryMode === "multiline" ? "items-start" : "items-center",
       )}
     >

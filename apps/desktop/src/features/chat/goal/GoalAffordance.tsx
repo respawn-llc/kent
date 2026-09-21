@@ -14,7 +14,7 @@ export function GoalAffordance({ goal, onActivate }: GoalAffordanceProps) {
   return (
     <InteractiveChip
       aria-label={t("chat.goal.objective")}
-      className="self-start justify-self-start min-h-9 px-[var(--space-3)]"
+      className="shrink-0 whitespace-nowrap"
       onClick={onActivate}
       size="default"
       tone={goal.goal?.status === "active" ? "primary" : "neutral"}

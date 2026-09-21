@@ -3,14 +3,6 @@ title: Slash Commands
 description: Available slash commands, how their input is parsed, and how file-backed custom commands are discovered.
 ---
 
-## Desktop Chat
-
-`/prompt:review` and `/prompt:init` also accept `/review` and `/init`. They reuse an idle, empty Session; otherwise they open a fresh child in the same Chat and leave the previous Session's work running. Ctrl+Enter executes these commands immediately rather than placing them in the previous Session's Queue. In New Chat, invoking either command creates its Session.
-
-File-backed commands use ordinary Send/Steer or Ctrl+Enter Queue behavior. Chat reads their catalog when opened or when its workspace or Session changes. A missing-command response refreshes the catalog without replaying the command. Catalog failures offer Retry while the built-in commands remain available.
-
-If a command creates a child and submission then fails, Chat stays on that child and restores the submitted command after any newer typing. Commands from an existing Session preserve independently saved New Chat text.
-
 ## Terminal Commands
 
 Press Tab to autocomplete a command, and Enter to autocomplete and send. Press Tab again when command matches fully to **queue** the command. This allows chains like `"commit" -> [Tab] -> "/compact" -> [Tab] -> "/prompts:open_pr" -> [Tab]`.

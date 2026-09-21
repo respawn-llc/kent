@@ -39,8 +39,8 @@ export function createComposerDraftViewModel({
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
-  target: Atom.Atom<ChatSettingsTarget>;
-  opening: ChatSettingsTarget;
+  target: Atom.Atom<ChatSettingsTarget | null>;
+  opening: (ChatSessionTarget & Readonly<{ kind: "session" }>) | Readonly<{ kind: "new_chat" }>;
   t: TFunction;
 }>) {
   const editor = Atom.make<EditorValue>({ kind: "opening", text: "", protectedInput: null });
@@ -188,7 +188,7 @@ export function createComposerDraftViewModel({
         const current = get(value);
         if (input.text !== current.text || input.protectedInput !== current.protectedInput) return;
         const captured = get(target);
-        if (captured.kind === "new_chat") {
+        if (captured === null || captured.kind === "new_chat") {
           persistLocal(input.text);
           return;
         }
@@ -200,7 +200,7 @@ export function createComposerDraftViewModel({
   const begin = Atom.fn<undefined>()(
     (_, get) =>
       Effect.sync(() => {
-        if (get(target).kind !== "new_chat") return;
+        if (get(target)?.kind === "session") return;
         persistLocal(get(text));
         get.set(persistence, "destination-owned");
       }),
@@ -209,7 +209,7 @@ export function createComposerDraftViewModel({
   const resume = Atom.fn<undefined>()(
     (_, get) =>
       Effect.sync(() => {
-        if (get(target).kind !== "new_chat") return;
+        if (get(target)?.kind === "session") return;
         get.set(persistence, "editing");
         persistLocal(get(text));
       }),
@@ -245,7 +245,7 @@ export function createComposerDraftViewModel({
     (_, get) =>
       Effect.gen(function* () {
         const selected = get(target);
-        if (selected.kind === "new_chat") {
+        if (selected === null || selected.kind === "new_chat") {
           if (get(persistence) === "editing" && observer.getCurrentResult().isSuccess)
             persistLocal(get(text));
           return true;

@@ -83,6 +83,7 @@ export function TranscriptWindowView({
           onEndChange: setAtEnd,
         }}
         estimateSize={estimateSize}
+        rowSpacing="tight"
         getItemKey={(item) => item.key}
         hasNextPage={newerAvailable && snapshot.newer.kind !== "error"}
         hasPreviousPage={olderAvailable && snapshot.older.kind !== "error"}
