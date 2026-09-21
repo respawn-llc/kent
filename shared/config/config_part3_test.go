@@ -139,23 +139,6 @@ func TestLoadExpandsTildePersistenceRootFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadOpenAIBaseURLPrecedence(t *testing.T) {
-	_, workspace, configPath := newConfigTestFile(t)
-	writeConfigTestFile(t, configPath, `openai_base_url = "http://file.local/v1"`)
-
-	t.Setenv("KENT_OPENAI_BASE_URL", "http://env.local/v1")
-	cfg, err := Load(workspace, workspace, LoadOptions{OpenAIBaseURL: "http://cli.local/v1"})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.Settings.OpenAIBaseURL != "http://cli.local/v1" {
-		t.Fatalf("expected cli openai base url, got %q", cfg.Settings.OpenAIBaseURL)
-	}
-	if got := cfg.Source.Sources["openai_base_url"].Kind; got != "cli" {
-		t.Fatalf("expected openai_base_url source cli, got %q", got)
-	}
-}
-
 func TestLoadProviderIdentifierFromFileAndEnvironment(t *testing.T) {
 	_, workspace, configPath := newConfigTestFile(t)
 	writeConfigTestFile(t, configPath, `provider_identifier = "workspace-agent"`)
@@ -227,20 +210,6 @@ func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInher
 	}
 	if normalized.Reviewer.ThinkingLevel != "" {
 		t.Fatalf("expected reviewer thinking to stay disabled, got %q", normalized.Reviewer.ThinkingLevel)
-	}
-}
-
-func TestNormalizeSettingsForPersistence_AllowsProviderOverrideWithExplicitPersistedModel(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.Model = "my-team-alias"
-	settings.ProviderOverride = "openai"
-
-	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
-	if err != nil {
-		t.Fatalf("normalize settings for persistence: %v", err)
-	}
-	if normalized.ProviderOverride != "openai" {
-		t.Fatalf("expected provider_override preserved, got %q", normalized.ProviderOverride)
 	}
 }
 

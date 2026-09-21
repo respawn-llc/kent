@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 
 	"core/prompts"
 	"core/server/auth"
+	"core/server/authservice"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -53,6 +53,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	environment          func(string) (string, bool)
 	cfg                  config.App
 	metadata             *metadata.Store
 	store                RuntimeStore
@@ -66,6 +67,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
+	Environment          func(string) (string, bool)
 	RuntimeClientFactory runtimewire.RuntimeClientFactory
 	RuntimeAuthority     *sessionruntime.Authority
 	TaskDependencies     TaskDependencyCounter
@@ -83,6 +85,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		environment:          opts.Environment,
 		cfg:                  cfg,
 		metadata:             metadataStore,
 		store:                store,
@@ -727,13 +730,13 @@ func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartCo
 	return renderWorkflowPrompt(text, workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: text, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
 }
 
-func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan, client llm.Client) (workflowruntime.CompletionMode, llm.Client, error) {
+func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan) (workflowruntime.CompletionMode, error) {
 	if plan.Locked != nil && plan.Locked.WorkflowCompletionMode != nil {
 		mode, err := workflowruntime.ParseCompletionMode(string(*plan.Locked.WorkflowCompletionMode))
 		if err != nil {
-			return "", client, fmt.Errorf("parse retained Session completion mode: %w", err)
+			return "", fmt.Errorf("parse retained Session completion mode: %w", err)
 		}
-		return mode, client, nil
+		return mode, nil
 	}
 	configured := s.cfg.Settings.Workflow.CompletionMode
 	if input.Node.CompletionMode != "" {
@@ -741,17 +744,17 @@ func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input wo
 	}
 	selection := workflowruntime.CompletionModeSelection{ConfiguredMode: configured, HasContinueSessionEdge: input.HasContinueSessionOutgoingEdge, ShellAvailable: toolIDEnabled(plan.EnabledTools, toolspec.ToolExecCommand)}
 	if workflowCompletionModeNeedsProviderCapabilities(selection) {
-		caps, resolved, err := s.workflowProviderCapabilities(ctx, plan, client)
+		provider, err := llm.ResolveEffectiveProviderCapabilities(plan.Locked, plan.ActiveSettings)
 		if err != nil {
-			return "", resolved, err
+			return "", err
 		}
-		selection.ProviderCapabilities, client = caps, resolved
+		selection.ProviderCapabilities = provider
 	}
 	mode, err := workflowruntime.SelectCompletionMode(selection)
 	if err != nil {
-		return "", client, err
+		return "", err
 	}
-	return mode, client, nil
+	return mode, nil
 }
 
 func (s *Starter) withSessionStore(ctx context.Context, descriptor session.SessionDescriptor, callback func(context.Context, *session.Store) error) error {
@@ -769,62 +772,22 @@ func workflowCompletionModeNeedsProviderCapabilities(selection workflowruntime.C
 	return selection.ConfiguredMode == config.WorkflowCompletionModeStructuredOutput || ((selection.ConfiguredMode == config.WorkflowCompletionModeAuto || selection.ConfiguredMode == "") && selection.ShellAvailable && !selection.HasContinueSessionEdge)
 }
 
-func (s *Starter) workflowProviderCapabilities(ctx context.Context, plan launch.SessionPlan, client llm.Client) (llm.ProviderCapabilities, llm.Client, error) {
-	if caps, ok := llm.ProviderCapabilitiesFromLockedOrOverride(plan.Locked, plan.ActiveSettings.ProviderCapabilities); ok {
-		return caps, client, nil
-	}
-	if client == nil {
-		next, err := s.newWorkflowProviderClient(ctx, plan)
-		if err != nil {
-			return llm.ProviderCapabilities{}, nil, err
-		}
-		client = next
-	}
-	provider, ok := client.(llm.ProviderCapabilitiesClient)
-	if !ok {
-		return llm.ProviderCapabilities{}, client, fmt.Errorf("provider capabilities are unavailable for client %T", client)
-	}
-	caps, err := provider.ProviderCapabilities(ctx)
-	return caps, client, err
-}
-
 func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.SessionPlan) (llm.Client, error) {
 	active := plan.ActiveSettings
-	if s.runtimeClientFactory != nil {
-		providerSettings := runtimewire.RuntimeClientProviderSettings{
-			Model:               active.Model,
-			ProviderOverride:    active.ProviderOverride,
-			OpenAIBaseURL:       active.OpenAIBaseURL,
-			ModelVerbosity:      active.ModelVerbosity,
-			ProviderIdentifier:  active.ProviderIdentifier,
-			Store:               active.Store,
-			ContextWindowTokens: active.ModelContextWindow,
-			Auth:                "inherit",
-		}
-		if caps, configured := llm.ProviderCapabilitiesFromLockedOrOverride(plan.Locked, active.ProviderCapabilities); configured {
-			providerSettings.ProviderCapabilitiesOverride = &caps
-		}
-		client, err := s.runtimeClientFactory.NewRuntimeClient(ctx, runtimewire.RuntimeClientRequest{
-			Purpose:          runtimewire.RuntimeClientPurposeWorkflow,
-			SessionID:        plan.Descriptor.SessionID().String(),
-			ActiveSettings:   active,
-			EnabledTools:     append([]toolspec.ID(nil), plan.EnabledTools...),
-			Sources:          maps.Clone(plan.Source.Sources),
-			ProviderSettings: providerSettings,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if client == nil {
-			return nil, errors.New("runtime client factory returned nil workflow client")
-		}
-		return client, nil
+	connection, err := authservice.NewConnectionResolver(s.cfg.PersistenceRoot, s.authManager, s.environment).Resolve(active)
+	if err != nil {
+		return nil, err
 	}
-	var authProvider llm.AuthHeaderProvider
-	if s.authManager != nil {
-		authProvider = s.authManager
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(plan.Locked, active)
+	if err != nil {
+		return nil, err
 	}
-	return llm.NewProviderClient(llm.ProviderClientOptions{Provider: llm.Provider(active.ProviderOverride), Model: active.Model, Auth: authProvider, HTTPClient: llm.NewHTTPClient(time.Duration(active.Timeouts.ModelRequestSeconds) * time.Second), OpenAIBaseURL: active.OpenAIBaseURL, ModelVerbosity: string(active.ModelVerbosity), ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store, ContextWindowTokens: active.ModelContextWindow})
+	return runtimewire.NewRuntimeClient(ctx, s.runtimeClientFactory, runtimewire.RuntimeClientRequest{
+		Purpose: runtimewire.RuntimeClientPurposeWorkflow, SessionID: plan.Descriptor.SessionID().String(),
+		ActiveSettings: active, EnabledTools: plan.EnabledTools,
+		Sources: plan.Source.Sources, Connection: connection,
+		RequestCapabilities: capabilities,
+	})
 }
 
 func workflowPromptOverrides(role string) serverapi.RunPromptOverrides {

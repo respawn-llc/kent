@@ -251,7 +251,7 @@ export type WorkflowRecord = Readonly<{
 
 export type WorkflowPage = Readonly<{
   workflows: readonly WorkflowRecord[];
-  nextOffset: number | null;
+  nextOffset: bigint | null;
 }>;
 
 export type WorkflowNodeGroup = Readonly<{

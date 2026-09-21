@@ -996,6 +996,7 @@ func newProjectViewRuntimeAuthority(
 	})
 
 	settings := cfg.Settings
+	settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, settings)
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"

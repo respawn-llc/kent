@@ -2,7 +2,7 @@ package launch
 
 import (
 	"context"
-	"core/server/auth"
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -11,6 +11,7 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -20,6 +21,43 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
+	persistence := sessiontest.NewPersistence()
+	store, err := session.Create(t.TempDir(), "workspace", t.TempDir(), sessioncontract.SessionCategoryMain, persistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := config.ConnectionID("work")
+	settings := config.DefaultOnboardingSettings()
+	settings.Connection = &selected
+	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"work":  {Protocol: config.ConnectionChatGPT},
+		"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://localhost:1234")},
+	}
+	projected, notice, err := ResolveSessionConnection(settings, nil)
+	if err != nil || projected != "work" || notice != nil || store.Meta().ConnectionID != nil {
+		t.Fatalf("unbound read projection = %v, %v, %v", projected, notice, err)
+	}
+	if _, err := BindSessionConnection(store, &settings, nil); err != nil {
+		t.Fatal(err)
+	}
+	selected = "local"
+	settings.Connection = &selected
+	id, notice, err := ResolveSessionConnection(settings, store.Meta().ConnectionID)
+	if err != nil || id != "work" || notice != nil {
+		t.Fatalf("resume followed changed default: %v, %v, %v", id, notice, err)
+	}
+	delete(settings.Connections, "work")
+	notice, err = BindSessionConnection(store, &settings, nil)
+	if err != nil || notice == nil || notice.Previous != "work" || notice.Current != "local" || *store.Meta().ConnectionID != "local" {
+		t.Fatalf("replacement = %+v, %v", notice, err)
+	}
+	delete(settings.Connections, "local")
+	if _, err := BindSessionConnection(store, &settings, nil); err == nil || *store.Meta().ConnectionID != "local" {
+		t.Fatal("missing replacement must fail without changing the binding")
+	}
+}
 
 type failingUpdateMetadataExecutionTargetStore struct {
 	base             *metadata.Store
@@ -47,9 +85,7 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	planner := newTestPlanner(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: root,
-		Settings: config.Settings{
-			OpenAIBaseURL: "http://headless.local/v1",
-		},
+		Settings:        config.Settings{},
 	}, containerDir, persistence.Options()...)
 
 	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())})
@@ -62,9 +98,6 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	}
 	if !strings.HasSuffix(meta.Name, " "+SubagentSessionSuffix) {
 		t.Fatalf("expected subagent session name, got %q", meta.Name)
-	}
-	if meta.Continuation == nil || meta.Continuation.OpenAIBaseURL == nil || *meta.Continuation.OpenAIBaseURL != "http://headless.local/v1" {
-		t.Fatalf("expected continuation base url applied, got %+v", meta.Continuation)
 	}
 	if plan.SessionName == nil || *plan.SessionName != meta.Name {
 		t.Fatalf("expected plan session name %q, got %v", meta.Name, plan.SessionName)
@@ -237,88 +270,6 @@ func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
 	}
 }
 
-func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace)
-	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
-	persistence := sessiontest.NewPersistence()
-	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace, persistence.Options()...)
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://worker.example/v1"),
-		AgentRole:     sessiontest.AgentRole("worker"),
-	}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
-	settings := loaded.Settings
-	settings.OpenAIBaseURL = "https://base.example/v1"
-	workerSettings := cloneSettings(settings)
-	workerSettings.OpenAIBaseURL = "https://worker.example/v1"
-	researchSettings := cloneSettings(settings)
-	researchSettings.ThinkingLevel = "high"
-	settings.Subagents = map[string]config.SubagentRole{
-		"worker": {
-			Settings: workerSettings,
-			Sources:  map[string]config.Origin{"openai_base_url": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}}},
-		},
-		"research": {
-			Settings: researchSettings,
-			Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
-		},
-	}
-	source := loaded.Source
-	source.Sources = cloneMapOrEmpty(loaded.Source.Sources)
-	source.Sources["openai_base_url"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "openai_base_url"}}
-
-	source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
-
-	planner := newPersistenceBackedTestPlanner(config.App{
-		WorkspaceRoot:   workspace,
-		PersistenceRoot: root,
-		Settings:        settings,
-		Source:          source,
-	}, containerDir, persistence)
-
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(mustTypedIntentSessionID(t, store.Meta().SessionID))})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	if plan.ActiveSettings.OpenAIBaseURL != "https://worker.example/v1" {
-		t.Fatalf("active base url = %q, want worker", plan.ActiveSettings.OpenAIBaseURL)
-	}
-	if plan.BaseSettings.OpenAIBaseURL != "https://base.example/v1" {
-		t.Fatalf("base settings url = %q, want base", plan.BaseSettings.OpenAIBaseURL)
-	}
-
-	cleared, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.DefaultSubagentRole)}, auth.EmptyState())
-	if err != nil {
-		t.Fatalf("ApplyRunPromptOverrides clear: %v", err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %+v", warnings)
-	}
-	if cleared.ActiveSettings.OpenAIBaseURL != "https://base.example/v1" {
-		t.Fatalf("cleared base url = %q, want base", cleared.ActiveSettings.OpenAIBaseURL)
-	}
-	if got := cleared.Continuation; got != nil && got.AgentRole != nil {
-		t.Fatalf("continuation after clear = %+v, want no role", got)
-	}
-
-	if err := testStoreForPlan(t, plan).SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value("https://worker.example/v1"), AgentRole: sessiontest.AgentRole("worker")}); err != nil {
-		t.Fatalf("reset continuation: %v", err)
-	}
-	switched, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("research")}, auth.EmptyState())
-	if err != nil {
-		t.Fatalf("ApplyRunPromptOverrides switch: %v", err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected switch warnings: %+v", warnings)
-	}
-	if switched.ActiveSettings.OpenAIBaseURL != "https://base.example/v1" {
-		t.Fatalf("switched base url = %q, want base", switched.ActiveSettings.OpenAIBaseURL)
-	}
-}
-
 func TestApplyRunPromptOverridesDefaultPreservesLockedRoleAfterSkippingPersistedRoleLookup(t *testing.T) {
 	workspace := t.TempDir()
 	settings := config.Settings{
@@ -334,9 +285,8 @@ func TestApplyRunPromptOverridesDefaultPreservesLockedRoleAfterSkippingPersisted
 
 	updated, _, err := ApplyRunPromptOverrides(
 		plan,
-		serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.DefaultSubagentRole)},
-		auth.EmptyState(),
-	)
+		serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.DefaultSubagentRole)})
+
 	if err != nil {
 		t.Fatalf("default locked-role selection: %v", err)
 	}
@@ -386,7 +336,7 @@ func TestApplyRunPromptOverridesPreservesAgentRoleForLockedSession(t *testing.T)
 				Model:        "locked-model",
 				EnabledTools: []string{"shell"},
 			})
-			updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(tt.override)}, auth.EmptyState())
+			updated, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(tt.override)})
 			if err != nil {
 				t.Fatalf("ApplyRunPromptOverrides: %v", err)
 			}
@@ -411,12 +361,11 @@ func TestApplyRunPromptOverridesAllowsSameAgentRoleForLockedSession(t *testing.T
 		"[subagents.worker]",
 		"model = \"gpt-5.4-mini\"",
 	)
-	loaded.Settings.ProviderOverride = "openai"
 	plan := newLockedRoleOverridePlan(t, workspace, loaded.Settings, loaded.Source, sessiontest.AgentRole("worker"), session.LockedContract{
 		Model:        "locked-model",
 		EnabledTools: []string{"shell"},
 	})
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")})
 	if got := updated.Continuation; got == nil || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("worker")) {
 		t.Fatalf("continuation = %+v, want worker", got)
 	}
@@ -431,7 +380,6 @@ func TestApplyRunPromptOverridesWithOptionsPreservesAgentRoleForLockedSession(t 
 		"[subagents.worker]",
 		"model = \"gpt-5.4-mini\"",
 	)
-	loaded.Settings.ProviderOverride = "openai"
 	workerRole := loaded.Settings.Subagents["worker"]
 	workerRole.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolEdit: true}
 	workerRole.Sources = map[string]config.Origin{
@@ -452,9 +400,9 @@ func TestApplyRunPromptOverridesWithOptionsPreservesAgentRoleForLockedSession(t 
 	updated, _, err := ApplyRunPromptOverridesWithOptions(
 		plan,
 		serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
+
+		RunPromptOverrideOptions{})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithOptions: %v", err)
 	}
@@ -474,7 +422,6 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 	loaded := loadLaunchConfig(t, workspace)
 	baseSettings := loaded.Settings
 	baseSettings.Model = "locked-model"
-	baseSettings.ProviderOverride = "openai"
 	workerSettings := cloneSettings(baseSettings)
 	workerSettings.Model = "gpt-5.4-mini"
 	workerSettings.ThinkingLevel = "high"
@@ -494,7 +441,7 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 		Model:        "locked-model",
 		EnabledTools: []string{"shell"},
 	})
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")})
 	if updated.ActiveSettings.Model != "locked-model" {
 		t.Fatalf("model = %q, want locked-model", updated.ActiveSettings.Model)
 	}
@@ -508,6 +455,7 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 
 func newLockedRoleOverridePlan(t *testing.T, workspace string, settings config.Settings, source config.SourceReport, persistedRole *string, locked session.LockedContract) SessionPlan {
 	t.Helper()
+	settings = testsetup.ProviderSettings(settings)
 	store := createTestSession(t, workspace)
 	if persistedRole != nil {
 		if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: persistedRole}); err != nil {
@@ -556,7 +504,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if err := parent.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable parent: %v", err)
 	}
-	if err := parent.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value("http://parent.local/v1")}); err != nil {
+	if err := parent.SetConnectionID("test"); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{
@@ -634,11 +582,8 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if childMeta.Locked.ReviewerPrompt != "parent interactive reviewer prompt" || !childMeta.Locked.HasReviewerPrompt {
 		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
 	}
-	if childMeta.Continuation == nil || childMeta.Continuation.OpenAIBaseURL == nil || *childMeta.Continuation.OpenAIBaseURL != "http://parent.local/v1" {
-		t.Fatalf("child continuation = %+v, want parent continuation", childMeta.Continuation)
-	}
-	if plan.ActiveSettings.OpenAIBaseURL != "http://parent.local/v1" {
-		t.Fatalf("plan openai base url = %q, want parent continuation", plan.ActiveSettings.OpenAIBaseURL)
+	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || *plan.ActiveSettings.Connection != "test" {
+		t.Fatal("direct continuation did not retain the parent binding")
 	}
 	if plan.ActiveSettings.Model != "locked-parent-model" {
 		t.Fatalf("plan model = %q, want locked-parent-model", plan.ActiveSettings.Model)
@@ -723,8 +668,7 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
 	if err := parent.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://parent.example/v1"),
-		AgentRole:     sessiontest.AgentRole("old_parent_role"),
+		AgentRole: sessiontest.AgentRole("old_parent_role"),
 	}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
@@ -742,9 +686,9 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 		plan,
 		childStore,
 		serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("code_review")},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
+
+		RunPromptOverrideOptions{})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverrides: %v", err)
 	}
@@ -756,9 +700,6 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	}
 	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
 		t.Fatalf("active model = %q, want role model", updated.ActiveSettings.Model)
-	}
-	if updated.ActiveSettings.OpenAIBaseURL == "https://parent.example/v1" {
-		t.Fatalf("active base url inherited parent continuation, want headless child role/base config")
 	}
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
 		t.Fatalf("enabled tools = %+v, want role tools", updated.EnabledTools)
@@ -823,7 +764,7 @@ func TestPlannerNewChildSessionResolvesPreviousSessionAcrossProjectContainers(t 
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{Model: "foreign-parent-model"}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
-	if err := parent.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value("http://foreign.local/v1")}); err != nil {
+	if err := parent.SetConnectionID("test"); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
 	planner := newPersistenceBackedTestPlanner(config.App{
@@ -852,8 +793,8 @@ func TestPlannerNewChildSessionResolvesPreviousSessionAcrossProjectContainers(t 
 	if childMeta.Locked == nil || childMeta.Locked.Model != "foreign-parent-model" {
 		t.Fatalf("locked contract = %+v, want source session lock copied", childMeta.Locked)
 	}
-	if childMeta.Continuation == nil || childMeta.Continuation.OpenAIBaseURL == nil || *childMeta.Continuation.OpenAIBaseURL != "http://foreign.local/v1" {
-		t.Fatalf("continuation = %+v, want source session continuation copied", childMeta.Continuation)
+	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" {
+		t.Fatal("source Session connection binding was not copied")
 	}
 }
 
@@ -878,8 +819,8 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				if meta.Locked == nil || meta.Locked.Model != "source-model" {
 					t.Fatalf("locked contract = %+v, want source model", meta.Locked)
 				}
-				if meta.Continuation == nil || meta.Continuation.OpenAIBaseURL == nil || *meta.Continuation.OpenAIBaseURL != "https://source.example/v1" {
-					t.Fatalf("continuation = %+v, want source continuation", meta.Continuation)
+				if meta.ConnectionID == nil || *meta.ConnectionID != "test" {
+					t.Fatal("source connection binding was not retained")
 				}
 			},
 		},
@@ -913,7 +854,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 			if err := source.MarkModelDispatchLocked(session.LockedContract{Model: "source-model"}); err != nil {
 				t.Fatalf("MarkModelDispatchLocked source: %v", err)
 			}
-			if err := source.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value("https://source.example/v1")}); err != nil {
+			if err := source.SetConnectionID("test"); err != nil {
 				t.Fatalf("SetContinuationContext source: %v", err)
 			}
 			record, err := persistence.ResolvePersistedSession(context.Background(), source.Meta().SessionID)
@@ -1100,8 +1041,8 @@ func TestApplyRunPromptOverridesOverridesHeadlessSettingsWithoutMutatingBasePlan
 		Theme:               "light",
 		ModelTimeoutSeconds: 12,
 		Tools:               "shell,patch",
-		OpenAIBaseURL:       "http://override.local/v1",
-	}, auth.EmptyState())
+	})
+
 	if updated.ActiveSettings.Model != "gpt-5-mini" {
 		t.Fatalf("model = %q, want gpt-5-mini", updated.ActiveSettings.Model)
 	}
@@ -1120,12 +1061,6 @@ func TestApplyRunPromptOverridesOverridesHeadlessSettingsWithoutMutatingBasePlan
 	if len(updated.EnabledTools) != 2 || updated.EnabledTools[0] != toolspec.ToolExecCommand || updated.EnabledTools[1] != toolspec.ToolPatch {
 		t.Fatalf("enabled tools = %+v, want patch+shell", updated.EnabledTools)
 	}
-	if updated.ActiveSettings.OpenAIBaseURL != "http://override.local/v1" {
-		t.Fatalf("openai base url = %q, want http://override.local/v1", updated.ActiveSettings.OpenAIBaseURL)
-	}
-	if got := updated.Continuation; got == nil || got.OpenAIBaseURL == nil || *got.OpenAIBaseURL != "http://override.local/v1" {
-		t.Fatalf("continuation = %+v, want override url", got)
-	}
 	if plan.ActiveSettings.Model != "base-model" {
 		t.Fatalf("base plan mutated: %+v", plan.ActiveSettings)
 	}
@@ -1143,9 +1078,9 @@ func TestApplyRunPromptOverridesPreservesExplicitThinkingOverSessionSetting(t *t
 		plan,
 		store,
 		serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
+
+		RunPromptOverrideOptions{})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithStore: %v", err)
 	}
@@ -1174,9 +1109,9 @@ func TestApplyRunPromptOverridesRejectsPersistedThinkingUnsupportedByModelOverri
 		plan,
 		store,
 		serverapi.RunPromptOverrides{Model: "gpt-5"},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
+
+		RunPromptOverrideOptions{})
+
 	if err == nil {
 		t.Fatal("ApplyRunPromptOverridesWithStore accepted persisted ultra Thinking for gpt-5")
 	}
@@ -1196,9 +1131,9 @@ func TestApplyRunPromptOverridesValidatesExplicitThinkingInsteadOfPersistedThink
 		plan,
 		store,
 		serverapi.RunPromptOverrides{Model: "gpt-5", ThinkingLevel: "high"},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
+
+		RunPromptOverrideOptions{})
+
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithStore: %v", err)
 	}
@@ -1207,41 +1142,20 @@ func TestApplyRunPromptOverridesValidatesExplicitThinkingInsteadOfPersistedThink
 	}
 }
 
-func TestApplyRunPromptOverridesRejectsPersistedFastUnsupportedByProviderOverride(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
-	store := testStoreForPlan(t, plan)
-	sessiontest.CommitChatSettingsTestState(t, store, func(settings *session.ChatSettingsOverrides) { settings.Fast = textutil.Value(true) })
-
-	_, _, err := (Planner{ContainerDir: filepath.Dir(store.Dir())}).ApplyRunPromptOverridesWithStore(
-		plan,
-		store,
-		serverapi.RunPromptOverrides{
-			ProviderOverride: "openai",
-			OpenAIBaseURL:    "https://example.test/v1",
-		},
-		auth.EmptyState(),
-		RunPromptOverrideOptions{},
-	)
-	if err == nil {
-		t.Fatal("ApplyRunPromptOverridesWithStore accepted persisted Fast for third-party provider")
-	}
-}
-
 func TestApplyPreparedRunPromptOverridesRejectsPersistedFastUnsupportedByActiveProvider(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.6-sol\"",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://example.test/v1\"",
+		"connection = \"custom\"",
+		"[connections.custom]",
+		"protocol = \"responses\"",
+		"endpoint = \"https://example.test/v1\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	store := testStoreForPlan(t, plan)
 	sessiontest.CommitChatSettingsTestState(t, store, func(settings *session.ChatSettingsOverrides) { settings.Fast = textutil.Value(true) })
-	prepared, err := PrepareRunPromptOverrides(loaded, serverapi.RunPromptOverrides{}, auth.EmptyState())
+	prepared, err := PrepareRunPromptOverrides(loaded, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatalf("PrepareRunPromptOverrides: %v", err)
 	}
@@ -1270,7 +1184,7 @@ func TestApplyPreparedRunPromptOverridesRejectsPersistedThinkingUnsupportedAfter
 
 	reloaded := loaded
 	reloaded.Settings.Model = "gpt-5"
-	prepared, err := PrepareRunPromptOverrides(reloaded, serverapi.RunPromptOverrides{}, auth.EmptyState())
+	prepared, err := PrepareRunPromptOverrides(reloaded, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatalf("PrepareRunPromptOverrides: %v", err)
 	}
@@ -1292,11 +1206,10 @@ func TestApplyPreparedRunPromptOverridesWithoutRolePreservesConfiguredModelAndCo
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	overrides := serverapi.RunPromptOverrides{
-		Model:         "gpt-5-mini",
-		OpenAIBaseURL: "http://override.local/v1",
+		Model: "gpt-5-mini",
 	}
 
-	prepared, err := PrepareRunPromptOverrides(loaded, overrides, auth.EmptyState())
+	prepared, err := PrepareRunPromptOverrides(loaded, overrides)
 	if err != nil {
 		t.Fatalf("PrepareRunPromptOverrides: %v", err)
 	}
@@ -1311,12 +1224,6 @@ func TestApplyPreparedRunPromptOverridesWithoutRolePreservesConfiguredModelAndCo
 	if updated.ConfiguredModelName != "gpt-5-mini" {
 		t.Fatalf("configured model = %q, want gpt-5-mini", updated.ConfiguredModelName)
 	}
-	if updated.ActiveSettings.OpenAIBaseURL != "http://override.local/v1" {
-		t.Fatalf("openai base url = %q, want override url", updated.ActiveSettings.OpenAIBaseURL)
-	}
-	if got := updated.Continuation; got == nil || got.OpenAIBaseURL == nil || *got.OpenAIBaseURL != "http://override.local/v1" {
-		t.Fatalf("continuation = %+v, want override url", got)
-	}
 }
 
 func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
@@ -1325,7 +1232,7 @@ func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	for _, role := range []string{"fast!", "none", "self"} {
 		t.Run(role, func(t *testing.T) {
 			plan := newSettingsPlan(t, workspace, config.Settings{Model: "gpt-5.4"})
-			_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(role)}, auth.EmptyState())
+			_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(role)})
 			if err == nil {
 				t.Fatal("expected invalid agent role to fail")
 			}
@@ -1370,7 +1277,7 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 
 	plan := newSettingsPlanWithSource(t, workspace, settings, source)
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"}, auth.EmptyState())
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"})
 	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
 		t.Fatalf("model = %q, want gpt-5.3-codex", updated.ActiveSettings.Model)
 	}
@@ -1386,11 +1293,14 @@ func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"openai_base_url = \"https://example.test/v1\"",
+		"connection = \"custom\"",
+		"[connections.custom]",
+		"protocol = \"responses\"",
+		"endpoint = \"https://example.test/v1\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 
-	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)}, auth.EmptyState())
+	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverrides: %v", err)
 	}
@@ -1407,7 +1317,7 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)}, auth.State{Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}}})
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
 	if updated.ActiveSettings.Model != "gpt-5.6-terra" {
 		t.Fatalf("model = %q, want gpt-5.6-terra", updated.ActiveSettings.Model)
 	}
@@ -1422,29 +1332,6 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	}
 	if updated.ConfiguredModelName != "gpt-5.6-terra" {
 		t.Fatalf("configured model = %q, want gpt-5.6-terra", updated.ConfiguredModelName)
-	}
-}
-
-func TestApplyRunPromptOverridesSubagentProviderOverrideCanInheritBaseModel(t *testing.T) {
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"my-team-alias\"",
-		"",
-		"[subagents.worker]",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://api.openai.com/v1\"",
-	)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
-
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
-	if updated.ActiveSettings.Model != "my-team-alias" {
-		t.Fatalf("model = %q, want my-team-alias", updated.ActiveSettings.Model)
-	}
-	if updated.ActiveSettings.ProviderOverride != "openai" {
-		t.Fatalf("provider override = %q, want openai", updated.ActiveSettings.ProviderOverride)
-	}
-	if updated.ActiveSettings.OpenAIBaseURL != "https://api.openai.com/v1" {
-		t.Fatalf("openai base url = %q, want https://api.openai.com/v1", updated.ActiveSettings.OpenAIBaseURL)
 	}
 }
 
@@ -1512,9 +1399,8 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 			updated := applyRunPromptOverridesNoWarnings(
 				t,
 				newLoadedConfigPlan(t, workspace, loadLaunchConfig(t, workspace, tt.configLines...)),
-				tt.overrides,
-				auth.EmptyState(),
-			)
+				tt.overrides)
+
 			if got := updated.ActiveSettings.Model; got != tt.wantModel {
 				t.Fatalf("model = %q, want %q", got, tt.wantModel)
 			}
@@ -1531,27 +1417,6 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 	}
 }
 
-func TestApplyRunPromptOverridesFastRoleUsesCLIProviderOverrideForHeuristic(t *testing.T) {
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
-		"openai_base_url = \"https://example.test/v1\"",
-	)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
-
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
-		AgentRole:        launchTestStringPtr(config.BuiltInSubagentRoleFast),
-		ProviderOverride: "openai",
-		OpenAIBaseURL:    "https://api.openai.com/v1",
-	}, auth.State{Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}}})
-	if updated.ActiveSettings.Model != "gpt-5.6-terra" {
-		t.Fatalf("model = %q, want gpt-5.6-terra", updated.ActiveSettings.Model)
-	}
-	if !updated.ActiveSettings.PriorityRequestMode {
-		t.Fatal("expected priority request mode enabled")
-	}
-}
-
 func TestPrepareRunPromptOverridesLockedSessionFastRoleUsesLockedModelForProviderHeuristic(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
@@ -1561,7 +1426,8 @@ func TestPrepareRunPromptOverridesLockedSessionFastRoleUsesLockedModelForProvide
 
 	prepared, err := PrepareRunPromptOverridesForLockedSession(loaded, serverapi.RunPromptOverrides{
 		AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast),
-	}, auth.EmptyState(), locked)
+	}, locked)
+
 	if err != nil {
 		t.Fatalf("PrepareRunPromptOverridesForLockedSession: %v", err)
 	}
@@ -1573,78 +1439,6 @@ func TestPrepareRunPromptOverridesLockedSessionFastRoleUsesLockedModelForProvide
 	}
 	if !prepared.NamedTarget.Settings.PriorityRequestMode {
 		t.Fatal("expected fast heuristic priority mode")
-	}
-}
-
-func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"my-team-alias\"",
-		"provider_override = \"openai\"",
-	)
-	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
-	persistence := sessiontest.NewPersistence()
-	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace, persistence.Options()...)
-	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: sessiontest.AgentRole(config.BuiltInSubagentRoleFast)}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
-	planner := newPersistenceBackedTestPlanner(config.App{
-		WorkspaceRoot:   workspace,
-		PersistenceRoot: root,
-		Settings:        loaded.Settings,
-		Source:          loaded.Source,
-	}, containerDir, persistence)
-
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(mustTypedIntentSessionID(t, store.Meta().SessionID))})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	if plan.ActiveSettings.Model != "gpt-5.6-terra" {
-		t.Fatalf("model = %q, want fast heuristic model", plan.ActiveSettings.Model)
-	}
-	if !plan.ActiveSettings.PriorityRequestMode {
-		t.Fatal("expected fast heuristic priority mode")
-	}
-}
-
-func TestPlannerResumeLockedDefaultModelTreatsSessionModelAsExplicitForRoleProvider(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"[subagents.worker]",
-		"model = \"local-worker\"",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://local.example/v1\"",
-	)
-	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
-	persistence := sessiontest.NewPersistence()
-	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace, persistence.Options()...)
-	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: sessiontest.AgentRole("worker")}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
-	}
-	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-session-model", EnabledTools: []string{"shell"}}); err != nil {
-		t.Fatalf("MarkModelDispatchLocked: %v", err)
-	}
-	planner := newPersistenceBackedTestPlanner(config.App{
-		WorkspaceRoot:   workspace,
-		PersistenceRoot: root,
-		Settings:        loaded.Settings,
-		Source:          loaded.Source,
-	}, containerDir, persistence)
-
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(mustTypedIntentSessionID(t, store.Meta().SessionID))})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	if plan.ActiveSettings.Model != "locked-session-model" {
-		t.Fatalf("model = %q, want locked-session-model", plan.ActiveSettings.Model)
-	}
-	if plan.ActiveSettings.ProviderOverride != "openai" {
-		t.Fatalf("provider override = %q, want openai", plan.ActiveSettings.ProviderOverride)
-	}
-	if plan.Source.Sources["model"].Kind != config.SourceSession {
-		t.Fatalf("model source = %+v, want session", plan.Source.Sources["model"])
 	}
 }
 
@@ -1685,27 +1479,26 @@ func TestApplyRunPromptOverridesFailedConfigOverrideDoesNotPersistContinuation(t
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"openai_base_url = \"https://base.example/v1\"",
 		"",
 		"[subagents.worker]",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://worker.example/v1\"",
+		"connection = \"test\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
-	if err := testStoreForPlan(t, plan).SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value(loaded.Settings.OpenAIBaseURL)}); err != nil {
+	if err := testStoreForPlan(t, plan).SetConnectionID("test"); err != nil {
 		t.Fatalf("seed continuation: %v", err)
 	}
 
 	_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{
 		AgentRole: launchTestStringPtr("worker"),
 		Tools:     "not-a-tool",
-	}, auth.EmptyState())
+	})
+
 	if err == nil {
 		t.Fatal("expected invalid tools override to fail")
 	}
-	got := testStoreForPlan(t, plan).Meta().Continuation
-	if got == nil || got.OpenAIBaseURL == nil || *got.OpenAIBaseURL != "https://base.example/v1" {
-		t.Fatalf("continuation = %+v, want unchanged base url", got)
+	got := testStoreForPlan(t, plan).Meta().ConnectionID
+	if got == nil || *got != "test" {
+		t.Fatalf("binding = %+v, want unchanged connection", got)
 	}
 }
 
@@ -1713,24 +1506,15 @@ func TestApplyRunPromptOverridesRoleOnlyOverridePersistsContinuation(t *testing.
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"openai_base_url = \"https://base.example/v1\"",
 		"",
 		"[subagents.worker]",
-		"provider_override = \"openai\"",
-		"openai_base_url = \"https://worker.example/v1\"",
+		"connection = \"test\"",
 	)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
-	if err := testStoreForPlan(t, plan).SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value(loaded.Settings.OpenAIBaseURL)}); err != nil {
-		t.Fatalf("seed continuation: %v", err)
-	}
-
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")}, auth.EmptyState())
-	if updated.ActiveSettings.OpenAIBaseURL != "https://worker.example/v1" {
-		t.Fatalf("openai base url = %q, want worker override", updated.ActiveSettings.OpenAIBaseURL)
-	}
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr("worker")})
 	got := updated.Continuation
-	if got == nil || got.OpenAIBaseURL == nil || *got.OpenAIBaseURL != "https://worker.example/v1" || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("worker")) {
-		t.Fatalf("continuation = %+v, want worker base url and agent role", got)
+	if got == nil || !textutil.EqualOptional(got.AgentRole, sessiontest.AgentRole("worker")) {
+		t.Fatalf("continuation = %+v, want worker role", got)
 	}
 }
 
@@ -1742,7 +1526,8 @@ func TestApplyRunPromptOverridesCLIModelOverrideRecomputesBudgetAfterFastRole(t 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
 		AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast),
 		Model:     "gpt-5.3-codex-spark",
-	}, auth.State{Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}}})
+	})
+
 	if updated.ActiveSettings.Model != "gpt-5.3-codex-spark" {
 		t.Fatalf("model = %q, want gpt-5.3-codex-spark", updated.ActiveSettings.Model)
 	}

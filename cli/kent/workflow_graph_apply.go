@@ -13,8 +13,10 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
+	protoapi "core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type workflowGraphApplyOutcomeKind string
@@ -29,14 +31,14 @@ const (
 )
 
 type workflowGraphApplyOutcome struct {
-	Outcome           workflowGraphApplyOutcomeKind                                           `json:"outcome"`
-	WorkflowID        *runtimeids.WorkflowID                                                  `json:"workflow_id,omitempty"`
-	CurrentVersion    *int64                                                                  `json:"current_version,omitempty"`
-	ValidationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse `json:"validation_results,omitempty"`
-	Impact            *serverapi.WorkflowGraphSaveImpact                                      `json:"impact,omitempty"`
-	Blockers          []serverapi.WorkflowGraphSaveBlocker                                    `json:"blockers,omitempty"`
-	Definition        *serverapi.WorkflowDefinition                                           `json:"definition,omitempty"`
-	Message           *string                                                                 `json:"message,omitempty"`
+	Outcome           workflowGraphApplyOutcomeKind     `json:"outcome"`
+	WorkflowID        *runtimeids.WorkflowID            `json:"workflow_id,omitempty"`
+	CurrentVersion    *int64                            `json:"current_version,omitempty"`
+	ValidationResults map[string]workflowValidationJSON `json:"validation_results,omitempty"`
+	Impact            *workflowGraphImpactJSON          `json:"impact,omitempty"`
+	Blockers          []workflowGraphBlockerJSON        `json:"blockers,omitempty"`
+	Definition        *workflowDefinitionJSON           `json:"definition,omitempty"`
+	Message           *string                           `json:"message,omitempty"`
 }
 
 func workflowGraphApplySubcommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
@@ -138,8 +140,8 @@ func runWorkflowGraphApply(
 	)
 }
 
-func workflowGraphSaveConfirmationFromImpact(impact serverapi.WorkflowGraphSaveImpact) *serverapi.WorkflowGraphSaveConfirmation {
-	return &serverapi.WorkflowGraphSaveConfirmation{
+func workflowGraphSaveConfirmationFromImpact(impact workflowGraphImpactJSON) *pb.GraphSaveConfirmation {
+	return &pb.GraphSaveConfirmation{
 		ExpectedRemovedNodeGroupCount:       impact.RemovedNodeGroupCount,
 		ExpectedRemovedNodeCount:            impact.RemovedNodeCount,
 		ExpectedRemovedTransitionGroupCount: impact.RemovedTransitionGroupCount,
@@ -154,12 +156,12 @@ func saveWorkflowGraphApply(
 	remote apicontract.WorkflowService,
 	workflowIDValue runtimeids.WorkflowID,
 	expectedVersion int64,
-	graph serverapi.WorkflowGraphDraft,
-	confirmation *serverapi.WorkflowGraphSaveConfirmation,
+	graph *pb.GraphDraft,
+	confirmation *pb.GraphSaveConfirmation,
 ) workflowGraphApplyOutcome {
 	workflowID := workflowGraphApplyPointer(workflowIDValue)
-	response, err := remote.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID:      workflowIDValue,
+	response, err := remote.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId:      workflowIDValue.String(),
 		ExpectedVersion: expectedVersion,
 		Graph:           graph,
 		Confirmation:    confirmation,
@@ -172,7 +174,7 @@ func saveWorkflowGraphApply(
 			err,
 		)
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		return workflowGraphApplyFailure(
 			workflowGraphApplyRequestFailed,
 			workflowID,
@@ -180,12 +182,18 @@ func saveWorkflowGraphApply(
 			fmt.Errorf("validate Workflow graph save response: %w", err),
 		)
 	}
+	validation, validationErr := workflowValidationResultsForCLI(response.ValidationResults)
+	impact, impactErr := workflowGraphImpactForCLI(response.Impact)
+	blockers, blockersErr := workflowGraphBlockersForCLI(response.Blockers)
+	if err := errors.Join(validationErr, impactErr, blockersErr); err != nil {
+		return workflowGraphApplyFailure(workflowGraphApplyRequestFailed, workflowID, workflowGraphApplyPointer(response.CurrentVersion), err)
+	}
 	outcome := workflowGraphApplyOutcome{
 		WorkflowID:        workflowID,
 		CurrentVersion:    workflowGraphApplyPointer(response.CurrentVersion),
-		ValidationResults: response.ValidationResults,
-		Impact:            &response.Impact,
-		Blockers:          response.Blockers,
+		ValidationResults: validation,
+		Impact:            impact,
+		Blockers:          blockers,
 	}
 	if !response.Saved {
 		if len(response.Blockers) == 0 {
@@ -196,8 +204,8 @@ func saveWorkflowGraphApply(
 				errors.New("Workflow graph save returned blocked without a blocker"),
 			)
 		}
-		if response.ConfirmationRequired && workflowGraphApplyHasBlocker(response.Blockers, true) &&
-			!workflowGraphApplyHasBlocker(response.Blockers, false) {
+		if response.ConfirmationRequired && workflowGraphApplyHasBlocker(outcome.Blockers, true) &&
+			!workflowGraphApplyHasBlocker(outcome.Blockers, false) {
 			outcome.Outcome = workflowGraphApplyConfirmationRequired
 			return outcome
 		}
@@ -225,11 +233,15 @@ func saveWorkflowGraphApply(
 		)
 	}
 	outcome.Outcome = workflowGraphApplySaved
-	outcome.Definition = response.Definition
+	definition, err := workflowDefinitionForCLI(response.Definition)
+	if err != nil {
+		return workflowGraphApplyFailure(workflowGraphApplyRequestFailed, workflowID, outcome.CurrentVersion, err)
+	}
+	outcome.Definition = &definition
 	return outcome
 }
 
-func workflowGraphApplyHasBlocker(blockers []serverapi.WorkflowGraphSaveBlocker, confirmation bool) bool {
+func workflowGraphApplyHasBlocker(blockers []workflowGraphBlockerJSON, confirmation bool) bool {
 	for _, blocker := range blockers {
 		if (blocker.Code == "confirmation_required") == confirmation {
 			return true
@@ -311,7 +323,7 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 			_, writeErr = fmt.Fprintf(stderr, format, args...)
 		}
 	}
-	writeEntities := func(label string, entities []serverapi.WorkflowGraphEntityReference) {
+	writeEntities := func(label string, entities []workflowcontract.WorkflowGraphEntityReference) {
 		if writeErr == nil {
 			writeErr = writeWorkflowGraphEntityReferences(stderr, label, entities)
 		}
@@ -390,7 +402,7 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 	}
 	return writeErr
 }
-func writeWorkflowGraphEntityReferences(stderr io.Writer, label string, entities []serverapi.WorkflowGraphEntityReference) error {
+func writeWorkflowGraphEntityReferences(stderr io.Writer, label string, entities []workflowcontract.WorkflowGraphEntityReference) error {
 	if _, err := fmt.Fprintf(stderr, "%s:\n", label); err != nil {
 		return err
 	}

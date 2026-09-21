@@ -97,6 +97,7 @@ export function fixtureHydration(
   entries: Hydration["TailSegment"]["Entries"] = [],
 ): Hydration {
   return {
+    ConnectionReplacement: null,
     SessionIdentity: {
       SessionID: "fixture-session",
       SessionName: null,

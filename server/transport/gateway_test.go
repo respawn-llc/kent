@@ -35,13 +35,12 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
@@ -572,7 +571,7 @@ func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 				return
 			}
 			switch req.Method {
-			case protocol.MethodWorkflowList:
+			case protocol.MethodWorkflowTaskGet:
 				resp := protocol.NewErrorResponse(req.ID, code, message)
 				if err := conn.Send(ctx, rpcwire.FrameFromResponse(resp)); err != nil {
 					reportGatewayHandlerError(handlerErrs, "send project list error: %w", err)
@@ -592,12 +591,11 @@ func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	_, err = remote.ListWorkflows(
-		context.Background(),
-		serverapi.WorkflowListRequest{},
+	_, err = remote.GetWorkflowTask(
+		context.Background(), serverapi.WorkflowTaskGetRequest{TaskID: "task-1"},
 	)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("ListWorkflows error = %v, want context.Canceled", err)
+		t.Fatalf("GetWorkflowTask error = %v, want context.Canceled", err)
 	}
 	if err == nil || err.Error() != message {
 		t.Fatalf("expected cancellation message %q, got %v", message, err)
@@ -616,11 +614,10 @@ func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSup
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 	if ready {
-		if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		}, auth.EnvAPIKeyPreferenceUnspecified, false, true); err != nil {
-			t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
+		if err := authSupport.AuthManager.SaveOAuth(context.Background(), "test", auth.OAuthMethod{
+			AccessToken: "test-token",
+		}); err != nil {
+			t.Fatalf("SaveOAuth: %v", err)
 		}
 	}
 	return authSupport
@@ -632,9 +629,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-5"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		OwnerID:               "gateway-test-owner",
@@ -667,9 +662,7 @@ func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) servera
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-5"
 	}
-	if strings.TrimSpace(settings.ProviderOverride) == "" && strings.TrimSpace(settings.OpenAIBaseURL) == "" {
-		settings.ProviderOverride = "openai"
-	}
+	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
 		SessionID:             strings.TrimSpace(sessionID),
 		ActiveSettings:        settings,
@@ -1204,21 +1197,21 @@ func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.Wor
 	t.Helper()
 	ctx := context.Background()
 	workflows := appCore.WorkflowClient()
-	created, err := workflows.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Search Workflow"})
+	created, err := workflows.CreateWorkflow(ctx, &pb.CreateRequest{Name: "Search Workflow"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	definition, err := workflows.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
+	definition, err := workflows.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: created.Workflow.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
 	startID, terminalID := "", ""
 	for _, node := range definition.Definition.Nodes {
 		switch node.Kind {
-		case "start":
-			startID = node.ID
-		case "terminal":
-			terminalID = node.ID
+		case pb.NodeKind_WORKFLOW_NODE_KIND_START:
+			startID = node.Id
+		case pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL:
+			terminalID = node.Id
 		}
 	}
 	if startID == "" || terminalID == "" {
@@ -1229,31 +1222,20 @@ func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.Wor
 	startGroupID := runtimeids.NewGraphEntityID()
 	doneGroupID := runtimeids.NewGraphEntityID()
 	finishGroupID := runtimeids.NewGraphEntityID()
-	graph := serverapi.WorkflowGraphDraftFromDefinition(definition.Definition)
-	graph.Nodes = append(graph.Nodes,
-		serverapi.WorkflowGraphDraftNode{ID: agentID, Key: "agent", Kind: "agent", DisplayName: "Agent", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: reviewID, Key: "review", Kind: "agent", DisplayName: "Review", SubagentRole: "coder"},
-	)
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: startGroupID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: doneGroupID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: finishGroupID, SourceNodeID: reviewID, TransitionID: "finish", DisplayName: "Finish"},
-	)
-	graph.Edges = append(graph.Edges,
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: startGroupID, Key: "start", TargetNodeID: agentID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session", PromptTemplate: "Search work."},
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: doneGroupID, Key: "done", TargetNodeID: reviewID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session", PromptTemplate: "Review the search work."},
-		serverapi.WorkflowGraphDraftEdge{ID: runtimeids.NewGraphEntityID(), TransitionGroupID: finishGroupID, Key: "finish", TargetNodeID: terminalID, AssigneeSelection: "configured", ThinkingSelection: "configured", ContextMode: "new_session"},
-	)
-	saved, err := workflows.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: created.Workflow.ID, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
+	graph := protoapi.WorkflowGraphDraftFromDefinition(definition.Definition)
+	graph.Nodes = append(graph.Nodes, &pb.GraphDraftNode{Id: agentID, Key: "agent", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Agent", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: reviewID, Key: "review", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Review", SubagentRole: proto.String("coder")})
+	graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{Id: startGroupID, SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"}, &pb.GraphDraftTransitionGroup{Id: doneGroupID, SourceNodeId: agentID, TransitionId: "done", DisplayName: "Done"}, &pb.GraphDraftTransitionGroup{Id: finishGroupID, SourceNodeId: reviewID, TransitionId: "finish", DisplayName: "Finish"})
+	graph.Edges = append(graph.Edges, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: startGroupID, Key: "start", TargetNodeId: agentID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Search work.", ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}}, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: doneGroupID, Key: "done", TargetNodeId: reviewID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, PromptTemplate: "Review the search work.", ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}}, &pb.GraphDraftEdge{Id: runtimeids.NewGraphEntityID(), TransitionGroupId: finishGroupID, Key: "finish", TargetNodeId: terminalID, AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED, ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE}})
+	saved, err := workflows.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: created.Workflow.Id, ExpectedVersion: definition.Definition.Workflow.Version, Graph: graph,
 	})
 	if err != nil || !saved.Saved {
 		t.Fatalf("SaveWorkflowGraph searchable task fixture = %+v, err = %v", saved, err)
 	}
-	if _, err := workflows.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
-		ProjectID:     appCore.ProjectID(),
-		WorkflowID:    created.Workflow.ID,
-		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultAlways,
+	if _, err := workflows.LinkWorkflowToProject(ctx, &pb.LinkProjectRequest{
+		ProjectId:     appCore.ProjectID(),
+		WorkflowId:    created.Workflow.Id,
+		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS.Enum(),
 	}); err != nil {
 		t.Fatalf("LinkWorkflowToProject: %v", err)
 	}
@@ -1275,7 +1257,7 @@ func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	sendGatewayRequest(t, conn, "1", protocol.MethodWorkflowList, map[string]any{"project_id": "project-1"})
+	sendGatewayRequest(t, conn, "1", protocol.MethodWorkflowTaskGet, map[string]any{"task_id": "task-1"})
 	var response protocol.Response
 	if err := websocket.JSON.Receive(conn, &response); err == nil {
 		t.Fatalf("pre-handshake application traffic unexpectedly received %+v", response)
@@ -1304,119 +1286,27 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
+func TestGatewayAuthBootstrapAuthlessConnectionIsReady(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	updateStatusMethod := serverpb.File_kent_api_server_server_proto.Services().
-		ByName("ServerService").Methods().ByName("GetUpdateStatus")
-	var updateStatusResult serverpb.GetUpdateStatusResult
-	callGatewayDescriptor(t, conn, "update-status-before-auth", updateStatusMethod, &emptypb.Empty{}, &updateStatusResult)
-	if failure := updateStatusResult.GetError(); failure == nil ||
-		failure.Code != "auth_required" ||
-		failure.GetAuthRequired() == nil {
-		t.Fatalf("Get Update Status before auth = %+v, want auth_required", &updateStatusResult)
-	}
-
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	runRequest, err := protoapi.RunPromptRequestToProto(serverapi.RunPromptRequest{Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), Prompt: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var runResult runpromptpb.Result
-	callGatewayDescriptor(t, conn, "run-1", runpromptpb.File_kent_api_run_prompt_run_prompt_proto.Services().ByName("RunService").Methods().ByName("Prompt"), runRequest, &runResult)
-	if runResult.GetError().GetAuthRequired() == nil {
-		t.Fatalf("run.prompt error = %+v, want auth required", &runResult)
-	}
-
-	apiKey := "server-key"
-	callGatewayAuthCompleteBootstrap(t, conn, "complete-1", &authpb.CompleteBootstrapRequest{
-		Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY,
-		ApiKey: &apiKey,
+	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{
+		ConnectionId: proto.String("test"),
+		Mode:         authpb.BootstrapMode_BOOTSTRAP_MODE_NONE,
 	})
-	status := callGatewayAuthBootstrapStatus(t, conn, "status-2")
-	if !status.AuthReady {
-		t.Fatal("expected bootstrap completion to configure server auth")
-	}
-	state, err := authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method: %+v", state.Method)
-	}
-
-	secondAPIKey := "server-key-2"
-	secondComplete := callGatewayAuthCompleteBootstrap(t, conn, "complete-2", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, ApiKey: &secondAPIKey})
-	if !secondComplete.AuthReady || secondComplete.GetMethodType() != string(auth.MethodAPIKey) {
-		t.Fatalf("unexpected second CompleteBootstrap result: %+v", secondComplete)
-	}
-	state, err = authSupport.AuthManager.StoredState(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState after second complete: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "server-key" {
-		t.Fatalf("unexpected stored auth method after retry: %+v", state.Method)
-	}
-}
-
-func TestGatewayAuthBootstrapNoneAuthorizesSameConnectionOnly(t *testing.T) {
-	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-
-	conn := dialGateway(t, server)
-	defer func() { _ = conn.Close() }()
-	handshakeGateway(t, conn)
-	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, conn, "plan-before-no-auth", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("Session Plan before no-auth = %+v, want auth_required", result.GetError())
-	}
-
-	complete := callGatewayAuthCompleteBootstrap(t, conn, "complete-no-auth", &authpb.CompleteBootstrapRequest{Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_NONE})
-	if complete.AuthReady || !complete.NoAuthSelected {
-		t.Fatalf("CompleteBootstrap none = %+v, want not ready and no-auth selected", complete)
+	if !complete.AuthReady || complete.Method != authpb.AuthMethod_AUTH_METHOD_NONE {
+		t.Fatalf("CompleteBootstrap auth-less = %+v", complete)
 	}
 
 	plan := callGatewaySessionPlan(t, conn, "plan-after-no-auth", gatewaySessionPlanRequest(t))
 	target := gatewaySessionExecutionTarget(t, conn, "main-view-after-no-auth", plan.Plan.SessionId)
 	if strings.TrimSpace(target.EffectiveWorkdir) == "" {
 		t.Fatalf("typed session target after no-auth has empty effective workdir: %+v", target)
-	}
-}
-
-func TestGatewayPersistedNoAuthDoesNotAuthorizeFreshConnectionsWithoutAck(t *testing.T) {
-	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
-	defer func() { _ = appCore.Close() }()
-	store := createGatewayAuthoritativeSession(t, appCore)
-	defer server.Close()
-	if _, err := authSupport.AuthManager.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), auth.Method{Type: auth.MethodNone}, auth.EnvAPIKeyPreferencePreferSaved, true, true); err != nil {
-		t.Fatalf("SwitchMethodAndSetEnvAPIKeyPreference: %v", err)
-	}
-
-	control := dialGateway(t, server)
-	defer func() { _ = control.Close() }()
-	handshakeGateway(t, control)
-	requireGatewayProjectAttachment(t, control, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if result := callGatewaySessionPlanResult(t, control, "plan-fresh-no-ack", gatewaySessionPlanRequest(t)); result.GetError().Code != "auth_required" {
-		t.Fatalf("fresh Session Plan = %+v, want auth_required", result.GetError())
-	}
-
-	subscription := dialGateway(t, server)
-	defer func() { _ = subscription.Close() }()
-	handshakeGateway(t, subscription)
-	requireGatewayProjectAttachment(t, subscription, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	requireGatewaySessionAttachment(t, subscription, "attach-session", store.Meta().SessionID)
-	var result transcriptpb.SubscribeResult
-	callGatewayDescriptor(t, subscription, "subscribe-fresh-no-ack",
-		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
-		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
-	if result.GetError().GetAuthRequired() == nil {
-		t.Fatalf("fresh session transcript subscribe = %+v, want auth required", &result)
 	}
 }
 

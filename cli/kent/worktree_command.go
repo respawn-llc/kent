@@ -19,9 +19,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 	"core/shared/worktreecontract"
-
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 const worktreeCommandTimeout = 5 * time.Second
@@ -78,7 +75,8 @@ func worktreeStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			return 1
 		}
 		if *jsonOut {
-			return writeWorktreeProtoJSON(stdout, stderr, status)
+			output, err := worktreeStatusJSON(status)
+			return writeWorktreeJSON(stdout, stderr, output, err)
 		}
 		fmt.Fprintln(stdout, status.GetWorktree().GetRecordedRoot())
 		for _, problem := range status.Problems {
@@ -122,7 +120,8 @@ func worktreeListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 				return 1
 			}
 			if *jsonOut {
-				return writeWorktreeProtoJSON(stdout, stderr, response)
+				output, err := worktreeListJSON(response)
+				return writeWorktreeJSON(stdout, stderr, output, err)
 			}
 			writeWorktreeList(stdout, response.Worktrees, true)
 			return 0
@@ -145,7 +144,8 @@ func worktreeListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 1
 	}
 	if *jsonOut {
-		return writeWorktreeProtoJSON(stdout, stderr, response)
+		output, err := worktreeWorkspaceListJSON(response)
+		return writeWorktreeJSON(stdout, stderr, output, err)
 	}
 	writeWorktreeList(stdout, response.Worktrees, false)
 	return 0
@@ -244,7 +244,8 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	if *jsonOut {
-		return writeWorktreeProtoJSON(stdout, stderr, response)
+		output, err := worktreeCreateJSON(response)
+		return writeWorktreeJSON(stdout, stderr, output, err)
 	}
 	registered := response.GetWorktree().GetTopology().GetRegistered()
 	if registered == nil {
@@ -409,7 +410,8 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	if *jsonOut {
-		return writeWorktreeProtoJSON(stdout, stderr, result)
+		output, err := worktreeDeleteJSON(result)
+		return writeWorktreeJSON(stdout, stderr, output, err)
 	}
 	fmt.Fprintln(stdout, "Deleted worktree")
 	if result.GetCleanup().GetKind() == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED {
@@ -479,23 +481,11 @@ func runScheduledWorktreeCommand(
 			return 1
 		}
 		if jsonOut {
-			return writeWorktreeProtoJSON(stdout, stderr, ack)
+			return writeCommandJSON(stdout, stderr, worktreeScheduledAcknowledgementJSON{OperationID: ack.OperationId})
 		}
 		fmt.Fprintf(stdout, "Worktree %s scheduled for the agent's next step. This usually takes a few seconds.\n", action)
 		return 0
 	})
-}
-
-func writeWorktreeProtoJSON(stdout io.Writer, stderr io.Writer, message proto.Message) int {
-	data, err := protojson.Marshal(message)
-	if err == nil {
-		_, err = fmt.Fprintln(stdout, string(data))
-	}
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	return 0
 }
 
 func worktreeTopologyVariantJSON(topology *worktreepb.TopologyEntry) (string, error) {

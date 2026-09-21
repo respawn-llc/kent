@@ -8,6 +8,7 @@ import (
 
 	"core/server/metadata"
 	"core/shared/config"
+
 	"github.com/google/uuid"
 )
 
@@ -62,14 +63,13 @@ func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *te
 	secondary := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(configRoot, "config.toml"),
-		[]byte("model = \"file-model\"\nopenai_base_url = \"https://file.example/v1\"\n"),
+		[]byte("model = \"file-model\"\n"),
 		0o600,
 	); err != nil {
 		t.Fatalf("write startup config: %v", err)
 	}
 	resolver := NewFixedRootWorkspaceResolver(configRoot, workspace, config.LoadOptions{
-		Model:         "cli-model",
-		OpenAIBaseURL: "https://cli.example/v1",
+		Model: "cli-model",
 	})
 
 	if err := os.MkdirAll(filepath.Join(workspace, ".kent"), 0o755); err != nil {
@@ -87,7 +87,7 @@ func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *te
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if resolved.Settings.Model != "cli-model" || resolved.Settings.OpenAIBaseURL != "https://cli.example/v1" {
+	if resolved.Settings.Model != "cli-model" {
 		t.Fatalf("startup overrides were not retained: %+v", resolved.Settings)
 	}
 	if resolved.Settings.ModelContextWindow != 80_000 {
@@ -97,8 +97,7 @@ func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *te
 	if err != nil {
 		t.Fatalf("Resolve secondary: %v", err)
 	}
-	if secondaryResolved.Settings.Model != "file-model" ||
-		secondaryResolved.Settings.OpenAIBaseURL != "https://file.example/v1" {
+	if secondaryResolved.Settings.Model != "file-model" {
 		t.Fatalf("startup overrides leaked into secondary workspace: %+v", secondaryResolved.Settings)
 	}
 }

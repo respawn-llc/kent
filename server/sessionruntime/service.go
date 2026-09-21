@@ -115,6 +115,7 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 			if targetErr != nil {
 				return nil, nil, targetErr
 			}
+			target.ConnectionID = store.Meta().ConnectionID
 			agentSelectionChanged, targetErr = applyAgentSelection(store, &target)
 			if targetErr != nil {
 				return nil, nil, targetErr

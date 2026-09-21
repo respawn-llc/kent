@@ -5,6 +5,7 @@ import {
   ServerService,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ProjectCatalogService } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { ProjectLabelService } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { createElement, useMemo, type ReactNode } from "react";
@@ -183,12 +184,9 @@ export const startupRoutes: readonly FakeRoute[] = [
     },
   },
   {
-    method: "workflow.project.label.list",
-    result: {
-      catalog: {
-        project_id: "project-1",
-        labels: [],
-      },
-    },
+    descriptor: ProjectLabelService.method.list,
+    result: create(ProjectLabelService.method.list.output, {
+      outcome: { case: "success", value: { catalog: { projectId: "project-1", labels: [] } } },
+    }),
   },
 ];

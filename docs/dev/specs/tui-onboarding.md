@@ -2,7 +2,7 @@
 
 ## Trigger And Surface
 
-- After the first successful authentication, a missing `config.toml` opens first-time setup before Session selection.
+- A missing `config.toml` must open first-time setup before Session selection. First sign-in must be part of setup under [Provider Connections](provider-connections.md), not a preceding persistent configuration write.
 - The wizard is a bounded Alternate Screen surface.
 - Text fields use the native terminal cursor.
 - Every asynchronous operation shows a loading state.
@@ -10,7 +10,7 @@
 
 ## Flow Model
 
-- The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities.
+- The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities. Connection setup must precede provider-dependent choices and the Defaults finalization path.
 - Step graph (order + visibility conditions):
   1. **Theme** — dark/light with live preview as the cursor moves; keeping the detected default stays on auto-detection.
   2. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config (preserving the chosen theme) and skips all remaining steps.
@@ -34,9 +34,9 @@
 
 ## Finalize And Cancel
 
-- Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Kent never leaves partial setup state.
+- Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
-- Config is written exactly once, at finalize. No step writes settings incrementally.
+- Config is written exactly once, at finalize. No step writes settings incrementally. Connection setup must remain unsaved before finalization.
 - Canceling before finalization aborts startup with a clear `setup canceled` error and writes nothing. The next launch opens first-time setup again.
 - Finalization cannot be canceled after submission.
 - Success or failure received within 30 seconds is authoritative.

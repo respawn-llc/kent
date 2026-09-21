@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,10 +16,6 @@ const authStateFileMode os.FileMode = 0o600
 type Store interface {
 	Load(ctx context.Context) (State, error)
 	Save(ctx context.Context, state State) error
-}
-
-type PersistedStateLoader interface {
-	LoadPersisted(ctx context.Context) (State, error)
 }
 
 type FileStore struct {
@@ -50,9 +47,6 @@ func (s *FileStore) Load(ctx context.Context) (State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return State{}, fmt.Errorf("parse auth state: %w", err)
 	}
-	if state.Scope == "" {
-		state.Scope = ScopeGlobal
-	}
 	if err := state.Validate(); err != nil {
 		return State{}, err
 	}
@@ -64,9 +58,6 @@ func (s *FileStore) Save(ctx context.Context, state State) error {
 		return err
 	}
 
-	if state.Scope == "" {
-		state.Scope = ScopeGlobal
-	}
 	if err := state.Validate(); err != nil {
 		return err
 	}
@@ -162,7 +153,7 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore(initial State) *MemoryStore {
-	return &MemoryStore{state: initial, set: true}
+	return &MemoryStore{state: State{Connections: maps.Clone(initial.Connections)}, set: true}
 }
 
 func (s *MemoryStore) Load(ctx context.Context) (State, error) {
@@ -177,26 +168,19 @@ func (s *MemoryStore) Load(ctx context.Context) (State, error) {
 	if !s.set {
 		return EmptyState(), nil
 	}
-	state := s.state
-	if state.Scope == "" {
-		state.Scope = ScopeGlobal
-	}
-	return state, nil
+	return State{Connections: maps.Clone(s.state.Connections)}, nil
 }
 
 func (s *MemoryStore) Save(ctx context.Context, state State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if state.Scope == "" {
-		state.Scope = ScopeGlobal
-	}
 	if err := state.Validate(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state = state
+	s.state = State{Connections: maps.Clone(state.Connections)}
 	s.set = true
 	return nil
 }

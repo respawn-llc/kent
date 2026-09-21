@@ -40,6 +40,7 @@ import (
 	"core/shared/textutil"
 
 	"core/shared/toolspec"
+
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -257,7 +258,7 @@ func newTestHeadlessSessionLaunch(
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
 		}},
-	}).WithAuthStateReader(authManager)
+	})
 }
 
 type fixedSessionProjectResolver struct{}
@@ -308,12 +309,8 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewScopedOpenSessionDescriptor: %v", err)
 	}
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	launcher := &headlessPromptLauncher{boot: HeadlessBootstrap{
 		RuntimeAuthority:       authority,
@@ -321,11 +318,10 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 	}}
 	runtimePlan, err := launcher.prepareRuntime(context.Background(), launch.SessionPlan{
 		Descriptor: descriptor,
-		ActiveSettings: config.Settings{
-			Model:         "gpt-5",
-			OpenAIBaseURL: "http://127.0.0.1:1",
-			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		ActiveSettings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
+			Model: "gpt-5",
+			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}, "http://127.0.0.1:1")),
 		BaseSettings: config.Settings{
 			Worktrees: config.WorktreeSettings{BaseDir: projectManagedBase},
 		},
@@ -366,19 +362,17 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 	if err := store.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable: %v", err)
 	}
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:         "gpt-5",
 			ThinkingLevel: "medium",
-			OpenAIBaseURL: providerURL,
 			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}, providerURL)),
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	return selectedRunPromptFixture{
@@ -443,18 +437,16 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 	}))
 	defer provider.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings: config.Settings{
-			Model:         "gpt-5",
-			OpenAIBaseURL: provider.URL,
-			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolPatch: true},
-			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
+			Model:        "gpt-5",
+			EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
+			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}, provider.URL)),
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
@@ -464,7 +456,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}).WithAuthStateReader(authManager),
+		}),
 		RuntimeAuthority: authority,
 	})
 	sessionID := mustRunPromptSessionID(t, store.Meta().SessionID)
@@ -600,16 +592,15 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	}))
 	defer provider.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Settings.Model = "gpt-5"
 	cfg.Settings.ThinkingLevel = "medium"
-	cfg.Settings.OpenAIBaseURL = provider.URL
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
 	cfg.Settings.AllowNonCwdEdits = true
 	cfg.Settings.MaxSubagentDepth = 2
@@ -624,7 +615,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}).WithAuthStateReader(authManager),
+		}),
 		RuntimeAuthority:       authority,
 		PromptHistory:          meta,
 		ManagedWorktreeBaseDir: managedBase,
@@ -737,6 +728,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 	cfg.PersistenceRoot = root
 	cfg.Settings.Model = "gpt-5.6-sol"
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: false}
+	cfg.Settings = testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	hiddenSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"caller": {
@@ -962,16 +954,15 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		modelstub.WriteCompletedResponseStream(w, "workflow response", 1, 1)
 	}))
 	defer provider.Close()
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = root
 	cfg.Settings.Model = "gpt-5.6-sol"
-	cfg.Settings.OpenAIBaseURL = provider.URL
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: true}
 	workerSettings := cfg.Settings
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
@@ -1011,7 +1002,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}).WithAuthStateReader(authManager),
+		}),
 		RuntimeAuthority: authority,
 		PromptHistory:    meta,
 	})
@@ -1118,7 +1109,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	}
 }
 
-func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testing.T) {
+func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
@@ -1136,32 +1127,34 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got == "" {
-			t.Fatal("expected authorization header")
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatal("auth-less connection sent authorization")
 		}
 		providerCalls.Add(1)
 		modelstub.WriteCompletedResponseStream(w, "from persisted continuation", 1, 1)
 	}))
 	defer server.Close()
 
-	if err := store.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: textutil.Value(server.URL)}); err != nil {
-		t.Fatalf("set continuation context: %v", err)
+	connectionID := config.ConnectionID("saved")
+	if err := store.SetConnectionID(connectionID); err != nil {
+		t.Fatalf("set connection: %v", err)
 	}
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:         "gpt-5",
 			ThinkingLevel: "medium",
-			OpenAIBaseURL: "http://wrong.invalid",
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}, "http://wrong.invalid")),
 	}
+	cfg.Settings.Connections[connectionID] = config.ProviderConnection{
+		Protocol: config.ConnectionResponses, Endpoint: &server.URL,
+	}
+	testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	history := &recordingPromptHistoryStore{}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
@@ -1192,8 +1185,8 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 			t.Fatalf("continued run announced a new session: %+v", progress)
 		}
 	}
-	if got := store.Meta().Continuation; got == nil || got.OpenAIBaseURL == nil || *got.OpenAIBaseURL != server.URL {
-		t.Fatalf("expected persisted continuation preserved, got %+v", got)
+	if got := store.Meta().ConnectionID; got == nil || *got != connectionID {
+		t.Fatalf("expected persisted connection preserved, got %+v", got)
 	}
 	replayed, err := client.RunPrompt(context.Background(), request, nil)
 	if err != nil {
@@ -1212,6 +1205,22 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 	}
 	if providerCalls.Load() != 3 {
 		t.Fatalf("provider calls = %d, want three explicit operations", providerCalls.Load())
+	}
+	keyName := "RUNPROMPT_BOUND_CONNECTION_KEY"
+	t.Setenv(keyName, "")
+	definition := cfg.Settings.Connections[connectionID]
+	definition.EnvironmentVariable = &keyName
+	cfg.Settings.Connections[connectionID] = definition
+	testsetup.WriteProviderSettings(t, root, cfg.Settings)
+	if _, err := client.RunPrompt(context.Background(), request, nil); err == nil {
+		t.Fatal("missing credential must fail the bound connection")
+	}
+	reopened, err := session.Open(store.Dir(), persistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved := reopened.Meta().ConnectionID; saved == nil || *saved != connectionID || providerCalls.Load() != 3 {
+		t.Fatalf("credential failure changed binding or dispatched: binding=%v calls=%d", saved, providerCalls.Load())
 	}
 }
 
@@ -1371,7 +1380,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		`printf '{"processed":true,"replaced_output":"EFFECTIVE:%%s"}' "$%s"`,
 		sessionenv.SessionIDEnv,
 	))
-	background, err := shelltool.NewManager()
+	background, err := shelltool.NewManager(root)
 	if err != nil {
 		t.Fatalf("new supplied background manager: %v", err)
 	}
@@ -1420,23 +1429,21 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 	}))
 	defer server.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg := config.App{
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:               "gpt-5",
 			ThinkingLevel:       "medium",
-			OpenAIBaseURL:       server.URL,
 			ShellOutputMaxChars: 16_000,
 			EnabledTools:        map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
 			Shell: config.ShellSettings{
 				PostprocessingMode: config.ShellPostprocessingModeUser,
 				PostprocessHook:    &effectiveHook,
 			},
-		},
+		}, server.URL)),
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
@@ -1598,7 +1605,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-5"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
@@ -1644,18 +1651,16 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 	}))
 	defer server.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:         "gpt-5",
 			ThinkingLevel: "medium",
-			OpenAIBaseURL: server.URL,
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}, server.URL)),
 	}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
@@ -1727,9 +1732,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	}))
 	defer server.Close()
 
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil)
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
@@ -1737,7 +1740,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	}
 	cfg.PersistenceRoot = root
 	cfg.Settings.Model = "base-model"
-	cfg.Settings.OpenAIBaseURL = server.URL
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, server.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{

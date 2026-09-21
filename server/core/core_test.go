@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
+	"core/shared/textutil"
 	"errors"
 	"os"
 	"path/filepath"
@@ -23,7 +25,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"core/shared/textutil"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -556,11 +557,11 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	}
 }
 
-func TestChatSettingsUsesPersistedPromptFacingEndpoint(t *testing.T) {
+func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(persistenceRoot, "config.toml"), []byte(
-		"model = \"gpt-5.6-sol\"\nopenai_base_url = \"https://api.openai.com/v1\"\npriority_request_mode = true\n[subagents.worker]\nthinking_level = \"high\"\n",
+		"model = \"gpt-5.6-sol\"\npriority_request_mode = true\n[subagents.worker]\nthinking_level = \"high\"\n",
 	), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -571,16 +572,23 @@ func TestChatSettingsUsesPersistedPromptFacingEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
+	resolved.Config.Settings.Model = "gpt-5.6-sol"
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, "https://api.openai.com/v1"))
+	resolved.Config.Settings.PriorityRequestMode = true
 	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
-	if err := store.SetContinuationContext(session.ContinuationContext{
-		OpenAIBaseURL: textutil.Value("https://compatible.example/v1"),
-	}); err != nil {
-		t.Fatalf("SetContinuationContext: %v", err)
+	compatibleID := brand.ConnectionID("compatible")
+	endpoint := "http://127.0.0.1:1/v1"
+	resolved.Config.Settings.Connections[compatibleID] = brand.ProviderConnection{
+		Protocol: brand.ConnectionResponses, Endpoint: &endpoint,
+	}
+	testsetup.WriteProviderSettings(t, persistenceRoot, resolved.Config.Settings)
+	if err := store.SetConnectionID(compatibleID); err != nil {
+		t.Fatal(err)
 	}
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
@@ -617,6 +625,13 @@ func TestChatSettingsUsesPersistedPromptFacingEndpoint(t *testing.T) {
 	if switched.Result.GetApplied() == nil || switched.Settings.SelectedAgent.Role != "worker" ||
 		switched.Settings.Fast == nil || !switched.Settings.Fast.Value {
 		t.Fatalf("Agent switch = %+v, want configured worker with Fast enabled", switched)
+	}
+	record, err := appCore.MetadataStore().ResolvePersistedSession(t.Context(), store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *resolved.Config.Settings.Connection {
+		t.Fatalf("explicit Agent selection did not persist its configured connection: %v", record.Meta.ConnectionID)
 	}
 }
 
@@ -730,6 +745,7 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)

@@ -24,7 +24,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 			state.selections.pendingReviewerThinking.pending() {
 			return nil, errors.New("custom thinking input must be committed before finishing setup")
 		}
-		mainProvider := onboardingMainProviderChoice(state.selections.preserved)
 		model := onboardingModelChoice(state.selections.model)
 		contextWindow := onboardingContextWindowChoice(state.selections.contextWindow)
 		thinking := onboardingThinkingChoice(state.selections.thinking)
@@ -35,7 +34,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 			return nil, err
 		}
 		req.Model = model
-		req.MainProvider = mainProvider
 		req.ContextWindow = contextWindow
 		req.Thinking = thinking
 		req.Supervisor = supervisor
@@ -60,22 +58,6 @@ func onboardingFinalizeRequest(state onboardingFlowState, defaults bool) (*onboa
 		req.DisabledSkillNames = disabledOnboardingSkillNames(state)
 	}
 	return req, nil
-}
-
-func onboardingMainProviderChoice(preserved onboardingPreservedInputs) *onboardingpb.ProviderChoice {
-	if preserved.providerOverride == nil && preserved.openAIBaseURL == nil {
-		return nil
-	}
-	choice := onboardingpb.ProviderChoice{}
-	if preserved.providerOverride != nil {
-		providerOverride := *preserved.providerOverride
-		choice.ProviderOverride = &providerOverride
-	}
-	if preserved.openAIBaseURL != nil {
-		openAIBaseURL := *preserved.openAIBaseURL
-		choice.OpenaiBaseUrl = &openAIBaseURL
-	}
-	return &choice
 }
 
 func onboardingToolOverrides(enabledTools map[toolspec.ID]bool) []*onboardingpb.ToolOverride {

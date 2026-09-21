@@ -118,35 +118,9 @@ func TestCloneSettingsCopiesShellPostprocessHook(t *testing.T) {
 	}
 }
 
-func TestApplyReviewerInheritanceRecomputesDefaultBaseURLWhenReviewerProviderExplicit(t *testing.T) {
-	settings := config.Settings{
-		ProviderOverride: "openai",
-		OpenAIBaseURL:    "http://subagent.local/v1",
-		Reviewer: config.ReviewerSettings{
-			ProviderOverride: "openai",
-			OpenAIBaseURL:    "http://parent.local/v1",
-		},
-	}
-	config.InheritReviewerSettings(&settings, map[string]config.Origin{
-		"reviewer.provider_override": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}},
-
-		"reviewer.openai_base_url": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}},
-	})
-
-	if settings.Reviewer.ProviderOverride != "openai" {
-		t.Fatalf("reviewer provider override = %q, want openai", settings.Reviewer.ProviderOverride)
-	}
-	if settings.Reviewer.OpenAIBaseURL != "http://subagent.local/v1" {
-		t.Fatalf("reviewer base URL = %q, want subagent main base URL", settings.Reviewer.OpenAIBaseURL)
-	}
-}
-
 func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing.T) {
 	base := config.Settings{
-		ProviderCapabilities: config.ProviderCapabilitiesOverride{
-			ProviderID:                "main-provider",
-			SupportsProviderVerbosity: true,
-		},
+		ModelCapabilities: config.ModelCapabilitiesOverride{SupportsVisionInputs: true},
 		SkillToggles: map[string]bool{
 			"apiresult": false,
 			"inherited": false,
@@ -155,17 +129,14 @@ func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing
 	}
 	role := config.SubagentRole{
 		Settings: config.Settings{
-			ProviderCapabilities: config.ProviderCapabilitiesOverride{
-				ProviderID:                "main-provider",
-				SupportsProviderVerbosity: false,
-			},
+			ModelCapabilities: config.ModelCapabilitiesOverride{SupportsVisionInputs: false},
 			SkillToggles: map[string]bool{
 				"apiresult": true,
 				"enabled":   false,
 			},
 		},
 		Sources: map[string]config.Origin{
-			"provider_capabilities.supports_provider_verbosity": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "provider_capabilities.supports_provider_verbosity"}},
+			"model_capabilities.supports_vision_inputs": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_vision_inputs"}},
 
 			"skills.apiresult": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "skills.apiresult"}},
 
@@ -178,72 +149,12 @@ func TestOverlaySubagentRoleSettingsAppliesRegistryAndDynamicSettings(t *testing
 		t.Fatal(err)
 	}
 
-	if settings.ProviderCapabilities.SupportsProviderVerbosity {
-		t.Fatalf("expected subagent verbosity capability override to apply, got %+v", settings.ProviderCapabilities)
+	if settings.ModelCapabilities.SupportsVisionInputs {
+		t.Fatal("expected the role model capability override to apply")
 	}
 	wantToggles := map[string]bool{"apiresult": true, "inherited": false, "enabled": false}
 	if !reflect.DeepEqual(settings.SkillToggles, wantToggles) {
 		t.Fatalf("skill toggles = %+v, want %+v", settings.SkillToggles, wantToggles)
-	}
-}
-
-func TestApplyReviewerInheritanceDoesNotCopyMainProviderCapabilitiesForExplicitReviewerEndpoint(t *testing.T) {
-	settings := config.Settings{
-		ProviderCapabilities: config.ProviderCapabilitiesOverride{
-			ProviderID:               "main-provider",
-			SupportsResponsesAPI:     true,
-			SupportsPromptCacheKey:   true,
-			IsOpenAIFirstParty:       true,
-			SupportsNativeWebSearch:  true,
-			SupportsResponsesCompact: true,
-		},
-		Reviewer: config.ReviewerSettings{
-			ProviderOverride: "openai",
-			OpenAIBaseURL:    "http://reviewer.local/v1",
-		},
-	}
-	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_override"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}}
-
-	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
-
-	config.InheritReviewerSettings(&settings, sources)
-
-	if settings.Reviewer.ProviderCapabilities != (config.ProviderCapabilitiesOverride{}) {
-		t.Fatalf("expected reviewer provider capabilities to stay unset for explicit endpoint, got %+v", settings.Reviewer.ProviderCapabilities)
-	}
-}
-
-func TestApplyReviewerInheritanceCopiesMainProviderCapabilitiesForNoOpReviewerProviderOverride(t *testing.T) {
-	settings := config.Settings{
-		OpenAIBaseURL: "http://subagent.local/v1",
-		ProviderCapabilities: config.ProviderCapabilitiesOverride{
-			ProviderID:             "subagent-main-provider",
-			SupportsResponsesAPI:   true,
-			SupportsPromptCacheKey: true,
-		},
-		Reviewer: config.ReviewerSettings{
-			ProviderOverride: "openai",
-			OpenAIBaseURL:    "http://parent.local/v1",
-		},
-	}
-	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_override"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_override"}}
-
-	sources["reviewer.openai_base_url"] = config.Origin{Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.openai_base_url"}}
-
-	config.InheritReviewerSettings(&settings, sources)
-
-	if settings.Reviewer.OpenAIBaseURL != "http://subagent.local/v1" {
-		t.Fatalf("expected no-op reviewer provider override to inherit subagent main base URL, got %q", settings.Reviewer.OpenAIBaseURL)
-	}
-	wantCapabilities := config.ProviderCapabilitiesOverride{
-		ProviderID:             "subagent-main-provider",
-		SupportsResponsesAPI:   true,
-		SupportsPromptCacheKey: true,
-	}
-	if settings.Reviewer.ProviderCapabilities != wantCapabilities {
-		t.Fatalf("reviewer provider capabilities = %+v, want %+v", settings.Reviewer.ProviderCapabilities, wantCapabilities)
 	}
 }
 
@@ -269,49 +180,6 @@ func TestApplyReviewerInheritanceMergesReviewerModelCapabilitiesPerField(t *test
 	want := config.ModelCapabilitiesOverride{SupportsVisionInputs: true}
 	if settings.Reviewer.ModelCapabilities != want {
 		t.Fatalf("reviewer model capabilities = %+v, want %+v", settings.Reviewer.ModelCapabilities, want)
-	}
-}
-
-func TestApplyReviewerInheritanceMergesReviewerProviderCapabilitiesPerField(t *testing.T) {
-	settings := config.Settings{
-		ProviderCapabilities: config.ProviderCapabilitiesOverride{
-			ProviderID:                    "main-provider",
-			SupportsResponsesAPI:          true,
-			SupportsResponsesCompact:      true,
-			SupportsPromptCacheKey:        true,
-			SupportsNativeWebSearch:       true,
-			SupportsReasoningEncrypted:    true,
-			SupportsServerSideContextEdit: true,
-			IsOpenAIFirstParty:            true,
-			SupportsProviderVerbosity:     true,
-		},
-		Reviewer: config.ReviewerSettings{
-			ProviderCapabilities: config.ProviderCapabilitiesOverride{
-				ProviderID:                "reviewer-provider",
-				SupportsResponsesAPI:      false,
-				SupportsPromptCacheKey:    false,
-				SupportsProviderVerbosity: false,
-			},
-		},
-	}
-	sources := reviewerProviderCapabilitySources()
-	sources["reviewer.provider_capabilities.provider_id"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.provider_id"}}
-
-	sources["reviewer.provider_capabilities.supports_responses_api"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_responses_api"}}
-
-	sources["reviewer.provider_capabilities.supports_prompt_cache_key"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_prompt_cache_key"}}
-
-	sources["reviewer.provider_capabilities.supports_provider_verbosity"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.provider_capabilities.supports_provider_verbosity"}}
-
-	config.InheritReviewerSettings(&settings, sources)
-
-	want := settings.ProviderCapabilities
-	want.ProviderID = "reviewer-provider"
-	want.SupportsResponsesAPI = false
-	want.SupportsPromptCacheKey = false
-	want.SupportsProviderVerbosity = false
-	if settings.Reviewer.ProviderCapabilities != want {
-		t.Fatalf("reviewer provider capabilities = %+v, want %+v", settings.Reviewer.ProviderCapabilities, want)
 	}
 }
 

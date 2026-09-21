@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"core/server/workflow"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 func TestWorkflowCurrentNodeProjectsMaterializedAgentSelection(t *testing.T) {
@@ -56,17 +56,20 @@ func TestWorkflowCurrentNodeOmitsSelectionForNonAgentProjection(t *testing.T) {
 
 func TestWorkflowDerivedEdgeWiringProjectsTypedSelectorApplicability(t *testing.T) {
 	def := selectorProjectionDefinition()
-	projected := DerivedWiring(def, selectorProjectionCatalog{})
+	projected, err := DerivedWiring(def, selectorProjectionCatalog{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(projected.Edges) != 1 {
 		t.Fatalf("derived edges = %d, want one", len(projected.Edges))
 	}
 	edge := projected.Edges[0]
 	if !edge.AssigneeSelectionApplicability.Available ||
 		edge.AssigneeSelectionApplicability.ParameterVisible ||
-		edge.AssigneeSelectionApplicability.Reason != serverapi.WorkflowSelectorApplicabilityReasonSoleCallableRole {
+		edge.AssigneeSelectionApplicability.Reason != pb.SelectorApplicabilityReason_WORKFLOW_SELECTOR_APPLICABILITY_REASON_SOLE_CALLABLE_ROLE {
 		t.Fatalf("assignee applicability = %+v, want automatic sole-role selection", edge.AssigneeSelectionApplicability)
 	}
-	if !edge.ThinkingSelectionApplicability.Available || !edge.ThinkingSelectionApplicability.ParameterVisible || edge.ThinkingSelectionApplicability.Reason != serverapi.WorkflowSelectorApplicabilityReasonEligible {
+	if !edge.ThinkingSelectionApplicability.Available || !edge.ThinkingSelectionApplicability.ParameterVisible || edge.ThinkingSelectionApplicability.Reason != pb.SelectorApplicabilityReason_WORKFLOW_SELECTOR_APPLICABILITY_REASON_ELIGIBLE {
 		t.Fatalf("thinking applicability = %+v, want eligible", edge.ThinkingSelectionApplicability)
 	}
 }

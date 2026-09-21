@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/llm"
@@ -42,6 +43,7 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 
 func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport := newGatewayTestAuthSupport(t, true)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
@@ -68,6 +70,7 @@ func resolveGatewayTestConfig(t *testing.T, workspace string) serverbootstrap.Co
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, resolved.Config.Settings)
 	return resolved
 }
 

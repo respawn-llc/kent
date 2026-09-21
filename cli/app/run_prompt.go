@@ -85,11 +85,9 @@ func runPromptOverridesFromOptions(opts Options) serverapi.RunPromptOverrides {
 	return serverapi.RunPromptOverrides{
 		AgentRole:           agentRole,
 		Model:               strings.TrimSpace(opts.Model),
-		ProviderOverride:    strings.TrimSpace(opts.ProviderOverride),
 		ThinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),
 		Theme:               strings.TrimSpace(opts.Theme),
 		ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
 		Tools:               strings.TrimSpace(opts.Tools),
-		OpenAIBaseURL:       strings.TrimSpace(opts.OpenAIBaseURL),
 	}
 }

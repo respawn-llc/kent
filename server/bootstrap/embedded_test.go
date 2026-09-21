@@ -13,14 +13,14 @@ import (
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
-	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
+	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
 		switch key {
 		case "KENT_OAUTH_CLIENT_ID":
-			return "client-test"
+			return "client-test", true
 		case "KENT_OAUTH_ISSUER":
-			return "https://attacker.example"
+			return "https://attacker.example", true
 		default:
-			return ""
+			return "", false
 		}
 	}, func() time.Time {
 		return time.Unix(123, 0)
@@ -40,7 +40,7 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 }
 
 func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
-	background, err := BuildShellManager(config.App{Settings: config.Settings{
+	background, err := BuildShellManager(config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{
 		ShellOutputMaxChars:    321,
 		BGShellsOutput:         config.BGShellsOutputVerbose,
 		MinimumExecToBgSeconds: 1,

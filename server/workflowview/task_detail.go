@@ -13,6 +13,7 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 )
 
@@ -163,7 +164,7 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (serve
 		Summary: taskSummary(task, projected.Status, projected.Done),
 		Project: project,
 		Workflow: serverapi.WorkflowTaskWorkflowSummary{
-			WorkflowID:  definition.api.Workflow.ID,
+			WorkflowID:  definition.domain.ID,
 			DisplayName: definition.api.Workflow.Name,
 			Version:     definition.api.Workflow.Version,
 		},
@@ -214,7 +215,7 @@ func taskDetailLiveTargets(
 			if !exists {
 				return nil, nil, fmt.Errorf("task %q live Agent execution references unknown Node %q", taskID, nodeID)
 			}
-			if node.Kind != string(workflow.NodeKindAgent) {
+			if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
 				return nil, nil, fmt.Errorf("task %q live Agent execution references %s Node %q", taskID, node.Kind, nodeID)
 			}
 			if strings.TrimSpace(node.DisplayName) == "" {

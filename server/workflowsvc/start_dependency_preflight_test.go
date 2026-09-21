@@ -7,6 +7,7 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowstore"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 )
 
@@ -135,7 +136,7 @@ func TestExecutableMoveWithProceedSkipsDependencyReaderBeforeTargetInfrastructur
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	definition, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestExecutableMoveDependencyPreflightRequiresExplicitProceed(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("AddWorkflowTaskDependency: %v", err)
 	}
-	definition, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
@@ -227,7 +228,7 @@ func TestExecutableMoveWithProceedSkipsDependencyReaderBeforeTargetCompatibility
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	definition, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}

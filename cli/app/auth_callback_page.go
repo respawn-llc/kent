@@ -23,7 +23,6 @@ type authCallbackPageData struct {
 }
 
 type authCallbackPageResult struct {
-	Method        authui.AuthMethod
 	CallbackInput string
 	Canceled      bool
 	Err           error
@@ -38,7 +37,7 @@ type authCallbackPageModel struct {
 	errorText   string
 	errorToken  uint64
 	ctx         context.Context
-	complete    func(context.Context, string) (authui.AuthMethod, error)
+	complete    func(context.Context, string) error
 	result      authCallbackPageResult
 	styles      authCallbackPageStyles
 }
@@ -63,9 +62,8 @@ type authCallbackPageBrowserDoneMsg struct {
 }
 
 type authCallbackPageCompleteDoneMsg struct {
-	input  string
-	method authui.AuthMethod
-	err    error
+	input string
+	err   error
 }
 
 func newAuthCallbackPageModel(data authCallbackPageData) *authCallbackPageModel {
@@ -145,7 +143,7 @@ func (m *authCallbackPageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.showError("Invalid callback: " + msg.err.Error())
 		}
-		m.result = authCallbackPageResult{Method: msg.method, CallbackInput: msg.input}
+		m.result = authCallbackPageResult{CallbackInput: msg.input}
 		return m, tea.Quit
 	}
 	return m, nil
@@ -207,8 +205,7 @@ func (m *authCallbackPageModel) completeInput(input string) tea.Cmd {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		method, err := complete(ctx, input)
-		return authCallbackPageCompleteDoneMsg{input: input, method: method, err: err}
+		return authCallbackPageCompleteDoneMsg{input: input, err: complete(ctx, input)}
 	}
 }
 
@@ -272,7 +269,7 @@ func (m *authCallbackPageModel) normalizedInputCursor(current []rune) int {
 	return m.inputCursor
 }
 
-var runAuthCallbackPage = func(ctx context.Context, data authCallbackPageData, waitCallback func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
+var runAuthCallbackPage = func(ctx context.Context, data authCallbackPageData, waitCallback func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) error) (authCallbackPageResult, error) {
 	model := newAuthCallbackPageModel(data)
 	model.ctx = ctx
 	model.complete = complete

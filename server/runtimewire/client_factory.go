@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
+	"core/server/authservice"
 	"core/server/llm"
 	"core/shared/config"
 	"core/shared/toolspec"
@@ -22,24 +24,13 @@ const (
 )
 
 type RuntimeClientRequest struct {
-	Purpose          RuntimeClientPurpose
-	SessionID        string
-	ActiveSettings   config.Settings
-	EnabledTools     []toolspec.ID
-	Sources          map[string]config.Origin
-	ProviderSettings RuntimeClientProviderSettings
-}
-
-type RuntimeClientProviderSettings struct {
-	Model                        string
-	ProviderOverride             string
-	OpenAIBaseURL                string
-	ModelVerbosity               config.ModelVerbosity
-	ProviderIdentifier           string
-	Store                        bool
-	ContextWindowTokens          int
-	Auth                         string
-	ProviderCapabilitiesOverride *llm.ProviderCapabilities
+	Purpose             RuntimeClientPurpose
+	SessionID           string
+	ActiveSettings      config.Settings
+	EnabledTools        []toolspec.ID
+	Sources             map[string]config.Origin
+	Connection          authservice.ResolvedConnection
+	RequestCapabilities llm.ProviderCapabilities
 }
 
 type RuntimeClientFactory interface {
@@ -52,25 +43,39 @@ func (f RuntimeClientFactoryFunc) NewRuntimeClient(ctx context.Context, req Runt
 	return f(ctx, req)
 }
 
-func newRuntimeClientFromFactory(ctx context.Context, factory RuntimeClientFactory, purpose RuntimeClientPurpose, storeSessionID string, active config.Settings, enabledTools []toolspec.ID, sources map[string]config.Origin, provider RuntimeClientProviderSettings) (llm.Client, error) {
-	if ctx == nil {
-		ctx = context.Background()
+// NewRuntimeClient keeps the same resolved connection on both construction
+// paths, including Workflow and Supervisor clients.
+func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request RuntimeClientRequest) (llm.Client, error) {
+	request.EnabledTools = append([]toolspec.ID(nil), request.EnabledTools...)
+	request.Sources = maps.Clone(request.Sources)
+	if factory != nil {
+		client, err := factory.NewRuntimeClient(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		if client == nil {
+			return nil, fmt.Errorf("runtime client factory returned nil client for purpose %d", request.Purpose)
+		}
+		return client, nil
 	}
-	client, err := factory.NewRuntimeClient(ctx, RuntimeClientRequest{
-		Purpose:          purpose,
-		SessionID:        storeSessionID,
-		ActiveSettings:   active,
-		EnabledTools:     append([]toolspec.ID(nil), enabledTools...),
-		Sources:          cloneSources(sources),
-		ProviderSettings: provider,
-	})
+	active := request.ActiveSettings
+	connection := request.Connection
+	endpoint := ""
+	if connection.Definition.Endpoint != nil {
+		endpoint = *connection.Definition.Endpoint
+	}
+	capabilities, err := llm.ResolveConnectionCapabilities(connection.Definition)
 	if err != nil {
 		return nil, err
 	}
-	if client == nil {
-		return nil, fmt.Errorf("runtime client factory returned nil client for purpose %d", purpose)
-	}
-	return client, nil
+	return llm.NewProviderClient(llm.ProviderClientOptions{
+		Provider: llm.ProviderOpenAI, Model: active.Model, Auth: connection.Auth,
+		HTTPClient:    llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
+		OpenAIBaseURL: endpoint, ModelVerbosity: string(active.ModelVerbosity),
+		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,
+		ContextWindowTokens: active.ModelContextWindow, ProviderCapabilitiesOverride: &capabilities,
+		RequestCapabilities: &request.RequestCapabilities,
+	})
 }
 
 func cloneSources(sources map[string]config.Origin) map[string]config.Origin {

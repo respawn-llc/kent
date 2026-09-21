@@ -284,6 +284,7 @@ function hydrationMessage(): Extract<ChatTranscriptMessage, { kind: "hydration" 
     sequence: 1,
     kind: "hydration",
     payload: {
+      ConnectionReplacement: null,
       SessionIdentity: {
         SessionID: target.sessionID,
         SessionName: null,

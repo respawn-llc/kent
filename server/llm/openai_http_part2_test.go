@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/openai/openai-go/v3/responses"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openai/openai-go/v3/responses"
 )
 
 func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
@@ -817,7 +818,7 @@ func TestOpenAIRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testin
 	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
-	_, err = newOpenAIRequestPayloadBuilder(transport.Store, transport.ModelVerbosity, caps).BuildCompactV2(OpenAIRequest{
+	_, err = transport.requestPayloadBuilder(caps).BuildCompactV2(OpenAIRequest{
 		Model:          "gpt-5",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items:          unpreparedItems,

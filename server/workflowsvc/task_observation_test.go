@@ -11,6 +11,7 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/clientui"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -52,8 +53,8 @@ func (s observationTaskDetailStub) ListCurrentNodes(context.Context, string) ([]
 
 type observationDefinitionStub struct{}
 
-func (observationDefinitionStub) GetDefinition(context.Context, runtimeids.WorkflowID) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error) {
-	return serverapi.WorkflowDefinition{}, nil, nil
+func (observationDefinitionStub) GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error) {
+	return &pb.WorkflowDefinition{}, nil, nil
 }
 
 type observationAttentionStub struct{}
@@ -131,7 +132,7 @@ func TestTaskCurrentNodeFailureUsesDefinitionIdentityAndDiagnostic(t *testing.T)
 	scriptPath := "scripts/check.sh"
 	outcome, err := taskCurrentNodeFailure(
 		node,
-		map[string]serverapi.WorkflowNode{"node-script": {ID: "node-script", Key: "check", ScriptPath: &scriptPath}},
+		map[string]*pb.WorkflowNode{"node-script": {Id: "node-script", Key: "check", ScriptPath: &scriptPath}},
 		map[string]string{"node-script": "check"},
 	)
 	if err != nil {

@@ -18,79 +18,6 @@ type WorkflowProjectLabel struct {
 	Name string `json:"name"`
 }
 
-type WorkflowProjectLabelCatalog struct {
-	ProjectID string                 `json:"project_id"`
-	Labels    []WorkflowProjectLabel `json:"labels"`
-}
-
-type WorkflowProjectLabelCatalogRequest struct {
-	ProjectID string `json:"project_id"`
-}
-
-type WorkflowProjectLabelCatalogResponse struct {
-	Catalog WorkflowProjectLabelCatalog `json:"catalog"`
-}
-
-type WorkflowProjectLabelCreateRequest struct {
-	ProjectID string `json:"project_id"`
-	Name      string `json:"name"`
-}
-
-type WorkflowProjectLabelCreateResponse struct {
-	Label WorkflowProjectLabel `json:"label"`
-}
-
-type WorkflowProjectLabelRenameRequest struct {
-	ProjectID string `json:"project_id"`
-	LabelID   string `json:"label_id"`
-	Name      string `json:"name"`
-}
-
-type WorkflowProjectLabelRenameResponse struct {
-	Label WorkflowProjectLabel `json:"label"`
-}
-
-type WorkflowProjectLabelDeleteRequest struct {
-	ProjectID string `json:"project_id"`
-	LabelID   string `json:"label_id"`
-}
-
-type WorkflowProjectLabelDeleteResponse struct {
-	LabelID string `json:"label_id"`
-}
-
-type WorkflowProjectLabelReorderRequest struct {
-	ProjectID string   `json:"project_id"`
-	LabelIDs  []string `json:"label_ids"`
-}
-
-type WorkflowProjectLabelReorderResponse struct {
-	Catalog WorkflowProjectLabelCatalog `json:"catalog"`
-}
-
-type WorkflowTaskAssignedLabelIDs struct {
-	TaskID   string   `json:"task_id"`
-	LabelIDs []string `json:"label_ids"`
-}
-
-type WorkflowTaskLabelsGetRequest struct {
-	TaskID string `json:"task_id"`
-}
-
-type WorkflowTaskLabelsGetResponse struct {
-	Assignment WorkflowTaskAssignedLabelIDs `json:"assignment"`
-}
-
-type WorkflowTaskLabelsUpdateRequest struct {
-	TaskID         string   `json:"task_id"`
-	AddLabelIDs    []string `json:"add_label_ids"`
-	RemoveLabelIDs []string `json:"remove_label_ids"`
-}
-
-type WorkflowTaskLabelsUpdateResponse struct {
-	Assignment WorkflowTaskAssignedLabelIDs `json:"assignment"`
-}
-
 type WorkflowTaskLabelFilterKind string
 
 const (
@@ -124,12 +51,8 @@ func WorkflowTaskLabelFilterNone() WorkflowTaskLabelFilter {
 type WorkflowLabelErrorReason string
 
 const (
-	WorkflowLabelErrorReasonInvalidName     WorkflowLabelErrorReason = "invalid_name"
-	WorkflowLabelErrorReasonNameConflict    WorkflowLabelErrorReason = "name_conflict"
-	WorkflowLabelErrorReasonCatalogLimit    WorkflowLabelErrorReason = "catalog_limit"
 	WorkflowLabelErrorReasonProjectNotFound WorkflowLabelErrorReason = "project_not_found"
 	WorkflowLabelErrorReasonLabelNotFound   WorkflowLabelErrorReason = "label_not_found"
-	WorkflowLabelErrorReasonTaskNotFound    WorkflowLabelErrorReason = "task_not_found"
 	WorkflowLabelErrorReasonWrongProject    WorkflowLabelErrorReason = "wrong_project"
 	WorkflowLabelErrorReasonInvalidFilter   WorkflowLabelErrorReason = "invalid_filter"
 	WorkflowLabelErrorReasonInvalidMutation WorkflowLabelErrorReason = "invalid_mutation"
@@ -211,26 +134,6 @@ func validWorkflowLabelError(errorEnvelope WorkflowLabelError) bool {
 	fieldValid := validWorkflowLabelErrorString(errorEnvelope.Field)
 	labelIDValid := errorEnvelope.LabelID != nil && validateLabelID("label_id", *errorEnvelope.LabelID) == nil
 	switch errorEnvelope.Reason {
-	case WorkflowLabelErrorReasonInvalidName:
-		return projectIDValid &&
-			errorEnvelope.Field != nil &&
-			*errorEnvelope.Field == "name" &&
-			errorEnvelope.TaskID == nil &&
-			errorEnvelope.LabelID == nil &&
-			errorEnvelope.Limit == nil
-	case WorkflowLabelErrorReasonNameConflict:
-		return projectIDValid &&
-			errorEnvelope.TaskID == nil &&
-			errorEnvelope.LabelID == nil &&
-			errorEnvelope.Field == nil &&
-			errorEnvelope.Limit == nil
-	case WorkflowLabelErrorReasonCatalogLimit:
-		return projectIDValid &&
-			errorEnvelope.Limit != nil &&
-			*errorEnvelope.Limit == WorkflowLabelMaxIDs &&
-			errorEnvelope.TaskID == nil &&
-			errorEnvelope.LabelID == nil &&
-			errorEnvelope.Field == nil
 	case WorkflowLabelErrorReasonProjectNotFound:
 		return projectIDValid &&
 			errorEnvelope.TaskID == nil &&
@@ -241,12 +144,6 @@ func validWorkflowLabelError(errorEnvelope WorkflowLabelError) bool {
 		return labelIDValid &&
 			(errorEnvelope.ProjectID == nil || projectIDValid) &&
 			errorEnvelope.TaskID == nil &&
-			errorEnvelope.Field == nil &&
-			errorEnvelope.Limit == nil
-	case WorkflowLabelErrorReasonTaskNotFound:
-		return taskIDValid &&
-			errorEnvelope.ProjectID == nil &&
-			errorEnvelope.LabelID == nil &&
 			errorEnvelope.Field == nil &&
 			errorEnvelope.Limit == nil
 	case WorkflowLabelErrorReasonWrongProject:
@@ -276,136 +173,11 @@ func validWorkflowLabelErrorString(value *string) bool {
 	return value != nil && strings.TrimSpace(*value) != "" && strings.TrimSpace(*value) == *value
 }
 
-func (r WorkflowProjectLabelCatalogRequest) Validate() error {
-	return validateRequired("project_id", r.ProjectID)
-}
-
 func (r WorkflowProjectLabel) Validate() error {
 	if err := validateLabelID("id", r.ID); err != nil {
 		return err
 	}
 	return validateRequired("name", r.Name)
-}
-
-func (r WorkflowProjectLabelCatalog) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	return validateProjectLabels("labels", r.Labels)
-}
-
-func (r WorkflowProjectLabelCatalogResponse) Validate() error {
-	return r.Catalog.Validate()
-}
-
-func (r WorkflowProjectLabelCreateRequest) Validate() error {
-	return validateRequiredFields(
-		requiredField("project_id", r.ProjectID),
-		requiredField("name", r.Name),
-	)
-}
-
-func (r WorkflowProjectLabelCreateRequest) ValidateRPC() error {
-	return workflowLabelRPCValidationError(r.Validate(), r.ProjectID, "", true)
-}
-
-func (r WorkflowProjectLabelRenameRequest) Validate() error {
-	if err := validateRequiredFields(
-		requiredField("project_id", r.ProjectID),
-		requiredField("name", r.Name),
-	); err != nil {
-		return err
-	}
-	return validateLabelID("label_id", r.LabelID)
-}
-
-func (r WorkflowProjectLabelRenameRequest) ValidateRPC() error {
-	return workflowLabelRPCValidationError(r.Validate(), r.ProjectID, "", true)
-}
-
-func (r WorkflowProjectLabelDeleteRequest) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	return validateLabelID("label_id", r.LabelID)
-}
-
-func (r WorkflowProjectLabelDeleteRequest) ValidateRPC() error {
-	return workflowLabelRPCValidationError(r.Validate(), r.ProjectID, "", false)
-}
-
-func (r WorkflowProjectLabelCreateResponse) Validate() error {
-	return r.Label.Validate()
-}
-
-func (r WorkflowProjectLabelRenameResponse) Validate() error {
-	return r.Label.Validate()
-}
-
-func (r WorkflowProjectLabelDeleteResponse) Validate() error {
-	return validateLabelID("label_id", r.LabelID)
-}
-
-func (r WorkflowProjectLabelReorderRequest) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	_, err := validateUniqueLabelIDs("label_ids", r.LabelIDs)
-	return err
-}
-
-func (r WorkflowProjectLabelReorderRequest) ValidateRPC() error {
-	return workflowLabelRPCValidationError(r.Validate(), r.ProjectID, "", true)
-}
-
-func (r WorkflowProjectLabelReorderResponse) Validate() error {
-	return r.Catalog.Validate()
-}
-
-func (r WorkflowTaskLabelsGetRequest) Validate() error {
-	return validateRequired("task_id", r.TaskID)
-}
-
-func (r WorkflowTaskAssignedLabelIDs) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	return validateLabelIDs("label_ids", r.LabelIDs)
-}
-
-func (r WorkflowTaskLabelsGetResponse) Validate() error {
-	return r.Assignment.Validate()
-}
-
-func (r WorkflowTaskLabelsUpdateRequest) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	added, err := validateUniqueLabelIDs("add_label_ids", r.AddLabelIDs)
-	if err != nil {
-		return err
-	}
-	if _, err := validateUniqueLabelIDs("remove_label_ids", r.RemoveLabelIDs); err != nil {
-		return err
-	}
-	for index, labelID := range r.RemoveLabelIDs {
-		if added[labelID] {
-			return workflowRequestError(
-				WorkflowRequestErrorInvalidValue,
-				fmt.Sprintf("remove_label_ids[%d]", index),
-				"label ID cannot be both added and removed",
-			)
-		}
-	}
-	return nil
-}
-
-func (r WorkflowTaskLabelsUpdateRequest) ValidateRPC() error {
-	return workflowLabelRPCValidationError(r.Validate(), "", r.TaskID, false)
-}
-
-func (r WorkflowTaskLabelsUpdateResponse) Validate() error {
-	return r.Assignment.Validate()
 }
 
 func (r WorkflowTaskLabelFilter) Validate() error {
@@ -536,7 +308,7 @@ func validateLabelIDs(field string, ids []string) error {
 	return err
 }
 
-func workflowLabelRPCValidationError(err error, projectID string, taskID string, nameIsInvalid bool) error {
+func workflowTaskLabelRPCValidationError(err error, projectID string) error {
 	if err == nil {
 		return nil
 	}
@@ -544,25 +316,15 @@ func workflowLabelRPCValidationError(err error, projectID string, taskID string,
 	if !errors.As(err, &validationErr) {
 		return err
 	}
-	reason := WorkflowLabelErrorReasonInvalidMutation
-	if nameIsInvalid && validationErr.Field == "name" && strings.TrimSpace(projectID) != "" {
-		reason = WorkflowLabelErrorReasonInvalidName
-	}
 	var projectIDPointer *string
 	if strings.TrimSpace(projectID) != "" {
 		projectIDValue := projectID
 		projectIDPointer = &projectIDValue
 	}
-	var taskIDPointer *string
-	if strings.TrimSpace(taskID) != "" {
-		taskIDValue := taskID
-		taskIDPointer = &taskIDValue
-	}
 	field := validationErr.Field
 	return &WorkflowLabelError{
-		Reason:    reason,
+		Reason:    WorkflowLabelErrorReasonInvalidMutation,
 		ProjectID: projectIDPointer,
-		TaskID:    taskIDPointer,
 		Field:     &field,
 	}
 }

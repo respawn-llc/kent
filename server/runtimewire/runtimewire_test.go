@@ -54,7 +54,20 @@ func requiredRuntimeWireTestOptions(options RuntimeWiringOptions) RuntimeWiringO
 	options.QuestionsEnabled = textutil.Value(true)
 	options.AutoCompactionEnabled = textutil.Value(true)
 	options.MainWorkspaceRoot = options.FilesystemContext.Access.ExecutionTargetRoot.LexicalPath
+	if options.GlobalConfigDir == "" {
+		options.GlobalConfigDir = options.MainWorkspaceRoot
+	}
 	return options
+}
+
+func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, eventLog session.MaterializedEventLog, active config.Settings, enabled []toolspec.ID, manager *auth.Manager, logger Logger, background *shelltool.Manager, options RuntimeWiringOptions) (*RuntimeWiring, error) {
+	t.Helper()
+	if options.GlobalConfigDir == "" {
+		options.GlobalConfigDir = t.TempDir()
+	}
+	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
+	config.InheritReviewerSettings(&active, options.Sources)
+	return NewRuntimeWiringWithBackground(store, eventLog, active, enabled, manager, logger, background, options)
 }
 
 type emptyWorkspaceMembership struct{}
@@ -69,7 +82,7 @@ func TestRuntimeWiringRequiresEffectiveSessionSettings(t *testing.T) {
 		"Auto-compaction": {QuestionsEnabled: textutil.Value(true)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := NewRuntimeWiringWithBackground(nil, session.MaterializedEventLog{}, config.Settings{}, nil, nil, nil, nil, options); err == nil {
+			if _, err := newTestRuntimeWiringWithBackground(t, nil, session.MaterializedEventLog{}, config.Settings{}, nil, nil, nil, nil, options); err == nil {
 				t.Fatalf("runtime wiring accepted missing effective %s setting", name)
 			}
 		})
@@ -175,7 +188,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 	})
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 	active.Debug = true
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -183,8 +196,8 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client, GlobalConfigDir: t.TempDir()}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client, GlobalConfigDir: t.TempDir()}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -388,6 +401,7 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: store, FilesystemContext: filesystemContext,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -449,6 +463,7 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: emptyWorkspaceMembership{}, FilesystemContext: filesystemContext,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -528,6 +543,7 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 		configRoot:        configRoot,
 		mainWorkspaceRoot: originalWorkspace,
 	}
+	testsetup.WriteProviderSettings(t, configRoot, config.Settings{})
 	if err := store.EnsureDurable(); err != nil {
 		t.Fatalf("materialize store: %v", err)
 	}
@@ -728,7 +744,7 @@ func TestRuntimewireGeneratedWritePolicyDefaultGuidanceAndSiblingFallthrough(t *
 	if err := os.MkdirAll(siblingRoot, 0o755); err != nil {
 		t.Fatalf("mkdir sibling root: %v", err)
 	}
-	registry, _ := newRuntimeWireToolRegistryWithConfig(t, workspace, "", true, toolspec.ToolPatch)
+	registry, _ := newRuntimeWireToolRegistryWithConfig(t, workspace, defaultRoot, true, toolspec.ToolPatch)
 	patchHandler, ok := registry.Get(toolspec.ToolPatch)
 	if !ok {
 		t.Fatal("expected patch handler")
@@ -906,6 +922,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 		t.Fatalf("initial filesystem context: %v", err)
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: store, FilesystemContext: initial,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -980,6 +997,7 @@ func TestReplaceFilesystemContextReplacesMutationManagedWorktreePolicyWithoutRes
 	}
 	initial := runtimewirefixture.FilesystemContext(t, currentRoot)
 	binding, _, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: emptyWorkspaceMembership{}, FilesystemContext: initial,
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1021,6 +1039,7 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		}
 	}
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: emptyWorkspaceMembership{}, FilesystemContext: runtimewirefixture.FilesystemContext(t, rootA),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1106,8 +1125,8 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 
 func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(50 * time.Millisecond),
+	manager, err := shelltool.NewManager(t.TempDir(),
+		shelltool.WithMinimumExecToBgTime(50*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
@@ -1251,7 +1270,7 @@ func TestRuntimeWiringExecCommandUsesEffectiveBuiltinWithSuppliedManager(t *test
 	background := newRuntimeWireShellManager(t)
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -1259,8 +1278,8 @@ func TestRuntimeWiringExecCommandUsesEffectiveBuiltinWithSuppliedManager(t *test
 		nil,
 		nil,
 		background,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: &runtimewireCaptureClient{}}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: &runtimewireCaptureClient{}}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -1287,7 +1306,7 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 	effectiveHookPath := runtimeWireHookScript(t, effectiveHook)
 	active := runtimeWireShellSettings(config.ShellPostprocessingModeUser, &effectiveHookPath)
 
-	wiring, err := NewRuntimeWiringWithBackground(
+	wiring, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		active,
@@ -1295,8 +1314,8 @@ func TestRuntimeWiringExecCommandUsesEffectiveHookAcrossWorkspaceRebind(t *testi
 		nil,
 		nil,
 		background,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, rootA), Client: &runtimewireCaptureClient{}}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, rootA), Client: &runtimewireCaptureClient{}}))
+
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
 	}
@@ -1342,8 +1361,8 @@ func runtimeWireHookScript(t *testing.T, replacement string) string {
 
 func newRuntimeWireShellManager(t *testing.T) *shelltool.Manager {
 	t.Helper()
-	manager, err := shelltool.NewManager(
-		shelltool.WithMinimumExecToBgTime(250 * time.Millisecond),
+	manager, err := shelltool.NewManager(t.TempDir(),
+		shelltool.WithMinimumExecToBgTime(250*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
@@ -1453,13 +1472,11 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 		t.Fatalf("create store: %v", err)
 	}
 
-	_, err = NewRuntimeWiringWithBackground(
+	_, err = newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
 			Model:              "",
-			ProviderOverride:   "openai",
-			OpenAIBaseURL:      "http://example.test/v1",
 			ModelContextWindow: 272_000,
 			Timeouts: config.Timeouts{
 				ModelRequestSeconds: 1,
@@ -1470,8 +1487,8 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil),
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}),
-	)
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root)}))
+
 	if !errors.Is(err, runtime.ErrModelRequired) {
 		t.Fatalf("expected runtime.ErrModelRequired, got %v", err)
 	}
@@ -1526,15 +1543,22 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			}
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
+			active = testsetup.ProviderSettings(active)
+			definition := active.Connections[*active.Connection]
+			definition.Capabilities = config.ProviderCapabilitiesOverride{
+				ProviderID: test.providerID, SupportsResponsesAPI: true,
+				IsOpenAIFirstParty: caps.IsOpenAIFirstParty,
+			}
+			active.Connections[*active.Connection] = definition
 			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
 				sources["model_capabilities.supports_vision_inputs"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_vision_inputs"}}
 
 			}
-			wiring, err := NewRuntimeWiring(
+			wiring, err := newTestRuntimeWiringWithBackground(t,
 				store, materializedRuntimeWireEventLog(t, store), active,
-				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil,
+				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil, nil,
 				requiredRuntimeWireTestOptions(RuntimeWiringOptions{
 					Client: client, Sources: sources,
 					FilesystemContext: runtimeWireFilesystemContext(t, root),
@@ -1649,6 +1673,7 @@ func newRuntimeWireToolRegistry(t *testing.T, workspace string, enabled ...tools
 func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Logger, enabled ...toolspec.ID) (*tools.Registry, *askquestion.AskQuestionBroker) {
 	t.Helper()
 	binding, broker, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: emptyWorkspaceMembership{}, FilesystemContext: runtimewirefixture.FilesystemContext(t, workspace),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             enabled,
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
@@ -1684,6 +1709,7 @@ func newRuntimeWireToolRegistryWithConfig(t *testing.T, workspace string, config
 func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.ID) *LocalToolRegistryBinding {
 	t.Helper()
 	binding, _, _, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{WorkspaceMembership: emptyWorkspaceMembership{}, FilesystemContext: runtimewirefixture.FilesystemContext(t, workspace),
+		GlobalConfigDir:     t.TempDir(),
 		Enabled:             enabled,
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
