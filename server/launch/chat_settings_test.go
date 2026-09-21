@@ -73,7 +73,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		t.Fatalf("choices = %+v", choices)
 	}
 	worker := choices[2]
-	if worker.Model != "worker-model" || worker.Thinking != "high" ||
+	if worker.GetModel() != "worker-model" || worker.GetThinking() != "high" ||
 		!worker.CustomSystemPrompt || !worker.CustomCapabilities || worker.AgentCallable ||
 		!slices.Equal(worker.Tools, []string{"exec_command", "view_image"}) {
 		t.Fatalf("worker = %+v", worker)

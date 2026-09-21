@@ -34,6 +34,7 @@
 ## Session Binding
 
 - Kent must persist a Session's resolved connection ID and preserve an existing binding across ordinary resume and direct continuation.
+- Existing-Session settings reads and non-Agent changes must use that binding even when current Agent/default connection references are unavailable. An explicit Agent change must validate the target Agent's current connection and leave the Session unchanged when it is unavailable.
 - When the user explicitly changes the Agent in an unlocked Session through Chat Settings, Kent must select and persist the chosen Agent's current connection. Locked Sessions must retain their existing Agent and connection.
 - Workflow Compact-and-Continue must use the outgoing connection for compaction and apply the target role's current connection only after successful compaction, following the fresh-contract and failure/interruption boundaries in [Workflow orchestration](workflow-orchestration.md).
 - If the saved ID no longer exists, Kent must resolve the replacement from the Session's current role or the unroled default, persist it, and show a notice naming the old and new IDs before the next request. Confirmation must not be required.

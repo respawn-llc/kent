@@ -11,13 +11,15 @@ export type ChatSettingsAgent = Readonly<{
   model: string;
   thinking: string;
 }>;
-export type ChatSettingsAgentChoice = ChatSettingsAgent &
-  Readonly<{
-    tools: readonly string[];
-    customSystemPrompt: boolean;
-    customCapabilities: boolean;
-    agentCallable: boolean;
-  }>;
+export type ChatSettingsAgentChoice = Readonly<{
+  role: string;
+  model: string | null;
+  thinking: string | null;
+  tools: readonly string[];
+  customSystemPrompt: boolean;
+  customCapabilities: boolean;
+  agentCallable: boolean;
+}>;
 export type ChatSettingsSupervisor = Readonly<{
   value: InitialChatSettings["supervisor"];
   baseline: InitialChatSettings["supervisor"];
@@ -78,7 +80,7 @@ export type ChatSettingsSessionFacts = Readonly<{
 export type NewChatSettingsCatalog = Readonly<{
   choices: readonly (ChatSettingsControls &
     Readonly<{
-      agent: ChatSettingsAgentChoice;
+      agent: ChatSettingsAgentChoice & ChatSettingsAgent;
       baseline: InitialChatSettings;
     }>)[];
 }>;

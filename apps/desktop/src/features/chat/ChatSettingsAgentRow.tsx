@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 
-import type { ChatSettingsAgent } from "@/api";
+import type { ChatSettingsAgentChoice } from "@/api";
 
 import { SettingsRow } from "./ChatSettingsRows";
 
@@ -11,7 +11,7 @@ export function ChatSettingsAgentRow({
   reason,
   onActivate,
 }: Readonly<{
-  agent: ChatSettingsAgent;
+  agent: Pick<ChatSettingsAgentChoice, "role" | "model" | "thinking">;
   selected: boolean;
   transitionName: string;
   reason: string | undefined;
@@ -27,9 +27,11 @@ export function ChatSettingsAgentRow({
           <span className="truncate">{agent.role}</span>
           {selected ? <Check className="shrink-0" size={14} /> : null}
         </span>
-        <span className="truncate font-mono text-xs text-[var(--color-muted)]">
-          {agent.model} {agent.thinking}
-        </span>
+        {agent.model !== null || agent.thinking !== null ? (
+          <span className="truncate font-mono text-xs text-[var(--color-muted)]">
+            {agent.model} {agent.thinking}
+          </span>
+        ) : null}
       </div>
     </SettingsRow>
   );

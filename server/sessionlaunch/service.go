@@ -103,12 +103,13 @@ func (s *Service) prepareSessionChatSettings(
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
 	if meta.Locked != nil {
-		entry.Settings, err = lockedPreparedChatSettings(*meta.Locked, entry.Settings, effective)
+		lockedSettings, err := lockedPreparedChatSettings(*meta.Locked, *entry.Settings, effective)
 		if err != nil {
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
+		entry.Settings = &lockedSettings
 	}
-	effective = normalizeProjectedChatSettings(effective, entry.Settings)
+	effective = normalizeProjectedChatSettings(effective, *entry.Settings)
 	persistedQuestions := effective.Questions
 	var persistedThinking *string
 	if !selectedAvailable {

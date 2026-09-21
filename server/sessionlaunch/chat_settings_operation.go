@@ -39,11 +39,11 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		selectedEntry = defaultEntry
 	}
 	if input.Locked != nil {
-		selectedSettings, err := lockedPreparedChatSettings(*input.Locked, selectedEntry.Settings, input.Effective)
+		selectedSettings, err := lockedPreparedChatSettings(*input.Locked, *selectedEntry.Settings, input.Effective)
 		if err != nil {
 			return PreparedChatSettingsOperationResult{}, err
 		}
-		selectedEntry.Settings = selectedSettings
+		selectedEntry.Settings = &selectedSettings
 	}
 	baseSettings := input.Effective
 	if !selectedAvailable && input.Locked == nil {
@@ -56,7 +56,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			if persistedThinking == "" {
 				return PreparedChatSettingsOperationResult{}, errors.New("persisted Chat settings Thinking is required when present")
 			}
-			if projectChatThinking(persistedThinking, selectedEntry.Settings) != nil {
+			if projectChatThinking(persistedThinking, *selectedEntry.Settings) != nil {
 				baseSettings.Thinking = persistedThinking
 			}
 		}
@@ -85,11 +85,14 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			return rejectedChatSettingsOperation(input, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 		}
 		if agent != rawAgent || !selectedAvailable {
+			if entry.SelectionError != nil {
+				return PreparedChatSettingsOperationResult{}, fmt.Errorf("select Agent %q: %w", agent, entry.SelectionError)
+			}
 			target, err = session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, entry.Settings.Baseline)
 			if err != nil {
 				return PreparedChatSettingsOperationResult{}, err
 			}
-			target.ConnectionID = &entry.ConnectionID
+			target.ConnectionID = entry.ConnectionID
 		}
 		selectedEntry = entry
 	case *chatsettingspb.MutationOperation_Supervisor:
@@ -100,7 +103,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		target.Settings.Supervisor = &supervisor
 	case *chatsettingspb.MutationOperation_Thinking:
 		thinking := strings.TrimSpace(operation.Thinking)
-		thinkingProjection := projectChatThinking(baseSettings.Thinking, selectedEntry.Settings)
+		thinkingProjection := projectChatThinking(baseSettings.Thinking, *selectedEntry.Settings)
 		if thinkingProjection == nil ||
 			(thinkingProjection.Kind == chatsettingspb.ThinkingKind_THINKING_KIND_ENUMERATED &&
 				!slices.Contains(thinkingProjection.Values, thinking)) {
@@ -129,7 +132,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 	if err != nil {
 		return PreparedChatSettingsOperationResult{}, err
 	}
-	effective = normalizeProjectedChatSettings(effective, selectedEntry.Settings)
+	effective = normalizeProjectedChatSettings(effective, *selectedEntry.Settings)
 	return PreparedChatSettingsOperationResult{State: target, Effective: effective}, nil
 }
 func rejectedChatSettingsOperation(

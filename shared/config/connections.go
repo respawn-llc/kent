@@ -26,15 +26,27 @@ type ProviderConnection struct {
 	Capabilities        ProviderCapabilitiesOverride
 }
 
+type ConnectionReferenceError struct {
+	Connection *ConnectionID
+}
+
+func (e *ConnectionReferenceError) Error() string {
+	if e.Connection == nil {
+		return "select a provider connection with the connection setting"
+	}
+	return fmt.Sprintf("provider connection %q is not defined in the server global configuration", *e.Connection)
+}
+
 // SelectedConnection reads an already effective reference; role inheritance and
 // persisted Session binding selection happen before this lookup.
 func (s Settings) SelectedConnection() (ProviderConnection, error) {
 	if s.Connection == nil {
-		return ProviderConnection{}, fmt.Errorf("select a provider connection with the connection setting")
+		return ProviderConnection{}, &ConnectionReferenceError{}
 	}
 	connection, present := s.Connections[*s.Connection]
 	if !present {
-		return ProviderConnection{}, fmt.Errorf("provider connection %q is not defined in the server global configuration", *s.Connection)
+		id := *s.Connection
+		return ProviderConnection{}, &ConnectionReferenceError{Connection: &id}
 	}
 	return connection, connection.Validate()
 }

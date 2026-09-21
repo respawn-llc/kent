@@ -92,7 +92,7 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 		t.Fatalf("headless thinking=%s, want low", prepared.Effective.Thinking)
 	}
 	entry, ok := prepared.Catalog.Lookup(config.DefaultSubagentRole)
-	if !ok || entry.Choice.Model != "gpt-5-mini" || entry.Choice.AgentCallable {
+	if !ok || entry.Choice.GetModel() != "gpt-5-mini" || entry.Choice.AgentCallable {
 		t.Fatalf("headless default choice=%+v, exists=%t", entry.Choice, ok)
 	}
 	mutation, err := ProjectPreparedChatSettingsOperation(prepared, &chatsettingspb.MutationOperation{

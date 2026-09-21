@@ -69,7 +69,7 @@ func (s *Service) prepareInitialChatCreation(
 		settings.Supervisor = creation.Settings.Supervisor
 		if creation.Settings.Thinking != nil {
 			thinking := *creation.Settings.Thinking
-			_, enumerated := llm.LookupModelCapabilityContract(entry.Choice.Model)
+			_, enumerated := llm.LookupModelCapabilityContract(entry.Choice.GetModel())
 			if len(entry.Settings.SupportedThinkingValues) > 0 &&
 				(!enumerated || slices.Contains(entry.Settings.SupportedThinkingValues, thinking)) {
 				settings.Thinking = thinking
