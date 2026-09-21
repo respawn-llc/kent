@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"database/sql"
 	"errors"
 
 	"core/shared/apicontract"
@@ -20,6 +21,12 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, read, "GetProjectGroupCounts",
 			func() *taskpb.ProjectTaskGroupCountsRequest { return &taskpb.ProjectTaskGroupCountsRequest{} },
 			apicontract.WorkflowService.GetWorkflowProjectTaskGroupCounts, binaryWorkflowProjectFailure[*taskpb.ProjectTaskGroupCountsRequest]),
+		registerWorkflowUnary(bindings, read, "Get",
+			func() *taskpb.GetRequest { return &taskpb.GetRequest{} },
+			apicontract.WorkflowService.GetWorkflowTask, binaryTaskGetFailure),
+		registerWorkflowUnary(bindings, read, "Search",
+			func() *taskpb.SearchRequest { return &taskpb.SearchRequest{} },
+			apicontract.WorkflowService.SearchWorkflowTasks, binaryTaskSearchFailure),
 		registerWorkflowUnary(bindings, board, "Get",
 			func() *taskpb.BoardGetRequest { return &taskpb.BoardGetRequest{} },
 			apicontract.WorkflowService.GetWorkflowBoard, binaryTaskReadFailure[*taskpb.BoardGetRequest]),
@@ -27,6 +34,21 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 			func() *taskpb.BoardNodeCardsListRequest { return &taskpb.BoardNodeCardsListRequest{} },
 			apicontract.WorkflowService.ListWorkflowBoardNodeCards, binaryTaskReadFailure[*taskpb.BoardNodeCardsListRequest]),
 	)
+}
+
+func binaryTaskSearchFailure(request *taskpb.SearchRequest, err error) proto.Message {
+	var search *serverapi.TaskSearchError
+	if errors.As(err, &search) && search.Reason == serverapi.TaskSearchErrorReasonNormalizedTooShort {
+		return &taskpb.NormalizedTooShortDetails{}
+	}
+	return binaryWorkflowCreateFailure(request, err)
+}
+
+func binaryTaskGetFailure(request *taskpb.GetRequest, err error) proto.Message {
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
+		return &taskpb.TaskNotFoundDetails{TaskId: request.TaskId, ProjectId: request.ProjectId, ShortId: request.ShortId}
+	}
+	return binaryWorkflowCreateFailure(request, err)
 }
 
 func binaryTaskListFailure(request *taskpb.ListRequest, err error) proto.Message {

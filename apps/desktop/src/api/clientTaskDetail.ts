@@ -1,7 +1,9 @@
 import { create } from "@app/server-api-contract";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { pendingQuestion } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
+import { taskDetail } from "./clientTaskProjection";
 import { parseRpcResponse } from "./clientParse";
 import { requireTaskBoundItems } from "./clientParse";
 import type { ActivityPage, CommentPage, PendingAsk, TaskAttention, TaskComment, TaskDetail } from "./models";
@@ -10,7 +12,6 @@ import {
   commentAddResponseSchema,
   commentPageSchema,
   taskAttentionSchema,
-  taskDetailSchema,
 } from "./schemas/workflowBoard";
 import type { DescriptorRpcTransport, RpcTransport, SessionAttachmentTarget } from "./transport";
 
@@ -24,12 +25,10 @@ export async function listTaskAttention(transport: RpcTransport, taskID: string)
   return response;
 }
 
-export async function getTask(transport: RpcTransport, taskID: string): Promise<TaskDetail> {
-  return parseRpcResponse(
-    "workflow.task.get",
-    taskDetailSchema,
-    await transport.call("workflow.task.get", { task_id: taskID }),
-  );
+export async function getTask(transport: DescriptorRpcTransport, taskID: string): Promise<TaskDetail> {
+  const method = TaskReadService.method.get;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
+  return taskDetail(requireUnarySuccess(method, result).task);
 }
 
 export async function listTaskActivity(

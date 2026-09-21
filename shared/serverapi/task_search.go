@@ -64,8 +64,10 @@ func (r TaskSearchRequest) Validate() error {
 	if utf8.RuneCountInString(r.Query) > TaskSearchMaxQueryRunes {
 		return taskSearchFieldError("query", "query is too long")
 	}
-	if r.Mode == TaskSearchModeLiteral && tasksearchtext.NormalizedLiteralRuneCount(r.Query) < 3 {
-		return &TaskSearchError{Reason: TaskSearchErrorReasonNormalizedTooShort}
+	if r.Mode == TaskSearchModeLiteral {
+		if err := ValidateTaskSearchLiteralQuery(r.Query); err != nil {
+			return err
+		}
 	}
 	if r.Mode == TaskSearchModeFTS5 && r.CaseSensitive {
 		return taskSearchFieldError("case_sensitive", "case_sensitive requires literal mode")
@@ -94,6 +96,13 @@ func (r TaskSearchRequest) Validate() error {
 		if index > 0 && r.StatusKinds[index-1] >= status {
 			return taskSearchFieldError("status_kinds", "status kinds must be sorted and unique")
 		}
+	}
+	return nil
+}
+
+func ValidateTaskSearchLiteralQuery(query string) error {
+	if tasksearchtext.NormalizedLiteralRuneCount(query) < 3 {
+		return &TaskSearchError{Reason: TaskSearchErrorReasonNormalizedTooShort}
 	}
 	return nil
 }

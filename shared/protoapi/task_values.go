@@ -65,6 +65,23 @@ var TaskNativeStateName = workflowValueNames(map[pb.TaskNativeState]string{
 	pb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE:           "active",
 })
 
+var TaskExecutionTargetProvenance = workflowValueNames(map[pb.ExecutionTargetProvenance]string{
+	pb.ExecutionTargetProvenance_EXECUTION_TARGET_PROVENANCE_RESOLVED:        "resolved",
+	pb.ExecutionTargetProvenance_EXECUTION_TARGET_PROVENANCE_LEGACY_OBSERVED: "legacy_observed",
+})
+
+var TaskSearchMode = workflowValueNames(map[pb.SearchMode]string{
+	pb.SearchMode_SEARCH_MODE_LITERAL: "literal",
+	pb.SearchMode_SEARCH_MODE_FTS5:    "fts5",
+})
+
+var TaskSearchSourceKind = workflowValueNames(map[pb.SearchSourceKind]string{
+	pb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID: "short_id",
+	pb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE:    "title",
+	pb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY:     "body",
+	pb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT:  "comment",
+})
+
 func TaskNativeState(kind pb.TaskStatusKind) (pb.TaskNativeState, error) {
 	switch kind {
 	case pb.TaskStatusKind_TASK_STATUS_KIND_DONE:

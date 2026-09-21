@@ -20,6 +20,8 @@ import { ContractError, TransportError } from "./errors";
 import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { searchTasks } from "./clientTaskSearch";
 import type { RpcEventHandler } from "./transport";
 
 type SentFrame = Readonly<{
@@ -259,19 +261,30 @@ describe("JsonRpcWebSocketTransport", () => {
 
   it("cancels a dedicated call by closing only its socket", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const readiness = callReadiness(transport);
+    const control = sockets[0] ?? failTest("control socket missing");
+    await control.setup();
+    ack(control, 1);
+    await readiness;
     const controller = new AbortController();
-    const search = transport.callDedicated(
-      "workflow.task.search",
-      { query: "needle" },
-      { signal: controller.signal },
-    );
-    const socket = sockets[0] ?? failTest("dedicated socket missing");
+    const search = searchTasks(transport, {
+      mode: "literal", query: "needle", context: 20, caseSensitive: false, includeComments: false, pageSize: 25,
+    }, controller.signal);
+    const socket = sockets[1] ?? failTest("dedicated socket missing");
     await socket.setup();
 
+    const operation = descriptorCall(socket, 1).operation;
     controller.abort();
 
     await expect(search).rejects.toThrow("canceled");
+    expect(operation).toBe(operationName(TaskReadService.method.search));
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    const nextReadiness = callReadiness(transport);
+    await waitForSent(control, 3);
+    ack(control, 2);
+    await expect(nextReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(control.readyState).toBe(MockWebSocket.OPEN);
+    expect(sockets).toHaveLength(2);
   });
 
   it("falls back to a generic RPC error when error data is not valid JSON", async () => {

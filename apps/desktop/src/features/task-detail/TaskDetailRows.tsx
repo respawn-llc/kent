@@ -443,7 +443,8 @@ function SourceLine({
   label,
   onOpen,
   value,
-}: Readonly<{ label: string; onOpen: (url: string) => void; value: string }>) {
+}: Readonly<{ label: string; onOpen: (url: string) => void; value: string | null }>) {
+  if (value === null) return null;
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return null;

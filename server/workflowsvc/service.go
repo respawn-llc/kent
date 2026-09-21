@@ -2391,10 +2391,7 @@ func (s *Service) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *ta
 	return s.readModels.TaskList.CountGroups(ctx, req)
 }
 
-func (s *Service) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.TaskSearchResponse{}, err
-	}
+func (s *Service) SearchWorkflowTasks(ctx context.Context, req *taskpb.SearchRequest) (*taskpb.SearchSuccess, error) {
 	return s.readModels.TaskSearch.Search(ctx, req)
 }
 
@@ -2427,28 +2424,28 @@ func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowS
 	return s.events.subscribe("", &req.WorkflowID)
 }
 
-func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskGetResponse{}, err
+func (s *Service) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	var (
-		detail serverapi.WorkflowTaskDetail
+		detail *taskpb.TaskDetail
 		err    error
 	)
-	if strings.TrimSpace(req.TaskID) != "" {
-		detail, err = s.readModels.TaskDetail.GetTask(ctx, req.TaskID)
-	} else if strings.TrimSpace(req.ProjectID) != "" {
-		detail, err = s.readModels.TaskDetail.GetTaskByProjectShortID(ctx, req.ProjectID, req.ShortID)
+	if req.TaskId != nil {
+		detail, err = s.readModels.TaskDetail.GetTask(ctx, *req.TaskId)
+	} else if req.ProjectId != nil {
+		detail, err = s.readModels.TaskDetail.GetTaskByProjectShortID(ctx, *req.ProjectId, req.GetShortId())
 	} else {
-		detail, err = s.readModels.TaskDetail.GetTaskByShortID(ctx, req.ShortID)
+		detail, err = s.readModels.TaskDetail.GetTaskByShortID(ctx, req.GetShortId())
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return serverapi.WorkflowTaskGetResponse{}, errors.Join(serverapi.ErrWorkflowTaskNotFound, err)
+			return nil, errors.Join(serverapi.ErrWorkflowTaskNotFound, err)
 		}
-		return serverapi.WorkflowTaskGetResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowTaskGetResponse{Task: detail}, nil
+	return &taskpb.GetSuccess{Task: detail}, nil
 }
 
 func projectWorkflowLink(row workflowstore.ProjectWorkflowLinkRecord) *pb.ProjectWorkflowLink {

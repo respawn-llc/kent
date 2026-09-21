@@ -176,13 +176,3 @@ func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError)
 		return err.Message, false
 	}
 }
-
-func workflowTaskDetailForCLI(detail serverapi.WorkflowTaskDetail) (serverapi.WorkflowTaskDetail, error) {
-	projected := detail
-	summary, err := workflowTaskSummaryForCLI(detail.Summary)
-	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
-	}
-	projected.Summary = summary
-	return projected, nil
-}

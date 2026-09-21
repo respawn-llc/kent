@@ -21,6 +21,11 @@ import {
   ListSortDirection,
   MatchingWorkflowCardinality,
   ProjectTaskGroup,
+  DependencyDirection,
+  DependencySatisfaction,
+  ExecutionTargetProvenance,
+  SearchMode,
+  SearchSourceKind,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 
 function workflowEnum<Code extends number, Name extends string>(entries: readonly (readonly [Code, Name])[]) {
@@ -92,6 +97,33 @@ export const projectTaskGroup = workflowEnum([
   [ProjectTaskGroup.ACTIVE, "active"],
   [ProjectTaskGroup.BACKLOG, "backlog"],
   [ProjectTaskGroup.DONE, "done"],
+]);
+
+export const taskDependencyDirection = workflowEnum([
+  [DependencyDirection.BLOCKED_BY, "blocked-by"],
+  [DependencyDirection.BLOCKS, "blocks"],
+]);
+
+export const taskDependencySatisfaction = workflowEnum([
+  [DependencySatisfaction.SATISFIED, "satisfied"],
+  [DependencySatisfaction.UNSATISFIED, "unsatisfied"],
+]);
+
+export const taskExecutionProvenance = workflowEnum([
+  [ExecutionTargetProvenance.RESOLVED, "resolved"],
+  [ExecutionTargetProvenance.LEGACY_OBSERVED, "legacy_observed"],
+]);
+
+export const taskSearchMode = workflowEnum([
+  [SearchMode.LITERAL, "literal"],
+  [SearchMode.FTS5, "fts5"],
+]);
+
+export const taskSearchSourceKind = workflowEnum([
+  [SearchSourceKind.SHORT_ID, "short_id"],
+  [SearchSourceKind.TITLE, "title"],
+  [SearchSourceKind.BODY, "body"],
+  [SearchSourceKind.COMMENT, "comment"],
 ]);
 
 export const workflowNodeKind = workflowEnum([

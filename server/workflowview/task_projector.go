@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TaskProjector struct{}
@@ -34,7 +39,7 @@ type TaskFactsInput struct {
 }
 
 type TaskFacts struct {
-	Summary serverapi.WorkflowTaskSummary
+	Summary *taskpb.TaskSummary
 	Status  *taskpb.TaskStatus
 	Actions *taskpb.TaskActions
 	Done    bool
@@ -101,19 +106,19 @@ func (*TaskProjector) ProjectComment(comment sqlitegen.TaskComment) serverapi.Wo
 	}
 }
 
-func ProjectCurrentNodes(nodes []workflow.CurrentNode) []serverapi.WorkflowTaskCurrentNode {
-	projected := make([]serverapi.WorkflowTaskCurrentNode, 0, len(nodes))
+func ProjectCurrentNodes(nodes []workflow.CurrentNode) []*taskpb.AttentionCurrentNode {
+	projected := make([]*taskpb.AttentionCurrentNode, 0, len(nodes))
 	for _, currentNode := range nodes {
 		projected = append(projected, workflowCurrentNode(currentNode))
 	}
 	return projected
 }
 
-func workflowCurrentNode(currentNode workflow.CurrentNode) serverapi.WorkflowTaskCurrentNode {
+func workflowCurrentNode(currentNode workflow.CurrentNode) *taskpb.AttentionCurrentNode {
 	projected := workflowCurrentNodeReference(currentNode.Reference)
 	if currentNode.SessionID != nil {
 		value := currentNode.SessionID.String()
-		projected.SessionID = &value
+		projected.SessionId = &value
 	}
 	if currentNode.AgentExecutionSelection != nil {
 		assignee := currentNode.AgentExecutionSelection.Assignee
@@ -126,8 +131,8 @@ func workflowCurrentNode(currentNode workflow.CurrentNode) serverapi.WorkflowTas
 	return projected
 }
 
-func workflowCurrentNodeReference(reference workflow.CurrentNodeReference) serverapi.WorkflowTaskCurrentNode {
-	projected := serverapi.WorkflowTaskCurrentNode{NodeID: string(reference.NodeID)}
+func workflowCurrentNodeReference(reference workflow.CurrentNodeReference) *taskpb.AttentionCurrentNode {
+	projected := &taskpb.AttentionCurrentNode{NodeId: string(reference.NodeID)}
 	if value, present := reference.TransitionBranchKey(); present {
 		branch := string(value)
 		projected.TransitionBranchKey = &branch
@@ -170,19 +175,19 @@ func workflowTaskStatusAttentionTypes(taskID string, encoded string) ([]taskpb.T
 	return out, nil
 }
 
-func taskSummary(task sqlitegen.TaskRecord, status *taskpb.TaskStatus, done bool) serverapi.WorkflowTaskSummary {
-	return serverapi.WorkflowTaskSummary{
-		ID:                task.ID,
-		ProjectID:         task.ProjectID,
-		WorkflowID:        task.WorkflowID,
-		ShortID:           task.ShortID,
+func taskSummary(task sqlitegen.TaskRecord, status *taskpb.TaskStatus, done bool) *taskpb.TaskSummary {
+	return &taskpb.TaskSummary{
+		Id:                task.ID,
+		ProjectId:         task.ProjectID,
+		WorkflowId:        task.WorkflowID.String(),
+		ShortId:           task.ShortID,
 		Title:             task.Title,
-		BodyPreview:       bodyPreview(task.Body),
-		SourceWorkspaceID: strings.TrimSpace(task.SourceWorkspaceID.String),
-		CreatedAtUnixMs:   task.CreatedAtUnixMs,
-		UpdatedAtUnixMs:   task.UpdatedAtUnixMs,
+		BodyPreview:       proto.String(bodyPreview(task.Body)),
+		SourceWorkspaceId: metadata.OptionalString(task.SourceWorkspaceID),
+		CreatedAt:         timestamppb.New(time.UnixMilli(task.CreatedAtUnixMs)),
+		UpdatedAt:         timestamppb.New(time.UnixMilli(task.UpdatedAtUnixMs)),
 		Done:              done,
-		ActiveNodeIDs:     append([]string(nil), status.NodeIds...),
+		ActiveNodeIds:     append([]string(nil), status.NodeIds...),
 	}
 }
 

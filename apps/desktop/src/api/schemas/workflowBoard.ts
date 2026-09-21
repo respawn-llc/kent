@@ -13,7 +13,6 @@ import type {
   AttentionPage,
   CommentPage,
   OffsetPage,
-  TaskDetail,
   TaskAttention,
   TaskApproveResponse,
   TaskCurrentNode,
@@ -29,15 +28,8 @@ import {
   emptyString,
   nonBlankString,
   currentNodeSchema,
-  scriptCurrentNodeSchema,
-  taskActionsSchema,
-  taskStatusSchema,
   workflowIDSchema,
-  workspaceSummarySchema,
 } from "./common";
-import { workflowExecutionTargetSchema } from "./workflowExecutionTarget";
-import { labelIDListSchema } from "./workflowLabels";
-import { taskDependenciesSchema } from "./taskDependencies";
 import { retainedPreviousWorktreeSchema, type RetainedPreviousWorktree } from "./workflowWorktree";
 export {
   taskDependenciesSchema,
@@ -395,93 +387,6 @@ export const taskAttentionSchema: z.ZodType<TaskAttention> = z
   .transform((value) => ({
     items: value.items,
     generatedAt: value.generated_at_unix_ms,
-  }));
-
-export const taskDetailSchema: z.ZodType<TaskDetail> = z
-  .object({
-    task: z.object({
-      summary: z.object({
-        id: z.string(),
-        project_id: z.string(),
-        workflow_id: workflowIDSchema,
-        short_id: z.string(),
-        title: z.string(),
-        created_at_unix_ms: z.number(),
-        updated_at_unix_ms: z.number(),
-        done: z.boolean(),
-      }),
-      project: z.object({
-        display_name: z.string(),
-      }),
-      workflow: z.object({
-        workflow_id: workflowIDSchema,
-        display_name: z.string(),
-        version: z.number(),
-      }),
-      body: emptyString,
-      source_url: emptyString,
-      source_workspace: workspaceSummarySchema,
-      execution_target: workflowExecutionTargetSchema.optional().transform((value) => value ?? null),
-      worktree_path: nonBlankString.nullable(),
-      current_nodes: z.array(currentNodeSchema),
-      live_sessions: z.array(
-        z
-          .object({
-            session_id: nonBlankString,
-            session_name: nonBlankString.optional(),
-            node_display_name: nonBlankString,
-          })
-          .strict(),
-      ),
-      current_scripts: z.array(
-        z
-          .object({
-            current_node: scriptCurrentNodeSchema,
-            path: nonBlankString,
-          })
-          .strict(),
-      ),
-      retained_session_count: z.number().int().nonnegative(),
-      status: taskStatusSchema,
-      actions: taskActionsSchema,
-      label_ids: labelIDListSchema,
-      attention_count: z.number().int().nonnegative(),
-      dependencies: taskDependenciesSchema,
-    }),
-  })
-  .transform((value) => ({
-    id: value.task.summary.id,
-    shortID: value.task.summary.short_id,
-    projectID: value.task.summary.project_id,
-    projectName: value.task.project.display_name,
-    workflowID: value.task.summary.workflow_id,
-    workflowName: value.task.workflow.display_name,
-    workflowVersion: value.task.workflow.version,
-    title: value.task.summary.title,
-    body: value.task.body,
-    sourceURL: value.task.source_url,
-    sourceWorkspace: value.task.source_workspace,
-    status: value.task.status,
-    actions: value.task.actions,
-    labelIDs: value.task.label_ids,
-    attentionCount: value.task.attention_count,
-    dependencies: value.task.dependencies,
-    executionTarget: value.task.execution_target,
-    worktreePath: value.task.worktree_path,
-    currentNodes: value.task.current_nodes,
-    liveSessions: value.task.live_sessions.map((session) => ({
-      sessionID: session.session_id,
-      sessionName: session.session_name ?? null,
-      nodeDisplayName: session.node_display_name,
-    })),
-    currentScripts: value.task.current_scripts.map((script) => ({
-      currentNode: script.current_node,
-      path: script.path,
-    })),
-    retainedSessionCount: value.task.retained_session_count,
-    createdAt: value.task.summary.created_at_unix_ms,
-    updatedAt: value.task.summary.updated_at_unix_ms,
-    done: value.task.summary.done,
   }));
 
 const activityItemSchema = z.discriminatedUnion("type", [

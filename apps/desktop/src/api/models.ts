@@ -690,7 +690,7 @@ export type TaskDetail = Readonly<{
   workflowVersion: number;
   title: string;
   body: string;
-  sourceURL: string;
+  sourceURL: string | null;
   sourceWorkspace: WorkspaceSummary;
   status: TaskStatus;
   actions: TaskActions;

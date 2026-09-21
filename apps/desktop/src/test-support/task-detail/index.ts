@@ -1,6 +1,10 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
+import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
   AnswerService,
   AnswerBatchOutcome,
@@ -51,26 +55,11 @@ export const taskUpdateParamsSchema = jsonObjectSchema.and(
   }),
 );
 
-const workflow = {
-  workflow_id: "11111111-1111-4111-8111-111111111111",
-  display_name: "Delivery",
-  version: 1,
-};
-
-const workspace = {
-  workspace_id: "workspace-1",
-  display_name: "Main",
-  root_path: "/tmp/project",
-  availability: "available",
-  is_primary: true,
-  updated_at_unix_ms: 1,
-};
-
 const taskActions = {
-  can_start: false,
-  can_interrupt: true,
-  can_resume: false,
-  can_delete: false,
+  canStart: false,
+  canInterrupt: true,
+  canResume: false,
+  canDelete: false,
 };
 
 const attentionBase = {
@@ -83,79 +72,73 @@ const attentionBase = {
 };
 
 export const taskDetailResponse = {
-  task: {
+  task: create(taskRead.TaskDetailSchema, {
     summary: {
       id: "task-1",
-      project_id: "project-1",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      short_id: "T-1",
+      projectId: "project-1",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      shortId: "T-1",
       title: "Resolve blocker",
-      created_at_unix_ms: 1,
-      updated_at_unix_ms: 2,
+      createdAt: { seconds: 0n, nanos: 1_000_000 },
+      updatedAt: { seconds: 0n, nanos: 2_000_000 },
       done: false,
     },
-    project: { display_name: "Project" },
-    workflow,
+    project: { projectKey: "T", displayName: "Project", defaultWorkspaceId: "workspace-1", attachedWorkspaceCount: 1 },
+    workflow: { workflowId: "11111111-1111-4111-8111-111111111111", displayName: "Delivery", version: 1n },
     body: "Need operator input",
-    source_workspace: workspace,
-    execution_target: {
-      mode: "head",
-      requested_ref: "HEAD",
-      resolved_ref: "refs/heads/main",
-      commit_oid: "0123456789abcdef0123456789abcdef01234567",
-      provenance: "resolved",
+    sourceWorkspace: {
+      workspaceId: "workspace-1", displayName: "Main", rootPath: "/tmp/project",
+      availability: ProjectAvailability.AVAILABLE, isPrimary: true,
+      updatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
-    worktree_path: "/tmp/worktree",
-    current_nodes: [
+    executionTarget: {
+      mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
+      requestedRef: "HEAD",
+      resolvedRef: "refs/heads/main",
+      commitOid: "0123456789abcdef0123456789abcdef01234567",
+      provenance: taskRead.ExecutionTargetProvenance.RESOLVED,
+    },
+    worktreePath: "/tmp/worktree",
+    currentNodes: [
       {
-        node_id: "node-1",
-        transition_branch_key: null,
-        session_id: "session-1",
+        nodeId: "node-1",
+        sessionId: "session-1",
       },
     ],
-    live_sessions: [
+    liveSessions: [
       {
-        session_id: "session-1",
-        session_name: "Review chat",
-        node_display_name: "Code Review",
+        sessionId: "session-1",
+        sessionName: "Review chat",
+        nodeDisplayName: "Code Review",
       },
       {
-        session_id: "session-2",
-        node_display_name: "Implementation",
+        sessionId: "session-2",
+        nodeDisplayName: "Implementation",
       },
     ],
-    current_scripts: [],
-    retained_session_count: 1,
+    retainedSessionCount: 1,
     status: {
-      kind: "running",
-      native_state: "running",
-      node_ids: ["node-1"],
-      attention_types: ["question", "approval"],
+      kind: taskRead.TaskStatusKind.RUNNING,
+      nativeState: taskRead.TaskNativeState.RUNNING,
+      nodeIds: ["node-1"],
+      attentionTypes: [taskRead.TaskAttentionKind.QUESTION, taskRead.TaskAttentionKind.APPROVAL],
     },
     actions: taskActions,
-    label_ids: [],
-    attention_count: 2,
+    attentionCount: 2,
     dependencies: {
-      blocker_count: 0,
-      unsatisfied_blocker_count: 0,
-      directly_blocked_task_count: 0,
       directions: [
         {
-          direction: "blocked-by",
-          total_count: 0,
-          unsatisfied_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 5 } },
+          direction: taskRead.DependencyDirection.BLOCKED_BY,
+          unsatisfiedCount: 0,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 5 } } },
         },
         {
-          direction: "blocks",
-          total_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 4 } },
+          direction: taskRead.DependencyDirection.BLOCKS,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 4 } } },
         },
       ],
     },
-  },
+  }),
 };
 
 export const taskAttentionResponse = {
@@ -205,54 +188,57 @@ export const emptyTaskAttentionResponse = {
 
 export async function createTaskDetailFixture(): Promise<TaskDetail> {
   const client = new ApiClient(
-    new FakeRpcTransport([{ method: "workflow.task.get", result: taskDetailResponse }]),
+    new FakeRpcTransport([{
+      descriptor: taskRead.TaskReadService.method.get,
+      result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: taskDetailResponse } }),
+    }]),
     unexpectedProjectOverflow,
   );
   return client.getTask("task-1");
 }
 
 export const taskDetailResponseWithAdditionalLiveSession = {
-  task: {
+  task: create(taskRead.TaskDetailSchema, {
     ...taskDetailResponse.task,
-    live_sessions: [
-      ...taskDetailResponse.task.live_sessions,
-      {
-        session_id: "session-3",
-        session_name: "QA chat",
-        node_display_name: "QA",
-      },
+    liveSessions: [
+      ...taskDetailResponse.task.liveSessions,
+      create(taskRead.LiveSessionSchema, {
+        sessionId: "session-3",
+        sessionName: "QA chat",
+        nodeDisplayName: "QA",
+      }),
     ],
-  },
+  }),
 };
 
 export const taskDetailNoInboxResponse = {
-  task: {
+  task: create(taskRead.TaskDetailSchema, {
     ...taskDetailResponse.task,
-    attention_count: 0,
-  },
+    attentionCount: 0,
+  }),
 };
 
 export const taskDetailResponseWithCurrentScript = {
-  task: {
+  task: create(taskRead.TaskDetailSchema, {
     ...taskDetailNoInboxResponse.task,
-    current_nodes: [{ node_id: "node-script", transition_branch_key: null, session_id: null }],
-    live_sessions: [],
-    current_scripts: [
-      {
-        current_node: { node_id: "node-script", transition_branch_key: null, session_id: null },
+    currentNodes: [create(AttentionCurrentNodeSchema, { nodeId: "node-script" })],
+    liveSessions: [],
+    currentScripts: [
+      create(taskRead.CurrentScriptSchema, {
+        currentNode: { nodeId: "node-script" },
         path: "scripts/run",
-      },
+      }),
     ],
-  },
+  }),
 };
 
 export const taskDetailResponseWithInterruptedCurrentScript = {
-  task: {
+  task: create(taskRead.TaskDetailSchema, {
     ...taskDetailResponseWithCurrentScript.task,
-    actions: { ...taskActions, can_interrupt: false, can_resume: true },
-    attention_count: 1,
-    current_scripts: [],
-  },
+    actions: create(taskRead.TaskActionsSchema, { ...taskActions, canInterrupt: false, canResume: true }),
+    attentionCount: 1,
+    currentScripts: [],
+  }),
 };
 
 export const interruptedTaskAttentionResponse = {
@@ -491,7 +477,7 @@ export type TaskDetailFixtureOptions = Readonly<{
 }>;
 
 export function createTaskDetailTestServices(
-  task: JsonValue,
+  task: typeof taskDetailResponse,
   {
     asks,
     attention = taskAttentionFixture(task),
@@ -505,7 +491,10 @@ export function createTaskDetailTestServices(
   return createTestServices(
     [
       ...startupRoutes,
-      { method: "workflow.task.get", result: task },
+      {
+        descriptor: taskRead.TaskReadService.method.get,
+        result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: task } }),
+      },
       { method: "workflow.task.attention.list", result: attention },
       ...(comments === undefined ? [] : [{ method: "workflow.task.comment.list", result: comments }]),
       { method: "workflow.task.activity.list", result: activityResponse },
@@ -523,7 +512,7 @@ export type MountedTaskDetailServices = TestAppServices &
   }>;
 
 export function mountTaskDetailSurface(
-  task: JsonValue,
+  task: typeof taskDetailResponse,
   options: TaskDetailFixtureOptions = {},
 ): MountedTaskDetailServices {
   const services = createTaskDetailTestServices(task, options);
@@ -583,11 +572,11 @@ export function mountTaskDetailSurface(
   };
 }
 
-function taskAttentionFixture(task: JsonValue): JsonValue {
+function taskAttentionFixture(task: typeof taskDetailResponse): JsonValue {
   if (task === taskDetailResponseWithInterruptedCurrentScript) {
     return interruptedTaskAttentionResponse;
   }
-  if (isJsonObject(task) && isJsonObject(task.task) && task.task.attention_count === 0) {
+  if (task.task.attentionCount === 0) {
     return emptyTaskAttentionResponse;
   }
   return taskAttentionResponse;

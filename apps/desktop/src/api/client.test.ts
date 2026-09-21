@@ -1,5 +1,6 @@
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
@@ -225,7 +226,7 @@ describe("ApiClient", () => {
   });
   it("parses required empty current task execution arrays", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.get", result: emptyTaskDetailResponse }]),
+      new FakeRpcTransport([{ descriptor: taskRead.TaskReadService.method.get, result: emptyTaskDetailResponse }]),
       unexpectedProjectOverflow,
     );
     await expect(client.getTask("task-1")).resolves.toMatchObject({
@@ -235,7 +236,7 @@ describe("ApiClient", () => {
       liveSessions: [],
       currentScripts: [],
       attentionCount: 0,
-      sourceURL: "",
+      sourceURL: null,
     });
   });
   it("uses separate global and task attention RPC contracts", async () => {
@@ -267,13 +268,13 @@ describe("ApiClient", () => {
     const client = new ApiClient(
       new FakeRpcTransport([
         {
-          method: "workflow.task.get",
-          result: {
-            task: {
-              ...emptyTaskDetailResponse.task,
-              source_url: "https://github.com/respawn-llc/kent/issues/1",
-            },
-          },
+          descriptor: taskRead.TaskReadService.method.get,
+          result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: {
+            task: create(taskRead.TaskDetailSchema, {
+              ...emptyTaskDetail,
+              sourceUrl: "https://github.com/respawn-llc/kent/issues/1",
+            }),
+          } } }),
         },
       ]),
       unexpectedProjectOverflow,
@@ -995,78 +996,54 @@ const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSche
   nextOffset: 50,
   generatedAt: { seconds: 0n, nanos: 1_000_000 },
 } } });
-const workspaceResponse = {
-  workspace_id: "workspace-1",
-  display_name: "Project",
-  root_path: "/tmp/project",
-  availability: "available",
-  is_primary: true,
-  updated_at_unix_ms: 1,
-};
-const emptyTaskDetailResponse = {
-  task: {
+const emptyTaskDetail = create(taskRead.TaskDetailSchema, {
     summary: {
       id: "task-1",
-      project_id: "project-1",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      short_id: "PROJ-1",
+      projectId: "project-1",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      shortId: "PROJ-1",
       title: "Task",
-      created_at_unix_ms: 1,
-      updated_at_unix_ms: 1,
+      createdAt: { seconds: 0n, nanos: 1_000_000 },
+      updatedAt: { seconds: 0n, nanos: 1_000_000 },
       done: false,
     },
     project: {
-      display_name: "Project",
+      projectKey: "PROJ", displayName: "Project", defaultWorkspaceId: "workspace-1", attachedWorkspaceCount: 1,
     },
     workflow: {
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      display_name: "Delivery",
-      description: "",
-      version: 1,
-      is_project_default: true,
-      valid_for_task_creation: true,
-      validation_errors: null,
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      displayName: "Delivery",
+      version: 1n,
     },
     body: "Body",
-    source_workspace: workspaceResponse,
+    sourceWorkspace: {
+      workspaceId: "workspace-1", displayName: "Project", rootPath: "/tmp/project",
+      availability: ProjectAvailability.AVAILABLE, isPrimary: true,
+      updatedAt: { seconds: 0n, nanos: 1_000_000 },
+    },
     status: {
-      kind: "backlog",
-      native_state: "active",
-      node_ids: [],
-      attention_types: [],
+      kind: taskRead.TaskStatusKind.BACKLOG,
+      nativeState: taskRead.TaskNativeState.ACTIVE,
     },
     actions: {
-      can_start: true,
-      can_interrupt: false,
-      can_resume: false,
-      can_delete: true,
+      canStart: true,
+      canDelete: true,
     },
-    label_ids: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
-    attention_count: 0,
+    labelIds: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
     dependencies: {
-      blocker_count: 0,
-      unsatisfied_blocker_count: 0,
-      directly_blocked_task_count: 0,
       directions: [
         {
-          direction: "blocked-by",
-          total_count: 0,
-          unsatisfied_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 5 } },
+          direction: taskRead.DependencyDirection.BLOCKED_BY,
+          unsatisfiedCount: 0,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 5 } } },
         },
         {
-          direction: "blocks",
-          total_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 4 } },
+          direction: taskRead.DependencyDirection.BLOCKS,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 4 } } },
         },
       ],
     },
-    worktree_path: null,
-    current_nodes: [],
-    live_sessions: [],
-    current_scripts: [],
-    retained_session_count: 0,
-  },
-};
+});
+const emptyTaskDetailResponse = create(taskRead.GetResultSchema, {
+  outcome: { case: "success", value: { task: emptyTaskDetail } },
+});

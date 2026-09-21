@@ -1,4 +1,5 @@
 import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
 import type {
@@ -9,6 +10,11 @@ import type {
   WorkflowBoard,
   BoardNodeCardsPage,
   WorkflowPickerItem,
+  TaskCurrentNode,
+  TaskDetail,
+  TaskDependencies,
+  TaskDependencyItem,
+  TaskDependencyAddAvailability,
 } from "./models";
 import { projectAvailability } from "./clientProject";
 import { workflowValidationError } from "./clientWorkflowProjection";
@@ -20,7 +26,12 @@ import {
   taskCardinality,
   projectTaskGroup,
   workflowNodeKind,
+  workflowExecutionTargetMode,
+  taskDependencyDirection,
+  taskDependencySatisfaction,
+  taskExecutionProvenance,
 } from "./workflowProtoValues";
+import type { WorkflowExecutionTarget } from "./workflowExecutionTarget";
 
 export function taskStatus(value: pb.TaskStatus | undefined): TaskStatus {
   if (value === undefined) throw new ContractError("Task status is required.");
@@ -185,5 +196,116 @@ export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccess): BoardNo
         updatedAt: timestampMillis(card.updatedAt),
       };
     }),
+  };
+}
+
+export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
+  return {
+    nodeID: value.nodeId,
+    transitionBranchKey: value.transitionBranchKey ?? null,
+    sessionID: value.sessionId ?? null,
+    effectiveAssignee: value.effectiveAssignee ?? null,
+    effectiveThinking: value.effectiveThinking ?? null,
+  };
+}
+
+export function taskExecutionTarget(value: pb.ExecutionTarget | undefined): WorkflowExecutionTarget | null {
+  if (value === undefined) return null;
+  const mode = workflowExecutionTargetMode.decode(value.mode);
+  if (mode === "none") {
+    return { mode, requestedRef: null, resolvedRef: null, commitOID: null, provenance: "resolved" };
+  }
+  if (mode === "ask_on_first_execution" || value.requestedRef === undefined || value.commitOid === undefined) {
+    throw new ContractError("Task execution target is unresolved.");
+  }
+  return {
+    mode,
+    requestedRef: value.requestedRef,
+    resolvedRef: value.resolvedRef ?? null,
+    commitOID: value.commitOid,
+    provenance: taskExecutionProvenance.decode(value.provenance),
+  };
+}
+
+export function taskDependencyItem(value: pb.DependencyItem): TaskDependencyItem {
+  return {
+    taskID: value.taskId,
+    shortID: value.shortId,
+    title: value.title,
+    workflowID: value.workflowId,
+    status: taskStatus(value.status),
+    satisfaction: value.satisfaction === undefined ? null : taskDependencySatisfaction.decode(value.satisfaction),
+  };
+}
+
+function taskDependencyAvailability(value: pb.DependencyAddAvailability | undefined): TaskDependencyAddAvailability {
+  const availability = value?.availability;
+  switch (availability?.case) {
+    case "available":
+      return { kind: "available", remainingCapacity: availability.value.remainingCapacity };
+    case "limitReached":
+      return { kind: "limit_reached" };
+    default:
+      throw new ContractError("Task dependency availability is required.");
+  }
+}
+
+export function taskDependencies(value: pb.TaskDependencies | undefined): TaskDependencies {
+  if (value === undefined) throw new ContractError("Task dependencies are required.");
+  return {
+    blockerCount: value.blockerCount,
+    unsatisfiedBlockerCount: value.unsatisfiedBlockerCount,
+    directlyBlockedTaskCount: value.directlyBlockedTaskCount,
+    directions: value.directions.map((direction) => ({
+      direction: taskDependencyDirection.decode(direction.direction),
+      totalCount: direction.totalCount,
+      unsatisfiedCount: direction.unsatisfiedCount ?? null,
+      items: direction.items.map(taskDependencyItem),
+      addAvailability: taskDependencyAvailability(direction.addAvailability),
+    })),
+  };
+}
+
+export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
+  if (value?.summary?.createdAt === undefined || value.summary.updatedAt === undefined ||
+      value.project === undefined || value.workflow === undefined) {
+    throw new ContractError("Task summary, times, Project, and Workflow are required.");
+  }
+  return {
+    id: value.summary.id,
+    shortID: value.summary.shortId,
+    projectID: value.summary.projectId,
+    projectName: value.project.displayName,
+    workflowID: value.summary.workflowId,
+    workflowName: value.workflow.displayName,
+    workflowVersion: Number(value.workflow.version),
+    title: value.summary.title,
+    body: value.body,
+    sourceURL: value.sourceUrl ?? null,
+    sourceWorkspace: taskSourceWorkspace(value.sourceWorkspace),
+    status: taskStatus(value.status),
+    actions: taskActions(value.actions),
+    labelIDs: value.labelIds,
+    attentionCount: value.attentionCount,
+    dependencies: taskDependencies(value.dependencies),
+    executionTarget: taskExecutionTarget(value.executionTarget),
+    worktreePath: value.worktreePath ?? null,
+    currentNodes: value.currentNodes.map(taskCurrentNode),
+    liveSessions: value.liveSessions.map((session) => ({
+      sessionID: session.sessionId,
+      sessionName: session.sessionName ?? null,
+      nodeDisplayName: session.nodeDisplayName,
+    })),
+    currentScripts: value.currentScripts.map((script) => {
+      if (script.currentNode === undefined) throw new ContractError("Current Script Node is required.");
+      return {
+        currentNode: { nodeID: script.currentNode.nodeId, transitionBranchKey: script.currentNode.transitionBranchKey ?? null, sessionID: null },
+        path: script.path,
+      };
+    }),
+    retainedSessionCount: value.retainedSessionCount,
+    createdAt: timestampMillis(value.summary.createdAt),
+    updatedAt: timestampMillis(value.summary.updatedAt),
+    done: value.summary.done,
   };
 }

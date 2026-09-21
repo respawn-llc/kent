@@ -499,20 +499,20 @@ func (c *Remote) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *tas
 		})
 }
 
-func (c *Remote) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error) {
-	response, err := callDedicatedRPC[serverapi.TaskSearchRequest, serverapi.TaskSearchResponse](
-		c,
-		ctx,
-		apicontract.TaskSearchDedicatedRequestID,
-		protocol.MethodWorkflowTaskSearch,
-		req,
-	)
-	response, err = validateWorkflowResponse("search workflow tasks", response, err)
+func (c *Remote) SearchWorkflowTasks(ctx context.Context, req *taskpb.SearchRequest) (*taskpb.SearchSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Search")
+	response, err := callGeneratedBinary(c, ctx, method, req, &taskpb.SearchResult{},
+		func(failure *taskpb.SearchError) error {
+			if failure.GetNormalizedTooShort() != nil {
+				return &serverapi.TaskSearchError{Reason: serverapi.TaskSearchErrorReasonNormalizedTooShort}
+			}
+			return generatedOperationFailure(failure.Code)
+		})
 	if err != nil {
-		return response, err
+		return nil, err
 	}
 	if response.Mode != req.Mode {
-		return serverapi.TaskSearchResponse{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"search workflow tasks returned mode %q for request mode %q",
 			response.Mode,
 			req.Mode,
@@ -531,9 +531,15 @@ func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.Boa
 	return callGeneratedBinary(c, ctx, method, req, &taskpb.BoardNodeCardsListResult{}, taskReadGeneratedError[*taskpb.BoardNodeCardsListError])
 }
 
-func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskGetRequest, serverapi.WorkflowTaskGetResponse](c, ctx, protocol.MethodWorkflowTaskGet, req)
-	return validateWorkflowResponse("get workflow task", response, err)
+func (c *Remote) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.GetResult{},
+		func(failure *taskpb.GetError) error {
+			if failure.GetTaskNotFound() != nil {
+				return serverapi.ErrWorkflowTaskNotFound
+			}
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
 func (c *Remote) ObserveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskObservationRequest) (serverapi.WorkflowTaskObservationResponse, error) {

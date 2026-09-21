@@ -27,18 +27,18 @@ type WorkflowTaskListReadModel interface {
 }
 
 type WorkflowTaskSearchReadModel interface {
-	Search(context.Context, serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error)
+	Search(context.Context, *taskpb.SearchRequest) (*taskpb.SearchSuccess, error)
 }
 
 type WorkflowTaskDetailReadModel interface {
-	GetTask(context.Context, string) (serverapi.WorkflowTaskDetail, error)
-	GetTaskByProjectShortID(context.Context, string, string) (serverapi.WorkflowTaskDetail, error)
-	GetTaskByShortID(context.Context, string) (serverapi.WorkflowTaskDetail, error)
+	GetTask(context.Context, string) (*taskpb.TaskDetail, error)
+	GetTaskByProjectShortID(context.Context, string, string) (*taskpb.TaskDetail, error)
+	GetTaskByShortID(context.Context, string) (*taskpb.TaskDetail, error)
 	ListCurrentNodes(context.Context, string) ([]workflow.CurrentNode, error)
 }
 
 type WorkflowTaskDependencyReadModel interface {
-	GetTaskDependencies(context.Context, string) (serverapi.WorkflowTaskDependencies, error)
+	GetTaskDependencies(context.Context, string) (*taskpb.TaskDependencies, error)
 	CountUnsatisfiedBlockers(context.Context, string) (int, error)
 	ListTaskDependencies(context.Context, string, *serverapi.WorkflowTaskDependencyDirection) (serverapi.WorkflowTaskDependencyListResponse, error)
 }

@@ -76,6 +76,13 @@
 - Generated TypeScript uses the standard Protobuf `bigint` representation for `int64` and `uint64`.
 - JavaScript-facing 64-bit values must remain within the JavaScript safe-integer range.
 
+### Task requests
+
+- Task pagination offsets must be between 0 and 2,147,483,647.
+- Task continuation offsets must be between 1 and 2,147,483,647.
+- Task Search must accept Project and status filter arrays in any order.
+- Each Task Search filter array must contain unique values.
+
 ## Results And Errors
 
 - Unary results, progress final results, and subscription-start acknowledgements must use an operation-specific top-level `oneof` with exactly one `success` or `error` branch.

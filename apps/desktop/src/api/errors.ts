@@ -185,25 +185,6 @@ export class TaskSearchError extends RpcError {
   }
 }
 
-const taskSearchErrorDataSchema = z
-  .object({
-    type: z.literal("task_search_error"),
-    reason: z.literal("normalized_too_short"),
-  })
-  .strict();
-
-export function decodeTaskSearchError(error: unknown): TaskSearchError | null {
-  if (
-    !(error instanceof RpcError) ||
-    error.code !== rpcErrorCodes.workflowTaskSearch ||
-    error.method !== "workflow.task.search"
-  ) {
-    return null;
-  }
-  const parsed = taskSearchErrorDataSchema.safeParse(error.data);
-  return parsed.success ? new TaskSearchError(error, parsed.data.reason) : null;
-}
-
 export const workflowLabelErrorReasons = [
   "invalid_name",
   "name_conflict",
