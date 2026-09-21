@@ -6,6 +6,10 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"core/internal/testharness/postprocessfixture"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func TestManagerTerminationPublishesKilledAfterCleanShellExit(t *testing.T) {
@@ -23,6 +27,7 @@ func TestManagerTerminationPublishesKilledAfterCleanShellExit(t *testing.T) {
 				return true
 			})
 			result, err := manager.Start(context.Background(), ExecRequest{
+				Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 				Command:        []string{"/bin/sh", "-c", command},
 				DisplayCommand: command,
 				Workdir:        t.TempDir(),
