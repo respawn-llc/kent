@@ -446,13 +446,21 @@ message CompleteRequest {
   }];
   optional string agent_session_id = 7 [(buf.validate.field).string.min_len = 1];
   bool force = 8;
+  optional string run_id = 9 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  optional string step_id = 10 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.complete_actor"
     message: "completion actor, selector, and force fields must agree"
     expression:
-      "(this.actor_kind == 1 && has(this.agent_session_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
-      "(this.actor_kind == 2 && !has(this.agent_session_id) && this.force && (has(this.session_id) != has(this.task_id)))"
+      "(this.actor_kind == 1 && has(this.agent_session_id) && has(this.run_id) && has(this.step_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
+      "(this.actor_kind == 2 && !has(this.agent_session_id) && !has(this.run_id) && !has(this.step_id) && this.force && (has(this.session_id) != has(this.task_id)))"
   };
 }
 
@@ -461,11 +469,25 @@ message CompletionHandoff {
   string destination_display_name = 2 [(buf.validate.field).string.min_len = 1];
 }
 
-message CompleteSuccess {
+message AgentCompletion {
   string task_id = 1 [(buf.validate.field).string.min_len = 1];
   repeated AttentionCurrentNode current_nodes = 2;
   optional string pending_approval_id = 3 [(buf.validate.field).string.min_len = 1];
   CompletionHandoff handoff = 4 [(buf.validate.field).required = true];
+}
+
+message ForcedCompletionMove {
+  string task_id = 1 [(buf.validate.field).string.min_len = 1];
+  string target_node_id = 2 [(buf.validate.field).string.min_len = 1];
+  MoveSuccess outcome = 3 [(buf.validate.field).required = true];
+}
+
+message CompleteSuccess {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    AgentCompletion agent_completion = 1;
+    ForcedCompletionMove forced_move = 2;
+  }
 }
 
 message DeleteRequest {
@@ -843,9 +865,15 @@ message InitialBranchDetails {
 message CompletionTargetNotFoundDetails {}
 message CompletionSelectorAmbiguousDetails {}
 
+message ContextSelectionRequiredDetails {
+  string task_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
 message CreateError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     CreateSelectionDetails create_selection = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "create_selection"}];
     CreateConflictDetails create_conflict = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "create_conflict"}];
@@ -858,6 +886,8 @@ message CreateError {
 message UpdateError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -867,6 +897,9 @@ message UpdateError {
 message StartError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -881,6 +914,8 @@ message StartError {
 message InterruptError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -891,6 +926,10 @@ message InterruptError {
 message ResumeError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
+    ContextSelectionRequiredDetails context_selection_required = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "context_selection_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -904,6 +943,9 @@ message ResumeError {
 message ApproveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    ContextSelectionRequiredDetails context_selection_required = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "context_selection_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -916,6 +958,8 @@ message ApproveError {
 message MovePreviewError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -925,6 +969,9 @@ message MovePreviewError {
 message MoveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -938,6 +985,8 @@ message MoveError {
 message CompleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     CompletionTargetNotFoundDetails completion_target_not_found = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "completion_target_not_found"}];
@@ -949,6 +998,8 @@ message CompleteError {
 message DeleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.worktree.BlockedDetails worktree_blocked = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "worktree_blocked"}];
@@ -959,6 +1010,8 @@ message DeleteError {
 message DependencyAddError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -968,6 +1021,8 @@ message DependencyAddError {
 message DependencyRemoveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -977,6 +1032,7 @@ message DependencyRemoveError {
 message DependencyListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -986,6 +1042,8 @@ message DependencyListError {
 message CommentAddError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -995,6 +1053,7 @@ message CommentAddError {
 message CommentListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1004,6 +1063,8 @@ message CommentListError {
 message CommentReplaceError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1013,6 +1074,8 @@ message CommentReplaceError {
 message CommentDeleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1022,6 +1085,7 @@ message CommentDeleteError {
 message ActivityListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1031,6 +1095,7 @@ message ActivityListError {
 message SessionListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1058,6 +1123,8 @@ message LabelsUpdateError {
 message ObserveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
