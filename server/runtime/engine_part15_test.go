@@ -108,7 +108,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 		},
 		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestCompactionReplacementCapturesShellsStillRunningWhenCompactionCompletes(
 func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t
 func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		t.Fatalf("new shell manager: %v", err)
 	}

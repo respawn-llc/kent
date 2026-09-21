@@ -3,7 +3,6 @@ package sessionlaunch
 import (
 	"testing"
 
-	"core/server/auth"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -57,10 +56,8 @@ func TestOpenSessionUsesCurrentAgentBudgetAcrossConfigChanges(t *testing.T) {
 				Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 			},
 		}
-		service := newSessionLaunchTestService(cfg, containerDir).WithAuthStateReader(&nonRefreshingAuthStateReader{
-			loaded:  auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-			current: auth.State{Method: auth.Method{Type: auth.MethodOAuth}},
-		})
+		service := newSessionLaunchTestService(cfg, containerDir)
+
 		result, err := service.PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
 			Mode:   sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
 			Intent: intent,

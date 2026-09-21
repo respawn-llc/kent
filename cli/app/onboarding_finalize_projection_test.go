@@ -230,8 +230,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
 		cfg.Settings.Theme = theme.Light
 		cfg.Settings.Model = modelID
-		cfg.Settings.ProviderOverride = "openai"
-		cfg.Settings.OpenAIBaseURL = "http://127.0.0.1:8080/v1"
 		cfg.Settings.ModelContextWindow = 1_000_000
 		cfg.Settings.ThinkingLevel = "high"
 		cfg.Settings.ModelVerbosity = config.ModelVerbosityHigh
@@ -261,9 +259,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	}
 	if request.Model == nil || request.Model.Kind != onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		t.Fatalf("model = %+v", request.Model)
-	}
-	if request.MainProvider == nil || request.MainProvider.ProviderOverride == nil || *request.MainProvider.ProviderOverride != "openai" || request.MainProvider.OpenaiBaseUrl == nil || *request.MainProvider.OpenaiBaseUrl != "http://127.0.0.1:8080/v1" {
-		t.Fatalf("main provider = %+v", request.MainProvider)
 	}
 	toolOverrides := map[onboardingpb.ToolID]bool{}
 	for _, override := range request.ToolOverrides {
@@ -489,7 +484,6 @@ func TestOnboardingRecoverableRetrySubmitsUnchangedRequest(t *testing.T) {
 	)
 	finalizer := &recordingOnboardingFinalizer{err: typedFailure}
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
-		cfg.Settings.ProviderOverride = "openai"
 		cfg.Settings.ThinkingLevel = "high"
 		cfg.Source.Sources["thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}
 

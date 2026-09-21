@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
@@ -36,7 +35,7 @@ func (s *Starter) PrepareCurrentNode(
 		return workflowexecution.CurrentNodePreparation{}, errors.New("workflow runtime starter closed")
 	}
 	if input.Node.Kind == workflow.NodeKindScript {
-		_, err := currentNodeScriptCommand(input)
+		_, err := currentNodeScriptCommand(input, s.cfg.PersistenceRoot)
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	if input.Node.Kind != workflow.NodeKindAgent {
@@ -150,7 +149,7 @@ func (s *Starter) PrepareCurrentNode(
 		(delivery != workflowruntime.TaskPromptDeliveryResume || preparation.outgoing != nil) {
 		overrides = workflowPromptOverrides(selection.Assignee)
 	}
-	overridesPlan, err := launch.PrepareRunPromptOverridesWithContext(cfg, overrides, auth.EmptyState(), launch.RunPromptPreparationContext{
+	overridesPlan, err := launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
 		Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
 		OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
 	})
@@ -208,7 +207,7 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	prepared.mode, prepared.client, err = s.resolveCurrentNodeCompletionMode(ctx, input, plan, prepared.client)
+	prepared.mode, err = s.resolveCurrentNodeCompletionMode(ctx, input, plan)
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
@@ -245,7 +244,7 @@ func (s *Starter) prepareCurrentNodeClone(ctx context.Context, planner launch.Pl
 	if err != nil {
 		return session.CreationPlan{}, err
 	}
-	thinking, err := launch.ResolveForkThinking(ctx, s.cfg, *source.Meta, s.authManager, true)
+	thinking, err := launch.ResolveForkThinking(s.cfg, *source.Meta, true)
 	if err != nil {
 		return session.CreationPlan{}, err
 	}
@@ -267,6 +266,14 @@ func (p *plannedCurrentNodeSession) materialize(ctx context.Context, starter *St
 		}
 	}
 	return starter.withSessionStore(ctx, prepared.plan.Descriptor, func(_ context.Context, store *session.Store) error {
+		if p.outgoing != nil {
+			if _, err := prepared.plan.ActiveSettings.SelectedConnection(); err != nil {
+				return err
+			}
+			if err := store.SetConnectionID(*prepared.plan.ActiveSettings.Connection); err != nil {
+				return err
+			}
+		}
 		if prepared.plan.Locked != nil && prepared.plan.Locked.WorkflowCompletionMode == nil {
 			if _, err := store.BackfillLockedWorkflowCompletionMode(prepared.mode); err != nil {
 				return err

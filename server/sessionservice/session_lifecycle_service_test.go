@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/metadata"
 	"core/server/session"
@@ -24,6 +25,7 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -160,6 +162,7 @@ func createPersistedSession(t *testing.T) (string, string, *session.Store) {
 func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot string) (config.App, *metadata.Store, metadata.Binding, *session.Store) {
 	t.Helper()
 	cfg := config.App{PersistenceRoot: t.TempDir(), WorkspaceRoot: workspaceRoot}
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, config.DefaultOnboardingSettings())
 	store, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -718,7 +721,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	activateSettings.Model = "gpt-5.4"
 	activateSettings.ThinkingLevel = "medium"
 	activateSettings.Reviewer.Frequency = "off"
-	activateSettings.OpenAIBaseURL = "http://127.0.0.1:1/v1"
+	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	activation, err := runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID:             forkID.String(),
@@ -840,13 +843,8 @@ func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 
 func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testing.T) {
 	currentID := runtimeids.NewSessionID()
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
@@ -870,19 +868,14 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 	if err != nil {
 		t.Fatalf("load auth state: %v", err)
 	}
-	if state.Method.Type != auth.MethodAPIKey || state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-before" {
-		t.Fatalf("expected auth method to be preserved until reauth choice, got %+v", state.Method)
+	if len(state.Connections) != 0 {
+		t.Fatalf("logout changed credentials: %+v", state)
 	}
 }
 
 func TestServiceResolveTransitionLogoutReturnsStableDirective(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil)
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+
 	service := newTestSessionLifecycleService(t.TempDir(), mgr)
 	req := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId:  proto.String(runtimeids.NewSessionID().String()),

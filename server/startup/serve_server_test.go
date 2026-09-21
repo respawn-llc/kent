@@ -15,8 +15,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
-	"core/server/auth"
-	"core/server/authservice"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
@@ -36,36 +34,6 @@ import (
 	proto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
-
-type envAuthHandler struct {
-	lookupEnv func(string) string
-}
-
-func (h envAuthHandler) WrapStore(base auth.Store) auth.Store {
-	return authservice.WrapStoreWithEnvAPIKeyOverride(base, h.LookupEnv)
-}
-
-func (envAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
-	return !req.Gate.Ready
-}
-
-func (envAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
-	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
-}
-
-func (h envAuthHandler) LookupEnv(key string) string {
-	if h.lookupEnv != nil {
-		return h.lookupEnv(key)
-	}
-	return testAuthLookupEnv(key)
-}
-
-func testAuthLookupEnv(key string) string {
-	if key == "OPENAI_API_KEY" {
-		return "in-memory-test-key"
-	}
-	return ""
-}
 
 func releaseServeTestPortForConfig(cfg config.App) {
 	testsetup.ReleaseLoopbackPort(cfg.Settings.ServerHost, cfg.Settings.ServerPort)
@@ -94,9 +62,9 @@ func newServeWorkspace(t *testing.T) string {
 	return workspace
 }
 
-func startServeTestServer(t *testing.T, request Request, authHandler envAuthHandler) *ServeServer {
+func startServeTestServer(t *testing.T, request Request) *ServeServer {
 	t.Helper()
-	server, err := StartServeServer(context.Background(), request, authHandler)
+	server, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -107,9 +75,9 @@ func startServeTestServer(t *testing.T, request Request, authHandler envAuthHand
 func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	first := startServeTestServer(t, request, envAuthHandler{})
+	first := startServeTestServer(t, request)
 
-	if _, err := StartServeServer(context.Background(), request, envAuthHandler{}); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+	if _, err := StartServeServer(context.Background(), request); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
 		t.Fatalf("second StartServeServer error = %v, want ErrPersistenceRootBusy", err)
 	}
 	if first.Core == nil {
@@ -117,24 +85,9 @@ func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	}
 }
 
-func TestConfiguredServeRequiresAuthWhenRequested(t *testing.T) {
-	workspace := newServeWorkspace(t)
-	server, err := StartServeServer(context.Background(), Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-	}, NewHeadlessAuthHandler(func(string) string { return "" }))
-	if server != nil {
-		_ = server.Close()
-		t.Fatal("server started without required authentication")
-	}
-	if !errors.Is(err, auth.ErrAuthNotConfigured) {
-		t.Fatalf("StartServeServer error = %v, want ErrAuthNotConfigured", err)
-	}
-}
-
 func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	request := buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	request := buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -142,7 +95,7 @@ func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
 	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("remove settings: %v", err)
 	}
-	appCore, err := startCoreWithBootstrap(context.Background(), request, true, envAuthHandler{})
+	appCore, err := startCoreWithBootstrap(context.Background(), request)
 	if appCore != nil {
 		_ = appCore.Close()
 		t.Fatal("core started without settings")
@@ -183,10 +136,8 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 		Request{
 			WorkspaceRoot:         workspace,
 			WorkspaceRootExplicit: true,
-			AllowUnauthenticated:  true,
-		},
-		envAuthHandler{},
-	)
+		})
+
 	if server != nil {
 		_ = server.Close()
 	}
@@ -286,7 +237,7 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	server, err := StartServeServer(context.Background(), request, envAuthHandler{})
+	server, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("StartServeServer: %v", err)
 	}
@@ -295,7 +246,7 @@ func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.
 		t.Fatalf("close initial server: %v", err)
 	}
 
-	restarted, err := StartServeServer(context.Background(), request, envAuthHandler{})
+	restarted, err := StartServeServer(context.Background(), request)
 	if err != nil {
 		t.Fatalf("restart: %v", err)
 	}
@@ -414,7 +365,7 @@ func TestServeRequiresContext(t *testing.T) {
 
 func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -427,7 +378,7 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
 	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
 	if err != nil {
@@ -493,7 +444,7 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 	}
 	t.Cleanup(func() { localSocketListener = originalLocalSocketListener })
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -509,10 +460,14 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 
 func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
 	workspace := newServeWorkspace(t)
+	writeServeSettings(t, os.Getenv("HOME"), `
+connection = "subscription"
+[connections.subscription]
+protocol = "chatgpt-codex"
+`)
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -546,7 +501,10 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
 model = "gpt-5"
-openai_base_url = "http://127.0.0.1:11434/v1"
+connection = "local"
+[connections.local]
+protocol = "responses"
+endpoint = "http://127.0.0.1:11434/v1"
 `)
 	configureServeTestServerPort(t)
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
@@ -558,9 +516,8 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 	}
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	readyURL := config.ServerHTTPBaseURL(server.Config()) + protocol.ReadinessPath
@@ -572,7 +529,7 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 		t.Fatalf("decode readiness body: %v", err)
 	}
 	if body["ready"] != true || body["auth_ready"] != false {
-		t.Fatalf("readiness body = %+v, want ready with unavailable auth", body)
+		t.Fatalf("readiness body = %+v, want ready without credentials", body)
 	}
 }
 
@@ -582,7 +539,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{lookupEnv: func(string) string { return "" }})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface without configured core")
 	}
@@ -594,8 +551,8 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	if _, err := remote.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{}); err != nil {
-		t.Fatalf("GetFacts before auth and activation: %v", err)
+	if _, err := remote.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{}); err == nil {
+		t.Fatal("provider capability facts require a selected connection")
 	}
 	readinessResponse, err := server.deps.ServerStatusClient().GetReadiness(context.Background(), &emptypb.Empty{})
 	if err != nil {
@@ -637,7 +594,7 @@ func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.
 		t.Fatalf("write settings: %v", err)
 	}
 
-	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}), envAuthHandler{})
+	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}))
 	if !errors.Is(err, errStartupControlSurfaceNotRequired) {
 		t.Fatalf("buildStartupControlSurface error = %v, want not required", err)
 	}
@@ -649,6 +606,10 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
 model = "gpt-5"
+connection = "subscription"
+
+[connections.subscription]
+protocol = "chatgpt-codex"
 
 [subagents.coder]
 model = "coder-model"
@@ -661,9 +622,8 @@ model = "blocked-model"
 	registerServeWorkspace(t, workspace)
 
 	server := startServeTestServer(t,
-		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true},
-		envAuthHandler{lookupEnv: func(string) string { return "" }},
-	)
+		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+
 	startServingTestServer(t, server)
 
 	cfg := server.Config()
@@ -713,7 +673,7 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
 
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface")
 	}
@@ -818,7 +778,7 @@ func assertReadinessRoles(t *testing.T, roles []*serverpb.SubagentRoleSummary, w
 
 func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{})
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
 	releaseServeTestPortForConfig(cfg)
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))

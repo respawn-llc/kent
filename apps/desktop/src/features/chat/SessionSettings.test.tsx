@@ -588,7 +588,7 @@ it("replaces New Chat selection with ordinary Session loading before installing 
     catalog: {
       choices: [
         {
-          agent,
+          agent: { ...agent, model: settings.selectedAgent.model, thinking: settings.selectedAgent.thinking },
           baseline: initialSettings,
           supervisor: settings.supervisor,
           thinking: settings.thinking,

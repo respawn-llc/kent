@@ -77,7 +77,7 @@ func runPTYFixtureProcess(t *testing.T, ctx context.Context, processConfig appfi
 	interactor := newInteractiveAuthInteractor()
 	startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
 		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-	), readyMemoryAuthHandler())
+	))
 
 	server, err := startSessionServer(ctx, options, interactor, true)
 	if err != nil {
@@ -131,7 +131,6 @@ func serverStartupRequest(t *testing.T, workspaceRoot, persistenceRoot string) s
 	return serverstartup.Request{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: true,
-		AllowUnauthenticated:  true,
 		LoadOptions:           config.LoadOptions{ConfigRoot: persistenceRoot},
 	}
 }

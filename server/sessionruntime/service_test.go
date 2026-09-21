@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -81,7 +80,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	override := serverapi.RunPromptOverrides{Tools: "exec_command"}
-	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, auth.EmptyState(), launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
+	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +555,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		return &sessionRuntimeTestLLMClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}}}}, nil
 	})
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{RuntimeClientFactory: factory})
-	settings := config.DefaultOnboardingSettings()
+	settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 40
 	settings.CompactionMode = config.CompactionModeNative
@@ -911,11 +910,7 @@ func sessionRuntimeFastSettings(enabled bool) config.Settings {
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5"
 	settings.PriorityRequestMode = enabled
-	settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
-		ProviderID:           "openai",
-		SupportsResponsesAPI: true,
-		IsOpenAIFirstParty:   true,
-	}
+	settings = testsetup.ProviderSettings(settings)
 	settings.Reviewer.Frequency = "off"
 	return settings
 }
@@ -1003,7 +998,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model:              "gpt-5",
 			ThinkingLevel:      "medium",
 			ModelContextWindow: 200000,
@@ -1011,7 +1006,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)},
 		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
@@ -1124,11 +1119,11 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	activation, err := fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID: fixture.store.Meta().SessionID, OwnerID: "interactive-owner",
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
@@ -1228,7 +1223,7 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 
 func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
-	background, err := shelltool.NewManager(
+	background, err := shelltool.NewManager(fixture.config.PersistenceRoot,
 		shelltool.WithMinimumExecToBgTime(time.Second),
 	)
 	if err != nil {
@@ -1284,7 +1279,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		OwnerID:               "interactive-owner",
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
-		ActiveSettings: config.Settings{
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
 			Model:                  "gpt-5",
 			ThinkingLevel:          "medium",
 			ModelContextWindow:     200000,
@@ -1293,7 +1288,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 			Reviewer:               config.ReviewerSettings{Frequency: "off"},
 			Timeouts:               config.Timeouts{ModelRequestSeconds: 1},
 			Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-		},
+		}),
 		EnabledToolIDs: []string{string(toolspec.ToolExecCommand)},
 		Source:         config.SourceReport{Sources: map[string]config.Origin{}},
 	})
@@ -1406,6 +1401,7 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	appCfg.Settings = testsetup.WriteProviderSettings(t, appCfg.PersistenceRoot, appCfg.Settings)
 	metadataStore := testsetup.OpenStore(t, appCfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), appCfg.WorkspaceRoot)
 	if err != nil {

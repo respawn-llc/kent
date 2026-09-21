@@ -190,6 +190,7 @@ export type ChatCommittedRow = Readonly<{
 type AssistantFacts = Readonly<{ StepID: string; StreamID: string; Phase: "commentary" | "final_answer" }>;
 export interface ChatTranscriptPayloadByKind {
   hydration: Readonly<{
+    ConnectionReplacement: ChatTranscriptPayloadByKind["connection_replaced"] | null;
     SessionIdentity: ChatTranscriptPayloadByKind["session_identity"];
     SessionStatus: ChatTranscriptPayloadByKind["session_status"];
     RuntimeReadModelUpdate: ChatTranscriptPayloadByKind["runtime_read_model_update"];
@@ -349,6 +350,7 @@ export interface ChatTranscriptPayloadByKind {
     StepID?: string | null;
     Detail: string;
   }>;
+  connection_replaced: Readonly<{ PreviousID: string; CurrentID: string }>;
   live_run_finished: Readonly<{
     Status: "completed" | "interrupted" | "failed";
     ResultKind: "assistant_final_answer" | "no_final_answer";

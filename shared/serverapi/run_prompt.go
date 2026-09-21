@@ -27,12 +27,10 @@ type OptionalStringKey struct {
 type RunPromptOverridesKey struct {
 	AgentRole           OptionalStringKey
 	Model               string
-	ProviderOverride    string
 	ThinkingLevel       string
 	Theme               string
 	ModelTimeoutSeconds int
 	Tools               string
-	OpenAIBaseURL       string
 }
 
 func (o RunPromptOverrides) CanonicalKey() (RunPromptOverridesKey, error) {
@@ -42,12 +40,10 @@ func (o RunPromptOverrides) CanonicalKey() (RunPromptOverridesKey, error) {
 	}
 	key := RunPromptOverridesKey{
 		Model:               strings.TrimSpace(o.Model),
-		ProviderOverride:    strings.TrimSpace(o.ProviderOverride),
 		ThinkingLevel:       strings.TrimSpace(o.ThinkingLevel),
 		Theme:               strings.TrimSpace(o.Theme),
 		ModelTimeoutSeconds: o.ModelTimeoutSeconds,
 		Tools:               strings.TrimSpace(o.Tools),
-		OpenAIBaseURL:       strings.TrimSpace(o.OpenAIBaseURL),
 	}
 	if role.Present {
 		value := role.Role
@@ -92,12 +88,10 @@ func (r RunPromptRequest) Validate() error {
 type RunPromptOverrides struct {
 	AgentRole           *string `json:"agent_role,omitempty"`
 	Model               string  `json:"model"`
-	ProviderOverride    string  `json:"provider_override"`
 	ThinkingLevel       string  `json:"thinking_level"`
 	Theme               string  `json:"theme"`
 	ModelTimeoutSeconds int     `json:"model_timeout_seconds"`
 	Tools               string  `json:"tools"`
-	OpenAIBaseURL       string  `json:"openai_base_url"`
 }
 
 var ErrInvalidRunPromptAgentRole = errors.New("invalid agent role")
@@ -142,27 +136,18 @@ func (o RunPromptOverrides) HasAgentRoleOverride() bool {
 func (o RunPromptOverrides) HasAny() bool {
 	return o.AgentRole != nil ||
 		strings.TrimSpace(o.Model) != "" ||
-		strings.TrimSpace(o.ProviderOverride) != "" ||
 		strings.TrimSpace(o.ThinkingLevel) != "" ||
 		strings.TrimSpace(o.Theme) != "" ||
 		o.ModelTimeoutSeconds > 0 ||
-		strings.TrimSpace(o.Tools) != "" ||
-		strings.TrimSpace(o.OpenAIBaseURL) != ""
+		strings.TrimSpace(o.Tools) != ""
 }
 
 func (o RunPromptOverrides) HasConfigOverrides() bool {
 	return strings.TrimSpace(o.Model) != "" ||
-		strings.TrimSpace(o.ProviderOverride) != "" ||
 		strings.TrimSpace(o.ThinkingLevel) != "" ||
 		strings.TrimSpace(o.Theme) != "" ||
 		o.ModelTimeoutSeconds > 0 ||
-		strings.TrimSpace(o.Tools) != "" ||
-		strings.TrimSpace(o.OpenAIBaseURL) != ""
-}
-
-func (o RunPromptOverrides) NeedsAuthState() bool {
-	role, err := o.AgentRoleOverride()
-	return err == nil && role.Present && !role.Default
+		strings.TrimSpace(o.Tools) != ""
 }
 
 type RunPromptProgressSink interface {

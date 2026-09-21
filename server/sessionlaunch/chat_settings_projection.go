@@ -82,8 +82,8 @@ func projectSelectedChatSettings(
 	cachingLocked := input.Locked != nil
 	effective := input.Settings
 	selectedRole := selected.Choice.Role
-	selectedModel := selected.Choice.Model
-	selectedSettings := selected.Settings
+	selectedModel := selected.Choice.GetModel()
+	selectedSettings := *selected.Settings
 	if cachingLocked {
 		normalizedAgent, ok := session.NormalizeChatAgent(input.Agent)
 		if !ok {
@@ -93,7 +93,7 @@ func projectSelectedChatSettings(
 		selectedModel = input.Locked.Model
 		lockedSettings, err := lockedPreparedChatSettings(
 			*input.Locked,
-			selected.Settings,
+			*selected.Settings,
 			effective,
 		)
 		if err != nil {

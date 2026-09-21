@@ -11,6 +11,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -50,6 +51,7 @@ type steeringItem struct {
 	modelInput                  *steeringPreparedModelInput
 	compactionActivity          *steeringCompactionActivity
 	event                       *Event
+	connectionReplacement       *config.ConnectionReplacement
 	streaming                   *steeringStreamingOutput
 	cacheWarning                *steeringCacheWarning
 	providerObservation         *steeringProviderObservation
@@ -740,6 +742,10 @@ func (e *Engine) resolveCompletedResponseStream(stepID string, instruction compl
 }
 
 func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringItem) error {
+	if item.connectionReplacement != nil {
+		e.transcriptRuntimeState().SetConnectionReplacement(*item.connectionReplacement)
+		return nil
+	}
 	if item.compactionActivity != nil {
 		stepID, err := provenance.requireExactStepID()
 		if err != nil {

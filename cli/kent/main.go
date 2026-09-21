@@ -23,23 +23,21 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
+
 	"golang.org/x/term"
 )
 
 type commonFlags struct {
-	WorkspaceRoot         string
-	WorkspaceExplicit     bool
-	SessionID             string
-	ContinueID            string
-	Model                 string
-	ProviderOverride      string
-	ThinkingLevel         string
-	Theme                 string
-	ModelTimeoutSeconds   int
-	Tools                 string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
-	PersistenceRoot       string
+	WorkspaceRoot       string
+	WorkspaceExplicit   bool
+	SessionID           string
+	ContinueID          string
+	Model               string
+	ThinkingLevel       string
+	Theme               string
+	ModelTimeoutSeconds int
+	Tools               string
+	PersistenceRoot     string
 }
 
 type runProgressMode string
@@ -370,13 +368,10 @@ func runSubcommand(args []string) int {
 		WorkspaceContextSessionID: workspaceContextSessionID,
 		AgentRole:                 agentRole,
 		Model:                     flags.Model,
-		ProviderOverride:          flags.ProviderOverride,
 		ThinkingLevel:             flags.ThinkingLevel,
 		Theme:                     flags.Theme,
 		ModelTimeoutSeconds:       flags.ModelTimeoutSeconds,
 		Tools:                     flags.Tools,
-		OpenAIBaseURL:             flags.OpenAIBaseURL,
-		OpenAIBaseURLExplicit:     flags.OpenAIBaseURLExplicit,
 		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
 
@@ -787,12 +782,10 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 		registerSessionFlagVars(fs, flags)
 	}
 	fs.StringVar(&flags.Model, "model", "", "model for this session")
-	fs.StringVar(&flags.ProviderOverride, "provider-override", "", "provider for a custom or aliased model name")
 	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort: low|medium|high|xhigh")
 	fs.StringVar(&flags.Theme, "theme", "", "theme: light|dark")
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "comma-separated enabled tool IDs, such as shell,patch")
-	fs.StringVar(&flags.OpenAIBaseURL, "openai-base-url", "", "base URL for an OpenAI-compatible API")
 	fs.StringVar(&flags.PersistenceRoot, "persistence-root", "", persistenceRootFlagUsage)
 	return flags
 }
@@ -850,8 +843,6 @@ func markExplicitCommonFlags(fs *flag.FlagSet, flags *commonFlags) {
 		switch strings.TrimSpace(f.Name) {
 		case "workspace":
 			flags.WorkspaceExplicit = true
-		case "openai-base-url":
-			flags.OpenAIBaseURLExplicit = true
 		}
 	})
 }

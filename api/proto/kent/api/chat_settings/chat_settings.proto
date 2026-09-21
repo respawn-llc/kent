@@ -125,12 +125,12 @@ message AgentChoice {
     (buf.validate.field).string.(kent.api.shared.nonblank) = true,
     (buf.validate.field).string.(kent.api.shared.trimmed) = true
   ];
-  string model = 2 [
+  optional string model = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true,
     (buf.validate.field).string.(kent.api.shared.trimmed) = true
   ];
-  string thinking = 3 [
+  optional string thinking = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true,
     (buf.validate.field).string.(kent.api.shared.trimmed) = true

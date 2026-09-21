@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"core/server/auth"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
@@ -26,9 +25,11 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
-	Choice     *chatsettingspb.AgentChoice
-	Settings   PreparedChatSettings
-	comparison preparedChatAgentComparison
+	ConnectionID   *config.ConnectionID
+	Choice         *chatsettingspb.AgentChoice
+	Settings       *PreparedChatSettings
+	SelectionError error
+	comparison     preparedChatAgentComparison
 }
 
 type PreparedChatAgentCatalog struct {
@@ -44,50 +45,34 @@ type preparedChatAgentComparison struct {
 
 func PrepareChatAgentCatalog(
 	app config.App,
-	authState auth.State,
 	skipProviderReadinessValidation bool,
 ) (PreparedChatAgentCatalog, error) {
-	return prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{
+	return prepareChatAgentCatalog(app, RunPromptPreparationContext{
 		Mode:                            ModeInteractive,
 		SkipProviderReadinessValidation: skipProviderReadinessValidation,
 	})
+
 }
 
-func PrepareSessionChatAgentCatalog(app config.App, authState auth.State, meta session.Meta) (PreparedChatAgentCatalog, error) {
-	catalog, err := prepareChatAgentCatalog(app, authState, RunPromptPreparationContext{Mode: defaultAgentMode(meta)})
-	if err != nil || meta.Locked != nil {
-		return catalog, err
-	}
+func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
 	state, err := session.ChatSettingsStateFromMeta(meta)
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
 	}
-	for index := range catalog.entries {
-		entry := &catalog.entries[index]
-		if entry.Choice.Role != state.AgentSelector() {
-			continue
-		}
-		target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(meta)
-		if err != nil {
-			return PreparedChatAgentCatalog{}, err
-		}
-		capabilities, err := llm.ResolveRuntimeProviderCapabilities(authState, target.Settings)
-		if err != nil {
-			return PreparedChatAgentCatalog{}, err
-		}
-		prepared, err := PrepareChatSettingsForPreparedTarget(target, llm.SupportsFastModeProvider(capabilities))
-		if err != nil {
-			return PreparedChatAgentCatalog{}, err
-		}
-		// Baselines remain configuration-owned; current capabilities follow the
-		// Session's persisted target until an Agent change replaces that target.
-		prepared.Baseline = entry.Settings.Baseline
-		prepared.Baseline.Fast = prepared.Baseline.Fast && prepared.FastAvailable
-		prepared.Baseline.Questions = prepared.Baseline.Questions && prepared.QuestionsAvailable
-		entry.Settings = prepared
-		break
+	selector := state.AgentSelector()
+	continuation := meta.Continuation
+	if selector != config.DefaultSubagentRole && config.LookupSubagentRole(app.Settings, selector).Status != config.SubagentRoleLookupPresent {
+		selector, continuation = config.DefaultSubagentRole, nil
 	}
-	return catalog, nil
+	// Baselines use configured settings, retaining only the Session's role and
+	// binding. Persisted controls and locks are applied by the settings owner.
+	target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(session.Meta{
+		ConnectionID: meta.ConnectionID, Continuation: continuation,
+	})
+	if err != nil {
+		return PreparedChatAgentCatalog{}, err
+	}
+	return prepareChatAgentCatalogForSession(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)}, selector, target, meta.Locked != nil)
 }
 
 func defaultAgentMode(meta session.Meta) Mode {
@@ -97,18 +82,42 @@ func defaultAgentMode(meta session.Meta) Mode {
 	return ModeInteractive
 }
 
-func prepareChatAgentCatalog(app config.App, authState auth.State, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
+func prepareChatAgentCatalog(app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
+	return buildChatAgentCatalog(app, nil, false, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+		return prepareChatAgentEntry(app, selector, preparation, false)
+	})
+}
+
+func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPreparationContext, current string, currentTarget PreparedBaseTarget, locked bool) (PreparedChatAgentCatalog, error) {
+	return buildChatAgentCatalog(app, &current, locked, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+		if selector == current {
+			capabilities, err := llm.ResolveRuntimeProviderCapabilities(currentTarget.Settings)
+			if err != nil {
+				return PreparedChatAgentCatalogEntry{}, err
+			}
+			return chatAgentCatalogEntry(app, selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
+		}
+		return prepareChatAgentEntry(app, selector, preparation, true)
+	})
+}
+
+func buildChatAgentCatalog(app config.App, current *string, locked bool, prepare func(string) (PreparedChatAgentCatalogEntry, error)) (PreparedChatAgentCatalog, error) {
 	selectors := append(
 		[]string{config.DefaultSubagentRole},
 		config.AvailableSubagentRoleNames(app.Settings, false)...,
 	)
+	if current != nil && !slices.Contains(selectors, *current) {
+		selectors = append(selectors, *current)
+	}
 	entries := make([]PreparedChatAgentCatalogEntry, 0, len(selectors))
 	for _, selector := range selectors {
-		entry, err := prepareChatAgentCatalogEntry(app, authState, selector, preparation)
+		entry, err := prepare(selector)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
 		}
-		if len(entries) > 0 && reflect.DeepEqual(entries[0].comparison, entry.comparison) {
+		if (!locked || current == nil || selector != *current) && len(entries) > 0 &&
+			entry.SelectionError == nil && entries[0].SelectionError == nil &&
+			reflect.DeepEqual(entries[0].comparison, entry.comparison) {
 			continue
 		}
 		entries = append(entries, entry)
@@ -145,27 +154,34 @@ func (c PreparedChatAgentCatalog) Lookup(agent string) (PreparedChatAgentCatalog
 	return PreparedChatAgentCatalogEntry{}, false
 }
 
-func prepareChatAgentCatalogEntry(
-	app config.App,
-	authState auth.State,
-	selector string,
-	preparation RunPromptPreparationContext,
-) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentEntry(app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool) (PreparedChatAgentCatalogEntry, error) {
 	fail := func(category serverapi.ChatSettingsAgentPreparationCategory) (PreparedChatAgentCatalogEntry, error) {
 		return PreparedChatAgentCatalogEntry{}, &serverapi.ChatSettingsAgentPreparationError{
 			Agent: selector, Category: category,
 		}
 	}
-	target, prepared, err := prepareChatSettingsTargetForAgent(
-		app, authState, selector, preparation,
-	)
+	prepared, err := prepareAgent(app, serverapi.RunPromptOverrides{AgentRole: &selector}, preparation, applyDerivedModelContextBudgetOverrides)
+	if err == nil && prepared.Unavailable != nil {
+		if allowUnavailable {
+			return partialChatAgentEntry(app, selector, *prepared.Unavailable), nil
+		}
+		err = prepared.Unavailable.Cause
+	}
 	if err != nil {
-		return fail(classifyChatAgentPreparationError(err))
+		failed, classified := fail(classifyChatAgentPreparationError(err))
+		return failed, fmt.Errorf("%w: %w", classified, err)
+	}
+	target := prepared.PromptFacingTarget()
+	if target == nil {
+		return fail(serverapi.ChatSettingsAgentInternalPreparation)
 	}
 	var capabilities llm.ProviderCapabilities
 	var fastAvailable bool
 	if preparation.SkipProviderReadinessValidation {
-		capabilities, _ = llm.ProviderCapabilitiesFromOverride(target.Settings.ProviderCapabilities)
+		capabilities, err = llm.ResolveRuntimeProviderCapabilities(target.Settings)
+		if err != nil {
+			return fail(serverapi.ChatSettingsAgentInternalPreparation)
+		}
 		fastAvailable = true
 	} else {
 		if prepared.ProviderCapabilities == nil {
@@ -174,22 +190,29 @@ func prepareChatAgentCatalogEntry(
 		capabilities = *prepared.ProviderCapabilities
 		fastAvailable = llm.SupportsFastModeProvider(capabilities)
 	}
+	return chatAgentCatalogEntry(app, selector, *target, capabilities, fastAvailable)
+}
+
+func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseTarget, capabilities llm.ProviderCapabilities, fastAvailable bool) (PreparedChatAgentCatalogEntry, error) {
 	settings, err := PrepareChatSettingsForPreparedTarget(target, fastAvailable)
 	if err != nil {
-		return fail(serverapi.ChatSettingsAgentInvalidConfiguration)
+		return PreparedChatAgentCatalogEntry{}, fmt.Errorf("%w: %w", &serverapi.ChatSettingsAgentPreparationError{
+			Agent: selector, Category: serverapi.ChatSettingsAgentInvalidConfiguration,
+		}, err)
 	}
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
 	role := app.Settings.Subagents[selector]
 	entry := PreparedChatAgentCatalogEntry{
+		ConnectionID: target.Settings.Connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
-			Model:              strings.TrimSpace(target.Settings.Model),
-			Thinking:           settings.Baseline.Thinking,
+			Model:              textutil.OptionalTrimmedString(target.Settings.Model),
+			Thinking:           textutil.Value(settings.Baseline.Thinking),
 			Tools:              toolspec.IDStrings(tools),
-			CustomCapabilities: prepared.NamedTarget != nil && config.SubagentRoleHasCapabilityOverrides(role),
-			AgentCallable:      prepared.NamedTarget == nil || config.SubagentRoleCallable(role),
+			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
+			AgentCallable:      config.SubagentRoleCallable(role),
 		},
-		Settings: settings,
+		Settings: &settings,
 	}
 	entry.comparison = preparedChatAgentComparison{
 		Settings:             normalizeComparableSettings(target.Settings),
@@ -200,9 +223,24 @@ func prepareChatAgentCatalogEntry(
 	return entry, nil
 }
 
+func partialChatAgentEntry(app config.App, selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
+	role := app.Settings.Subagents[selector]
+	return PreparedChatAgentCatalogEntry{
+		ConnectionID: partial.Role.Settings.Connection,
+		Choice: &chatsettingspb.AgentChoice{
+			Role: selector, Model: partial.Role.Model, Thinking: partial.Role.Thinking,
+			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
+			AgentCallable:      config.SubagentRoleCallable(role),
+		},
+		SelectionError: partial.Cause,
+		comparison:     preparedChatAgentComparison{Settings: normalizeComparableSettings(partial.Role.Settings)},
+	}
+}
+
 func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPreparationCategory {
 	var providerSelection *llm.ProviderSelectionError
-	if errors.Is(err, llm.ErrUnsupportedProvider) || errors.As(err, &providerSelection) {
+	var connectionReference *config.ConnectionReferenceError
+	if errors.Is(err, llm.ErrUnsupportedProvider) || errors.As(err, &providerSelection) || errors.As(err, &connectionReference) {
 		return serverapi.ChatSettingsAgentProviderUnavailable
 	}
 	if errors.Is(err, errInvalidAgentRole) ||
@@ -212,8 +250,8 @@ func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPre
 	return serverapi.ChatSettingsAgentInternalPreparation
 }
 
-func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent string) (PreparedChatSettings, error) {
-	target, prepared, err := prepareChatSettingsTargetForAgent(app, authState, agent, RunPromptPreparationContext{Mode: ModeInteractive})
+func PrepareChatSettingsForAgent(app config.App, agent string) (PreparedChatSettings, error) {
+	target, prepared, err := prepareChatSettingsTargetForAgent(app, agent, RunPromptPreparationContext{Mode: ModeInteractive})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -228,7 +266,6 @@ func PrepareChatSettingsForAgent(app config.App, authState auth.State, agent str
 
 func prepareChatSettingsTargetForAgent(
 	app config.App,
-	authState auth.State,
 	agent string,
 	preparation RunPromptPreparationContext,
 ) (PreparedBaseTarget, PreparedRunPromptOverrides, error) {
@@ -240,9 +277,9 @@ func prepareChatSettingsTargetForAgent(
 	prepared, err := PrepareRunPromptOverridesWithContext(
 		app,
 		serverapi.RunPromptOverrides{AgentRole: &agent},
-		authState,
-		preparation,
-	)
+
+		preparation)
+
 	if err != nil {
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, err
 	}

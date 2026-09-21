@@ -5,12 +5,14 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/runtimeids"
 
 	"github.com/google/uuid"
 )
 
 type TranscriptHydrationSnapshot struct {
+	ConnectionReplacement   *config.ConnectionReplacement
 	CommittedRows           []TranscriptCommittedRowFact
 	ActiveAssistantText     string
 	ActiveAssistantMetadata *AssistantStreamMetadata
@@ -80,6 +82,7 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 	thinkingStatus, reasoningTraces := e.transcriptRuntimeState().ReasoningSnapshot()
 	usage := e.ContextUsage()
 	return TranscriptHydrationSnapshot{
+		ConnectionReplacement:   e.transcriptRuntimeState().ConnectionReplacement(),
 		CommittedRows:           snapshot.Rows,
 		ActiveAssistantText:     snapshot.Streaming,
 		ActiveAssistantMetadata: cloneAssistantStreamMetadata(snapshot.StreamingMetadata),

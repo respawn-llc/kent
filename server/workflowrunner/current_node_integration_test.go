@@ -162,6 +162,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("load config: %v", err)
 	}
 	cfg.Settings.Model = "workflow-base"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeStructuredOutput
 	cfg.Settings.Reviewer.Frequency = "off"
 	cfg.Settings.Subagents["coder"] = config.SubagentRole{
@@ -919,7 +920,10 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 		t.Fatalf("start scripted Responses provider: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Stop() })
-	f.cfg.Settings.OpenAIBaseURL = provider.URL()
+	definition := f.cfg.Settings.Connections[*f.cfg.Settings.Connection]
+	definition.Endpoint = textutil.Value(provider.URL())
+	f.cfg.Settings.Connections[*f.cfg.Settings.Connection] = definition
+	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            f.cfg,
@@ -1380,6 +1384,10 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 		}),
 		ScriptedFinalAnswer("done"),
 	)
+	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
@@ -2074,7 +2082,7 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	configureCompactionThinking(f)
+	configureCompactionThinking(t, f)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
 		f.store,
@@ -2099,7 +2107,13 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("runtime role models = %+v, want coder then reviewer", requests)
 	}
+	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "reviewer" {
+		t.Fatalf("compact-and-continue connection selection = %v then %v", requests[0].Connection.ID, requests[1].Connection.ID)
+	}
 	meta := f.onlyProjectSessionMeta(t)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "reviewer" {
+		t.Fatalf("target connection was not persisted: %v", meta.ConnectionID)
+	}
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
 		t.Fatalf("compacted workflow Session continuation = %+v, want persisted reviewer identity", meta.Continuation)
 	}
@@ -3420,10 +3434,13 @@ func TestCurrentNodeRuntimePreparationFailureLeavesTaskUnstarted(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
-	f.starter.cfg.Settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
+	definition := f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection]
+	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID:           "test",
 		SupportsResponsesAPI: true,
 	}
+	f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection] = definition
+	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
 	f.mu.Lock()
 	f.clientErr = errors.New("provider unavailable")
 	f.mu.Unlock()
@@ -3659,6 +3676,7 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 			if err := os.WriteFile(filepath.Join(incoming.PersistenceRoot, "config.toml"), []byte(file.String()), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			testsetup.WriteProviderSettings(t, incoming.PersistenceRoot, incoming.Settings)
 			var err error
 			incoming, err = config.Load(f.workspace, f.workspace, config.LoadOptions{ConfigRoot: incoming.PersistenceRoot})
 			if err != nil {

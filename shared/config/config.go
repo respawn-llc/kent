@@ -76,12 +76,10 @@ const (
 
 type LoadOptions struct {
 	Model               string
-	ProviderOverride    string
 	ThinkingLevel       string
 	Theme               string
 	ModelTimeoutSeconds int
 	Tools               string
-	OpenAIBaseURL       string
 	ConfigRoot          string
 }
 
@@ -183,6 +181,8 @@ func (p SkillPolicy) Equivalent(other SkillPolicy) bool {
 }
 
 type Settings struct {
+	Connection                       *ConnectionID
+	Connections                      map[ConnectionID]ProviderConnection
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
@@ -197,10 +197,7 @@ type Settings struct {
 	ServerHost                       string
 	ServerPort                       int
 	WebSearch                        string
-	ProviderOverride                 string
 	ProviderIdentifier               string
-	OpenAIBaseURL                    string
-	ProviderCapabilities             ProviderCapabilitiesOverride
 	Store                            bool
 	AllowNonCwdEdits                 bool
 	ModelContextWindow               int
@@ -229,36 +226,28 @@ type ModelCapabilitiesOverride struct {
 }
 
 type ProviderCapabilitiesOverride struct {
-	ProviderID                    string
-	SupportsResponsesAPI          bool
-	SupportsResponsesCompact      bool
-	SupportsPromptCacheKey        bool
-	SupportsNativeWebSearch       bool
-	SupportsReasoningEncrypted    bool
-	SupportsServerSideContextEdit bool
-	SupportsProviderVerbosity     bool
-	IsOpenAIFirstParty            bool
+	ProviderID                    string `toml:"provider_id"`
+	SupportsResponsesAPI          bool   `toml:"supports_responses_api"`
+	SupportsResponsesCompact      bool   `toml:"supports_responses_compact"`
+	SupportsPromptCacheKey        bool   `toml:"supports_prompt_cache_key"`
+	SupportsNativeWebSearch       bool   `toml:"supports_native_web_search"`
+	SupportsReasoningEncrypted    bool   `toml:"supports_reasoning_encrypted"`
+	SupportsServerSideContextEdit bool   `toml:"supports_server_side_context_edit"`
+	SupportsProviderVerbosity     bool   `toml:"supports_provider_verbosity"`
+	IsOpenAIFirstParty            bool   `toml:"is_openai_first_party"`
 }
 
 type ReviewerSettings struct {
-	Frequency            string
-	Model                string
-	ThinkingLevel        string
-	ModelVerbosity       ModelVerbosity
-	ProviderOverride     string
-	OpenAIBaseURL        string
-	ModelCapabilities    ModelCapabilitiesOverride
-	ProviderCapabilities ProviderCapabilitiesOverride
-	ModelContextWindow   int
-	Auth                 string
-	SystemPromptFile     *string
-	TimeoutSeconds       int
-	VerboseOutput        bool
-}
-
-type ReviewerProviderSettings struct {
-	ProviderOverride string
-	OpenAIBaseURL    string
+	Connection         *ConnectionID
+	Frequency          string
+	Model              string
+	ThinkingLevel      string
+	ModelVerbosity     ModelVerbosity
+	ModelCapabilities  ModelCapabilitiesOverride
+	ModelContextWindow int
+	SystemPromptFile   *string
+	TimeoutSeconds     int
+	VerboseOutput      bool
 }
 
 type SourceReport struct {

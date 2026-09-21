@@ -2,6 +2,7 @@ package sessionview
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"os"
 	"path/filepath"
@@ -72,8 +73,8 @@ func newDormantMainViewTestService(
 		nil,
 		staticExecutionTargetResolver{target: target},
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
-		app: config.App{Settings: settings},
-	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+		app: testsetup.ProgrammaticConfig(t, settings),
+	})
 }
 
 func TestValidateSessionTranscriptPageResponseUsesInvariantFailurePolicy(t *testing.T) {
@@ -246,8 +247,8 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 		nil,
 		staticExecutionTargetResolver{target: target},
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
-		app: config.App{Settings: settings},
-	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+		app: testsetup.ProgrammaticConfig(t, settings),
+	})
 
 	response, err := service.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
 		SessionId: store.Meta().SessionID,

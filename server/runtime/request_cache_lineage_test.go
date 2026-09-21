@@ -237,8 +237,8 @@ func TestHistoryReplacementPreservesReuseBaselineWhileSuppressingShapeWarning(t 
 
 type transportStaticAuth struct{}
 
-func (transportStaticAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
+func (transportStaticAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer token"}, nil
 }
 
 func newCacheWarningTestEngine(t *testing.T, client llm.Client, mode config.CacheWarningMode) (*session.Store, *Engine) {

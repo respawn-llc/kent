@@ -66,6 +66,7 @@ export function mainViewRead(sequence = 1): ChatMainViewRead {
 
 export function hydration(): ChatTranscriptPayloadByKind["hydration"] {
   return {
+    ConnectionReplacement: null,
     SessionIdentity: {
       SessionID: target.sessionID,
       SessionName: null,

@@ -35,7 +35,7 @@ type interactiveAuthInteractor struct {
 	lookupEnv             func(string) string
 	openBrowser           func(string) error
 	startCallbackListener func() (oauthCallbackListener, error)
-	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error)
+	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) error) (authCallbackPageResult, error)
 	pickMethod            func(authInteraction) (authMethodPickerResult, error)
 }
 
