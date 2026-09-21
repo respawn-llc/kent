@@ -195,12 +195,6 @@ type PreparedSubagentTarget struct {
 	Warning      *string
 }
 
-type preparedSubagentIdentity struct {
-	Selector   string
-	Role       config.SubagentRole
-	ProviderID string
-}
-
 type PromptFacingSnapshotResolution struct {
 	Settings      config.Settings
 	Source        config.SourceReport
@@ -772,14 +766,35 @@ func PrepareRunPromptOverridesWithContext(app config.App, overrides serverapi.Ru
 }
 
 func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (PreparedRunPromptOverrides, error) {
+	result, err := prepareAgent(app, overrides, preparation, applyBudget)
+	if err != nil {
+		return PreparedRunPromptOverrides{}, err
+	}
+	if result.Unavailable != nil {
+		return PreparedRunPromptOverrides{}, result.Unavailable.Cause
+	}
+	return result.PreparedRunPromptOverrides, nil
+}
+
+type unavailableAgent struct {
+	Role  preparedRoleSettings
+	Cause *config.ConnectionReferenceError
+}
+
+type agentPreparation struct {
+	PreparedRunPromptOverrides
+	Unavailable *unavailableAgent
+}
+
+func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (agentPreparation, error) {
 	switch preparation.Mode {
 	case ModeInteractive, ModeHeadless:
 	default:
-		return PreparedRunPromptOverrides{}, fmt.Errorf("invalid launch mode %q", preparation.Mode)
+		return agentPreparation{}, fmt.Errorf("invalid launch mode %q", preparation.Mode)
 	}
 	roleOverride, err := overrides.AgentRoleOverride()
 	if err != nil {
-		return PreparedRunPromptOverrides{}, fmt.Errorf("%w: %v", errInvalidAgentRole, err)
+		return agentPreparation{}, fmt.Errorf("%w: %v", errInvalidAgentRole, err)
 	}
 	if preparation.Mode == ModeHeadless &&
 		(roleOverride.Default || (!roleOverride.Present && preparation.OmittedTarget == nil)) {
@@ -789,110 +804,117 @@ func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.Run
 	if overrides.HasConfigOverrides() {
 		overrideConfig, err = config.ApplyLoadOptionsToSnapshot(app, runPromptLoadOptions(overrides))
 		if err != nil {
-			return PreparedRunPromptOverrides{}, err
+			return agentPreparation{}, err
 		}
 	}
-	prepared := PreparedRunPromptOverrides{
+	prepared := agentPreparation{PreparedRunPromptOverrides: PreparedRunPromptOverrides{
 		OverrideConfig: overrideConfig,
 		AgentRole:      roleOverride,
-	}
+	}}
 	if !roleOverride.Present || roleOverride.Default {
 		if !roleOverride.Present && preparation.OmittedTarget != nil {
 			target, targetErr := preparePreparedBaseTarget(*preparation.OmittedTarget, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
 			if targetErr != nil {
-				return PreparedRunPromptOverrides{}, targetErr
+				return agentPreparation{}, targetErr
 			}
 			prepared.BaseTarget = &target
-		} else if preparation.SkipProviderReadinessValidation {
-			target, targetErr := prepareBaseTargetWithoutProviderReadiness(app, preparation.ModelLock, preparation.ToolLock)
-			if targetErr != nil {
-				return PreparedRunPromptOverrides{}, targetErr
+			if !preparation.SkipProviderReadinessValidation {
+				capabilities, err := llm.ResolveRuntimeProviderCapabilities(target.Settings)
+				if err != nil {
+					return agentPreparation{}, err
+				}
+				prepared.ProviderCapabilities = &capabilities
 			}
-			prepared.BaseTarget = &target
 		} else {
-			target, targetErr := prepareBaseTarget(app, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
-			if targetErr != nil {
-				return PreparedRunPromptOverrides{}, targetErr
+			resolved := EffectiveSettings(app.Settings, preparation.ModelLock)
+			source := cloneSourceReport(app.Source)
+			config.InheritReviewerSettings(&resolved, source.Sources)
+			capabilities, err := llm.ResolveRuntimeProviderCapabilities(resolved)
+			if err != nil {
+				var reference *config.ConnectionReferenceError
+				if !errors.As(err, &reference) {
+					return agentPreparation{}, err
+				}
+				if _, err := validateRunPromptOverrideSettings(resolved, source); err != nil {
+					return agentPreparation{}, err
+				}
+				prepared.Unavailable = &unavailableAgent{
+					Role: preparedRoleSettings{Settings: resolved, Source: source,
+						Model: textutil.OptionalTrimmedString(resolved.Model), Thinking: textutil.OptionalTrimmedString(resolved.ThinkingLevel)},
+					Cause: reference,
+				}
+				return prepared, nil
+			}
+			tools, err := ActiveToolIDsForPlan(resolved, source, preparation.ToolLock)
+			if err != nil {
+				return agentPreparation{}, err
+			}
+			target := PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: tools}
+			if !preparation.SkipProviderReadinessValidation {
+				target, err = preparePreparedBaseTarget(target, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
+				if err != nil {
+					return agentPreparation{}, err
+				}
+				prepared.ProviderCapabilities = &capabilities
 			}
 			prepared.BaseTarget = &target
-		}
-		if !preparation.SkipProviderReadinessValidation && prepared.BaseTarget != nil {
-			capabilities, capabilityErr := llm.ResolveRuntimeProviderCapabilities(prepared.BaseTarget.Settings)
-			if capabilityErr != nil {
-				return PreparedRunPromptOverrides{}, capabilityErr
-			}
-			prepared.ProviderCapabilities = &capabilities
 		}
 		return prepared, nil
 	}
 	lookup := config.LookupSubagentRole(app.Settings, roleOverride.Role)
 	switch lookup.Status {
 	case config.SubagentRoleLookupInvalid:
-		return PreparedRunPromptOverrides{}, fmt.Errorf("%w: invalid subagent role %q", errInvalidAgentRole, roleOverride.Role)
+		return agentPreparation{}, fmt.Errorf("%w: invalid subagent role %q", errInvalidAgentRole, roleOverride.Role)
 	case config.SubagentRoleLookupMissing:
-		return PreparedRunPromptOverrides{}, fmt.Errorf("%w: unrecognized role %q", errInvalidAgentRole, roleOverride.Role)
+		return agentPreparation{}, fmt.Errorf("%w: unrecognized role %q", errInvalidAgentRole, roleOverride.Role)
 	}
 	providerSettings := EffectiveSettings(app.Settings, preparation.ModelLock)
 	providerSettings.Connection = overrideConfig.Settings.Connection
 	providerSettings.Subagents = nil
 	providerSettings, err = config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: overrideConfig.Source}, lookup.Role)
 	if err != nil {
-		return PreparedRunPromptOverrides{}, err
+		return agentPreparation{}, err
 	}
-	providerID, err := persistedRoleProviderID(providerSettings)
+	capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+	var reference *config.ConnectionReferenceError
+	if err != nil && !errors.As(err, &reference) {
+		return agentPreparation{}, err
+	}
+	var providerID *string
+	if reference == nil {
+		providerID = &capabilities.ProviderID
+	}
+	roleSettings, err := prepareSubagentSettingsFromRole(
+		EffectiveSettings(app.Settings, preparation.ModelLock), app.Source,
+		*lookup.NormalizedSelector, lookup.Role, providerID, preparation.ModelLock == nil, false)
 	if err != nil {
-		return PreparedRunPromptOverrides{}, err
+		return agentPreparation{}, err
 	}
-	var providerCapabilities *llm.ProviderCapabilities
-	if !preparation.SkipProviderReadinessValidation {
-		providerCaps, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
-		if err != nil {
-			return PreparedRunPromptOverrides{}, err
+	if reference != nil {
+		if _, err := validateRunPromptOverrideSettings(roleSettings.Settings, roleSettings.Source); err != nil {
+			return agentPreparation{}, err
 		}
-		providerID = strings.TrimSpace(providerCaps.ProviderID)
-		providerCapabilities = &providerCaps
+		prepared.Unavailable = &unavailableAgent{Role: roleSettings, Cause: reference}
+		return prepared, nil
 	}
 	target, err := prepareNamedTarget(
-		app,
+		roleSettings,
 		overrideConfig,
 		overrides,
 		*lookup.NormalizedSelector,
-		lookup.Role,
-		providerID,
 		preparation.ModelLock,
 		preparation.ToolLock,
 		!preparation.SkipProviderReadinessValidation,
 		applyBudget,
 	)
 	if err != nil {
-		return PreparedRunPromptOverrides{}, err
+		return agentPreparation{}, err
 	}
 	prepared.NamedTarget = &target
-	prepared.ProviderCapabilities = providerCapabilities
+	if !preparation.SkipProviderReadinessValidation {
+		prepared.ProviderCapabilities = &capabilities
+	}
 	return prepared, nil
-}
-
-func prepareBaseTargetWithoutProviderReadiness(app config.App, modelLock, toolLock *session.LockedContract) (PreparedBaseTarget, error) {
-	resolved := EffectiveSettings(app.Settings, modelLock)
-	source := cloneSourceReport(app.Source)
-	config.InheritReviewerSettings(&resolved, source.Sources)
-	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
-	if err != nil {
-		return PreparedBaseTarget{}, err
-	}
-	return PreparedBaseTarget{
-		Settings:     resolved,
-		Source:       source,
-		EnabledTools: enabledTools,
-	}, nil
-}
-
-func prepareBaseTarget(app, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
-	target, err := prepareBaseTargetWithoutProviderReadiness(app, modelLock, toolLock)
-	if err != nil {
-		return PreparedBaseTarget{}, err
-	}
-	return preparePreparedBaseTarget(target, overrideConfig, overrides, modelLock, toolLock, applyBudget)
 }
 
 func preparePreparedBaseTarget(target PreparedBaseTarget, overrideConfig config.App, overrides serverapi.RunPromptOverrides, modelLock, toolLock *session.LockedContract, applyBudget modelContextBudgetApplier) (PreparedBaseTarget, error) {
@@ -914,21 +936,15 @@ func preparePreparedBaseTarget(target PreparedBaseTarget, overrideConfig config.
 }
 
 func prepareNamedTarget(
-	app, overrideConfig config.App,
+	roleSettings preparedRoleSettings,
+	overrideConfig config.App,
 	overrides serverapi.RunPromptOverrides,
 	selector string,
-	role config.SubagentRole,
-	providerID string,
 	modelLock, toolLock *session.LockedContract,
 	validate bool,
 	applyBudget modelContextBudgetApplier,
 ) (PreparedSubagentTarget, error) {
-	input := preparedSubagentIdentity{Selector: selector, Role: role, ProviderID: providerID}
-	baseSettings := EffectiveSettings(app.Settings, modelLock)
-	resolved, source, warning, err := resolvePreparedSubagentSettings(baseSettings, app.Source, input, modelLock == nil, false)
-	if err != nil {
-		return PreparedSubagentTarget{}, err
-	}
+	resolved, source, warning := roleSettings.Settings, roleSettings.Source, roleSettings.Warning
 	enabledTools, err := ActiveToolIDsForPlan(resolved, source, toolLock)
 	if err != nil {
 		return PreparedSubagentTarget{}, err
@@ -1184,10 +1200,6 @@ func runPromptLoadOptions(overrides serverapi.RunPromptOverrides) config.LoadOpt
 		ModelTimeoutSeconds: overrides.ModelTimeoutSeconds,
 		Tools:               strings.TrimSpace(overrides.Tools),
 	}
-}
-
-func resolvePreparedSubagentSettings(base config.Settings, baseSource config.SourceReport, target preparedSubagentIdentity, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, *string, error) {
-	return resolveSubagentSettingsFromRole(base, baseSource, target.Selector, target.Role, target.ProviderID, allowModelOverride, validate)
 }
 
 func cloneContinuationRole(role *string) *string {

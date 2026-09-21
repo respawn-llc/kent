@@ -72,7 +72,7 @@ func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (Prepared
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
 	}
-	return prepareChatAgentCatalogForSession(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)}, selector, target)
+	return prepareChatAgentCatalogForSession(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)}, selector, target, meta.Locked != nil)
 }
 
 func defaultAgentMode(meta session.Meta) Mode {
@@ -83,13 +83,13 @@ func defaultAgentMode(meta session.Meta) Mode {
 }
 
 func prepareChatAgentCatalog(app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
-	return buildChatAgentCatalog(app, nil, func(selector string) (PreparedChatAgentCatalogEntry, error) {
-		return prepareChatAgentCatalogEntry(app, selector, preparation)
+	return buildChatAgentCatalog(app, nil, false, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+		return prepareChatAgentEntry(app, selector, preparation, false)
 	})
 }
 
-func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPreparationContext, current string, currentTarget PreparedBaseTarget) (PreparedChatAgentCatalog, error) {
-	return buildChatAgentCatalog(app, &current, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPreparationContext, current string, currentTarget PreparedBaseTarget, locked bool) (PreparedChatAgentCatalog, error) {
+	return buildChatAgentCatalog(app, &current, locked, func(selector string) (PreparedChatAgentCatalogEntry, error) {
 		if selector == current {
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(currentTarget.Settings)
 			if err != nil {
@@ -97,16 +97,11 @@ func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPrep
 			}
 			return chatAgentCatalogEntry(app, selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
 		}
-		entry, err := prepareChatAgentCatalogEntry(app, selector, preparation)
-		var reference *config.ConnectionReferenceError
-		if !errors.As(err, &reference) {
-			return entry, err
-		}
-		return unavailableChatAgentEntry(app, selector, preparation.Mode, reference)
+		return prepareChatAgentEntry(app, selector, preparation, true)
 	})
 }
 
-func buildChatAgentCatalog(app config.App, current *string, prepare func(string) (PreparedChatAgentCatalogEntry, error)) (PreparedChatAgentCatalog, error) {
+func buildChatAgentCatalog(app config.App, current *string, locked bool, prepare func(string) (PreparedChatAgentCatalogEntry, error)) (PreparedChatAgentCatalog, error) {
 	selectors := append(
 		[]string{config.DefaultSubagentRole},
 		config.AvailableSubagentRoleNames(app.Settings, false)...,
@@ -120,7 +115,7 @@ func buildChatAgentCatalog(app config.App, current *string, prepare func(string)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
 		}
-		if (current == nil || selector != *current) && len(entries) > 0 &&
+		if (!locked || current == nil || selector != *current) && len(entries) > 0 &&
 			entry.SelectionError == nil && entries[0].SelectionError == nil &&
 			reflect.DeepEqual(entries[0].comparison, entry.comparison) {
 			continue
@@ -159,22 +154,26 @@ func (c PreparedChatAgentCatalog) Lookup(agent string) (PreparedChatAgentCatalog
 	return PreparedChatAgentCatalogEntry{}, false
 }
 
-func prepareChatAgentCatalogEntry(
-	app config.App,
-	selector string,
-	preparation RunPromptPreparationContext,
-) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentEntry(app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool) (PreparedChatAgentCatalogEntry, error) {
 	fail := func(category serverapi.ChatSettingsAgentPreparationCategory) (PreparedChatAgentCatalogEntry, error) {
 		return PreparedChatAgentCatalogEntry{}, &serverapi.ChatSettingsAgentPreparationError{
 			Agent: selector, Category: category,
 		}
 	}
-	target, prepared, err := prepareChatSettingsTargetForAgent(
-		app, selector, preparation)
-
+	prepared, err := prepareAgent(app, serverapi.RunPromptOverrides{AgentRole: &selector}, preparation, applyDerivedModelContextBudgetOverrides)
+	if err == nil && prepared.Unavailable != nil {
+		if allowUnavailable {
+			return partialChatAgentEntry(app, selector, *prepared.Unavailable), nil
+		}
+		err = prepared.Unavailable.Cause
+	}
 	if err != nil {
 		failed, classified := fail(classifyChatAgentPreparationError(err))
 		return failed, fmt.Errorf("%w: %w", classified, err)
+	}
+	target := prepared.PromptFacingTarget()
+	if target == nil {
+		return fail(serverapi.ChatSettingsAgentInternalPreparation)
 	}
 	var capabilities llm.ProviderCapabilities
 	var fastAvailable bool
@@ -191,7 +190,7 @@ func prepareChatAgentCatalogEntry(
 		capabilities = *prepared.ProviderCapabilities
 		fastAvailable = llm.SupportsFastModeProvider(capabilities)
 	}
-	return chatAgentCatalogEntry(app, selector, target, capabilities, fastAvailable)
+	return chatAgentCatalogEntry(app, selector, *target, capabilities, fastAvailable)
 }
 
 func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseTarget, capabilities llm.ProviderCapabilities, fastAvailable bool) (PreparedChatAgentCatalogEntry, error) {
@@ -224,38 +223,18 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 	return entry, nil
 }
 
-func unavailableChatAgentEntry(app config.App, selector string, mode Mode, cause error) (PreparedChatAgentCatalogEntry, error) {
-	settings, sources := app.Settings, app.Source.Sources
-	lookup := config.LookupSubagentRole(app.Settings, selector)
-	if lookup.Status == config.SubagentRoleLookupPresent && (selector != config.DefaultSubagentRole || mode == ModeHeadless) {
-		var err error
-		settings, sources, err = config.OverlaySubagentRoleSettings(app, lookup.Role, true)
-		if err != nil {
-			return PreparedChatAgentCatalogEntry{}, err
-		}
-		settings, sources = config.OverlayAgentOverrides(settings, sources, app.Settings, app.Source.Sources, true)
-	}
-	model, thinking := textutil.OptionalTrimmedString(settings.Model), textutil.OptionalTrimmedString(settings.ThinkingLevel)
-	if selector == config.BuiltInSubagentRoleFast {
-		// The built-in defaults depend on the missing provider. Authored values
-		// remain facts even when that provider cannot be prepared.
-		if _, explicit := lookup.Role.Sources["model"]; !explicit && !app.Source.Sources["model"].OverridesRole("model") {
-			model = nil
-		}
-		if _, explicit := lookup.Role.Sources["thinking_level"]; !explicit && !app.Source.Sources["thinking_level"].OverridesRole("thinking_level") {
-			thinking = nil
-		}
-	}
+func partialChatAgentEntry(app config.App, selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
+	role := app.Settings.Subagents[selector]
 	return PreparedChatAgentCatalogEntry{
-		ConnectionID: settings.Connection,
+		ConnectionID: partial.Role.Settings.Connection,
 		Choice: &chatsettingspb.AgentChoice{
-			Role: selector, Model: model, Thinking: thinking,
-			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(lookup.Role),
-			AgentCallable:      config.SubagentRoleCallable(lookup.Role),
+			Role: selector, Model: partial.Role.Model, Thinking: partial.Role.Thinking,
+			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
+			AgentCallable:      config.SubagentRoleCallable(role),
 		},
-		SelectionError: cause,
-		comparison:     preparedChatAgentComparison{Settings: normalizeComparableSettings(settings)},
-	}, nil
+		SelectionError: partial.Cause,
+		comparison:     preparedChatAgentComparison{Settings: normalizeComparableSettings(partial.Role.Settings)},
+	}
 }
 
 func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPreparationCategory {

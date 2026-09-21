@@ -42,7 +42,7 @@ endpoint = "http://127.0.0.1:1/v1"
 [reviewer]
 frequency = "off"
 [subagents.worker]
-model = "gpt-5"
+model = "gpt-5-mini"
 %s
 [subagents.unavailable]
 model = "gpt-5-mini"
@@ -118,23 +118,177 @@ connection = "missing"
 					t.Fatalf("non-Agent mutation changed binding: %v", before.Meta.ConnectionID)
 				}
 				if !locked {
-					_, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-						Session:   target,
-						Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "unavailable"}},
-					})
-					var reference *config.ConnectionReferenceError
-					if !errors.As(err, &reference) || reference.Connection == nil || *reference.Connection != "missing" {
-						t.Fatalf("unavailable selection error = %v", err)
+					unavailable := []string{"unavailable"}
+					if invalidDefault {
+						unavailable = append(unavailable, config.BuiltInSubagentRoleFast)
 					}
-					after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !reflect.DeepEqual(before.Meta, after.Meta) {
-						t.Fatal("unavailable Agent selection changed the Session")
+					for _, agent := range unavailable {
+						_, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+							Session:   target,
+							Operation: &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: agent}},
+						})
+						var reference *config.ConnectionReferenceError
+						if !errors.As(err, &reference) || reference.Connection == nil || *reference.Connection != "missing" {
+							t.Fatalf("unavailable selection error = %v", err)
+						}
+						after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), target.SessionId)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !reflect.DeepEqual(before.Meta, after.Meta) {
+							t.Fatal("unavailable Agent selection changed the Session")
+						}
 					}
 				}
 			})
 		}
+	}
+}
+
+func TestEquivalentSessionAgentRepairsCompleteDefaultSettings(t *testing.T) {
+	for _, scenario := range []struct {
+		name               string
+		locked             bool
+		distinctConnection bool
+	}{
+		{name: "equivalent"},
+		{name: "locked", locked: true},
+		{name: "distinct saved connection", distinctConnection: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			testSessionAgentDefaultRepair(t, scenario.locked, scenario.distinctConnection)
+		})
+	}
+}
+
+func testSessionAgentDefaultRepair(t *testing.T, locked, distinctConnection bool) {
+	root, workspace := t.TempDir(), t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	writeConfig := func(model string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(fmt.Sprintf(`
+connection = "work"
+model = "gpt-5"
+thinking_level = "medium"
+[connections.work]
+protocol = "responses"
+endpoint = "http://127.0.0.1:1/v1"
+[connections.other]
+protocol = "responses"
+endpoint = "http://127.0.0.1:1/v1"
+[reviewer]
+frequency = "off"
+[subagents.worker]
+model = %q
+`, model)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeConfig("gpt-5-mini")
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := metadata.RegisterBinding(t.Context(), root, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newCoreTestApp(t, cfg, auth.EmptyState())
+	store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
+	state, err := session.ChatSettingsStateFromCompleteSettings("worker", session.ChatSettings{
+		Supervisor: "edits", Thinking: "high", Fast: true, Questions: false, AutoCompaction: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.ConnectionID = textutil.Value(config.ConnectionID("work"))
+	if distinctConnection {
+		state.ConnectionID = textutil.Value(config.ConnectionID("other"))
+	}
+	if _, err := store.CommitChatSettingsState(state); err != nil {
+		t.Fatal(err)
+	}
+	if locked {
+		if err := store.MarkModelDispatchLocked(session.LockedContract{
+			Model: "gpt-5", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
+			ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := store.Meta()
+	storedBefore, err := app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig("gpt-5")
+	target := &chatsettingspb.SessionTarget{SessionId: before.SessionID}
+	read := func() *chatsettingspb.Settings {
+		t.Helper()
+		response, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+			Target: &chatsettingspb.ReadRequest_Session{Session: target},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.GetSession().Settings
+	}
+	projected := read()
+	if locked || distinctConnection {
+		if projected.SelectedAgent.Role != "worker" || projected.SelectedAgent.Thinking != "high" ||
+			projected.Questions.Enabled || projected.AutoCompaction.Stored {
+			t.Fatalf("non-equivalent or locked selection was repaired: %+v", projected)
+		}
+		persisted, err := app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
+		if err != nil || !reflect.DeepEqual(storedBefore.Meta, persisted.Meta) {
+			t.Fatalf("read changed stored selection: %v", err)
+		}
+		return
+	}
+	if projected.SelectedAgent.Role != "default" || projected.SelectedAgent.Thinking != "medium" ||
+		!projected.Questions.Enabled || !projected.AutoCompaction.Stored ||
+		projected.Supervisor.Value != projected.Supervisor.Baseline {
+		t.Fatalf("complete default baseline not projected: %+v", projected)
+	}
+	persisted, err := app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
+	if err != nil || !reflect.DeepEqual(storedBefore.Meta, persisted.Meta) {
+		t.Fatalf("read changed stored settings: %v", err)
+	}
+	result, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+		Session: target, Operation: &chatsettingspb.MutationOperation{
+			Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: projected.Questions.Enabled},
+		},
+	})
+	if err != nil || result.GetResult().GetApplied() == nil {
+		t.Fatalf("repair mutation: %+v %v", result, err)
+	}
+	persisted, err = app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := session.ChatSettingsStateFromMeta(*persisted.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := session.ChatSettingsStateFromCompleteSettings("default", session.ChatSettings{
+		Supervisor: "off", Thinking: "medium", Questions: true, AutoCompaction: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.ConnectionID = state.ConnectionID
+	if !reflect.DeepEqual(repaired, want) {
+		t.Fatalf("repair = %+v, want %+v", repaired, want)
+	}
+	if got := read(); got.SelectedAgent.Role != "default" || !got.Questions.Enabled || !got.AutoCompaction.Stored {
+		t.Fatalf("reread lost repair: %+v", got)
+	}
+	reopened, err := session.Open(store.Dir(), app.MetadataStore().AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenedState, err := session.ChatSettingsStateFromMeta(reopened.Meta())
+	if err != nil || !reflect.DeepEqual(reopenedState, want) {
+		t.Fatalf("reopen lost complete repair: %+v %v", reopenedState, err)
 	}
 }
