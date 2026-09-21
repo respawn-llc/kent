@@ -235,7 +235,12 @@ func (s *Store) resolveManualMoveExecutablePreview(
 		}
 		contextUnavailableForCandidate, err := s.manualMoveContextUnavailable(ctx, q, definition, req.TaskID, candidate, currentNodes)
 		if err != nil {
-			return ManualMovePreview{}, err
+			var unavailable workflow.RetainedTargetUnavailableError
+			if !errors.As(err, &unavailable) || (req.TransitionKey != nil && *req.TransitionKey == candidate.TransitionKey) {
+				return ManualMovePreview{}, err
+			}
+			// An unavailable incoming route must not prevent choosing another route.
+			contextUnavailableForCandidate = true
 		}
 		if contextUnavailableForCandidate {
 			contextUnavailable = true
