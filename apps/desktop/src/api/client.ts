@@ -19,12 +19,8 @@ import { listPendingPrompts } from "./clientPendingPrompts";
 import * as taskSearch from "./clientTaskSearch";
 import * as worktree from "./clientWorktree";
 import * as project from "./clientProject";
+import * as workflow from "./clientWorkflow";
 import * as processes from "./clientProcesses";
-import {
-  workflowGraphDraftPayload,
-  workflowGraphMetadataPayload,
-  workflowGraphSaveConfirmationPayload,
-} from "./clientWorkflowGraph";
 import type {
   BoardNodeCardsInput,
   PromptAnswerBatchInput,
@@ -47,7 +43,6 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { workflowPageSize } from "./clientInputs";
 import { compactJsonObject, emptyJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
@@ -98,25 +93,7 @@ import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
 import { workflowIDSchema } from "./schemas/workflowID";
-import {
-  attentionPageSchema,
-  projectWorkflowLinksSchema,
-  taskUpdateResponseSchema,
-} from "./schemas/workflowBoard";
-import {
-  workflowCreateAndLinkSchema,
-  workflowCreateSchema,
-  workflowDeletePreviewSchema,
-  workflowDeleteResponseSchema,
-  workflowDefinitionSchema,
-  workflowGraphDeriveWiringSchema,
-  workflowGraphSavePreviewSchema,
-  workflowGraphSaveSchema,
-  workflowGraphValidateDraftSchema,
-  workflowLinkProjectSchema,
-  workflowListSchema,
-  workflowValidationSchema,
-} from "./schemas/workflow";
+import { attentionPageSchema, taskUpdateResponseSchema } from "./schemas/workflowBoard";
 import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
@@ -228,205 +205,66 @@ export class ApiClient implements ApiService {
   }
 
   async getWorkflow(workflowID: string): Promise<WorkflowDefinition> {
-    return parse(
-      "workflow.get",
-      workflowDefinitionSchema,
-      await this.#transport.call("workflow.get", { workflow_id: workflowIDSchema.parse(workflowID) }),
-    );
+    return workflow.getWorkflow(this.#transport, workflowID);
   }
 
   async listWorkflows(input: WorkflowListInput = {}): Promise<WorkflowPage> {
-    return parse(
-      "workflow.list",
-      workflowListSchema,
-      await this.#transport.call(
-        "workflow.list",
-        compactJsonObject({
-          offset: input.offset ?? 0,
-          limit: input.limit ?? workflowPageSize,
-          project_id: input.projectID,
-          query: input.query ?? "",
-        }),
-      ),
-    );
+    return workflow.listWorkflows(this.#transport, input);
   }
 
   async createWorkflow(input: WorkflowCreateInput): Promise<WorkflowRecord> {
-    return parse(
-      "workflow.create",
-      workflowCreateSchema,
-      await this.#transport.call(
-        "workflow.create",
-        compactJsonObject({
-          name: input.name,
-          description: input.description,
-        }),
-      ),
-    );
+    return workflow.createWorkflow(this.#transport, input);
   }
 
   async createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
   ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>> {
-    return parse(
-      "workflow.createAndLinkProject",
-      workflowCreateAndLinkSchema,
-      await this.#transport.call(
-        "workflow.createAndLinkProject",
-        compactJsonObject({
-          name: input.name,
-          description: input.description,
-          project_id: input.projectID,
-          default_policy: "if_project_has_none",
-        }),
-      ),
-    );
+    return workflow.createAndLinkWorkflowToProject(this.#transport, input);
   }
 
   async linkWorkflowToProject(input: WorkflowProjectLinkInput): Promise<ProjectWorkflowLink> {
-    return parse(
-      "workflow.linkProject",
-      workflowLinkProjectSchema,
-      await this.#transport.call(
-        "workflow.linkProject",
-        compactJsonObject({
-          project_id: input.projectID,
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          default_policy: "if_project_has_none",
-        }),
-      ),
-    );
+    return workflow.linkWorkflowToProject(this.#transport, input);
   }
 
   async validateWorkflow(
     workflowID: string,
     mode: "draft" | "task_creation" | "execution",
   ): Promise<WorkflowValidation> {
-    return parse(
-      "workflow.validate",
-      workflowValidationSchema,
-      await this.#transport.call("workflow.validate", {
-        workflow_id: workflowIDSchema.parse(workflowID),
-        mode,
-      }),
-    );
+    return workflow.validateWorkflow(this.#transport, workflowID, mode);
   }
 
   async validateWorkflowScriptPath(input: WorkflowScriptPathValidateInput): Promise<WorkflowValidation> {
-    return parse(
-      "workflow.scriptPath.validate",
-      workflowValidationSchema,
-      await this.#transport.call(
-        "workflow.scriptPath.validate",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          node_id: input.nodeID,
-          script_path: input.scriptPath,
-        }),
-      ),
-    );
+    return workflow.validateWorkflowScriptPath(this.#transport, input);
   }
 
   async validateWorkflowGraphDraft(
     input: WorkflowGraphValidateDraftInput,
   ): Promise<WorkflowGraphValidateDraftResult> {
-    return parse(
-      "workflow.graph.validateDraft",
-      workflowGraphValidateDraftSchema,
-      await this.#transport.call(
-        "workflow.graph.validateDraft",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-          modes: input.modes,
-        }),
-      ),
-    );
+    return workflow.validateWorkflowGraphDraft(this.#transport, input);
   }
 
   async deriveWorkflowGraphWiring(input: WorkflowGraphDeriveWiringInput): Promise<WorkflowDerivedWiring> {
-    return parse(
-      "workflow.graph.deriveWiring",
-      workflowGraphDeriveWiringSchema,
-      await this.#transport.call(
-        "workflow.graph.deriveWiring",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          graph: workflowGraphDraftPayload(input.graph),
-        }),
-      ),
-    );
+    return workflow.deriveWorkflowGraphWiring(this.#transport, input);
   }
 
   async previewWorkflowGraphSave(input: WorkflowGraphSavePreviewInput): Promise<WorkflowGraphSavePreview> {
-    return parse(
-      "workflow.graph.savePreview",
-      workflowGraphSavePreviewSchema,
-      await this.#transport.call(
-        "workflow.graph.savePreview",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          expected_version: input.expectedVersion,
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-        }),
-      ),
-    );
+    return workflow.previewWorkflowGraphSave(this.#transport, input);
   }
 
   async saveWorkflowGraph(input: WorkflowGraphSaveInput): Promise<WorkflowGraphSaveResult> {
-    return parse(
-      "workflow.graph.save",
-      workflowGraphSaveSchema,
-      await this.#transport.call(
-        "workflow.graph.save",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          expected_version: input.expectedVersion,
-          metadata: workflowGraphMetadataPayload(input.metadata),
-          graph: workflowGraphDraftPayload(input.graph),
-          confirmation: workflowGraphSaveConfirmationPayload(input.confirmation),
-        }),
-      ),
-    );
+    return workflow.saveWorkflowGraph(this.#transport, input);
   }
 
   async previewWorkflowDelete(workflowID: string): Promise<WorkflowDeleteImpact> {
-    return parse(
-      "workflow.deletePreview",
-      workflowDeletePreviewSchema,
-      await this.#transport.call("workflow.deletePreview", {
-        workflow_id: workflowIDSchema.parse(workflowID),
-      }),
-    );
+    return workflow.previewWorkflowDelete(this.#transport, workflowID);
   }
 
   async deleteWorkflow(input: WorkflowDeleteInput): Promise<WorkflowDeleteResponse> {
-    return parse(
-      "workflow.delete",
-      workflowDeleteResponseSchema,
-      await this.#transport.call(
-        "workflow.delete",
-        compactJsonObject({
-          workflow_id: workflowIDSchema.parse(input.workflowID),
-          confirmed: input.confirmed,
-          expected_version: input.expectedVersion,
-          expected_project_count: input.expectedProjectCount,
-          expected_link_count: input.expectedLinkCount,
-          expected_task_count: input.expectedTaskCount,
-          cleanup_artifacts: input.cleanupArtifacts,
-        }),
-      ),
-    );
+    return workflow.deleteWorkflow(this.#transport, input);
   }
 
   async listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]> {
-    return parse(
-      "workflow.listProjectLinks",
-      projectWorkflowLinksSchema,
-      await this.#transport.call("workflow.listProjectLinks", { project_id: projectID }),
-    );
+    return workflow.listProjectWorkflowLinks(this.#transport, projectID);
   }
 
   async listBoardNodeCards(input: BoardNodeCardsInput): Promise<BoardNodeCardsPage> {

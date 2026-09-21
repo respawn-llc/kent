@@ -74,7 +74,10 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 		if snapshotErr != nil {
 			return serverapi.WorkflowTaskListResponse{}, snapshotErr
 		}
-		columns = boardColumns(snapshot)
+		columns, err = boardColumns(snapshot)
+		if err != nil {
+			return serverapi.WorkflowTaskListResponse{}, err
+		}
 		if err := validateWorkflowTaskListColumnKeys(req.ColumnKeys, columns); err != nil {
 			return serverapi.WorkflowTaskListResponse{}, err
 		}

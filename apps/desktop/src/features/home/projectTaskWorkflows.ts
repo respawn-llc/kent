@@ -12,21 +12,21 @@ export type ProjectTaskWorkflowItem = Readonly<{
 
 export type ProjectTaskWorkflowPage = Readonly<{
   workflows: readonly ProjectTaskWorkflowItem[];
-  nextOffset: number | null;
+  nextOffset: bigint | null;
 }>;
 
 const retainedProjectTaskWorkflowPages = 3;
 
 export function useProjectTaskWorkflowPages(
   projectID: string,
-): UseInfiniteQueryResult<InfiniteData<ProjectTaskWorkflowPage, number>> {
+): UseInfiniteQueryResult<InfiniteData<ProjectTaskWorkflowPage, bigint>> {
   const { api } = useAppServices();
   return useInfiniteQuery<
     ProjectTaskWorkflowPage,
     Error,
-    InfiniteData<ProjectTaskWorkflowPage, number>,
+    InfiniteData<ProjectTaskWorkflowPage, bigint>,
     readonly unknown[],
-    number
+    bigint
   >({
     queryKey: queryKeys.projectTaskWorkflows(projectID),
     queryFn: async ({ pageParam }) =>
@@ -37,9 +37,13 @@ export function useProjectTaskWorkflowPages(
           projectID,
         }),
       ),
-    initialPageParam: 0,
+    initialPageParam: 0n,
     getPreviousPageParam: (_firstPage, _allPages, firstPageParam) =>
-      firstPageParam === 0 ? undefined : Math.max(0, firstPageParam - workflowPageSize),
+      firstPageParam === 0n
+        ? undefined
+        : firstPageParam > BigInt(workflowPageSize)
+          ? firstPageParam - BigInt(workflowPageSize)
+          : 0n,
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
     maxPages: retainedProjectTaskWorkflowPages,
     gcTime: 0,
@@ -66,23 +70,23 @@ function projectTaskWorkflowItem(workflow: WorkflowRecord): ProjectTaskWorkflowI
 }
 
 export function projectTaskWorkflowItems(
-  data: InfiniteData<ProjectTaskWorkflowPage, number> | undefined,
+  data: InfiniteData<ProjectTaskWorkflowPage, bigint> | undefined,
 ): readonly ProjectTaskWorkflowItem[] {
   return data?.pages.flatMap((page) => page.workflows) ?? [];
 }
 
 export function useProjectTaskNewTaskAvailable(
   projectID: string,
-  data: InfiniteData<ProjectTaskWorkflowPage, number> | undefined,
+  data: InfiniteData<ProjectTaskWorkflowPage, bigint> | undefined,
 ): boolean {
   const currentAvailability = data === undefined ? false : firstPageNewTaskAvailability(data);
   return useRetainedQueryData(projectID, currentAvailability, (left, right) => left === right) ?? false;
 }
 
 function firstPageNewTaskAvailability(
-  data: InfiniteData<ProjectTaskWorkflowPage, number>,
+  data: InfiniteData<ProjectTaskWorkflowPage, bigint>,
 ): boolean | undefined {
-  const firstPage = data.pages.find((_page, index) => data.pageParams[index] === 0);
+  const firstPage = data.pages.find((_page, index) => data.pageParams[index] === 0n);
   if (firstPage === undefined) {
     return undefined;
   }

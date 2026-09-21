@@ -53,21 +53,6 @@ describe("sidebar missing-entity errors", () => {
 describe("workflow label RPC errors", () => {
   it.each([
     {
-      reason: "invalid_name",
-      data: { project_id: "project-1", field: "name" },
-      expected: { projectID: "project-1", field: "name" },
-    },
-    {
-      reason: "name_conflict",
-      data: { project_id: "project-1" },
-      expected: { projectID: "project-1" },
-    },
-    {
-      reason: "catalog_limit",
-      data: { project_id: "project-1", limit: 100 },
-      expected: { projectID: "project-1", limit: 100 },
-    },
-    {
       reason: "project_not_found",
       data: { project_id: "project-1" },
       expected: { projectID: "project-1" },
@@ -76,11 +61,6 @@ describe("workflow label RPC errors", () => {
       reason: "label_not_found",
       data: { label_id: labelID },
       expected: { labelID },
-    },
-    {
-      reason: "task_not_found",
-      data: { task_id: "task-1" },
-      expected: { taskID: "task-1" },
     },
     {
       reason: "wrong_project",
@@ -101,7 +81,7 @@ describe("workflow label RPC errors", () => {
     const rpcError = new RpcError({
       code: -32031,
       message: "the same display-only message",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
         reason,
@@ -120,17 +100,17 @@ describe("workflow label RPC errors", () => {
     const missing = new RpcError({
       code: -32031,
       message: "generic",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
     });
     const malformed = new RpcError({
       code: -32031,
       message: "generic",
-      method: "workflow.project.label.create",
+      method: "workflow.task.create",
       data: {
         type: "workflow_label_error",
-        reason: "catalog_limit",
+        reason: "invalid_mutation",
         project_id: "project-1",
-        limit: 99,
+        field: "",
       },
     });
 

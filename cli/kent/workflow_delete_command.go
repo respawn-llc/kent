@@ -8,8 +8,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 func workflowDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -42,16 +42,16 @@ func runWorkflowDelete(
 	ctx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
 	workflowDisplayID := workflowID.String()
-	preview, err := remote.PreviewWorkflowDelete(ctx, serverapi.WorkflowDeletePreviewRequest{WorkflowID: workflowID})
+	preview, err := remote.PreviewWorkflowDelete(ctx, &pb.DeletePreviewRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if preview.Impact.WorkflowID != workflowID {
-		fmt.Fprintf(stderr, "workflow deletion preview identity %q does not match requested workflow %q\n", preview.Impact.WorkflowID, workflowDisplayID)
+	if preview.Impact.WorkflowId != workflowID.String() {
+		fmt.Fprintf(stderr, "workflow deletion preview identity %q does not match requested workflow %q\n", preview.Impact.WorkflowId, workflowDisplayID)
 		return 1
 	}
-	previewOutput, err := workflowDeleteResponseForCLI(serverapi.WorkflowDeleteResponse{Impact: preview.Impact})
+	previewOutput, err := workflowDeleteResponseForCLI(&pb.DeleteSuccess{Impact: preview.Impact})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -67,8 +67,8 @@ func runWorkflowDelete(
 		fmt.Fprintln(stderr, "Workflow deletion was not confirmed. Rerun with --confirm to delete it.")
 		return 1
 	}
-	resp, err := remote.DeleteWorkflow(ctx, serverapi.WorkflowDeleteRequest{
-		WorkflowID:           workflowID,
+	resp, err := remote.DeleteWorkflow(ctx, &pb.DeleteRequest{
+		WorkflowId:           workflowID.String(),
 		Confirmed:            true,
 		ExpectedVersion:      preview.Impact.Version,
 		ExpectedProjectCount: preview.Impact.ProjectCount,
@@ -79,8 +79,8 @@ func runWorkflowDelete(
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if resp.Impact.WorkflowID != workflowID {
-		fmt.Fprintf(stderr, "workflow deletion result identity %q does not match requested workflow %q\n", resp.Impact.WorkflowID, workflowDisplayID)
+	if resp.Impact.WorkflowId != workflowID.String() {
+		fmt.Fprintf(stderr, "workflow deletion result identity %q does not match requested workflow %q\n", resp.Impact.WorkflowId, workflowDisplayID)
 		return 1
 	}
 	if resp.Deleted == (len(resp.Blockers) > 0) {
@@ -113,7 +113,7 @@ func runWorkflowDelete(
 	return 0
 }
 
-func writeWorkflowDeleteImpact(w io.Writer, impact serverapi.WorkflowDeleteImpact) {
+func writeWorkflowDeleteImpact(w io.Writer, impact workflowDeleteImpactJSON) {
 	fmt.Fprintf(w, "Workflow %s deletion impact at version %d:\n", impact.WorkflowID, impact.Version)
 	fmt.Fprintf(w, "  Projects: %d\n", impact.ProjectCount)
 	fmt.Fprintf(w, "  Project links: %d\n", impact.LinkCount)

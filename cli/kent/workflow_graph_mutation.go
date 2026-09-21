@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"core/shared/apicontract"
+	protoapi "core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
-type workflowGraphDraftMutation[T any] func(serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, T, error)
+type workflowGraphDraftMutation[T any] func(*pb.GraphDraft) (*pb.GraphDraft, T, error)
 
 type workflowGraphMutationResult struct{ Version int64 }
 
-func workflowGraphMutationBlocked(workflowID runtimeids.WorkflowID, blockers []serverapi.WorkflowGraphSaveBlocker) error {
+func workflowGraphMutationBlocked(workflowID runtimeids.WorkflowID, blockers []*pb.GraphSaveBlocker) error {
 	if len(blockers) == 0 {
 		return fmt.Errorf(
 			"Workflow %s graph mutation cannot be saved by this high-level command; use `kent workflow graph apply`",
@@ -44,7 +45,7 @@ func runWorkflowGraphMutation[T any](
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
-	graph, value, err := mutate(serverapi.WorkflowGraphDraftFromDefinition(current))
+	graph, value, err := mutate(protoapi.WorkflowGraphDraftFromDefinition(current))
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
@@ -52,21 +53,21 @@ func runWorkflowGraphMutation[T any](
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
-	if err := preview.Response.Validate(); err != nil {
+	if err := protoapi.Validate(preview.Response); err != nil {
 		return zero, workflowGraphMutationResult{}, fmt.Errorf("validate Workflow graph save preview: %w", err)
 	}
 	if preview.Response.ConfirmationRequired || len(preview.Response.Blockers) != 0 || !preview.Response.CanSave {
 		return zero, workflowGraphMutationResult{}, workflowGraphMutationBlocked(workflowID, preview.Response.Blockers)
 	}
-	response, err := remote.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID:      current.Workflow.ID,
+	response, err := remote.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId:      current.Workflow.Id,
 		ExpectedVersion: current.Workflow.Version,
 		Graph:           preview.Graph,
 	})
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		return zero, workflowGraphMutationResult{}, fmt.Errorf("validate Workflow graph save response: %w", err)
 	}
 	if !response.Saved || response.ConfirmationRequired || len(response.Blockers) != 0 || !response.CanSave {
@@ -114,8 +115,8 @@ func applyWorkflowGraphMutationValue[T any](target *T, value *T) {
 }
 
 type workflowEdgeDraftMutationResult struct {
-	Edge          serverapi.WorkflowGraphDraftEdge
-	Group         serverapi.WorkflowGraphDraftTransitionGroup
+	Edge          *pb.GraphDraftEdge
+	Group         *pb.GraphDraftTransitionGroup
 	TargetNodeKey string
 }
 
@@ -124,7 +125,7 @@ type workflowEdgeAddDraftMutation struct {
 	TransitionID          string
 	TransitionDescription workflowStringMutation
 	NewTransitionGroupID  string
-	Edge                  serverapi.WorkflowGraphDraftEdge
+	Edge                  *pb.GraphDraftEdge
 	TargetNodeKey         string
 }
 
@@ -136,72 +137,88 @@ type workflowEdgeUpdateDraftMutation struct {
 	EdgeKey                 *string
 	TargetNodeKey           *string
 	ContextMode             *string
-	ContextSource           *serverapi.WorkflowContextSource
+	ContextSource           *pb.ContextSource
 	RequiresApproval        *bool
 	PromptTemplate          workflowStringMutation
 	AssigneeSelection       *string
 	ThinkingSelection       *string
-	TargetAssigneeParameter *serverapi.WorkflowParameter
-	TargetThinkingParameter *serverapi.WorkflowParameter
-	OrdinaryParameters      *[]serverapi.WorkflowParameter
+	TargetAssigneeParameter *pb.Parameter
+	TargetThinkingParameter *pb.Parameter
+	OrdinaryParameters      *[]*pb.Parameter
 }
 
-func addWorkflowNodeDraftMutation(node serverapi.WorkflowGraphDraftNode) workflowGraphDraftMutation[serverapi.WorkflowGraphDraftNode] {
-	return func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, serverapi.WorkflowGraphDraftNode, error) {
+func addWorkflowNodeDraftMutation(node *pb.GraphDraftNode) workflowGraphDraftMutation[*pb.GraphDraftNode] {
+	return func(graph *pb.GraphDraft) (*pb.GraphDraft, *pb.GraphDraftNode, error) {
 		graph.Nodes = append(graph.Nodes, node)
 		return graph, node, nil
 	}
 }
 
-func updateWorkflowNodeDraftMutation(update workflowNodeUpdateDraftMutation) workflowGraphDraftMutation[serverapi.WorkflowGraphDraftNode] {
-	return func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, serverapi.WorkflowGraphDraftNode, error) {
+func updateWorkflowNodeDraftMutation(update workflowNodeUpdateDraftMutation) workflowGraphDraftMutation[*pb.GraphDraftNode] {
+	return func(graph *pb.GraphDraft) (*pb.GraphDraft, *pb.GraphDraftNode, error) {
 		nodeKey := strings.TrimSpace(update.NodeKey)
 		for index := range graph.Nodes {
 			if graph.Nodes[index].Key != nodeKey {
 				continue
 			}
 			applyWorkflowGraphMutationValue(&graph.Nodes[index].Key, update.Key)
-			applyWorkflowGraphMutationValue(&graph.Nodes[index].Kind, update.Kind)
+			if update.Kind != nil {
+				kind, err := protoapi.WorkflowNodeKind.Encode(*update.Kind)
+				if err != nil {
+					return nil, nil, err
+				}
+				graph.Nodes[index].Kind = kind
+			}
 			applyWorkflowGraphMutationValue(&graph.Nodes[index].DisplayName, update.DisplayName)
 			if update.SubagentRole.Set {
-				graph.Nodes[index].SubagentRole = update.SubagentRole.Value
+				graph.Nodes[index].SubagentRole = nil
+				if update.SubagentRole.Value != "" {
+					graph.Nodes[index].SubagentRole = &update.SubagentRole.Value
+				}
 			}
 			if update.CompletionMode.Set {
-				graph.Nodes[index].CompletionMode = update.CompletionMode.Value
+				graph.Nodes[index].CompletionMode = nil
+				if update.CompletionMode.Value != "" {
+					mode, err := protoapi.WorkflowCompletionMode.Encode(update.CompletionMode.Value)
+					if err != nil {
+						return nil, nil, err
+					}
+					graph.Nodes[index].CompletionMode = &mode
+				}
 			}
 			if update.ScriptPath.Set {
 				graph.Nodes[index].ScriptPath = update.ScriptPath.Value
 			}
 			return graph, graph.Nodes[index], nil
 		}
-		return serverapi.WorkflowGraphDraft{}, serverapi.WorkflowGraphDraftNode{}, fmt.Errorf("workflow node key %q not found", nodeKey)
+		return &pb.GraphDraft{}, &pb.GraphDraftNode{}, fmt.Errorf("workflow node key %q not found", nodeKey)
 	}
 }
 
 func addWorkflowEdgeDraftMutation(add workflowEdgeAddDraftMutation) workflowGraphDraftMutation[workflowEdgeDraftMutationResult] {
-	return func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, workflowEdgeDraftMutationResult, error) {
+	return func(graph *pb.GraphDraft) (*pb.GraphDraft, workflowEdgeDraftMutationResult, error) {
 		source, err := findWorkflowGraphDraftNodeByKey(graph, add.SourceNodeKey)
 		if err != nil {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, err
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, err
 		}
 		target, err := findWorkflowGraphDraftNodeByKey(graph, add.TargetNodeKey)
 		if err != nil {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, err
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, err
 		}
 		transitionID := strings.TrimSpace(add.TransitionID)
 		groupIndex := -1
 		for index := range graph.TransitionGroups {
 			group := graph.TransitionGroups[index]
-			if group.SourceNodeID == source.ID && group.TransitionID == transitionID {
+			if group.SourceNodeId == source.Id && group.TransitionId == transitionID {
 				groupIndex = index
 				break
 			}
 		}
 		if groupIndex < 0 {
-			graph.TransitionGroups = append(graph.TransitionGroups, serverapi.WorkflowGraphDraftTransitionGroup{
-				ID:           add.NewTransitionGroupID,
-				SourceNodeID: source.ID,
-				TransitionID: transitionID,
+			graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{
+				Id:           add.NewTransitionGroupID,
+				SourceNodeId: source.Id,
+				TransitionId: transitionID,
 				DisplayName:  workflowDisplayNameFromKey(transitionID),
 				Description:  add.TransitionDescription.Value,
 			})
@@ -209,9 +226,9 @@ func addWorkflowEdgeDraftMutation(add workflowEdgeAddDraftMutation) workflowGrap
 		} else if add.TransitionDescription.Set {
 			graph.TransitionGroups[groupIndex].Description = add.TransitionDescription.Value
 		}
-		add.Edge.TransitionGroupID = graph.TransitionGroups[groupIndex].ID
-		add.Edge.TargetNodeID = target.ID
-		add.Edge.Parameters = append([]serverapi.WorkflowParameter(nil), add.Edge.Parameters...)
+		add.Edge.TransitionGroupId = graph.TransitionGroups[groupIndex].Id
+		add.Edge.TargetNodeId = target.Id
+		add.Edge.Parameters = append([]*pb.Parameter(nil), add.Edge.Parameters...)
 		graph.Edges = append(graph.Edges, add.Edge)
 		return graph, workflowEdgeDraftMutationResult{
 			Edge:          add.Edge,
@@ -222,35 +239,35 @@ func addWorkflowEdgeDraftMutation(add workflowEdgeAddDraftMutation) workflowGrap
 }
 
 func updateWorkflowEdgeDraftMutation(update workflowEdgeUpdateDraftMutation) workflowGraphDraftMutation[workflowEdgeDraftMutationResult] {
-	return func(graph serverapi.WorkflowGraphDraft) (serverapi.WorkflowGraphDraft, workflowEdgeDraftMutationResult, error) {
+	return func(graph *pb.GraphDraft) (*pb.GraphDraft, workflowEdgeDraftMutationResult, error) {
 		edgeIndex := -1
 		edgeID := strings.TrimSpace(update.EdgeID)
 		for index := range graph.Edges {
-			if graph.Edges[index].ID == edgeID {
+			if graph.Edges[index].Id == edgeID {
 				edgeIndex = index
 				break
 			}
 		}
 		if edgeIndex < 0 {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, fmt.Errorf("workflow edge %q not found", edgeID)
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, fmt.Errorf("workflow edge %q not found", edgeID)
 		}
 		groupIndex := -1
 		for index := range graph.TransitionGroups {
-			if graph.TransitionGroups[index].ID == graph.Edges[edgeIndex].TransitionGroupID {
+			if graph.TransitionGroups[index].Id == graph.Edges[edgeIndex].TransitionGroupId {
 				groupIndex = index
 				break
 			}
 		}
 		if groupIndex < 0 {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, fmt.Errorf(
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, fmt.Errorf(
 				"workflow transition group %q not found",
-				graph.Edges[edgeIndex].TransitionGroupID,
+				graph.Edges[edgeIndex].TransitionGroupId,
 			)
 		}
 
-		group := &graph.TransitionGroups[groupIndex]
+		group := graph.TransitionGroups[groupIndex]
 		if update.TransitionID != nil {
-			group.TransitionID = *update.TransitionID
+			group.TransitionId = *update.TransitionID
 		}
 		if update.TransitionDisplayName != nil {
 			group.DisplayName = *update.TransitionDisplayName
@@ -261,16 +278,28 @@ func updateWorkflowEdgeDraftMutation(update workflowEdgeUpdateDraftMutation) wor
 			group.Description = update.TransitionDescription.Value
 		}
 
-		edge := &graph.Edges[edgeIndex]
-		applyWorkflowGraphMutationValue(&edge.AssigneeSelection, update.AssigneeSelection)
-		applyWorkflowGraphMutationValue(&edge.ThinkingSelection, update.ThinkingSelection)
-		if update.TargetAssigneeParameter != nil && edge.AssigneeSelection != "previous_node" {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{
+		edge := graph.Edges[edgeIndex]
+		if update.AssigneeSelection != nil {
+			value, err := protoapi.WorkflowAssigneeSelection.Encode(*update.AssigneeSelection)
+			if err != nil {
+				return nil, workflowEdgeDraftMutationResult{}, err
+			}
+			edge.AssigneeSelection = value
+		}
+		if update.ThinkingSelection != nil {
+			value, err := protoapi.WorkflowThinkingSelection.Encode(*update.ThinkingSelection)
+			if err != nil {
+				return nil, workflowEdgeDraftMutationResult{}, err
+			}
+			edge.ThinkingSelection = value
+		}
+		if update.TargetAssigneeParameter != nil && edge.AssigneeSelection != pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE {
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{
 				err: errors.New("target-assignee-param requires assignee selection previous_node"),
 			}
 		}
-		if update.TargetThinkingParameter != nil && edge.ThinkingSelection != "previous_node" {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{
+		if update.TargetThinkingParameter != nil && edge.ThinkingSelection != pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_PREVIOUS_NODE {
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{
 				err: errors.New("target-thinking-param requires thinking selection previous_node"),
 			}
 		}
@@ -284,7 +313,7 @@ func updateWorkflowEdgeDraftMutation(update workflowEdgeUpdateDraftMutation) wor
 			false,
 		)
 		if err != nil {
-			return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{err: err}
+			return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{err: err}
 		}
 		edge.Parameters = parameters
 		applyWorkflowGraphMutationValue(&edge.Key, update.EdgeKey)
@@ -292,19 +321,27 @@ func updateWorkflowEdgeDraftMutation(update workflowEdgeUpdateDraftMutation) wor
 		if update.TargetNodeKey != nil {
 			target, err := findWorkflowGraphDraftNodeByKey(graph, *update.TargetNodeKey)
 			if err != nil {
-				return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, err
+				return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, err
 			}
-			edge.TargetNodeID = target.ID
+			edge.TargetNodeId = target.Id
 			targetNodeKey = target.Key
 		} else {
-			target, err := findWorkflowGraphDraftNodeByID(graph, edge.TargetNodeID)
+			target, err := findWorkflowGraphDraftNodeByID(graph, edge.TargetNodeId)
 			if err != nil {
-				return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, err
+				return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, err
 			}
 			targetNodeKey = target.Key
 		}
-		applyWorkflowGraphMutationValue(&edge.ContextMode, update.ContextMode)
-		applyWorkflowGraphMutationValue(&edge.ContextSource, update.ContextSource)
+		if update.ContextMode != nil {
+			mode, err := protoapi.WorkflowContextMode.Encode(*update.ContextMode)
+			if err != nil {
+				return nil, workflowEdgeDraftMutationResult{}, err
+			}
+			edge.ContextMode = mode
+		}
+		if update.ContextSource != nil {
+			edge.ContextSource = update.ContextSource
+		}
 		applyWorkflowGraphMutationValue(&edge.RequiresApproval, update.RequiresApproval)
 		if update.PromptTemplate.Set {
 			edge.PromptTemplate = update.PromptTemplate.Value
@@ -320,33 +357,33 @@ func updateWorkflowEdgeDraftMutation(update workflowEdgeUpdateDraftMutation) wor
 				len(*update.OrdinaryParameters) == 0,
 			)
 			if err != nil {
-				return serverapi.WorkflowGraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{err: err}
+				return &pb.GraphDraft{}, workflowEdgeDraftMutationResult{}, workflowGraphMutationUsageError{err: err}
 			}
 			edge.Parameters = parameters
 		}
 		return graph, workflowEdgeDraftMutationResult{
-			Edge:          *edge,
-			Group:         *group,
+			Edge:          edge,
+			Group:         group,
 			TargetNodeKey: targetNodeKey,
 		}, nil
 	}
 }
 
-func findWorkflowGraphDraftNodeByKey(graph serverapi.WorkflowGraphDraft, key string) (serverapi.WorkflowGraphDraftNode, error) {
+func findWorkflowGraphDraftNodeByKey(graph *pb.GraphDraft, key string) (*pb.GraphDraftNode, error) {
 	nodeKey := strings.TrimSpace(key)
 	for _, node := range graph.Nodes {
 		if node.Key == nodeKey {
 			return node, nil
 		}
 	}
-	return serverapi.WorkflowGraphDraftNode{}, fmt.Errorf("workflow node key %q not found", nodeKey)
+	return &pb.GraphDraftNode{}, fmt.Errorf("workflow node key %q not found", nodeKey)
 }
 
-func findWorkflowGraphDraftNodeByID(graph serverapi.WorkflowGraphDraft, id string) (serverapi.WorkflowGraphDraftNode, error) {
+func findWorkflowGraphDraftNodeByID(graph *pb.GraphDraft, id string) (*pb.GraphDraftNode, error) {
 	for _, node := range graph.Nodes {
-		if node.ID == id {
+		if node.Id == id {
 			return node, nil
 		}
 	}
-	return serverapi.WorkflowGraphDraftNode{}, fmt.Errorf("workflow node %q not found", id)
+	return &pb.GraphDraftNode{}, fmt.Errorf("workflow node %q not found", id)
 }
