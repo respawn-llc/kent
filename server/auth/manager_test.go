@@ -3,249 +3,119 @@ package auth
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"core/shared/config"
 )
 
 var managerTestNow = time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 
-func TestCurrentStatePreservesStoredStateOnRefreshFailure(t *testing.T) {
-	store := NewMemoryStore(managerTestOAuthState("stale-token", "refresh-token", managerTestNow.Add(-time.Minute)))
+func TestConnectionCredentialReplacementIsolation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	manager := NewManager(NewFileStore(path), nil)
+	for id, token := range map[config.ConnectionID]string{"work": "work-token", "personal": "personal-token"} {
+		if err := manager.SaveOAuth(t.Context(), id, OAuthMethod{AccessToken: token, AccountID: string(id)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := manager.SaveOAuth(t.Context(), "work", OAuthMethod{AccessToken: "replacement", AccountID: "new-work"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened := NewManager(NewFileStore(path), nil)
+	work, err := reopened.CurrentOAuth(t.Context(), "work")
+	if err != nil || work.AccessToken != "replacement" || work.AccountID != "new-work" {
+		t.Fatalf("replacement = %+v, %v", work, err)
+	}
+	personal, err := reopened.CurrentOAuth(t.Context(), "personal")
+	if err != nil || personal.AccessToken != "personal-token" || personal.AccountID != "personal" {
+		t.Fatalf("other connection changed = %+v, %v", personal, err)
+	}
+}
+
+func TestCurrentOAuthSurfacesRefreshFailureWithoutChangingCredentials(t *testing.T) {
+	initial := testOAuthState()
+	credential := initial.Connections["work"]
+	credential.Expiry = managerTestNow.Add(-time.Minute)
+	initial.Connections["work"] = credential
+	store := NewMemoryStore(initial)
 	refreshErr := errors.New("refresh failed")
-	mgr := NewManager(store, NewOAuthRefresher(
-		func() time.Time { return managerTestNow },
-		30*time.Second,
-		func(context.Context, Method) (Method, error) {
-			return Method{}, refreshErr
+	manager := NewManager(store, NewOAuthRefresher(
+		func() time.Time { return managerTestNow }, 30*time.Second,
+		func(context.Context, OAuthMethod) (OAuthMethod, error) {
+			return OAuthMethod{}, errors.Join(ErrOAuthRefreshFailed, refreshErr)
 		},
 	))
-
-	_, err := mgr.CurrentState(context.Background())
-	if !errors.Is(err, refreshErr) {
-		t.Fatalf("CurrentState error = %v, want %v", err, refreshErr)
+	if _, err := manager.CurrentOAuth(t.Context(), "work"); !errors.Is(err, refreshErr) {
+		t.Fatalf("refresh error = %v", err)
 	}
-	state := requireAuthState(t, store.Load)
-	if state.Method.OAuth == nil || state.Method.OAuth.AccessToken != "stale-token" {
-		t.Fatalf("stored state = %+v, want stale OAuth state", state)
+	persisted := requireAuthState(t, store.Load)
+	if persisted.Connections["work"] != credential {
+		t.Fatal("failed refresh changed saved credentials")
 	}
 }
 
-func TestSwitchMethodRequiresIdle(t *testing.T) {
-	store := NewMemoryStore(testAPIKeyState("old-key"))
-	mgr := NewManager(store, nil)
-
-	_, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(
-		context.Background(),
-		managerTestOAuthMethod("token-a", "refresh-a", managerTestNow.Add(time.Hour)),
-		EnvAPIKeyPreferencePreferSaved,
-		true,
-		false,
-	)
-	if !errors.Is(err, ErrSwitchRequiresIdle) {
-		t.Fatalf("expected ErrSwitchRequiresIdle, got %v", err)
-	}
-
-	state := requireAuthState(t, store.Load)
-	if state.Method.Type != MethodAPIKey {
-		t.Fatalf("expected api key method to remain unchanged, got %q", state.Method.Type)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "old-key" {
-		t.Fatalf("unexpected api key state after failed switch: %+v", state.Method.APIKey)
-	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferenceUnspecified {
-		t.Fatalf("preference changed after failed switch: %q", state.EnvAPIKeyPreference)
-	}
-}
-
-func TestAuthorizationHeaderSurfacesOAuthRefreshFailure(t *testing.T) {
-	store := NewMemoryStore(managerTestOAuthState("stale-token", "refresh-token", managerTestNow.Add(-time.Minute)))
-
-	refreshErr := errors.New("refresh failed")
-	refresher := NewOAuthRefresher(
-		func() time.Time { return managerTestNow },
-		30*time.Second,
-		func(context.Context, Method) (Method, error) {
-			return Method{}, errors.Join(ErrOAuthRefreshFailed, refreshErr)
-		},
-	)
-	mgr := NewManager(store, refresher)
-
-	_, err := mgr.AuthorizationHeader(context.Background())
-	if !errors.Is(err, ErrOAuthRefreshFailed) {
-		t.Fatalf("expected ErrOAuthRefreshFailed, got %v", err)
-	}
-
-	state := requireAuthState(t, store.Load)
-	if state.Method.OAuth == nil || state.Method.OAuth.AccessToken != "stale-token" {
-		t.Fatalf("oauth state changed on refresh failure: %+v", state.Method.OAuth)
-	}
-}
-
-func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
-	initial := managerTestOAuthState("stale-token", "refresh-token", managerTestNow.Add(-time.Minute))
-	initial.Method.OAuth.AccountID = "acct-123"
+func TestCurrentOAuthRefreshesAndPersistsSelectedConnection(t *testing.T) {
+	initial := testOAuthState()
+	credential := initial.Connections["work"]
+	credential.Expiry = managerTestNow.Add(-time.Minute)
+	initial.Connections["work"] = credential
+	initial.Connections["personal"] = OAuthMethod{AccessToken: "personal-token"}
 	store := NewMemoryStore(initial)
-	refresher := NewOAuthRefresher(
-		func() time.Time { return managerTestNow },
-		30*time.Second,
-		func(context.Context, Method) (Method, error) {
-			method := managerTestOAuthMethod("fresh-token", "refresh-token", managerTestNow.Add(time.Hour))
-			method.OAuth.AccountID = "acct-123"
-			return method, nil
+	refreshed := credential
+	refreshed.AccessToken = "fresh-token"
+	refreshed.Expiry = managerTestNow.Add(time.Hour)
+	manager := NewManager(store, NewOAuthRefresher(
+		func() time.Time { return managerTestNow }, 30*time.Second,
+		func(context.Context, OAuthMethod) (OAuthMethod, error) {
+			return refreshed, nil
 		},
-	)
-	mgr := NewManager(store, refresher)
-
-	state, err := mgr.CurrentState(context.Background())
-	if err != nil {
-		t.Fatalf("current state: %v", err)
-	}
-	if state.Method.OAuth == nil || state.Method.OAuth.AccessToken != "fresh-token" {
-		t.Fatalf("expected refreshed oauth state, got %+v", state.Method.OAuth)
+	))
+	current, err := manager.CurrentOAuth(t.Context(), "work")
+	if err != nil || current != refreshed {
+		t.Fatalf("refreshed credential = %+v, %v", current, err)
 	}
 	persisted := requireAuthState(t, store.Load)
-	if persisted.Method.OAuth == nil || persisted.Method.OAuth.AccessToken != "fresh-token" {
-		t.Fatalf("expected persisted refreshed oauth state, got %+v", persisted.Method.OAuth)
+	if persisted.Connections["work"] != refreshed || persisted.Connections["personal"] != initial.Connections["personal"] {
+		t.Fatal("refresh must replace only the selected connection")
 	}
 }
 
-func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
-	store := NewMemoryStore(EmptyState())
-	mgr := NewManager(store, nil)
-
-	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(
-		context.Background(),
-		managerTestOAuthMethod("token-a", "refresh-a", managerTestNow.Add(time.Hour)),
-		EnvAPIKeyPreferencePreferSaved,
-		true,
-		true,
-	)
-	if err != nil {
-		t.Fatalf("switch method and set env preference: %v", err)
-	}
-	if state.Method.Type != MethodOAuth {
-		t.Fatalf("expected oauth method, got %q", state.Method.Type)
-	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("expected saved-auth preference, got %q", state.EnvAPIKeyPreference)
-	}
-	persisted := requireAuthState(t, store.Load)
-	if persisted.Method.Type != MethodOAuth {
-		t.Fatalf("expected persisted oauth method, got %q", persisted.Method.Type)
-	}
-	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("expected persisted saved-auth preference, got %q", persisted.EnvAPIKeyPreference)
-	}
-}
-
-func TestSwitchToNoAuthPersistsSavedPreference(t *testing.T) {
-	persistedState := testAPIKeyState("sk-test")
-	persistedState.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferEnv
-	store := NewMemoryStore(persistedState)
-	mgr := NewManager(store, nil)
-
-	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), Method{Type: MethodNone}, EnvAPIKeyPreferencePreferSaved, true, true)
-	if err != nil {
-		t.Fatalf("clear method: %v", err)
-	}
-	if state.Method.Type != MethodNone {
-		t.Fatalf("expected cleared method, got %q", state.Method.Type)
-	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("expected saved-auth preference, got %q", state.EnvAPIKeyPreference)
-	}
-	persisted := requireAuthState(t, store.Load)
-	if persisted.Method.Type != MethodNone {
-		t.Fatalf("expected persisted cleared method, got %q", persisted.Method.Type)
-	}
-	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("expected persisted saved-auth preference, got %q", persisted.EnvAPIKeyPreference)
-	}
-}
-
-func TestSwitchToOAuthDoesNotPersistBootstrapEnvMethod(t *testing.T) {
-	base := NewMemoryStore(managerTestOAuthState("oauth-token", "oauth-refresh", managerTestNow.Add(time.Hour)))
-	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
-		return "sk-env", true
-	})
-	mgr := NewManager(store, nil)
-
-	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(),
-		managerTestOAuthMethod("new-token", "new-refresh", managerTestNow.Add(time.Hour)),
-		EnvAPIKeyPreferencePreferSaved, true, true)
-	if err != nil {
-		t.Fatalf("set env api key preference: %v", err)
-	}
-	if state.Method.Type != MethodOAuth {
-		t.Fatalf("expected stored oauth method to remain durable, got %q", state.Method.Type)
-	}
-	persisted := requireAuthState(t, base.Load)
-	if persisted.Method.Type != MethodOAuth {
-		t.Fatalf("expected persisted oauth method, got %q", persisted.Method.Type)
-	}
-	if persisted.Method.OAuth == nil || persisted.Method.OAuth.AccessToken != "new-token" {
-		t.Fatalf("expected selected oauth credentials, got %+v", persisted.Method.OAuth)
-	}
-	if persisted.Method.APIKey != nil {
-		t.Fatalf("did not expect bootstrap env key to persist, got %+v", persisted.Method.APIKey)
-	}
-	if persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferSaved {
-		t.Fatalf("expected persisted saved-auth preference, got %q", persisted.EnvAPIKeyPreference)
-	}
-}
-
-func TestSwitchMethodDoesNotPersistBootstrapEnvMethod(t *testing.T) {
-	initial := managerTestOAuthState("oauth-token", "oauth-refresh", managerTestNow.Add(time.Hour))
-	initial.EnvAPIKeyPreference = EnvAPIKeyPreferencePreferEnv
-	base := NewMemoryStore(initial)
-	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
-		return "sk-env", true
-	})
-	mgr := NewManager(store, nil)
-
-	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), Method{
-		Type:   MethodAPIKey,
-		APIKey: &APIKeyMethod{Key: "sk-saved"},
-	}, EnvAPIKeyPreferenceUnspecified, false, true)
-	if err != nil {
-		t.Fatalf("switch method: %v", err)
-	}
-	if state.Method.Type != MethodAPIKey {
-		t.Fatalf("expected api key method, got %q", state.Method.Type)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-saved" {
-		t.Fatalf("expected switched saved api key, got %+v", state.Method.APIKey)
-	}
-	persisted := requireAuthState(t, base.Load)
-	if persisted.Method.Type != MethodAPIKey {
-		t.Fatalf("expected persisted api key method, got %q", persisted.Method.Type)
-	}
-	if persisted.Method.APIKey == nil || persisted.Method.APIKey.Key != "sk-saved" {
-		t.Fatalf("expected persisted switched api key, got %+v", persisted.Method.APIKey)
-	}
-	if persisted.Method.APIKey.Key == "sk-env" {
-		t.Fatal("did not expect bootstrap env api key to persist")
-	}
-	if state.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv ||
-		persisted.EnvAPIKeyPreference != EnvAPIKeyPreferencePreferEnv {
-		t.Fatal("switching without setting a preference must preserve the stored choice")
-	}
-}
-
-func managerTestOAuthMethod(accessToken string, refreshToken string, expiry time.Time) Method {
-	return Method{
-		Type: MethodOAuth,
-		OAuth: &OAuthMethod{
-			AccessToken:  accessToken,
-			RefreshToken: refreshToken,
-			Expiry:       expiry,
+func TestCredentialStatusDoesNotWaitForRefresh(t *testing.T) {
+	initial := testOAuthState()
+	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	manager := NewManager(NewMemoryStore(initial), NewOAuthRefresher(
+		func() time.Time { return managerTestNow.Add(2 * time.Hour) }, 30*time.Second,
+		func(ctx context.Context, method OAuthMethod) (OAuthMethod, error) {
+			close(started)
+			select {
+			case <-release:
+				return method, nil
+			case <-ctx.Done():
+				return OAuthMethod{}, ctx.Err()
+			}
 		},
-	}
-}
-
-func managerTestOAuthState(accessToken string, refreshToken string, expiry time.Time) State {
-	return State{
-		Scope:  ScopeGlobal,
-		Method: managerTestOAuthMethod(accessToken, refreshToken, expiry),
+	))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _, _ = manager.CurrentOAuth(ctx, "work") }()
+	<-started
+	status := make(chan State, 1)
+	go func() {
+		state, err := manager.Load(t.Context())
+		if err != nil {
+			t.Error(err)
+		}
+		status <- state
+	}()
+	select {
+	case state := <-status:
+		if state.Connections["work"] != initial.Connections["work"] {
+			t.Fatal("status must report latest saved credentials during refresh")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("status waited for a refreshing connection")
 	}
 }

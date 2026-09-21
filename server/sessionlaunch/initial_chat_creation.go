@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
@@ -54,15 +53,7 @@ func (s *Service) prepareInitialChatCreation(
 	app config.App,
 	creation InitialChatCreation,
 ) (*session.ChatDraftState, error) {
-	authState := auth.EmptyState()
-	if s.authStates != nil {
-		var err error
-		authState, err = s.authStates.StoredState(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	catalog, err := launch.PrepareChatAgentCatalog(app, authState, false)
+	catalog, err := launch.PrepareChatAgentCatalog(app, false)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +69,7 @@ func (s *Service) prepareInitialChatCreation(
 		settings.Supervisor = creation.Settings.Supervisor
 		if creation.Settings.Thinking != nil {
 			thinking := *creation.Settings.Thinking
-			_, enumerated := llm.LookupModelCapabilityContract(entry.Choice.Model)
+			_, enumerated := llm.LookupModelCapabilityContract(entry.Choice.GetModel())
 			if len(entry.Settings.SupportedThinkingValues) > 0 &&
 				(!enumerated || slices.Contains(entry.Settings.SupportedThinkingValues, thinking)) {
 				settings.Thinking = thinking

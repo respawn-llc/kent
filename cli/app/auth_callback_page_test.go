@@ -6,16 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"core/cli/app/internal/authui"
-
 	tea "github.com/charmbracelet/bubbletea"
 	ansi "github.com/charmbracelet/x/ansi"
 )
 
 func TestAuthCallbackPageInvalidPasteShowsTransientErrorAndStaysOpen(t *testing.T) {
 	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
-	m.complete = func(context.Context, string) (authui.AuthMethod, error) {
-		return authui.AuthMethod{}, errors.New("oauth callback is missing code")
+	m.complete = func(context.Context, string) error {
+		return errors.New("oauth callback is missing code")
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("bad")})
 	m = next.(*authCallbackPageModel)
@@ -27,7 +25,7 @@ func TestAuthCallbackPageInvalidPasteShowsTransientErrorAndStaysOpen(t *testing.
 	msg := cmd()
 	next, _ = m.Update(msg)
 	m = next.(*authCallbackPageModel)
-	if m.result.Method.Type != "" {
+	if m.result.CallbackInput != "" {
 		t.Fatalf("expected invalid paste to stay on page, result=%+v", m.result)
 	}
 	if !strings.Contains(ansi.Strip(m.View()), "Invalid callback: oauth callback is missing code") {

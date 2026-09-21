@@ -44,7 +44,6 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write configured lifecycle hook: %v", err)
 	}
-	saveReadyAppAuthState(t, workspace)
 
 	responses, _ := newFakeResponsesServer(t, []string{
 		"ordinary headless response",
@@ -62,8 +61,6 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 			WorkspaceRootExplicit: true,
 			AgentRole:             agentRole,
 			Model:                 "gpt-5",
-			OpenAIBaseURL:         responses.URL,
-			OpenAIBaseURLExplicit: true,
 		}, name, 0, nil)
 		if err != nil {
 			t.Fatalf("%s RunPrompt: %v", name, err)
@@ -106,14 +103,13 @@ func requireNoLifecycleHookProductRecords(t *testing.T, recordPath string) {
 
 func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		if got := strings.TrimSpace(r.Header.Get("Authorization")); got == "" {
-			t.Fatal("expected authorization header")
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatal("auth-less connection sent authorization")
 		}
 		modelstub.WriteCompletedResponseStream(w, "hello from fake", 11, 7)
 	}))
@@ -127,8 +123,6 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         server.URL,
-		OpenAIBaseURLExplicit: true,
 	}, "hello from user", 0, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
@@ -156,7 +150,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		t.Fatalf("expected subagent session name, got %q", result.SessionName)
 	}
 
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{OpenAIBaseURL: server.URL})
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
 	meta := store.Meta()
 	wantWorkspaceRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
@@ -169,8 +163,8 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if meta.FirstPromptPreview != "hello from user" {
 		t.Fatalf("first prompt preview = %q, want %q", meta.FirstPromptPreview, "hello from user")
 	}
-	if meta.Continuation == nil || meta.Continuation.OpenAIBaseURL == nil || *meta.Continuation.OpenAIBaseURL != server.URL {
-		t.Fatalf("unexpected continuation context: %+v", meta.Continuation)
+	if meta.ConnectionID == nil || *meta.ConnectionID != *cfg.Settings.Connection {
+		t.Fatalf("unexpected connection binding: %+v", meta.ConnectionID)
 	}
 
 	events, err := sessiontest.CollectRecords(store)
@@ -259,7 +253,6 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	}); err != nil {
 		t.Fatalf("SetWorktreeReminderState parent: %v", err)
 	}
-	saveReadyAppAuthState(t, workspace)
 	fakeResponses, _ := newFakeResponsesServer(t, []string{"child reply"})
 	defer fakeResponses.Close()
 	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
@@ -269,8 +262,6 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 		WorkspaceRoot:             worktreeSubdir,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
 		Model:                     "gpt-5",
-		OpenAIBaseURL:             fakeResponses.URL,
-		OpenAIBaseURLExplicit:     true,
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -298,7 +289,6 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
 	home, workspace := newRegisteredAppWorkspace(t)
-	saveReadyAppAuthState(t, workspace)
 
 	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -308,12 +298,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		"model = \"gpt-5.4\"",
 		"",
 		"[subagents.fast]",
-		"provider_override = \"openai\"",
-		"",
-		"[subagents.fast.provider_capabilities]",
-		"provider_id = \"openai\"",
-		"supports_responses_api = true",
-		"is_openai_first_party = true",
+		"connection = \"test\"",
 	}, "\n")
 
 	requestBodies := make(chan map[string]any, 1)
@@ -321,8 +306,8 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		if got := strings.TrimSpace(r.Header.Get("Authorization")); got == "" {
-			t.Fatal("expected authorization header")
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatal("auth-less connection sent authorization")
 		}
 		defer r.Body.Close()
 		var payload map[string]any
@@ -334,7 +319,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	}))
 	defer server.Close()
 
-	contents = "openai_base_url = \"" + server.URL + "\"\n" + contents + "\n"
+	contents = "connection = \"test\"\n" + contents + "\n[connections.test]\nprotocol = \"responses\"\nendpoint = \"" + server.URL + "\"\n"
 	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -357,9 +342,9 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	if got := payload["model"]; got != "gpt-5" {
 		t.Fatalf("model payload = %#v, want startup CLI model gpt-5", got)
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, server.URL, result.SessionID)
-	if store.Meta().Continuation == nil || store.Meta().Continuation.OpenAIBaseURL == nil || *store.Meta().Continuation.OpenAIBaseURL != server.URL {
-		t.Fatalf("unexpected continuation context: %+v", store.Meta().Continuation)
+	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.SessionID)
+	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "test" {
+		t.Fatalf("unexpected connection binding: %+v", store.Meta().ConnectionID)
 	}
 }
 
@@ -370,8 +355,8 @@ func newFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		if got := strings.TrimSpace(r.Header.Get("Authorization")); got == "" {
-			t.Fatal("expected authorization header")
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatal("auth-less connection sent authorization")
 		}
 		index := int(hits.Add(1)) - 1
 		if index >= len(assistantReplies) {
@@ -382,31 +367,9 @@ func newFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.
 	return server, &hits
 }
 
-func newNoAuthFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.Server, *atomic.Int32) {
-	t.Helper()
-	var hits atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "" {
-			t.Fatalf("unexpected authorization header %q", got)
-		}
-		index := int(hits.Add(1)) - 1
-		if index >= len(assistantReplies) {
-			t.Fatalf("unexpected response request index %d", index)
-		}
-		modelstub.WriteCompletedResponseStream(w, assistantReplies[index], 11, 7)
-	}))
-	return server, &hits
-}
-
-func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, openAIBaseURL, sessionID string) *session.Store {
+func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, sessionID string) *session.Store {
 	t.Helper()
 	loadOpts := config.LoadOptions{}
-	if strings.TrimSpace(openAIBaseURL) != "" {
-		loadOpts.OpenAIBaseURL = openAIBaseURL
-	}
 	cfg := loadAppTestConfig(t, workspaceRoot, loadOpts)
 	return openAuthoritativeAppSession(t, cfg.PersistenceRoot, sessionID)
 }

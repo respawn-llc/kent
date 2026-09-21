@@ -14,12 +14,13 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	textutil "core/shared/textutil"
-	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 type backParentPrefillScenarioServer interface {
@@ -38,7 +39,8 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, apiKeyMemoryAuthHandler("test-key"))
+	})
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}
@@ -77,7 +79,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	if err := os.WriteFile(
 		filepath.Join(workspaceB, config.ConfigDirName, "config.toml"),
-		[]byte("model = \"target-project-model\"\nprovider_override = \"openai\"\nthinking_level = \"high\"\n"),
+		[]byte("model = \"target-project-model\"\nthinking_level = \"high\"\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write target workspace config: %v", err)
@@ -92,7 +94,8 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "source-project-model",
-	}, apiKeyMemoryAuthHandler("test-key"))
+	})
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}

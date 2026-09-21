@@ -13,7 +13,6 @@ func TestApplyContextPolicyUsesFinalRoleResolvedSettings(t *testing.T) {
 	settings.ModelContextWindow = 128_000
 	settings.ContextCompactionThresholdTokens = 121_600
 	settings.CompactionMode = config.CompactionModeNative
-	settings.OpenAIBaseURL = "https://compatible.example/v1"
 
 	plan := ApplyContextPolicy(
 		SessionPlan{ActiveSettings: settings},

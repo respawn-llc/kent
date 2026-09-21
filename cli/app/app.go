@@ -18,13 +18,10 @@ type Options struct {
 	WorkspaceContextSessionID string
 	AgentRole                 *string
 	Model                     string
-	ProviderOverride          string
 	ThinkingLevel             string
 	Theme                     string
 	ModelTimeoutSeconds       int
 	Tools                     string
-	OpenAIBaseURL             string
-	OpenAIBaseURLExplicit     bool
 	ConfigRoot                string
 }
 

@@ -3,10 +3,8 @@ package startup
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"core/server/auth"
-	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
@@ -16,42 +14,26 @@ import (
 type Request struct {
 	WorkspaceRoot         string
 	WorkspaceRootExplicit bool
-	AllowUnauthenticated  bool
 	SessionID             string
 	Model                 string
-	ProviderOverride      string
 	ThinkingLevel         string
 	Theme                 string
 	ModelTimeoutSeconds   int
 	Tools                 string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
 	LoadOptions           config.LoadOptions
 }
 
-type AuthHandler interface {
-	WrapStore(base auth.Store) auth.Store
-	NeedsInteraction(req authservice.FlowInteractionRequest) bool
-	Interact(ctx context.Context, req authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error)
-	LookupEnv(key string) string
-}
-
-func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request, requireAuth bool, authHandler AuthHandler) (*core.Core, error) {
+func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request) (*core.Core, error) {
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
 		return nil, err
 	}
 	cfg := resolved.Config
-	store := authHandler.WrapStore(auth.NewFileStore(config.GlobalAuthConfigPath(cfg)))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.LookupEnv, bootstrapReq.Now)
+	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
 	if err != nil {
 		return nil, err
-	}
-	if requireAuth {
-		if err := authservice.EnsureFlowReady(ctx, authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings.Theme, bootstrapReq.LookupEnv, authservice.StartupAuthRequired(cfg.Settings), false, authHandler); err != nil {
-			return nil, err
-		}
 	}
 	if !cfg.Source.SettingsFileExists() {
 		return nil, ErrOnboardingRequired
@@ -84,23 +66,17 @@ func panicOnMetadataMigrationFailure(err error) {
 
 func coreOptionsForBootstrap(req serverbootstrap.Request, rootLease *core.RootLockLease) core.Options {
 	loadOptions := req.LoadOptions
-	if req.OpenAIBaseURLExplicit {
-		loadOptions.OpenAIBaseURL = strings.TrimSpace(req.OpenAIBaseURL)
-	} else {
-		loadOptions.OpenAIBaseURL = ""
-	}
 	return core.Options{
 		RootLease:                  rootLease,
 		WorkspaceConfigLoadOptions: loadOptions,
 	}
 }
 
-func buildRequest(req Request, authHandler AuthHandler) serverbootstrap.Request {
+func buildRequest(req Request) serverbootstrap.Request {
 	loadOptions := req.LoadOptions
 	if loadOptions == (config.LoadOptions{}) {
 		loadOptions = config.LoadOptions{
 			Model:               req.Model,
-			ProviderOverride:    req.ProviderOverride,
 			ThinkingLevel:       req.ThinkingLevel,
 			Theme:               req.Theme,
 			ModelTimeoutSeconds: req.ModelTimeoutSeconds,
@@ -111,9 +87,6 @@ func buildRequest(req Request, authHandler AuthHandler) serverbootstrap.Request 
 		WorkspaceRoot:         req.WorkspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             req.SessionID,
-		OpenAIBaseURL:         req.OpenAIBaseURL,
-		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
-		LookupEnv:             authHandler.LookupEnv,
 		LoadOptions:           loadOptions,
 	}
 }

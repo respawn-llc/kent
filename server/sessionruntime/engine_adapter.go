@@ -117,6 +117,7 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
+	environment         func(string) (string, bool)
 	workspaceMembership runtimewire.WorkspaceMembership
 	debug               bool
 	persistenceRoot     string
@@ -135,6 +136,7 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
+		environment:         options.Environment,
 		workspaceMembership: options.WorkspaceMembership,
 		debug:               options.Debug,
 		persistenceRoot:     options.PersistenceRoot,
@@ -285,7 +287,17 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	options := plan.options
+	catalog, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.options.persistenceRoot})
+	if err != nil {
+		return nil, err
+	}
+	options.Settings.Connections = catalog.Settings.Connections
+	replacement, err := launch.BindSessionConnection(store, &options.Settings, options.Sources)
+	if err != nil {
+		return nil, err
+	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		Environment:                         a.options.environment,
 		WorkspaceMembership:                 a.options.workspaceMembership,
 		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
 		RequiredTools:                       options.RequiredTools,
@@ -336,7 +348,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			}
 		},
 	}
-	return runtimewire.NewRuntimeWiringWithBackground(
+	wiring, err := runtimewire.NewRuntimeWiringWithBackground(
 		store,
 		eventLog,
 		options.Settings,
@@ -346,4 +358,14 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		a.options.background,
 		wiringOptions,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if replacement != nil {
+		if err := wiring.Engine.PrepareConnectionReplacement(*replacement); err != nil {
+			_ = wiring.Close()
+			return nil, err
+		}
+	}
+	return wiring, nil
 }

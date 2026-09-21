@@ -80,6 +80,7 @@ type Store struct {
 }
 
 type sessionMetadataDocument struct {
+	ConnectionID                    *config.ConnectionID                   `json:"connection_id"`
 	WorkspaceRoot                   string                                 `json:"workspace_root"`
 	WorkspaceContainer              string                                 `json:"workspace_container"`
 	ChatSettings                    *session.ChatSettingsOverrides         `json:"chat_settings,omitempty"`
@@ -2386,6 +2387,11 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 }
 
 func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot) (sqlitegen.UpsertSessionParams, error) {
+	if snapshot.Meta.ConnectionID != nil {
+		if _, err := config.ParseConnectionID(string(*snapshot.Meta.ConnectionID)); err != nil {
+			return sqlitegen.UpsertSessionParams{}, err
+		}
+	}
 	category, err := nullableSessionCategory(snapshot.Meta.SessionID, snapshot.Meta.Category)
 	if err != nil {
 		return sqlitegen.UpsertSessionParams{}, err
@@ -2439,6 +2445,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, err
 	}
 	metadataJSON, err := marshalJSON(sessionMetadataDocument{
+		ConnectionID:                    snapshot.Meta.ConnectionID,
 		WorkspaceRoot:                   snapshot.Meta.WorkspaceRoot,
 		WorkspaceContainer:              snapshot.Meta.WorkspaceContainer,
 		ChatSettings:                    snapshot.Meta.ChatSettings,
@@ -2599,6 +2606,11 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	if err := unmarshalStoredJSON(row.MetadataJson, &metadataPayload); err != nil {
 		return session.Meta{}, fmt.Errorf("decode session metadata json: %w", err)
 	}
+	if metadataPayload.ConnectionID != nil {
+		if _, err := config.ParseConnectionID(string(*metadataPayload.ConnectionID)); err != nil {
+			return session.Meta{}, err
+		}
+	}
 	chatSettings, err := session.NormalizeChatSettingsOverrides(metadataPayload.ChatSettings)
 	if err != nil {
 		return session.Meta{}, fmt.Errorf("validate session Chat settings: %w", err)
@@ -2661,6 +2673,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		WorkspaceRoot:                   workspaceRoot,
 		WorkspaceContainer:              workspaceContainer,
 		Continuation:                    continuation,
+		ConnectionID:                    metadataPayload.ConnectionID,
 		ChatSettings:                    chatSettings,
 		OriginalThinkingEffort:          metadataPayload.OriginalThinkingEffort,
 		RetainedToolSelection:           metadataPayload.RetainedToolSelection,

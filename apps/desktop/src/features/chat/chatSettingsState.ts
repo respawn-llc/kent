@@ -67,14 +67,8 @@ export function settingsReducer(state: SettingsState, action: SettingsAction): S
 }
 function activateSession(current: ChatSettings, operation: ChatSettingsMutation): ChatSettings {
   switch (operation.kind) {
-    case "agent": {
-      const choice = current.agentChoices.find((candidate) => candidate.role === operation.role);
-      if (choice === undefined) throw new Error("Selected Agent is not in the Session choices.");
-      return {
-        ...current,
-        selectedAgent: { role: choice.role, model: choice.model, thinking: choice.thinking },
-      };
-    }
+    case "agent":
+      return activateSessionAgent(current, operation.role);
     case "supervisor":
       return { ...current, supervisor: { ...current.supervisor, value: operation.value } };
     case "thinking":
@@ -103,6 +97,16 @@ function activateSession(current: ChatSettings, operation: ChatSettingsMutation)
           }
         : current;
   }
+}
+
+function activateSessionAgent(current: ChatSettings, role: string): ChatSettings {
+  const choice = current.agentChoices.find((candidate) => candidate.role === role);
+  if (choice === undefined) throw new Error("Selected Agent is not in the Session choices.");
+  if (choice.model === null || choice.thinking === null) return current;
+  return {
+    ...current,
+    selectedAgent: { role: choice.role, model: choice.model, thinking: choice.thinking },
+  };
 }
 function activateNewChat(state: ReadyNewChat, operation: ChatSettingsMutation): InitialChatSettings {
   const current = state.initialSettings;

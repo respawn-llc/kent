@@ -33,15 +33,15 @@ func (c *staticAuthStatusClient) GetStatus(_ context.Context, request *authpb.Ge
 
 func authStatusResponse(method authpb.AuthMethod) *authpb.Status {
 	facts := &authpb.StatusFacts{
-		Method:        method,
-		Provider:      &authpb.ProviderFacts{Kind: authpb.ProviderKind_PROVIDER_KIND_OPENAI, Identifier: "openai"},
-		EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_UNSPECIFIED,
+		Method:       method,
+		Provider:     &authpb.ProviderFacts{Kind: authpb.ProviderKind_PROVIDER_KIND_OPENAI, Identifier: "openai"},
+		ConnectionId: "test",
 	}
 	switch method {
 	case authpb.AuthMethod_AUTH_METHOD_NONE:
 		facts.MethodFacts = &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}}
 	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
-		facts.MethodFacts = &authpb.StatusFacts_ApiKey{ApiKey: &authpb.APIKeyFacts{}}
+		facts.MethodFacts = &authpb.StatusFacts_ApiKey{ApiKey: &authpb.APIKeyFacts{EnvironmentVariable: "TEST_KEY"}}
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
 		facts.MethodFacts = &authpb.StatusFacts_Oauth{Oauth: &authpb.OAuthFacts{}}
 	}

@@ -178,17 +178,14 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	if shown.UserCode != "ABCD-1234" {
 		t.Fatalf("unexpected shown user code: %+v", shown)
 	}
-	if method.Type != MethodOAuth || method.OAuth == nil {
-		t.Fatalf("unexpected method returned: %+v", method)
+	if method.AccessToken != "access-1" || method.RefreshToken != "refresh-1" {
+		t.Fatalf("unexpected oauth tokens: %+v", method)
 	}
-	if method.OAuth.AccessToken != "access-1" || method.OAuth.RefreshToken != "refresh-1" {
-		t.Fatalf("unexpected oauth tokens: %+v", method.OAuth)
+	if method.AccountID != "" {
+		t.Fatalf("expected empty account id for opaque test tokens, got %q", method.AccountID)
 	}
-	if method.OAuth.AccountID != "" {
-		t.Fatalf("expected empty account id for opaque test tokens, got %q", method.OAuth.AccountID)
-	}
-	if !method.OAuth.Expiry.After(time.Now().UTC()) {
-		t.Fatalf("expected future expiry, got %s", method.OAuth.Expiry)
+	if !method.Expiry.After(time.Now().UTC()) {
+		t.Fatalf("expected future expiry, got %s", method.Expiry)
 	}
 }
 
@@ -230,8 +227,8 @@ func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI
 	if err != nil {
 		t.Fatalf("CompleteOpenAIDeviceAuthorizationGrant: %v", err)
 	}
-	if method.Type != MethodOAuth || method.OAuth == nil {
-		t.Fatalf("unexpected method returned: %+v", method)
+	if err := method.Validate(); err != nil {
+		t.Fatalf("invalid credential returned: %v", err)
 	}
 }
 
@@ -257,19 +254,16 @@ func TestRefreshOpenAIAuthToken(t *testing.T) {
 	updated, err := RefreshOpenAIAuthToken(context.Background(), OpenAIOAuthOptions{
 		ClientID:   "client-1",
 		HTTPClient: rewriteOAuthIssuerClient(server),
-	}, Method{
-		Type: MethodOAuth,
-		OAuth: &OAuthMethod{
-			AccessToken:  "old-access",
-			RefreshToken: "old-refresh",
-			Expiry:       time.Now().Add(-time.Minute),
-		},
+	}, OAuthMethod{
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		Expiry:       time.Now().Add(-time.Minute),
 	})
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
 	}
-	if updated.OAuth.AccessToken != "new-access" || updated.OAuth.RefreshToken != "new-refresh" {
-		t.Fatalf("unexpected refreshed tokens: %+v", updated.OAuth)
+	if updated.AccessToken != "new-access" || updated.RefreshToken != "new-refresh" {
+		t.Fatalf("unexpected refreshed tokens: %+v", updated)
 	}
 }
 

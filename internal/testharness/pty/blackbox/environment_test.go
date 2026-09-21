@@ -30,7 +30,7 @@ func TestProcessEnvironmentsAreSeparateAndFallible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clientEnvironment: %v", err)
 	}
-	server, err := serverEnvironment(filepath.Join(root, "server"), root, "127.0.0.1", 7777, "http://127.0.0.1:9999/v1")
+	server, err := serverEnvironment(filepath.Join(root, "server"), root, "127.0.0.1", 7777)
 	if err != nil {
 		t.Fatalf("serverEnvironment: %v", err)
 	}
@@ -45,8 +45,8 @@ func TestProcessEnvironmentsAreSeparateAndFallible(t *testing.T) {
 	if _, exists := clientValues["KENT_OPENAI_BASE_URL"]; exists {
 		t.Fatalf("client received server-only model endpoint: %#v", clientValues)
 	}
-	if serverValues["KENT_OPENAI_BASE_URL"] != "http://127.0.0.1:9999/v1" {
-		t.Fatalf("server model endpoint = %q", serverValues["KENT_OPENAI_BASE_URL"])
+	if _, exists := serverValues["KENT_OPENAI_BASE_URL"]; exists {
+		t.Fatalf("server inherited obsolete endpoint override: %#v", serverValues)
 	}
 	if serverValues["GOMAXPROCS"] != "1" {
 		t.Fatalf("server scheduler limit = %q, want 1", serverValues["GOMAXPROCS"])

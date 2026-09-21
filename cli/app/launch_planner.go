@@ -1,18 +1,9 @@
 package app
 
-import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-
-import sessionpb "core/shared/protoapi/gen/kent/api/session"
-
 import (
-	"context"
-	"errors"
-	"io"
-	"net"
-	"strconv"
-	"strings"
-	"sync"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
+	"context"
 	"core/shared/apicontract"
 	"core/shared/authstatus"
 	"core/shared/client"
@@ -20,7 +11,16 @@ import (
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"errors"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -342,9 +342,6 @@ func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides
 	if sourceIsCLI(sources, "model") {
 		overrides.Model = cfg.Settings.Model
 	}
-	if sourceIsCLI(sources, "provider_override") {
-		overrides.ProviderOverride = cfg.Settings.ProviderOverride
-	}
 	if sourceIsCLI(sources, "thinking_level") {
 		overrides.ThinkingLevel = cfg.Settings.ThinkingLevel
 	}
@@ -353,9 +350,6 @@ func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides
 	}
 	if sourceIsCLI(sources, "timeouts.model_request_seconds") {
 		overrides.ModelTimeoutSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
-	}
-	if sourceIsCLI(sources, "openai_base_url") {
-		overrides.OpenAIBaseURL = cfg.Settings.OpenAIBaseURL
 	}
 	if hasCLIToolOverride(cfg.Source) {
 		overrides.Tools = enabledToolsCSV(cfg.Settings.EnabledTools)
@@ -372,9 +366,6 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	if value := strings.TrimSpace(override.Model); value != "" {
 		merged.Model = value
 	}
-	if value := strings.TrimSpace(override.ProviderOverride); value != "" {
-		merged.ProviderOverride = value
-	}
 	if value := strings.TrimSpace(override.ThinkingLevel); value != "" {
 		merged.ThinkingLevel = value
 	}
@@ -386,9 +377,6 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 	}
 	if value := strings.TrimSpace(override.Tools); value != "" {
 		merged.Tools = value
-	}
-	if value := strings.TrimSpace(override.OpenAIBaseURL); value != "" {
-		merged.OpenAIBaseURL = value
 	}
 	return merged
 }

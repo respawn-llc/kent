@@ -15,8 +15,8 @@ import (
 
 type serveCommandServer = ServeServer
 
-var startServeServer = func(ctx context.Context, req serverstartup.Request, authHandler serverstartup.AuthHandler) (serveCommandServer, error) {
-	return serverstartup.StartServeServer(ctx, req, authHandler)
+var startServeServer = func(ctx context.Context, req serverstartup.Request) (serveCommandServer, error) {
+	return serverstartup.StartServeServer(ctx, req)
 }
 
 func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -43,11 +43,9 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx = installServiceShutdownTrigger(ctx)
-	authHandler := serverstartup.NewHeadlessAuthHandler(nil)
 	server, err := startServeServer(ctx, serverstartup.Request{
-		AllowUnauthenticated: true,
-		LoadOptions:          brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
-	}, authHandler)
+		LoadOptions: brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, context.Canceled) {
