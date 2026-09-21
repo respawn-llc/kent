@@ -309,6 +309,7 @@ message Settings {
   string theme = 7 [(buf.validate.field).string = {
     in: ["auto", "light", "dark"]
   }];
+  bool tui_native_progress_bar = 41;
   string notification_method = 8;
   bool tool_preambles = 9;
   bool priority_request_mode = 10;
