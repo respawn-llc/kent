@@ -4,7 +4,6 @@ description: Settings locations, precedence, CLI and environment overrides, and 
 ---
 
 ## Precedence
-
 Kent resolves settings in this order (ascending priority):
 
 1. Built-in defaults
@@ -16,25 +15,11 @@ Kent resolves settings in this order (ascending priority):
 
 Each explicitly supplied property overrides the same property from earlier layers. Omitted properties inherit, including within named roles and nested tables. An explicit `false` overrides `true`.
 
-The private file belongs to the Main Workspace. Managed worktrees read it directly from that workspace; changing the working directory or selected worktree does not select a different private file. Shared `config.toml` lookup follows the operation's workspace or working-directory context.
+The private `config.local.toml` is read from the main workspace when using worktrees. Shared `config.toml`, on the other hand, follows the operation's workspace or working-directory context.
 
-**Connection discovery is an exception.** TUI and headless startup, and goal, binding, question and worktree CLI commands, discover the server endpoint from global/shared configuration and environment/CLI overrides. The running server resolves Main Workspace private ownership and operational settings after connection. A private-only endpoint override does not select the connection; put that endpoint in global/shared configuration or `KENT_SERVER_HOST`/`KENT_SERVER_PORT`.
+**Connection discovery is an exception** - for Provider connections declarations, Kent does not resolve them from workspace configs for privacy and safety. Place your connections in global configs.
 
-Unknown keys, invalid types and disallowed scopes fail the load, even if another layer would override them. Kent validates merged settings; model-derived context budgets are validated at launch. Worktree setup validates the full configuration too.
-
-Each session activation uses its Agent's current context window, auto-compaction threshold, and compaction mode. These settings are not saved in the session contract, and changing them does not invalidate the prompt cache. An active run keeps its budget until the next activation.
-
-Successful compaction clears the session contract's model capabilities, tool declarations, generation settings, and prompts. The next model request creates a fresh snapshot. A [retained explicit tools list](#tools) survives that refresh. This applies to manual, automatic, handoff, and Workflow compaction; failed compaction leaves the existing snapshot unchanged.
-
-:::tip
-`kent serve` starts without a workspace root, so it doesn't matter where you run the server.
-:::
-
-## Concurrent shells
-
-Set `shell.max_concurrent` in the global configuration to limit running agent-tool shells across the server. The default is `100`; the value must be a positive integer. Restart the server to apply changes. Workspace and subagent overrides are not supported.
-
-Foreground and background commands share the limit. A start at capacity returns a recoverable tool error with the configured limit; existing commands continue, and capacity becomes available when a process exits. Completed shells, Workflow Scripts, hooks, and internal Git commands do not count toward this limit.
+Some cache-affecting settings like prompts, tools, and model IDs, are **snapshot** at session start and re-loaded at **compaction**. This is done to preserve the prompt cache.
 
 ## Locations
 
@@ -48,11 +33,11 @@ Foreground and background commands share the limit. A start at capacity returns 
 ## Example
 
 ```toml
-model = "gpt-5.6-sol"
+model = "gpt-6-astra"
 provider_identifier = "kent"
 thinking_level = "medium" # low, medium, high, xhigh, max, ultra
 model_verbosity = "low" # or "medium" / "high"
-max_subagent_depth = 2 # 0 through 30; 0 blocks model-originated child creation
+max_subagent_depth = 2 # 0 through 30; 0 blocks subagent creation completely
 # system_prompt_file = "SYSTEM.md" # relative to this config.toml directory
 theme = "auto" # or light / dark
 web_search = "native"
@@ -78,22 +63,23 @@ postprocessing_mode = "all" # shell output token optimizations by Kent: none | b
 # postprocess_hook = "~/.kent/shell_postprocess_hook" # custom processor, see docs
 
 [hooks.client]
+# see respective docs page
 # lifecycle = ["python3", "/absolute/path/lifecycle_hook.py"]
 
 [workflow]
 completion_mode = "auto"
-concurrency = 5 # Agent Node scheduling capacity; Script Nodes do not use it
+concurrency = 5 # max agents to run concurrently for workflows; Script Nodes / Chats do not use it
 max_invalid_completion_attempts = 5
 pre_compaction_tokens = 247380 # defaults to 70% of context_compaction_threshold_tokens
-use_required_tool_calls = true
-subagents = false # TOML-only; disables all workflow-agent delegation
+use_required_tool_calls = true # whether to force models to never stop until workflow is complete on the API level
+subagents = false # disables all workflow-agent delegation
 
 [skills]
 "skill name" = true
 
 [reviewer] # aka supervisor
 frequency = "edits"
-# model = "gpt-5.6-sol"
+# model = "gpt-6-astra"
 # model_verbosity = "low"
 # provider_override = "openai"
 # openai_base_url = "http://127.0.0.1:11434/v1"
@@ -105,7 +91,7 @@ verbose_output = false # set true to show complete supervisor suggestions in ong
 
 # Headless default role; new interactive TUI and Desktop Sessions use the top-level settings.
 [subagents.default]
-model = "gpt-5-mini"
+model = "gpt-6-astra"
 thinking_level = "low"
 description = "Low-cost role for headless runs."
 agent_callable = false # model agents cannot delegate to this role
@@ -114,7 +100,7 @@ workflow_subagent = false # Workflow agents cannot delegate to this role
 
 ### Workflow subagent delegation
 
-`[workflow] subagents` defaults to `false` and has no environment override. Set it to `true` to let Workflow agents delegate to roles whose effective `agent_callable` and `workflow_subagent` values allow it. This setting does not affect direct Workflow Node assignment, including an assignment to `default`.
+`[workflow] subagents` defaults to `false`. Set it to `true` to let Workflow agents delegate to roles whose effective `agent_callable` and `workflow_subagent` values allow it. This setting does not affect direct Workflow Node assignment, including an assignment to `default`.
 
 `agent_callable` is optional role metadata and defaults to `true`. It controls whether model-originated child delegation may target the role, including the `default` role; humans can launch the role with `kent run` regardless of this value.
 
@@ -144,7 +130,7 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 
 | Key                                   | Type            | Default       | Env                                        | CLI                                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------- | --------------- | ------------- | ------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `model`                               | string          | `gpt-5.6-sol` | `KENT_MODEL`                               | `kent run --model`                 | Model name. If provider inference from the model name is not enough, set `provider_override` too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `model`                               | string          | `gpt-6-astra` | `KENT_MODEL`                               | `kent run --model`                 | Model name. If provider inference from the model name is not enough, set `provider_override` too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `max_subagent_depth`                  | int             | `2`           |                                            |                                    | Maximum depth for model-originated creation of new child agents. A root is depth `0`; values must be from `0` through `30`, and `0` blocks all model-originated child creation. Kent uses the active global-then-workspace value for every launch attempt.                                                                                                                                                                                                                                                                                                                           |
 | `thinking_level`                      | string          | `medium`      | `KENT_THINKING_LEVEL`                      | `kent run --thinking-level`        | Provider-specific reasoning effort string.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `model_verbosity`                     | string          | `low`         |                                            |                                    | Text verbosity hint for supported models. Allowed: `""`, `low`, `medium`, `high`. Unsupported models ignore it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -152,19 +138,19 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | `theme`                               | string          | `auto`        | `KENT_THEME`                               | `kent run --theme`                 | TUI theme. Allowed: `auto`, `light`, `dark`. `light` and `dark` force Kent's fixed palettes. `auto` or an omitted value falls back to terminal background detection.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `notification_method`                 | string          | `auto`        | `KENT_NOTIFICATION_METHOD`                 |                                    | Terminal notification backend. Allowed: `auto`, `osc9`, `bel`. `auto` chooses `osc9` on supported terminals and falls back to `bel`.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tui_native_progress_bar`             | bool            | `true`        |                                            |                                    | Emits terminal-native indeterminate progress for eligible interactive TUI operations.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `hooks.client.lifecycle`              | string array    | unset         |                                            |                                    | Global-only command and fixed arguments for [interactive TUI lifecycle hooks](../lifecycle-hooks/). Empty arrays and blank arguments are invalid.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `hooks.client.lifecycle`              | string array    | unset         |                                            |                                    | Global-only command and fixed arguments for [interactive TUI lifecycle hooks](../lifecycle-hooks/).                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `tool_preambles`                      | bool            | `true`        | `KENT_TOOL_PREAMBLES`                      |                                    | Includes tool-usage preambles in the main system prompt for interactive runs. Headless `kent run` still suppresses them.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `priority_request_mode`               | bool            | `false`       |                                            |                                    | Enables fast-mode requests where the provider supports them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `debug`                               | bool            | `false`       | `KENT_DEBUG`                               |                                    | Enables global developer-oriented strictness and logging. Only use for development/debugging                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `server_host`                         | string          | `127.0.0.1`   | `KENT_SERVER_HOST`                         |                                    | Exact TCP app-server host to dial or listen on; client connection discovery follows the exception above. Kent does not use discovery files or silent port rebinding. Same-machine Unix socket optimization does not override an explicit TCP target.                                                                                                                                                                                                                                                                                                                                 |
+| `server_host`                         | string          | `127.0.0.1`   | `KENT_SERVER_HOST`                         |                                    | Exact TCP app-server host to dial or listen on; client connection discovery follows the exception above. Kent does not use discovery files or silent port rebinding.                                                                                                                                                                                                                                                                                                                                |
 | `server_port`                         | int             | `53082`       | `KENT_SERVER_PORT`                         |                                    | Exact TCP app-server port to dial or listen on; client connection discovery follows the exception above. Must match across clients attached to the same persistence root. Same-machine Unix socket optimization does not override an explicit TCP target.                                                                                                                                                                                                                                                                                                                            |
-| `web_search`                          | string          | `native`      | `KENT_WEB_SEARCH`                          |                                    | Web search backend. Allowed: `off`, `native`. `custom` (e.g. Brave Search) is not implemented yet, on the roadmap.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `web_search`                          | string          | `native`      | `KENT_WEB_SEARCH`                          |                                    | Web search backend. Allowed: `off`, `native`.
 | `provider_override`                   | string          | `""`          | `KENT_PROVIDER_OVERRIDE`                   | `kent run --provider-override`     | Forces provider family for custom or alias model names. Allowed: `openai`, `anthropic`. Requires an explicit `model` override.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `provider_identifier`                 | string          | `kent`        | `KENT_PROVIDER_IDENTIFIER`                 |                                    | Sets the `originator` header and the `<provider_identifier>/<Kent version>` User-Agent on OpenAI, ChatGPT Codex, and OpenAI-compatible model-provider requests. The value must be a non-empty HTTP product token, such as `kent`, `my-agent`, or `acme_codex`. A restarted server applies the active value to resumed sessions.                                                                                                                                                                                                                                                      |
 | `openai_base_url`                     | string          | `""`          | `KENT_OPENAI_BASE_URL`                     | `kent run --openai-base-url`       | OpenAI-compatible base URL. Must be used with `provider_override=openai` or with no explicit provider override. Cannot be changed mid-session.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `store`                               | bool            | `false`       | `KENT_STORE`                               |                                    | Sets OpenAI Responses `store=true` for main model requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `allow_non_cwd_edits`                 | bool            | `false`       | `KENT_ALLOW_NON_CWD_EDITS`                 |                                    | Lets first-class file edit tools edit files outside the Session's Execution Target Root and the bounded collection of up to 500 most recently attached Workspaces in its current Project. Older attached Workspaces still require ordinary approval. The native file tools already allow targets under operating-system temporary roots and their canonical platform aliases without approval; this setting does not override path-deny rules or the prohibition on directly editing another Kent-managed Worktree. This is not sandboxing - the model can still bypass this easily. |
-| `model_context_window`                | int             | `372000`      | `KENT_MODEL_CONTEXT_WINDOW`                |                                    | Explicit context-window size used for compaction and token accounting. Must be at least `40000`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `allow_non_cwd_edits`                 | bool            | `false`       | `KENT_ALLOW_NON_CWD_EDITS`                 |                                    | Lets first-class file edit tools edit files outside the Session's CWD. The native file tools already allow targets under operating-system temporary roots and their canonical platform aliases without approval; This is not sandboxing - the model can still bypass this easily. |
+| `model_context_window`                | int             | `372000`      | `KENT_MODEL_CONTEXT_WINDOW`                |                                    | Explicit context-window size used for compaction and token accounting. Must be at least `40000`, Kent does not support smaller windows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `context_compaction_threshold_tokens` | int             | `353400`      | `KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS` |                                    | Auto-compaction threshold. Must be `> 0`, `< model_context_window`, and at least `50%` of `model_context_window`. The default is derived from the default context window.                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `pre_submit_compaction_lead_tokens`   | int             | `35000`       | `KENT_PRE_SUBMIT_COMPACTION_LEAD_TOKENS`   |                                    | Fixed pre-submit runway reserve before auto-compaction. Kent compacts before sending the next user prompt once (`context_compaction_threshold_tokens` - this threshold) is reached.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `minimum_exec_to_bg_seconds`          | int             | `15`          | `KENT_MINIMUM_EXEC_TO_BG_SECONDS`          |                                    | Default floor for `exec_command` yield time before it moves to background and lets Kent manage it asynchronously. Must be `> 0`. Use if model frequently expects your commands to complete fast, they background, and force model to poll for them.                                                                                                                                                                                                                                                                                                                                  |
@@ -172,10 +158,10 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | `cache_warning_mode`                  | string          | `default`     | `KENT_CACHE_WARNING_MODE`                  |                                    | Prompt-cache warning policy. Allowed: `off`, `default`, `verbose`. `default` records confirmed prefix invalidations and reuse disappearance in detail mode. `verbose` surfaces the same warnings in ongoing mode. `off` disables them.                                                                                                                                                                                                                                                                                                                                               |
 | `shell_output_max_chars`              | int             | `16000`       | `KENT_SHELL_OUTPUT_MAX_CHARS`              |                                    | Output budget for shell tools and background-shell notices before they are truncated.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `bg_shells_output`                    | string          | `default`     | `KENT_BG_SHELLS_OUTPUT`                    |                                    | Background-shell output mode (injection of shell outputs into model context). Allowed: `default`, `verbose`, `concise`. Verbose dumps all output into the main agent's model. Concise forces it to read output files. Default outputs truncated previews + gives a file path.                                                                                                                                                                                                                                                                                                        |
-| `shell.postprocessing_mode`           | string          | `builtin`     | `KENT_SHELL_POSTPROCESSING_MODE`           |                                    | Semantic post-processing mode for `exec_command`. Allowed: `none`, `builtin`, `user`, `all`. `builtin` enables Kent processors only. `user` and `all` run the configured hook when present and silently skip the hook stage when omitted; `all` runs Kent processors first.                                                                                                                                                                                                                                                                                                          |
-| `shell.postprocess_hook`              | optional string | unset         | `KENT_SHELL_POSTPROCESS_HOOK`              |                                    | Executable/script path for a single local command post-processing hook. Omit the TOML key or unset the environment variable when unused; empty and whitespace-only values are invalid. An omitted hook is skipped without a warning. A configured but missing executable reports a warning. Kent sends JSON on stdin and expects JSON on stdout.                                                                                                                                                                                                                                     |
+| `shell.postprocessing_mode`           | string          | `builtin`     | `KENT_SHELL_POSTPROCESSING_MODE`           |                                    | Semantic post-processing mode for `exec_command`. Allowed: `none`, `builtin`, `user`, `all`. `builtin` enables Kent processors only.                                                                                                                                                                                                                                                                                                         |
+| `shell.postprocess_hook`              | optional string | unset         | `KENT_SHELL_POSTPROCESS_HOOK`              |                                    | Executable/script path for a single local command post-processing hook. 
 | `prevent_sleep`                       | string          | `active`      | `KENT_PREVENT_SLEEP`                       |                                    | Prevent system sleep while Kent is running. Allowed: `always` (while the server process is live), `active` (while any agent is working, plus up to one minute of idle-confirmation grace), `never` (disabled). Only system sleep is inhibited; screensaver and display sleep are unaffected.                                                                                                                                                                                                                                                                                         |
-| `timeouts.model_request_seconds`      | int             | `400`         | `KENT_TIMEOUTS_MODEL_REQUEST_SECONDS`      | `kent run --model-timeout-seconds` | Model request timeout. Must be `> 0`. For non-streaming requests it bounds the whole request. For streaming responses it is a per-event idle window: the request is only aborted when no streaming activity arrives within this duration (measured from dispatch, so it also bounds time-to-first-event), letting a healthy long generation stream past it while a dead stream fails fast.                                                                                                                                                                                           |
+| `timeouts.model_request_seconds`      | int             | `400`         | `KENT_TIMEOUTS_MODEL_REQUEST_SECONDS`      | `kent run --model-timeout-seconds` | Model request timeout. Most requests are streaming, this only binds stalled requests, so healthy streaming can run for longer than this value. 
 
 ### Workflow
 
@@ -184,7 +170,7 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | `workflow.completion_mode`                 | string | `auto`                                                       | `KENT_WORKFLOW_COMPLETION_MODE`                 | Default completion mode for workflow agent nodes that inherit the global default. Allowed: `auto`, `structured_output`, `tool`, `shell_command`, `unstructured_output`.                                |
 | `workflow.concurrency`                     | int    | `5`                                                          | `KENT_WORKFLOW_CONCURRENCY`                     | Agent Node scheduling capacity. Explicit workflow actions may exceed it. Script Nodes do not use it. Must be `> 0`.                                                                                    |
 | `workflow.max_invalid_completion_attempts` | int    | `5`                                                          | `KENT_WORKFLOW_MAX_INVALID_COMPLETION_ATTEMPTS` | Number of invalid workflow completion attempts allowed before Kent interrupts the run. Must be `> 0`.                                                                                                  |
-| `workflow.pre_compaction_tokens`           | int    | `70%` of `context_compaction_threshold_tokens`, rounded down |                                                 | Workflow Session pre-compaction threshold. Must be positive and no greater than `context_compaction_threshold_tokens`. File-only; not available in subagent role settings.                             |
+| `workflow.pre_compaction_tokens`           | int    | `70%` of `context_compaction_threshold_tokens`, rounded down |                                                 | Workflow Session pre-compaction threshold. Must be positive and no greater than `context_compaction_threshold_tokens`. See workflow documentation for more info.                            |
 | `workflow.use_required_tool_calls`         | bool   | `true`                                                       |                                                 | Uses provider-required tool selection for `tool` and `shell_command` workflow completion modes. Set to `false` to use automatic tool selection while preserving Kent's workflow completion validation. |
 | `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to delegate to eligible roles, including `default` and `fast`.                                                                                                                  |
 
@@ -192,21 +178,21 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 
 Configure the supervisor agent that oversees model changes ("reviewer" is the legacy name of the feature).
 
-Supervisor reviews run asynchronously, so you can continue working after the main answer. Suggestions enter the Session as ordinary steering: they join active work or start a new turn when idle. Questions and interruption work the same way as in other turns. A turn addressing Supervisor feedback does not trigger another review.
+Supervisor reviews run asynchronously, so you can continue working after the main answer.
 
 | Key                             | Type            | Default                                                         | Env                                  | Description                                                                                                                                                         |
 | ------------------------------- | --------------- | --------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reviewer.frequency`            | string          | `edits`                                                         | `KENT_REVIEWER_FREQUENCY`            | Allowed: `off`, `all`, `edits`. `all` runs the reviewer after every completed assistant turn. `edits` runs it only after successful first-class file edits.         |
 | `reviewer.model`                | string          | inherits `model`                                                | `KENT_REVIEWER_MODEL`                | Separate model for the reviewer pass. If unset, Kent uses main `model`.                                                                                             |
-| `reviewer.thinking_level`       | string          | inherits `thinking_level`                                       | `KENT_REVIEWER_THINKING_LEVEL`       | Allowed: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.                                                                                                          |
+| `reviewer.thinking_level`       | string          | inherits `thinking_level`                                       | `KENT_REVIEWER_THINKING_LEVEL`       |                                                                                                           |Thinking level override for supervisor, provider/model-dependent.
 | `reviewer.model_verbosity`      | string          | inherits `model_verbosity`                                      | `KENT_REVIEWER_MODEL_VERBOSITY`      | Text verbosity hint for supported reviewer models. Allowed: `""`, `low`, `medium`, `high`.                                                                          |
 | `reviewer.provider_override`    | string          | inherits `provider_override`                                    | `KENT_REVIEWER_PROVIDER_OVERRIDE`    | Forces provider family for the reviewer model. Allowed: `openai`, `anthropic`.                                                                                      |
-| `reviewer.openai_base_url`      | string          | inherits `openai_base_url` for OpenAI-family reviewer providers | `KENT_REVIEWER_OPENAI_BASE_URL`      | OpenAI-compatible base URL for the reviewer model. Non-OpenAI endpoints can run without Kent auth when the server accepts anonymous requests.                       |
-| `reviewer.auth`                 | string          | `inherit`                                                       | `KENT_REVIEWER_AUTH`                 | Reviewer auth policy. `inherit` uses Kent's configured auth. `none` sends no `Authorization` header; providers that require auth return their normal runtime error. |
+| `reviewer.openai_base_url`      | string          | inherits `openai_base_url` for OpenAI-family reviewer providers | `KENT_REVIEWER_OPENAI_BASE_URL`      | OpenAI-compatible base URL for the reviewer model.                      |
+| `reviewer.auth`                 | string          | `inherit`                                                       | `KENT_REVIEWER_AUTH`                 | Reviewer auth policy. `inherit` uses Kent's configured auth. `none` sends no `Authorization` header. |
 | `reviewer.model_context_window` | int             | inherits `model_context_window`                                 | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. The effective value must be at least `40000`.                                                  |
 | `reviewer.system_prompt_file`   | optional string | unset                                                           |                                      | Selected custom Supervisor prompt file, resolved relative to its supplying configuration file. Omission inherits; an empty path is invalid.                         |
 | `reviewer.timeout_seconds`      | int             | `120`                                                           | `KENT_REVIEWER_TIMEOUT_SECONDS`      | Reviewer HTTP timeout. Must be `> 0`.                                                                                                                               |
-| `reviewer.verbose_output`       | bool            | `false`                                                         | `KENT_REVIEWER_VERBOSE_OUTPUT`       | Controls only whether the TUI initially expands Reviewer feedback. It never controls row existence or Desktop presentation.                                         |
+| `reviewer.verbose_output`       | bool            | `false`                                                         | `KENT_REVIEWER_VERBOSE_OUTPUT`       | Controls only whether the TUI shows you full Reviewer feedback.                                        |
 
 ### Supervisor Capability Overrides
 
@@ -227,15 +213,14 @@ Use these for custom supervisor models or supervisor providers when the built-in
 | `is_openai_first_party`                         | bool   | inherits `provider_capabilities.is_openai_first_party`             | `KENT_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY`             | Marks the reviewer provider as first-party OpenAI semantics.                                     |
 
 ### Model Capability Overrides
+Sometimes you will use a model not yet added to Kent's model registry. In that case Kent will default to safe settings of what it supports, like no vision or native compaction. Adjust the overrides to let kent know the capabilities the model supports.
 
-Use these to override model capability defaults, including disabling vision or enabling capabilities for custom and alias models.
 
 | Key                                            | Type | Default                | Env                                                 | Description                                                                           |
 | ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
 | `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Overrides support for multimodal image and PDF inputs.                                |
 
-Unconfigured model capabilities use the built-in model catalog. Unknown `gpt-*` models on first-party OpenAI providers default to native image and PDF input support. Explicit text-only catalog entries remain disabled; custom providers do not inherit this default. Set `model_capabilities.supports_vision_inputs = false` explicitly to disable vision for a model.
 
 ### Provider Capability Overrides
 
@@ -252,23 +237,19 @@ Use these only for custom providers or models (such as local models).
 | `provider_capabilities.supports_provider_verbosity`       | bool   | `false` | `KENT_PROVIDER_CAPABILITIES_SUPPORTS_PROVIDER_VERBOSITY`       | Controls Responses `text.verbosity` for unknown models; known models use catalog facts.                                                         |
 | `provider_capabilities.is_openai_first_party`             | bool   | `false` | `KENT_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY`             | Marks the provider as first-party OpenAI semantics, which gates some Responses-specific behavior such as fast mode and phase protocol features. |
 
-Known models always use the built-in catalog. For unknown non-empty models, `supports_provider_verbosity` controls whether Kent sends `text.verbosity`. Without a provider override, OpenAI and ChatGPT Codex built-ins enable it; OpenAI-compatible and Anthropic built-ins disable it.
 
 ### Tools
 
 `[tools]` is a per-tool boolean table in `config.toml`.
 File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools` behave differently: they replace the entire tool set with the CSV you provide.
 
-A session retains its first explicit tools list. CLI wins over the environment when both supply that first list. Later lists are ignored, and the retained selection survives compaction and reopening without flags. A session with no retained list can adopt one on a later launch; if its tool contract is established, the list takes effect after compaction without changing locked history.
-
-Rollback forks and parallel Workflow continuation copies have new session identities and use their own launch settings. A rollback fork uses its own tools on its first request. Transition-selected Workflow agents retain their execution-required Questions tool even when the saved list excludes it; the exception does not alter the saved list.
 
 | Key                     | Default            | What enabling it exposes                                                                                  |
 | ----------------------- | ------------------ | --------------------------------------------------------------------------------------------------------- |
-| `tools.ask_question`    | task-dependent     | Tool to ask interactive questions                                                                         |
-| `tools.shell`           | `true`             | The primary shell tool. Internally this maps to `exec_command`.                                           |
-| `tools.patch`           | model-dependent    | Freeform patch grammar edit tool                                                                          |
-| `tools.edit`            | model-dependent    | JSON text replacement/create/delete edit tool. Intended for models that are not trained to apply patches. |
+| `tools.ask_question`    | task-dependent     | Tool to ask humans interactive questions. Mandatory for workflows.                                                                         |
+| `tools.shell`           | `true`             | The primary shell tool.                                            |
+| `tools.patch`           | model-dependent    | Freeform patch grammar edit tool for models trained on it (like the GPT family)                                                                          |
+| `tools.edit`            | model-dependent    | JSON text replacement/create/delete edit tool. Intended for models that are not trained to use patch syntax. |
 | `tools.trigger_handoff` | `true`             | Tool agents can use to proactively compact their own context.                                             |
 | `tools.view_image`      | model-dependent    | Ability to view PNG, JPEG, still WebP, still GIF, and PDF files (if supported)                            |
 | `tools.web_search`      | provider-dependent | Tool to search the web                                                                                    |
@@ -277,8 +258,11 @@ Rollback forks and parallel Workflow continuation copies have new session identi
 Notes:
 
 - `tools.web_search = true` does not force web search on. Native search still depends on `web_search = "native"` and provider support.
-- Completed Web Search rows expand in terminal Detail when the provider supplies useful results or sources. Details show supplied queries, linked results, and sources in provider order, without snippets. Saved searches retain the same detail when reopened; searches without useful saved results remain compact.
 - `tools.patch` and `tools.edit` are mutually exclusive. If both are left at their defaults, Kent chooses `patch` for models that are trained on freeform patch syntax, otherwise `edit`. To force `edit`, set `edit = true` and `patch = false`.
+
+## Concurrent shells
+
+Set `shell.max_concurrent` in the global configuration to limit running agent-tool shells across the server to prevent overload. The default is `100`.
 
 ## Ripgrep config
 
@@ -292,18 +276,16 @@ Kent creates `rg.conf` in the config+data root when missing and exports it to sh
 
 ### Subagents
 
-`[subagents.<role>]` is a file-only table for headless role settings. `default` is always available and is selected for a new headless `kent run` when no other role is selected and `--agent` is omitted or set to `default`; `fast` is also built in, and other roles are user-defined.
-Role tables inherit the base settings and override only keys set in that role, including model and provider settings, Thinking, model verbosity, priority mode, system prompt, tools, Skills, and role description.
-Definitions of the same role merge across global, shared and private files. A private role fragment can change one property without repeating the model, description, eligibility or nested settings.
-
-Ordinary environment and CLI agent settings override the selected role's declarations. Explicit Supervisor properties remain independent; only omitted Supervisor properties inherit from the effective agent.
-`max_subagent_depth` is a root-level TOML setting rather than a role setting. It has no environment-variable or `kent run` flag override.
+`[subagents.<role>]` is a table for headless role settings. `default` is always available and is selected for a new headless `kent run` when no other role is selected and `--agent` is omitted or set to `default`; `fast` is also built in, and other roles are user-defined.
+Role tables inherit the base settings and override only keys set in that role.
+Definitions of the same role merge across global, shared and private files.
+Ordinary environment and CLI agent settings override the selected role's declarations.
 
 More info on the [Subagents page](../headless/).
 
 ### Skills
 
-`[skills]` is a file-only per-skill boolean table in `config.toml`. Disabled skills remain visible in clients but are omitted from model context. Keys are matched case-insensitively.
+`[skills]` is a file-only per-skill boolean table in `config.toml`. Disabled skills are hidden from models. Keys are matched case-insensitively.
 
 ```toml
 [skills]
@@ -314,6 +296,5 @@ More info on the [Subagents page](../headless/).
 ```
 
 Notes:
-
 - `[subagents.<role>.skills]` overlays per-skill toggles for that role.
 - Use `"quoted names"` to refer to skill keys containing spaces.

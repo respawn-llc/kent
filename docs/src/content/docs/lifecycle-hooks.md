@@ -3,7 +3,7 @@ title: Lifecycle Hooks
 description: Run a local command when an interactive terminal session changes state.
 ---
 
-Lifecycle hooks run a local command for events observed by an interactive Kent terminal client. Each invocation receives one JSON event on stdin.
+Lifecycle hooks run a local command for events observed by an interactive Kent **terminal client**. Each invocation receives one JSON event on stdin.
 
 ## Configuration
 
@@ -14,13 +14,11 @@ Add the command and any fixed arguments to the global `config.toml`:
 lifecycle = ["python3", "/absolute/path/lifecycle_hook.py"]
 ```
 
-The global config is `~/.kent/config.toml` unless Kent uses another persistence root. `hooks.client.lifecycle` has no workspace, environment-variable, CLI, or subagent-role override. The executable must be non-blank, as must any arguments.
-
-The terminal client reads this setting at startup. The command inherits the client's environment and current directory.
+The global config is `~/.kent/config.toml` unless Kent uses another persistence root. The terminal client reads this setting at startup. The command inherits the client's environment and current directory.
 
 For remote attachments, the command runs on the terminal client's machine, not the server. Desktop clients, headless runs, subagents, and server processes do not run lifecycle hooks.
 
-Use [command post-processing](../command-postprocessing/) instead to transform `exec_command` output.
+Use [command post-processing](../command-postprocessing/) instead to transform `exec_command` output on the server.
 
 ## Events
 

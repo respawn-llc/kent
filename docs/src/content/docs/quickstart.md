@@ -64,12 +64,9 @@ brew install --cask respawn-llc/tap/kent-desktop
 
 Homebrew installs update through `brew upgrade`, standalone installs self-update.
 
-On macOS and Linux, drag local files into Kent Desktop to insert their absolute paths into the focused text input. This inserts text, not attachments. Drops without a focused editable input, and file drops on Windows or in a browser, are ignored.
-
 :::note
 The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
 
-If a request fails, Desktop retains available content and drafts. Use Retry for the failed read or submit the action again; restoring connectivity does not replay the failed operation.
 :::
 
 # First Use
@@ -84,14 +81,13 @@ The session picker shows when a newer Kent server release is available; update K
 Supported auth options:
 
 - OpenAI/Codex subscription OAuth via the startup sign-in picker.
-- OpenAI-based API-key auth via `OPENAI_API_KEY`. If you prefer API-key auth, export `OPENAI_API_KEY` before launch and kent will ask to use it.
 - No auth for custom providers. This option supports any provider like `ollama`, `omlx` local models, or third-party providers like GLM coding plan. The only requirement is that the provider supports the OpenAI Responses format.
 
 :::note
 Anthropic or Gemini subscriptions/models will not be supported until these companies allow third-party harnesses in their ToS.
 :::
 
-## Main Workflows
+## Main TUI Workflows
 
 - Press `F1` to invoke the help menu.
 - Use `Enter` to steer the model, `Tab` to queue messages. Slash commands can be queued too!
@@ -99,8 +95,8 @@ Anthropic or Gemini subscriptions/models will not be supported until these compa
 - Type `$ <command>` to execute a shell command and show its output to the model.
 - Press `Esc` twice to enter Edit mode, which lets you go back in time, edit a previous message, and fork the session starting with it. Use `Up`/`Down` to walk through user messages. File edits are **not** rolled back.
 - Use the `Up`/`Down` arrow keys to select and resend previous prompts.
-- Press `Ctrl+V`, `Ctrl+D`, `Alt+V`, or `Alt+D` to paste clipboard content: images become temporary file paths and text is inserted at the cursor. Terminal-native bracketed paste remains normal text input.
-- Use `/review` to start a code review. In a non-empty session, Kent opens that review in a fresh child session. After the review finishes, you can use `/back` to teleport to the original session.
+- Press `Ctrl+V/D`, `Alt+V/D` to paste clipboard images or text.
+- Use `/review` to start a code review. After the review finishes, you can use `/back` to teleport to the original session.
 - `/name <new-name>` will set your session name in the picker and terminal title.
 - `/autocompaction` will toggle compaction, and `/compact` will trigger one. If autocompact is off, you can go above 100% context usage if model allows it. **Going above 100% will cost more and degrade model performance**.
 - Run `/status` to get detailed info about the session.
@@ -121,8 +117,6 @@ Kent discovers skills from:
 - `~/.kent/skills`
 - `<persistence-root>/.generated/skills`
 
-The generated root is managed by Kent. Copy a generated skill into a workspace or global skill root before customizing it.
-
 You can disable skills for new sessions in `config.toml`:
 
 ```toml
@@ -132,11 +126,9 @@ creating-skills = false
 
 Changes take effect when a session starts or after compaction.
 
-Custom slash commands are server-owned and appear in the picker with 256-character previews. See [Slash commands](../slash-commands/) for discovery precedence, argument expansion, and unavailable-command behavior.
-
 ## Supervisor
 
-- Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the edits made by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
+- Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the work done by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
 
 ## Advanced
 

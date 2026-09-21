@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/cli/app/internal/startupconfig"
 	"core/shared/client"
 	"core/shared/config"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
-	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
 
@@ -85,16 +82,6 @@ func attachConfiguredStartupRemote(ctx context.Context, cfg config.App) (attache
 	}
 	if _, err := remote.GetReadiness(ctx, &emptypb.Empty{}); err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "probe server readiness", err)
-	}
-	if _, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{}); err != nil {
-		return nil, newConfiguredServerPreflightError(cfg, "probe auth bootstrap", err)
-	}
-	var workspaceRoot *string
-	if root := strings.TrimSpace(cfg.WorkspaceRoot); root != "" {
-		workspaceRoot = &root
-	}
-	if _, err := remote.GetFacts(ctx, &capabilitypb.GetFactsRequest{WorkspaceRoot: workspaceRoot}); err != nil {
-		return nil, newConfiguredServerPreflightError(cfg, "probe onboarding capability facts", err)
 	}
 	closeRemote = false
 	return remote, nil

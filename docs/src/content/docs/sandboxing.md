@@ -13,29 +13,11 @@ However, Kent's [client-server](../server/) architecture makes it easy to run Ke
 
 ## Outside-Workspace Edits
 
-Native edit tools trust the Session's Execution Target Root. For an unrecognized target without existing Session approval, Kent checks the current Project's attached Workspaces on demand and learns the broadest containing Workspace root. Learned roots remain trusted until the Runtime ends, including after detachment. `view_image` shares these learned roots for local image reads; its outside-Workspace approval remains separate from edit approval.
-
-When an ordinary Session moves between Projects, the Runtime retains its learned roots and former Execution Target Roots. New unrecognized targets are checked against the destination Project. Targets outside these trusted roots follow ordinary approval; unsuccessful lookups are not remembered, so attaching a Workspace allows another attempt. A metadata failure stops the file operation without requesting approval.
-
-Targets under the operating system's temporary roots and their canonical platform aliases, such as `/tmp` and `/private/tmp` on macOS, are allowed without approval. Trusted roots, temporary-root allowances, and approvals do not override path-deny rules or the prohibition on directly editing another Kent-managed Worktree.
-
-**This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. Edits to another Kent-managed Worktree remain forbidden even when that Worktree belongs to the same Project.
-
-To disable, set config:
+Kent will ask for your approval for manual edits happening outside its **main workspace** or worktree. **This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. To allow all edits, set config:
 
 ```toml
 allow_non_cwd_edits = true
 ```
-
-## Server Boundary
-
-Kent separates frontend clients from the server that owns all of the work. That split makes the server environment the useful security boundary:
-
-- Run `kent serve` on a VM and connect from your laptop.
-- Run `kent serve` in Docker and expose only the Kent port.
-- Run several isolated servers on different ports for different trust zones.
-
-Consequently, when you create or attach a project against a remote/container server, the workspace path must exist inside that server environment, **not on the client machine**.
 
 ## Container Image Shape
 
@@ -123,8 +105,10 @@ docker run --name kent-sandbox --rm -it \
 In another terminal, point the local client at that server:
 
 ```bash
-KENT_SERVER_HOST=127.0.0.1 KENT_SERVER_PORT=53082 kent project create --path /workspace --name sandbox
-KENT_SERVER_HOST=127.0.0.1 KENT_SERVER_PORT=53082 kent
+export KENT_SERVER_HOST=127.0.0.1
+export KENT_SERVER_PORT=53082
+kent project create --path /workspace --name sandbox
+kent
 ```
 
 The project path is `/workspace` because that is the path visible to the server.
