@@ -1,4 +1,5 @@
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
@@ -114,10 +115,8 @@ describe("ApiClient", () => {
   });
   it("preserves absent board workflow selectors and normalizes empty slices", async () => {
     const transport = new FakeRpcTransport([
-      { method: "workflow.board.get", result: emptyBoardResponse },
-      { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
-      { method: "workflow.board.get", result: emptyBoardResponse },
-      { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
+      { descriptor: taskRead.BoardReadService.method.get, result: emptyBoardResponse },
+      { descriptor: taskRead.BoardReadService.method.listNodeCards, result: emptyBoardNodeCardsResponse },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(
@@ -133,10 +132,12 @@ describe("ApiClient", () => {
       groups: [],
       columns: [],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.board.get",
-        params: { project_id: "project-1", label_filter: { kind: "none" }, dependency_filter: null },
+        descriptor: taskRead.BoardReadService.method.get,
+        request: create(taskRead.BoardReadService.method.get.input, {
+          projectId: "project-1", labelFilter: { filter: { case: "none", value: {} } },
+        }),
       },
     ]);
     const labelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
@@ -159,18 +160,17 @@ describe("ApiClient", () => {
       cards: [],
       nextOffset: 50,
     });
-    expect(transport.calls).toContainEqual({
-      method: "workflow.board.nodeCards.list",
-      params: {
-        project_id: "project-1",
-        workflow_id: "11111111-1111-4111-8111-111111111111",
-        node_id: "node-1",
-        label_filter: { kind: "named", named: { mode: "all", label_ids: [labelID] } },
-        dependency_filter: null,
-        page_size: 25,
-        sort: { field: "labels", direction: "asc" },
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: taskRead.BoardReadService.method.listNodeCards,
+      request: create(taskRead.BoardReadService.method.listNodeCards.input, {
+        projectId: "project-1",
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        nodeId: "node-1",
+        labelFilter: { filter: { case: "named", value: { mode: taskRead.NamedLabelFilterMode.ALL, labelIds: [labelID] } } },
+        pageSize: 25,
+        sort: { field: taskRead.ListSortField.LABELS, direction: taskRead.ListSortDirection.ASC },
         offset: 25,
-      },
+      }),
     });
     const unblockedFilter = canonicalBoardFilter({ labelFilter: { kind: "none" }, dependencyFilter: true });
     await Promise.all([
@@ -184,12 +184,12 @@ describe("ApiClient", () => {
         sort: { field: "updated", direction: "desc" },
       }),
     ]);
-    expect(transport.calls.slice(2).map(({ method }) => method)).toEqual([
-      "workflow.board.get",
-      "workflow.board.nodeCards.list",
+    expect(transport.descriptorCalls.slice(2).map(({ descriptor }) => descriptor)).toEqual([
+      taskRead.BoardReadService.method.get,
+      taskRead.BoardReadService.method.listNodeCards,
     ]);
-    expect(transport.calls[2]?.params).toMatchObject({ dependency_filter: true });
-    expect(transport.calls[3]?.params).toMatchObject({ dependency_filter: true });
+    expect(transport.descriptorCalls[2]?.request).toMatchObject({ dependencyFilter: true });
+    expect(transport.descriptorCalls[3]?.request).toMatchObject({ dependencyFilter: true });
   });
   it("rejects malformed Workflow IDs before direct client RPCs or subscriptions", async () => {
     const transport = new FakeRpcTransport([]);
@@ -209,7 +209,7 @@ describe("ApiClient", () => {
   });
   it("hides workflow join nodes from board columns and groups", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.board.get", result: boardWithJoinResponse }]),
+      new FakeRpcTransport([{ descriptor: taskRead.BoardReadService.method.get, result: boardWithJoinResponse }]),
       unexpectedProjectOverflow,
     );
     await expect(
@@ -927,80 +927,74 @@ describe("ApiClient", () => {
     });
   });
 });
-const emptyBoardResponse = {
-  board: {
-    project_id: "project-1",
+const emptyBoard = {
+    projectId: "project-1",
     project: {
-      project_key: "proj",
-      display_name: "Project",
-      default_workspace_id: "workspace-1",
-      attached_workspace_count: 1,
+      projectKey: "proj",
+      displayName: "Project",
+      defaultWorkspaceId: "workspace-1",
+      attachedWorkspaceCount: 1,
     },
-    workflows: null,
-    groups: null,
-    columns: null,
-    generated_at_unix_ms: 1,
-  },
+    generatedAt: { seconds: 0n, nanos: 1_000_000 },
 };
-const boardWithJoinResponse = {
+const emptyBoardResponse = create(taskRead.BoardGetResultSchema, {
+  outcome: { case: "success", value: { board: emptyBoard } },
+});
+const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, { outcome: { case: "success", value: {
   board: {
-    ...emptyBoardResponse.board,
-    selected_workflow: {
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-      display_name: "Workflow",
+    ...emptyBoard,
+    selectedWorkflow: {
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      displayName: "Workflow",
       description: "",
-      version: 1,
-      is_project_default: true,
-      valid_for_task_creation: true,
-      validation_errors: [],
+      version: 1n,
+      isProjectDefault: true,
+      validForTaskCreation: true,
     },
     groups: [
       {
-        group_id: boundaryGraphIDs.nodeGroup,
+        groupId: boundaryGraphIDs.nodeGroup,
         key: "review",
-        display_name: "Review",
-        sort_order: 1,
-        node_ids: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
+        displayName: "Review",
+        sortOrder: 1,
+        nodeIds: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
       },
       {
-        group_id: boundaryGraphIDs.joinOnlyNodeGroup,
+        groupId: boundaryGraphIDs.joinOnlyNodeGroup,
         key: "join_only",
-        display_name: "Join Only",
-        sort_order: 2,
-        node_ids: [boundaryGraphIDs.joinNode],
+        displayName: "Join Only",
+        sortOrder: 2,
+        nodeIds: [boundaryGraphIDs.joinNode],
       },
     ],
     columns: [
-      boardColumnResponse(boundaryGraphIDs.node, "agent"),
-      boardColumnResponse(boundaryGraphIDs.joinNode, "join"),
+      boardColumnResponse(boundaryGraphIDs.node, wf.NodeKind.WORKFLOW_NODE_KIND_AGENT),
+      boardColumnResponse(boundaryGraphIDs.joinNode, wf.NodeKind.WORKFLOW_NODE_KIND_JOIN),
     ],
   },
-};
-function boardColumnResponse(nodeID: string, kind: string) {
+} } });
+function boardColumnResponse(nodeID: string, kind: wf.NodeKind) {
   return {
     node: {
-      node_id: nodeID,
+      nodeId: nodeID,
       key: nodeID,
       kind,
-      display_name: nodeID,
-      assignee_role: "",
-      output_fields: [],
+      displayName: nodeID,
     },
-    group_id: boundaryGraphIDs.nodeGroup,
-    sort_order: 1,
-    is_backlog: false,
-    is_done: false,
-    task_count: 0,
+    groupId: boundaryGraphIDs.nodeGroup,
+    sortOrder: 1,
+    isBacklog: false,
+    isDone: false,
+    taskCount: 0,
   };
 }
-const emptyBoardNodeCardsResponse = {
-  project_id: "project-1",
-  workflow_id: "11111111-1111-4111-8111-111111111111",
-  node_id: "node-1",
-  cards: null,
-  next_offset: 50,
-  generated_at_unix_ms: 1,
-};
+const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSchema, { outcome: { case: "success", value: {
+  projectId: "project-1",
+  workflowId: "11111111-1111-4111-8111-111111111111",
+  nodeId: "node-1",
+  nextOffset: 50,
+  generatedAt: { seconds: 0n, nanos: 1_000_000 },
+} } });
 const workspaceResponse = {
   workspace_id: "workspace-1",
   display_name: "Project",

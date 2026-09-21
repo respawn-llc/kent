@@ -7,25 +7,29 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"core/server/metadata/sqlitegen"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func normalizeWorkflowTaskListSort(sortSelectors []serverapi.WorkflowTaskListSort) []serverapi.WorkflowTaskListSort {
+func normalizeWorkflowTaskListSort(sortSelectors []*taskpb.ListSort) []*taskpb.ListSort {
 	if len(sortSelectors) == 0 {
-		return []serverapi.WorkflowTaskListSort{
-			{Field: serverapi.WorkflowTaskListSortFieldStatus, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-			{Field: serverapi.WorkflowTaskListSortFieldUpdated, Direction: serverapi.WorkflowTaskListSortDirectionDesc},
+		return []*taskpb.ListSort{
+			{Field: taskpb.ListSortField_LIST_SORT_FIELD_STATUS, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+			{Field: taskpb.ListSortField_LIST_SORT_FIELD_UPDATED, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC},
 		}
 	}
-	return append([]serverapi.WorkflowTaskListSort(nil), sortSelectors...)
+	return append([]*taskpb.ListSort(nil), sortSelectors...)
 }
 
-func workflowTaskListSortUsesColumn(sortSelectors []serverapi.WorkflowTaskListSort) bool {
+func workflowTaskListSortUsesColumn(sortSelectors []*taskpb.ListSort) bool {
 	for _, selector := range sortSelectors {
-		if selector.Field == serverapi.WorkflowTaskListSortFieldColumn {
+		if selector.Field == taskpb.ListSortField_LIST_SORT_FIELD_COLUMN {
 			return true
 		}
 	}
@@ -35,11 +39,11 @@ func workflowTaskListSortUsesColumn(sortSelectors []serverapi.WorkflowTaskListSo
 type workflowTaskListQueryRequest struct {
 	projectID          string
 	narrowed           *workflowTaskListNarrowedQueryFacts
-	statusKinds        []serverapi.WorkflowTaskStatusKind
-	attentionKinds     []serverapi.WorkflowTaskAttentionKind
-	labelFilter        workflowTaskLabelFilterFacts
+	statusKinds        []taskpb.TaskStatusKind
+	attentionKinds     []taskpb.TaskAttentionKind
+	labelFilter        workflowTaskLabelFilterQueryArgs
 	dependencyFilter   *bool
-	sortSelectors      []serverapi.WorkflowTaskListSort
+	sortSelectors      []*taskpb.ListSort
 	liveTaskStatesJSON string
 	offset             int
 	limit              int
@@ -47,12 +51,12 @@ type workflowTaskListQueryRequest struct {
 
 type workflowTaskListNarrowedQueryFacts struct {
 	workflowID runtimeids.WorkflowID
-	columns    []serverapi.WorkflowBoardColumn
+	columns    []*taskpb.BoardColumn
 	columnKeys []string
 }
 
 type workflowTaskListRow struct {
-	item                  serverapi.WorkflowTaskListItem
+	item                  *taskpb.ListItem
 	titleSort             string
 	primaryStatusRank     int
 	columnRank            *int
@@ -86,18 +90,39 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 		columnKeysJSON = sql.NullString{String: string(encodedColumnKeys), Valid: true}
 		columnFilterSet = len(req.narrowed.columnKeys) > 0
 	}
-	statusKindsJSON, err := workflowTaskKindsJSON(req.statusKinds)
+	statusKinds := make([]string, 0, len(req.statusKinds))
+	for _, kind := range req.statusKinds {
+		name, err := protoapi.TaskStatusKind.Decode(kind)
+		if err != nil {
+			return workflowTaskListPageResult{}, err
+		}
+		statusKinds = append(statusKinds, name)
+	}
+	statusKindsJSON, err := workflowTaskKindsJSON(statusKinds)
 	if err != nil {
 		return workflowTaskListPageResult{}, err
 	}
-	attentionKindsJSON, err := workflowTaskKindsJSON(req.attentionKinds)
+	attentionKinds := make([]string, 0, len(req.attentionKinds))
+	for _, kind := range req.attentionKinds {
+		name, err := protoapi.TaskAttentionKind.Decode(kind)
+		if err != nil {
+			return workflowTaskListPageResult{}, err
+		}
+		attentionKinds = append(attentionKinds, name)
+	}
+	attentionKindsJSON, err := workflowTaskKindsJSON(attentionKinds)
 	if err != nil {
 		return workflowTaskListPageResult{}, err
 	}
-	labelFilterArgs, err := req.labelFilter.queryArgs()
-	if err != nil {
-		return workflowTaskListPageResult{}, err
+	var sortFields [7]string
+	for index, selector := range req.sortSelectors {
+		name, err := protoapi.TaskListSortField.Decode(selector.Field)
+		if err != nil {
+			return workflowTaskListPageResult{}, err
+		}
+		sortFields[index] = name
 	}
+	labelFilterArgs := req.labelFilter
 	rows, err := l.queries.ListWorkflowTaskListRows(ctx, sqlitegen.ListWorkflowTaskListRowsParams{
 		ProjectID:            req.projectID,
 		WorkflowID:           workflowFilter,
@@ -115,19 +140,19 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 		DependencyFilter:     workflowTaskDependencyFilterQueryArg(req.dependencyFilter),
 		OffsetRows:           int64(req.offset),
 		SortSelectorCount:    int64(len(req.sortSelectors)),
-		Sort1Field:           string(workflowTaskListSortSelector(req.sortSelectors, 0).Field),
+		Sort1Field:           sortFields[0],
 		Sort1Desc:            workflowTaskListSortDescending(req.sortSelectors, 0),
-		Sort2Field:           string(workflowTaskListSortSelector(req.sortSelectors, 1).Field),
+		Sort2Field:           sortFields[1],
 		Sort2Desc:            workflowTaskListSortDescending(req.sortSelectors, 1),
-		Sort3Field:           string(workflowTaskListSortSelector(req.sortSelectors, 2).Field),
+		Sort3Field:           sortFields[2],
 		Sort3Desc:            workflowTaskListSortDescending(req.sortSelectors, 2),
-		Sort4Field:           string(workflowTaskListSortSelector(req.sortSelectors, 3).Field),
+		Sort4Field:           sortFields[3],
 		Sort4Desc:            workflowTaskListSortDescending(req.sortSelectors, 3),
-		Sort5Field:           string(workflowTaskListSortSelector(req.sortSelectors, 4).Field),
+		Sort5Field:           sortFields[4],
 		Sort5Desc:            workflowTaskListSortDescending(req.sortSelectors, 4),
-		Sort6Field:           string(workflowTaskListSortSelector(req.sortSelectors, 5).Field),
+		Sort6Field:           sortFields[5],
 		Sort6Desc:            workflowTaskListSortDescending(req.sortSelectors, 5),
-		Sort7Field:           string(workflowTaskListSortSelector(req.sortSelectors, 6).Field),
+		Sort7Field:           sortFields[6],
 		Sort7Desc:            workflowTaskListSortDescending(req.sortSelectors, 6),
 		LiveTaskStatesJson:   req.liveTaskStatesJSON,
 		LimitRows:            int64(req.limit),
@@ -158,7 +183,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 		if err != nil {
 			return workflowTaskListPageResult{}, err
 		}
-		var columnKeys *[]string
+		var columnKeys *taskpb.ColumnKeys
 		if req.narrowed != nil {
 			values := []string{}
 			if row.ColumnKeysJson.Valid {
@@ -168,7 +193,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 					return workflowTaskListPageResult{}, err
 				}
 			}
-			columnKeys = &values
+			columnKeys = &taskpb.ColumnKeys{Values: values}
 		}
 		columnRank := nullableInt(row.ColumnRank)
 		if workflowTaskListSortUsesColumn(req.sortSelectors) && columnRank == nil {
@@ -183,16 +208,16 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 			workflowName = &value
 		}
 		result.rows = append(result.rows, workflowTaskListRow{
-			item: serverapi.WorkflowTaskListItem{
-				TaskID:          row.ID.String,
-				ShortID:         row.ShortID.String,
-				WorkflowID:      *row.WorkflowID,
-				WorkflowName:    workflowName,
-				Title:           row.Title.String,
-				CreatedAtUnixMs: row.CreatedAtUnixMs.Int64,
-				UpdatedAtUnixMs: row.UpdatedAtUnixMs.Int64,
-				ColumnKeys:      columnKeys,
-				Status:          statusFact.Status,
+			item: &taskpb.ListItem{
+				TaskId:       row.ID.String,
+				ShortId:      row.ShortID.String,
+				WorkflowId:   row.WorkflowID.String(),
+				WorkflowName: workflowName,
+				Title:        row.Title.String,
+				CreatedAt:    timestamppb.New(time.UnixMilli(row.CreatedAtUnixMs.Int64)),
+				UpdatedAt:    timestamppb.New(time.UnixMilli(row.UpdatedAtUnixMs.Int64)),
+				ColumnKeys:   columnKeys,
+				Status:       statusFact.Status,
 			},
 			titleSort:             row.TitleSort.String,
 			primaryStatusRank:     int(row.PrimaryStatusRank.Int64),
@@ -211,17 +236,17 @@ func workflowTaskKindsJSON[T ~string](kinds []T) (string, error) {
 	return string(encoded), nil
 }
 
-func workflowTaskListMatchingWorkflowCardinality(count int) (serverapi.WorkflowTaskListMatchingWorkflowCardinality, error) {
+func workflowTaskListMatchingWorkflowCardinality(count int) (taskpb.MatchingWorkflowCardinality, error) {
 	if count < 0 {
-		return "", fmt.Errorf("workflow task list query returned invalid matching workflow count %d", count)
+		return taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_UNSPECIFIED, fmt.Errorf("workflow task list query returned invalid matching workflow count %d", count)
 	}
 	switch count {
 	case 0:
-		return serverapi.WorkflowTaskListMatchingWorkflowCardinalityNone, nil
+		return taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_NONE, nil
 	case 1:
-		return serverapi.WorkflowTaskListMatchingWorkflowCardinalityOne, nil
+		return taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_ONE, nil
 	default:
-		return serverapi.WorkflowTaskListMatchingWorkflowCardinalityMultiple, nil
+		return taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE, nil
 	}
 }
 
@@ -251,15 +276,15 @@ func nullableInt(value sql.NullInt64) *int {
 	return &converted
 }
 
-func workflowTaskListSortSelector(sortSelectors []serverapi.WorkflowTaskListSort, index int) serverapi.WorkflowTaskListSort {
+func workflowTaskListSortSelector(sortSelectors []*taskpb.ListSort, index int) *taskpb.ListSort {
 	if index >= len(sortSelectors) {
-		return serverapi.WorkflowTaskListSort{}
+		return nil
 	}
 	return sortSelectors[index]
 }
 
-func workflowTaskListSortDescending(sortSelectors []serverapi.WorkflowTaskListSort, index int) int64 {
-	if workflowTaskListSortSelector(sortSelectors, index).Direction == serverapi.WorkflowTaskListSortDirectionDesc {
+func workflowTaskListSortDescending(sortSelectors []*taskpb.ListSort, index int) int64 {
+	if workflowTaskListSortSelector(sortSelectors, index).GetDirection() == taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC {
 		return 1
 	}
 	return 0
@@ -269,16 +294,20 @@ type workflowTaskListVisibleColumn struct {
 	NodeID      string `json:"node_id"`
 	NodeKey     string `json:"node_key"`
 	NodeKind    string `json:"node_kind"`
-	StatusOrder int    `json:"status_order"`
+	StatusOrder int32  `json:"status_order"`
 }
 
-func workflowTaskListVisibleColumnsJSON(columns []serverapi.WorkflowBoardColumn) (string, error) {
+func workflowTaskListVisibleColumnsJSON(columns []*taskpb.BoardColumn) (string, error) {
 	rows := make([]workflowTaskListVisibleColumn, 0, len(columns))
 	for _, column := range columns {
+		kind, err := protoapi.WorkflowNodeKind.Decode(column.Node.Kind)
+		if err != nil {
+			return "", err
+		}
 		rows = append(rows, workflowTaskListVisibleColumn{
-			NodeID:      column.Node.NodeID,
+			NodeID:      column.Node.NodeId,
 			NodeKey:     column.Node.Key,
-			NodeKind:    column.Node.Kind,
+			NodeKind:    kind,
 			StatusOrder: column.SortOrder,
 		})
 	}

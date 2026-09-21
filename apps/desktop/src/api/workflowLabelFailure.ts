@@ -6,7 +6,7 @@ import type {
   ProjectLabelRenameResult,
   ProjectLabelReorderResult,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import type { LabelsGetResult } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import type { LabelsGetResult, ListResult, BoardGetResult, BoardNodeCardsListResult } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import {
   LabelErrorReason,
   type LabelErrorDetails,
@@ -22,6 +22,9 @@ type LabelOutcome = (
   | ProjectLabelRenameResult
   | ProjectLabelReorderResult
   | LabelsGetResult
+  | ListResult
+  | BoardGetResult
+  | BoardNodeCardsListResult
   | LabelsUpdateResult
 )["outcome"];
 type LabelDetail = Extract<LabelOutcome, { case: "error" }>["value"]["detail"];
@@ -72,6 +75,12 @@ function projectLabelInfo(
       return { reason: "label_not_found", projectID: detail.value.projectId, labelID: detail.value.labelId };
     case "invalidMutation":
       return { reason: "invalid_mutation", projectID: detail.value.projectId, field: detail.value.field };
+    case "invalidFilter":
+      return { reason: "invalid_filter", field: detail.value.field };
+    case "wrongProject":
+      return { reason: "wrong_project", projectID: detail.value.projectId, labelID: detail.value.labelId };
+    case "scopeError":
+      return undefined;
     case undefined:
     case "invalidRequest":
     case "authRequired":

@@ -11,9 +11,6 @@ import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workf
 import type {
   ActivityPage,
   AttentionPage,
-  BoardColumn,
-  BoardGroup,
-  BoardNodeCardsPage,
   CommentPage,
   OffsetPage,
   TaskDetail,
@@ -25,13 +22,9 @@ import type {
   TaskResumeResponse,
   TaskStartResponse,
   WorkflowExecutionTargetSelectionRequirement,
-  WorkflowBoard,
 } from "../models";
 import {
   attentionItemSchema,
-  boardCardSchema,
-  boardColumnSchema,
-  boardGroupSchema,
   commentSchema,
   emptyString,
   nonBlankString,
@@ -39,7 +32,6 @@ import {
   scriptCurrentNodeSchema,
   taskActionsSchema,
   taskStatusSchema,
-  workflowPickerItemSchema,
   workflowIDSchema,
   workspaceSummarySchema,
 } from "./common";
@@ -47,7 +39,6 @@ import { workflowExecutionTargetSchema } from "./workflowExecutionTarget";
 import { labelIDListSchema } from "./workflowLabels";
 import { taskDependenciesSchema } from "./taskDependencies";
 import { retainedPreviousWorktreeSchema, type RetainedPreviousWorktree } from "./workflowWorktree";
-export { projectTaskGroupCountsSchema, taskListPageSchema } from "./projectTasks";
 export {
   taskDependenciesSchema,
   taskDependencyAddResponseSchema,
@@ -55,23 +46,6 @@ export {
   taskDependencyRemoveResponseSchema,
 } from "./taskDependencies";
 export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./workflowWorktree";
-
-const boardGroupsSchema = z
-  .array(boardGroupSchema)
-  .nullish()
-  .transform((value) => value ?? []);
-const boardColumnsSchema = z
-  .array(boardColumnSchema)
-  .nullish()
-  .transform((value) => value ?? []);
-const boardCardsSchema = z
-  .array(boardCardSchema)
-  .nullish()
-  .transform((value) => value ?? []);
-const workflowPickerSchema = z
-  .array(workflowPickerItemSchema)
-  .nullish()
-  .transform((value) => value ?? []);
 
 function offsetPageObjectSchema<T>(itemSchema: z.ZodType<T>) {
   return z.object({
@@ -400,80 +374,6 @@ export const taskApproveResponseSchema: z.ZodType<TaskApproveResponse> = z.discr
     ),
   selectionRequiredResponseSchema,
 ]);
-
-export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
-  .object({
-    board: z
-      .object({
-        project_id: z.string(),
-        project: z
-          .object({
-            project_key: z.string(),
-            display_name: z.string(),
-            default_workspace_id: z.string().min(1),
-            attached_workspace_count: z.number().int().positive(),
-          })
-          .strict(),
-        selected_workflow: workflowPickerItemSchema.nullish().transform((value) => value ?? null),
-        workflows: workflowPickerSchema,
-        groups: boardGroupsSchema,
-        columns: boardColumnsSchema,
-        generated_at_unix_ms: z.number(),
-      })
-      .strict(),
-  })
-  .strict()
-  .transform((value) => {
-    const columns = visibleBoardColumns(value.board.columns);
-    return {
-      projectID: value.board.project_id,
-      projectKey: value.board.project.project_key,
-      projectName: value.board.project.display_name,
-      defaultWorkspaceID: value.board.project.default_workspace_id,
-      attachedWorkspaceCount: value.board.project.attached_workspace_count,
-      selectedWorkflow: value.board.selected_workflow,
-      workflows: value.board.workflows,
-      groups: visibleBoardGroups(value.board.groups, columns),
-      columns,
-      generatedAt: value.board.generated_at_unix_ms,
-    };
-  });
-
-function visibleBoardColumns(columns: readonly BoardColumn[]): readonly BoardColumn[] {
-  return columns.filter((column) => column.kind !== "join");
-}
-
-function visibleBoardGroups(
-  groups: readonly BoardGroup[],
-  columns: readonly BoardColumn[],
-): readonly BoardGroup[] {
-  const visibleNodeIDs = new Set(columns.map((column) => column.id));
-  return groups
-    .map((group) => ({
-      ...group,
-      nodeIDs: group.nodeIDs.filter((nodeID) => visibleNodeIDs.has(nodeID)),
-    }))
-    .filter((group) => group.nodeIDs.length > 0);
-}
-
-export const boardNodeCardsPageSchema: z.ZodType<BoardNodeCardsPage> = z
-  .object({
-    project_id: z.string(),
-    workflow_id: workflowIDSchema,
-    node_id: z.string(),
-    cards: boardCardsSchema,
-    next_offset: z.number().int().nonnegative().nullable().optional().default(null),
-    generated_at_unix_ms: z.number(),
-  })
-  .strict()
-  .transform((value) => ({
-    projectID: value.project_id,
-    workflowID: value.workflow_id,
-    nodeID: value.node_id,
-    cards: value.cards,
-    nextOffset: value.next_offset,
-    generatedAt: value.generated_at_unix_ms,
-  }));
 
 export const attentionPageSchema: z.ZodType<AttentionPage> = z
   .object({

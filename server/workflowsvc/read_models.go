@@ -7,6 +7,7 @@ import (
 	"core/server/promptcontrol"
 	"core/server/workflow"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -16,13 +17,13 @@ type WorkflowDefinitionReadModel interface {
 }
 
 type WorkflowBoardReadModel interface {
-	Get(context.Context, serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoard, error)
-	ListNodeCards(context.Context, serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error)
+	Get(context.Context, *taskpb.BoardGetRequest) (*taskpb.Board, error)
+	ListNodeCards(context.Context, *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error)
 }
 
 type WorkflowTaskListReadModel interface {
-	List(context.Context, serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error)
-	CountGroups(context.Context, serverapi.WorkflowProjectTaskGroupCountsRequest) (serverapi.WorkflowProjectTaskGroupCountsResponse, error)
+	List(context.Context, *taskpb.ListRequest) (*taskpb.ListSuccess, error)
+	CountGroups(context.Context, *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error)
 }
 
 type WorkflowTaskSearchReadModel interface {

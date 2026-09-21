@@ -202,7 +202,7 @@ message ListRequest {
   optional bool dependency_filter = 7;
   repeated ListSort sort = 8 [(buf.validate.field).repeated.max_items = 7];
   optional int32 offset = 9 [(buf.validate.field).int32.gte = 0];
-  optional int32 limit = 10 [(buf.validate.field).int32.gt = 0];
+  optional int32 limit = 10 [(buf.validate.field).int32 = {gt: 0 lte: 100}];
   optional ProjectTaskGroup group = 11 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -1222,6 +1222,12 @@ message ProjectTaskGroupCountsSuccess {
   ];
   ProjectTaskGroupCounts counts = 3 [(buf.validate.field).required = true];
   google.protobuf.Timestamp generated_at = 4 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.group_definitions_unique"
+    message: "each Project Task group must have exactly one definition"
+    expression: "this.definitions.map(definition, definition.group).unique()"
+  };
 }
 
 message ProjectTaskGroupCountsError {
@@ -1262,7 +1268,6 @@ service TaskReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.list"
     };
   }
   rpc Search(SearchRequest) returns (SearchResult) {
@@ -1292,7 +1297,6 @@ service TaskReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.groupCounts"
     };
   }
 }
@@ -1305,7 +1309,6 @@ service BoardReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.board.get"
     };
   }
   rpc ListNodeCards(BoardNodeCardsListRequest) returns (BoardNodeCardsListResult) {
@@ -1315,7 +1318,6 @@ service BoardReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.board.nodeCards.list"
     };
   }
 }

@@ -386,30 +386,29 @@ func resolveWorkflowProjectLabelSelectors(snapshot workflowProjectLabelCatalogSn
 
 func resolveWorkflowProjectLabelFilter(
 	snapshot workflowProjectLabelCatalogSnapshot,
-	mode serverapi.WorkflowTaskNamedLabelFilterMode,
+	mode taskpb.NamedLabelFilterMode,
 	includedSelectors []string,
 	excludedSelectors []string,
-) (serverapi.WorkflowTaskLabelFilter, error) {
+) (*taskpb.LabelFilter, error) {
 	resolvedGroups, err := resolveWorkflowProjectLabelSelectorGroups(snapshot, [][]string{includedSelectors, excludedSelectors})
 	if err != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, err
+		return nil, err
 	}
 	if conflictID := sharedWorkflowProjectLabelSelectorGroups(resolvedGroups[0], resolvedGroups[1]); conflictID != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, conflictingWorkflowProjectLabelSelectorsError{
+		return nil, conflictingWorkflowProjectLabelSelectorsError{
 			Included: resolvedGroups[0].SelectorsByID[*conflictID],
 			Excluded: resolvedGroups[1].SelectorsByID[*conflictID],
 		}
 	}
-	filter := serverapi.WorkflowTaskLabelFilter{
-		Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-		Named: &serverapi.WorkflowTaskNamedLabelFilter{
+	filter := &taskpb.LabelFilter{
+		Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
 			Mode:             mode,
-			LabelIDs:         resolvedGroups[0].IDs,
-			ExcludedLabelIDs: resolvedGroups[1].IDs,
-		},
+			LabelIds:         resolvedGroups[0].IDs,
+			ExcludedLabelIds: resolvedGroups[1].IDs,
+		}},
 	}
-	if err := filter.Validate(); err != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, err
+	if err := protoapi.Validate(filter); err != nil {
+		return nil, err
 	}
 	return filter, nil
 }

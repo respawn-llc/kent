@@ -68,7 +68,7 @@ export type WorkspaceSummary = Readonly<{
   rootPath: string;
   availability: WorkspaceAvailability;
   isPrimary: boolean;
-  updatedAt: number;
+  updatedAt: number | null;
 }>;
 
 export type ProjectSummary = Readonly<{
@@ -589,7 +589,7 @@ export type BoardColumn = Readonly<{
   key: string;
   kind: string;
   name: string;
-  assigneeRole: string;
+  assigneeRole: string | null;
   outputFields: readonly WorkflowOutputField[];
   groupID: string | null;
   sortOrder: number;

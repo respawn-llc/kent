@@ -2,9 +2,6 @@ import { z } from "zod";
 
 import type {
   ApprovalDecision,
-  BoardCard,
-  BoardColumn,
-  BoardGroup,
   ProjectBinding,
   TaskActions,
   TaskComment,
@@ -14,7 +11,6 @@ import type {
   TaskStatusKind,
   WorkflowOutputField,
   WorkflowParameter,
-  WorkflowPickerItem,
   WorkflowValidationError,
   WorkspaceSummary,
   WorkspaceAvailability,
@@ -31,7 +27,6 @@ import type {
   InterruptedCurrentNodeAttentionItem,
   QuestionAttentionItem,
 } from "../attention";
-import { labelIDListSchema } from "./workflowLabels";
 import { workflowIDSchema } from "./workflowID";
 
 export { workflowIDSchema } from "./workflowID";
@@ -237,29 +232,6 @@ export const workflowParameterSchema: z.ZodType<WorkflowParameter> = z
   })
   .transform((value) => ({ key: value.key, description: value.description, purpose: value.purpose }));
 
-export const workflowPickerItemSchema: z.ZodType<WorkflowPickerItem> = z
-  .object({
-    workflow_id: workflowIDSchema,
-    display_name: z.string(),
-    description: emptyString,
-    version: z.number(),
-    is_project_default: z.boolean(),
-    valid_for_task_creation: z.boolean(),
-    validation_errors: z
-      .array(validationErrorSchema)
-      .nullish()
-      .transform((value) => value ?? []),
-  })
-  .transform((value) => ({
-    id: value.workflow_id,
-    name: value.display_name,
-    description: value.description,
-    version: value.version,
-    isProjectDefault: value.is_project_default,
-    validForTaskCreation: value.valid_for_task_creation,
-    validationErrors: value.validation_errors,
-  }));
-
 export const taskStatusKindSchema: z.ZodType<TaskStatusKind> = z.enum([
   "done",
   "waiting_question",
@@ -298,101 +270,6 @@ export const taskActionsSchema: z.ZodType<TaskActions> = z
     canInterrupt: value.can_interrupt,
     canResume: value.can_resume,
     canDelete: value.can_delete,
-  }));
-
-export const boardColumnSchema: z.ZodType<BoardColumn> = z
-  .object({
-    node: z.object({
-      node_id: z.string(),
-      key: z.string(),
-      kind: emptyString,
-      display_name: z.string(),
-      assignee_role: emptyString,
-      output_fields: z
-        .array(workflowOutputFieldSchema)
-        .nullish()
-        .transform((value) => value ?? []),
-    }),
-    group_id: nullableGraphEntityIDSchema,
-    sort_order: z.number(),
-    is_backlog: z.boolean(),
-    is_done: z.boolean(),
-    task_count: z.number(),
-  })
-  .transform((value) => ({
-    id: value.node.node_id,
-    key: value.node.key,
-    kind: value.node.kind,
-    name: value.node.display_name,
-    assigneeRole: value.node.assignee_role,
-    outputFields: value.node.output_fields,
-    groupID: value.group_id,
-    sortOrder: value.sort_order,
-    isBacklog: value.is_backlog,
-    isDone: value.is_done,
-    taskCount: value.task_count,
-  }));
-
-export const boardGroupSchema: z.ZodType<BoardGroup> = z
-  .object({
-    group_id: z.string(),
-    key: z.string(),
-    display_name: z.string(),
-    sort_order: z.number(),
-    node_ids: stringList,
-  })
-  .transform((value) => ({
-    id: value.group_id,
-    key: value.key,
-    name: value.display_name,
-    sortOrder: value.sort_order,
-    nodeIDs: value.node_ids,
-  }));
-
-export const boardCardSchema: z.ZodType<BoardCard> = z
-  .object({
-    task_id: z.string(),
-    short_id: z.string(),
-    title: z.string(),
-    preview: z
-      .object({
-        markdown: z.string(),
-        truncated: z.boolean(),
-      })
-      .strict(),
-    workflow_id: workflowIDSchema,
-    active_node_ids: stringList,
-    source_workspace: workspaceSummarySchema,
-    status: taskStatusSchema,
-    actions: taskActionsSchema,
-    label_ids: labelIDListSchema,
-    dependency_progress: z
-      .object({
-        satisfied_count: z.number().int().nonnegative(),
-        total_count: z.number().int().positive(),
-      })
-      .strict()
-      .refine((value) => value.satisfied_count <= value.total_count)
-      .optional()
-      .transform((value) =>
-        value === undefined ? null : { satisfiedCount: value.satisfied_count, totalCount: value.total_count },
-      ),
-    updated_at_unix_ms: z.number(),
-  })
-  .strict()
-  .transform((value) => ({
-    id: value.task_id,
-    shortID: value.short_id,
-    title: value.title,
-    preview: value.preview,
-    workflowID: value.workflow_id,
-    activeNodeIDs: value.active_node_ids,
-    sourceWorkspace: value.source_workspace,
-    status: value.status,
-    actions: value.actions,
-    labelIDs: value.label_ids,
-    dependencyProgress: value.dependency_progress,
-    updatedAt: value.updated_at_unix_ms,
   }));
 
 const attentionItemBaseWireSchema = z.object({

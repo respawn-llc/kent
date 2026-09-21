@@ -13,6 +13,15 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
+import {
+  TaskStatusKind,
+  TaskNativeState,
+  TaskAttentionKind,
+  ListSortField,
+  ListSortDirection,
+  MatchingWorkflowCardinality,
+  ProjectTaskGroup,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 
 function workflowEnum<Code extends number, Name extends string>(entries: readonly (readonly [Code, Name])[]) {
   const names = new Map<number, Name>(entries);
@@ -30,6 +39,60 @@ function workflowEnum<Code extends number, Name extends string>(entries: readonl
     },
   };
 }
+
+export const taskStatusKind = workflowEnum([
+  [TaskStatusKind.DONE, "done"],
+  [TaskStatusKind.WAITING_QUESTION, "waiting_question"],
+  [TaskStatusKind.WAITING_APPROVAL, "waiting_approval"],
+  [TaskStatusKind.INTERRUPTED, "interrupted"],
+  [TaskStatusKind.RUNNING, "running"],
+  [TaskStatusKind.QUEUED, "queued"],
+  [TaskStatusKind.BACKLOG, "backlog"],
+  [TaskStatusKind.ACTIVE, "active"],
+]);
+
+export const taskNativeState = workflowEnum([
+  [TaskNativeState.TERMINAL, "terminal"],
+  [TaskNativeState.WAITING_ASK, "waiting_ask"],
+  [TaskNativeState.WAITING_APPROVAL, "waiting_approval"],
+  [TaskNativeState.INTERRUPTED, "interrupted"],
+  [TaskNativeState.RUNNING, "running"],
+  [TaskNativeState.QUEUED, "queued"],
+  [TaskNativeState.ACTIVE, "active"],
+]);
+
+export const taskAttentionKind = workflowEnum([
+  [TaskAttentionKind.QUESTION, "question"],
+  [TaskAttentionKind.APPROVAL, "approval"],
+  [TaskAttentionKind.INTERRUPTED, "interrupted"],
+]);
+
+export const taskSortField = workflowEnum([
+  [ListSortField.CREATED, "created"],
+  [ListSortField.UPDATED, "updated"],
+  [ListSortField.STATUS, "status"],
+  [ListSortField.COLUMN, "column"],
+  [ListSortField.TITLE, "title"],
+  [ListSortField.LABELS, "labels"],
+  [ListSortField.SHORT_ID, "short_id"],
+]);
+
+export const taskSortDirection = workflowEnum([
+  [ListSortDirection.ASC, "asc"],
+  [ListSortDirection.DESC, "desc"],
+]);
+
+export const taskCardinality = workflowEnum([
+  [MatchingWorkflowCardinality.NONE, "none"],
+  [MatchingWorkflowCardinality.ONE, "one"],
+  [MatchingWorkflowCardinality.MULTIPLE, "multiple"],
+]);
+
+export const projectTaskGroup = workflowEnum([
+  [ProjectTaskGroup.ACTIVE, "active"],
+  [ProjectTaskGroup.BACKLOG, "backlog"],
+  [ProjectTaskGroup.DONE, "done"],
+]);
 
 export const workflowNodeKind = workflowEnum([
   [NodeKind.WORKFLOW_NODE_KIND_START, "start"],

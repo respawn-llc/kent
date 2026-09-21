@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -15,12 +16,12 @@ type taskListCommandContext struct {
 	ResolvedProjectID      string
 	SelectedWorkflowID     *runtimeids.WorkflowID
 	ColumnKeys             []string
-	StatusKinds            []serverapi.WorkflowTaskStatusKind
-	AttentionKinds         []serverapi.WorkflowTaskAttentionKind
-	Sort                   []serverapi.WorkflowTaskListSort
+	StatusKinds            []string
+	AttentionKinds         []string
+	Sort                   []string
 	LabelSelectors         []string
 	ExcludedLabelSelectors []string
-	LabelMatch             *serverapi.WorkflowTaskNamedLabelFilterMode
+	LabelMatch             *string
 	Unlabeled              bool
 	DependencyFilter       *bool
 	Offset                 int
@@ -90,18 +91,26 @@ type taskWorkflowRecoveryContext struct {
 	create             *taskCreateCommandContext
 }
 
-func taskListRecoveryForScopeError(scopeErr *serverapi.WorkflowTaskListScopeError, commandContext taskListCommandContext) (taskWorkflowRecovery, error) {
-	if scopeErr == nil || scopeErr.ProjectID == nil {
+func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, commandContext taskListCommandContext) (taskWorkflowRecovery, error) {
+	if scopeErr == nil {
 		return taskWorkflowRecovery{}, errors.New("task list scope error with project context is required")
 	}
 	kind, err := taskListRecoveryKind(scopeErr.Reason)
 	if err != nil {
 		return taskWorkflowRecovery{}, err
 	}
+	var workflowID *runtimeids.WorkflowID
+	if scopeErr.WorkflowId != nil {
+		id, err := runtimeids.ParseWorkflowID(*scopeErr.WorkflowId)
+		if err != nil {
+			return taskWorkflowRecovery{}, err
+		}
+		workflowID = &id
+	}
 	failure := taskWorkflowRecoveryFailure{
 		kind:       kind,
-		projectID:  *scopeErr.ProjectID,
-		workflowID: scopeErr.WorkflowID,
+		projectID:  scopeErr.ProjectId,
+		workflowID: workflowID,
 	}
 	return taskWorkflowRecoveryForFailure(failure, taskWorkflowRecoveryContext{
 		projectRef:         commandContext.ProjectRef,
@@ -132,13 +141,13 @@ func taskCreateRecoveryForSelectionError(createErr *serverapi.WorkflowTaskCreate
 	})
 }
 
-func taskListRecoveryKind(reason serverapi.WorkflowTaskListScopeErrorReason) (taskWorkflowRecoveryKind, error) {
+func taskListRecoveryKind(reason taskpb.ListScopeErrorReason) (taskWorkflowRecoveryKind, error) {
 	switch reason {
-	case serverapi.WorkflowTaskListScopeReasonNoLinkedWorkflows:
+	case taskpb.ListScopeErrorReason_LIST_SCOPE_ERROR_REASON_NO_LINKED_WORKFLOWS:
 		return taskWorkflowRecoveryNoLinkedWorkflows, nil
-	case serverapi.WorkflowTaskListScopeReasonWorkflowNotLinked:
+	case taskpb.ListScopeErrorReason_LIST_SCOPE_ERROR_REASON_WORKFLOW_NOT_LINKED:
 		return taskWorkflowRecoveryWorkflowNotLinked, nil
-	case serverapi.WorkflowTaskListScopeReasonWorkflowRequiredColumns:
+	case taskpb.ListScopeErrorReason_LIST_SCOPE_ERROR_REASON_WORKFLOW_REQUIRED_FOR_COLUMNS:
 		return taskWorkflowRecoveryWorkflowRequiredColumns, nil
 	default:
 		return 0, fmt.Errorf("unsupported task-list workflow recovery reason %q", reason)
@@ -334,7 +343,7 @@ func taskListRetryCommandArgsForSelector(commandContext taskListCommandContext, 
 		args = append(args, "--column", columnKey)
 	}
 	for _, sortSelector := range commandContext.Sort {
-		args = append(args, "--sort", string(sortSelector.Field)+":"+string(sortSelector.Direction))
+		args = append(args, "--sort", sortSelector)
 	}
 	for _, selector := range commandContext.LabelSelectors {
 		args = append(args, "--label", selector)

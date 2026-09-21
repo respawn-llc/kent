@@ -2,6 +2,7 @@ import {
   create,
   decode,
   encode,
+  validate,
   operationName,
   type DescMessage,
   type DescMethod,
@@ -355,6 +356,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     request: MessageShape<Method["input"]>,
     options?: RpcCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
+    validate(descriptor.input, request);
     this.descriptorCalls.push(
       options === undefined ? { descriptor, request } : { descriptor, request, options },
     );

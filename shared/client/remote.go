@@ -16,6 +16,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
@@ -479,14 +480,23 @@ func (c *Remote) ListWorkflowTaskSessions(ctx context.Context, req serverapi.Wor
 	return callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskSessionListResponse](c, ctx, protocol.MethodWorkflowTaskSessionList, req)
 }
 
-func (c *Remote) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskListRequest, serverapi.WorkflowTaskListResponse](c, ctx, protocol.MethodWorkflowTaskList, req)
-	return validateWorkflowResponse("list workflow tasks", response, err)
+func (c *Remote) ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ListResult{},
+		func(failure *taskpb.ListError) error {
+			if failure.GetScopeError() != nil {
+				return &TaskListError{Failure: failure}
+			}
+			return taskReadGeneratedError(failure)
+		})
 }
 
-func (c *Remote) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req serverapi.WorkflowProjectTaskGroupCountsRequest) (serverapi.WorkflowProjectTaskGroupCountsResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowProjectTaskGroupCountsRequest, serverapi.WorkflowProjectTaskGroupCountsResponse](c, ctx, protocol.MethodWorkflowProjectTaskGroupCounts, req)
-	return validateWorkflowResponse("get workflow project task group counts", response, err)
+func (c *Remote) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("GetProjectGroupCounts")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ProjectTaskGroupCountsResult{},
+		func(failure *taskpb.ProjectTaskGroupCountsError) error {
+			return projectNotFoundGeneratedError(failure.Code, failure.GetProjectNotFound())
+		})
 }
 
 func (c *Remote) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error) {
@@ -511,13 +521,14 @@ func (c *Remote) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSear
 	return response, nil
 }
 
-func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowBoardRequest, serverapi.WorkflowBoardResponse](c, ctx, protocol.MethodWorkflowBoardGet, req)
+func (c *Remote) GetWorkflowBoard(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.BoardGetSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService").Methods().ByName("Get")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.BoardGetResult{}, taskReadGeneratedError[*taskpb.BoardGetError])
 }
 
-func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowBoardNodeCardsListRequest, serverapi.WorkflowBoardNodeCardsListResponse](c, ctx, protocol.MethodWorkflowBoardNodeCardsList, req)
-	return validateWorkflowResponse("list workflow board node cards", response, err)
+func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService").Methods().ByName("ListNodeCards")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.BoardNodeCardsListResult{}, taskReadGeneratedError[*taskpb.BoardNodeCardsListError])
 }
 
 func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {

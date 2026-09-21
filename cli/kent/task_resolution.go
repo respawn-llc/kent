@@ -9,6 +9,7 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -40,7 +41,7 @@ func classifyWorkflowTaskSelector(ref string) (workflowTaskSelector, error) {
 	return workflowTaskSelector{kind: workflowTaskSelectorShortID, value: trimmed}, nil
 }
 
-func workflowTaskList(ctx context.Context, remote apicontract.WorkflowService, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+func workflowTaskList(ctx context.Context, remote apicontract.WorkflowService, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
 	return remote.ListWorkflowTasks(rpcCtx, req)

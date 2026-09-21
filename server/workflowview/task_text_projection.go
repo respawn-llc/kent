@@ -3,7 +3,7 @@ package workflowview
 import (
 	"strings"
 
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func bodyPreview(body string) string {
@@ -15,15 +15,15 @@ func bodyPreview(body string) string {
 	return trimmed[:limit]
 }
 
-func markdownPreview(body string) serverapi.MarkdownPreview {
+func markdownPreview(body string) *taskpb.MarkdownPreview {
 	trimmed := strings.TrimSpace(body)
 	const codePointLimit = 512
 	codePointCount := 0
 	for byteIndex := range trimmed {
 		if codePointCount == codePointLimit {
-			return serverapi.MarkdownPreview{Markdown: trimmed[:byteIndex], Truncated: true}
+			return &taskpb.MarkdownPreview{Markdown: trimmed[:byteIndex], Truncated: true}
 		}
 		codePointCount++
 	}
-	return serverapi.MarkdownPreview{Markdown: trimmed}
+	return &taskpb.MarkdownPreview{Markdown: trimmed}
 }

@@ -578,7 +578,7 @@ message CommentAddSuccess {
 message TaskOffsetPageRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional int32 offset = 2 [(buf.validate.field).int32.gte = 0];
-  optional int32 limit = 3 [(buf.validate.field).int32.gt = 0];
+  optional int32 limit = 3 [(buf.validate.field).int32 = {gt: 0 lte: 100}];
 }
 
 message CommentListSuccess {

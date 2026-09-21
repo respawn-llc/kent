@@ -9,20 +9,30 @@ import {
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
   TaskLabelReadService,
+  TaskReadService,
+  LabelFilterSchema,
+  NamedLabelFilterMode,
+  type LabelFilter,
   type AssignedLabelIds,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { TaskLabelService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
-import { compactJsonObject, type JsonObject } from "./json";
+import { compactJsonObject } from "./json";
 import {
-  projectTaskGroupCountsSchema,
   taskCreateResponseSchema,
-  taskListPageSchema,
 } from "./schemas/workflowBoard";
 import { workflowIDSchema } from "./schemas/workflowID";
 import type { DescriptorRpcTransport, RpcTransport } from "./transport";
 import { canonicalTaskLabelFilter } from "./workflowLabels";
+import { taskListPage, projectTaskGroupCounts } from "./clientTaskProjection";
+import {
+  projectTaskGroup,
+  taskStatusKind,
+  taskAttentionKind,
+  taskSortField,
+  taskSortDirection,
+} from "./workflowProtoValues";
 import type { CreatedTaskSummary } from "./models";
 import type {
   ProjectLabel,
@@ -33,22 +43,23 @@ import type {
   TaskListPage,
 } from "./workflowLabels";
 
-export function taskLabelFilterPayload(filter: TaskLabelFilter): JsonObject {
+export function taskLabelFilterPayload(filter: TaskLabelFilter): LabelFilter {
   const canonical = canonicalTaskLabelFilter(filter);
   switch (canonical.kind) {
     case "none":
     case "unlabeled":
-      return { kind: canonical.kind };
+      return create(LabelFilterSchema, { filter: { case: canonical.kind, value: {} } });
     case "named":
-      return {
-        kind: canonical.kind,
-        named: compactJsonObject({
-          mode: canonical.mode,
-          label_ids: canonical.labelIDs,
-          excluded_label_ids:
-            canonical.excludedLabelIDs.length === 0 ? undefined : canonical.excludedLabelIDs,
-        }),
-      };
+      return create(LabelFilterSchema, {
+        filter: {
+          case: "named",
+          value: {
+            mode: canonical.mode === "any" ? NamedLabelFilterMode.ANY : NamedLabelFilterMode.ALL,
+            labelIds: [...canonical.labelIDs],
+            excludedLabelIds: [...canonical.excludedLabelIDs],
+          },
+        },
+      });
   }
 }
 
@@ -195,37 +206,35 @@ export async function createTask(
   }
 }
 
-export async function listTasks(transport: RpcTransport, input: TaskListInput): Promise<TaskListPage> {
-  return parse(
-    "workflow.task.list",
-    taskListPageSchema,
-    await transport.call(
-      "workflow.task.list",
-      compactJsonObject({
-        project_id: input.projectID,
-        workflow_id: input.workflowID === undefined ? undefined : workflowIDSchema.parse(input.workflowID),
-        group: input.group,
-        column_keys: input.columnKeys ?? [],
-        status_kinds: input.statusKinds ?? [],
-        attention_kinds: input.attentionKinds ?? [],
-        label_filter: taskLabelFilterPayload(input.labelFilter),
-        sort: input.sort ?? [],
-        offset: input.offset ?? 0,
-        limit: input.limit ?? 40,
-      }),
-    ),
+export async function listTasks(transport: DescriptorRpcTransport, input: TaskListInput): Promise<TaskListPage> {
+  const method = TaskReadService.method.list;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      projectId: input.projectID,
+      workflowId: input.workflowID,
+      group: input.group === undefined ? undefined : projectTaskGroup.encode(input.group),
+      columnKeys: [...(input.columnKeys ?? [])],
+      statusKinds: (input.statusKinds ?? []).map(taskStatusKind.encode),
+      attentionKinds: (input.attentionKinds ?? []).map(taskAttentionKind.encode),
+      labelFilter: taskLabelFilterPayload(input.labelFilter),
+      sort: (input.sort ?? []).map((sort) => ({
+        field: taskSortField.encode(sort.field),
+        direction: taskSortDirection.encode(sort.direction),
+      })),
+      offset: input.offset ?? 0,
+      limit: input.limit ?? 40,
+    }),
   );
+  throwWorkflowLabelFailure(method, result.outcome);
+  return taskListPage(requireUnarySuccess(method, result));
 }
 
 export async function getProjectTaskGroupCounts(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   input: ProjectTaskGroupCountsInput,
 ): Promise<ProjectTaskGroupCounts> {
-  return parse(
-    "workflow.task.groupCounts",
-    projectTaskGroupCountsSchema,
-    await transport.call("workflow.task.groupCounts", {
-      project_id: input.projectID,
-    }),
-  );
+  const method = TaskReadService.method.getProjectGroupCounts;
+  const result = await transport.callDescriptor(method, create(method.input, { projectId: input.projectID }));
+  return projectTaskGroupCounts(requireUnarySuccess(method, result));
 }

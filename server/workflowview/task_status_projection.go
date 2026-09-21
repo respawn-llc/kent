@@ -13,8 +13,8 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type TaskStatusLiveObservationSource interface {
@@ -29,12 +29,12 @@ type TaskStatusObservation struct {
 type TaskStatusProjectionResult struct {
 	Task                         sqlitegen.TaskRecord
 	Definition                   definitionSnapshot
-	Status                       serverapi.WorkflowTaskStatus
+	Status                       *taskpb.TaskStatus
 	Done                         bool
 	CurrentNodes                 []workflow.CurrentNode
 	LiveExecutions               []sessionruntime.TaskExecution
 	PendingTransitionApprovalIDs []string
-	Actions                      serverapi.WorkflowTaskActions
+	Actions                      *taskpb.TaskActions
 	AttentionCount               int
 }
 

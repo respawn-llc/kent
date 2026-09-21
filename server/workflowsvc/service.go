@@ -19,6 +19,7 @@ import (
 	"core/server/worktree"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -2382,17 +2383,11 @@ func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.Wo
 	return response, nil
 }
 
-func (s *Service) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
-	}
+func (s *Service) ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
 	return s.readModels.TaskList.List(ctx, req)
 }
 
-func (s *Service) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req serverapi.WorkflowProjectTaskGroupCountsRequest) (serverapi.WorkflowProjectTaskGroupCountsResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
-	}
+func (s *Service) GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error) {
 	return s.readModels.TaskList.CountGroups(ctx, req)
 }
 
@@ -2403,21 +2398,15 @@ func (s *Service) SearchWorkflowTasks(ctx context.Context, req serverapi.TaskSea
 	return s.readModels.TaskSearch.Search(ctx, req)
 }
 
-func (s *Service) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowBoardResponse{}, err
-	}
+func (s *Service) GetWorkflowBoard(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.BoardGetSuccess, error) {
 	board, err := s.readModels.Board.Get(ctx, req)
 	if err != nil {
-		return serverapi.WorkflowBoardResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowBoardResponse{Board: board}, nil
+	return &taskpb.BoardGetSuccess{Board: board}, nil
 }
 
-func (s *Service) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
-	}
+func (s *Service) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error) {
 	return s.readModels.Board.ListNodeCards(ctx, req)
 }
 
