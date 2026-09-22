@@ -10,6 +10,44 @@ import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 
 beforeAll(initializeI18n);
 
+it.each(["runtime_diagnostic", "cache_warning"] as const)(
+  "shows %s once and truncates display without truncating Copy",
+  async (reason) => {
+    const user = userEvent.setup();
+    const detail = "x".repeat(650);
+    const row = {
+      Visibility: "ongoing_collapsed",
+      Integrity: 0,
+      Kind: "notice",
+      Locator: { event_sequence: 1, row_ordinal: 1 },
+      User: null,
+      Assistant: null,
+      Tool: null,
+      ReasoningTrace: null,
+      ReviewerFeedback: null,
+      ReviewerError: null,
+      Notice: {
+        Reason: reason,
+        Severity: reason === "cache_warning" ? "warning" : "error",
+        Diagnostic: { Code: "failure", Detail: detail },
+      },
+    } satisfies ChatTranscriptCommittedRow;
+    render(
+      <TestAppProviders services={createTestServices([])}>
+        <TranscriptNoticeRow row={row} />
+      </TestAppProviders>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText(`${detail.slice(0, 600)}…`)).toHaveLength(1);
+    });
+    expect(screen.queryByRole("button", { name: appI18n.t("app.collapse") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("app.expand") })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: appI18n.t("chatTranscript.copy") })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: appI18n.t("chatTranscript.copy") }));
+    expect(await navigator.clipboard.readText()).toBe(detail);
+  },
+);
+
 it("keeps user shell output hidden until expanded and displays it as unparsed text", async () => {
   const services = createTestServices([]);
   const command = "echo '**literal**'";

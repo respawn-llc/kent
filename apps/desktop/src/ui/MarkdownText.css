@@ -1,3 +1,8 @@
+.markdown-inline-tail > .markdown-text,
+.markdown-inline-tail > .markdown-text > :last-child {
+  display: inline;
+}
+
 .markdown-text {
   display: grid;
   min-inline-size: 0;
@@ -23,7 +28,7 @@
 }
 
 .markdown-text :where(h1, h2, h3, h4, h5, h6) {
-  color: var(--color-on-island);
+  color: inherit;
   font-weight: 750;
   line-height: 1.25;
 }

@@ -167,3 +167,18 @@ it.each([
     },
   ]);
 });
+
+it("uses the Session ID as an unnamed row title and shows its supplied preview only once", async () => {
+  const session = {
+    category: "main" as const,
+    firstPromptPreview: "A supplied preview",
+    id: "unnamed-session",
+    name: null,
+    updatedAt: 1,
+  };
+  fixture.sessions = [session];
+  render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
+  fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
+  expect(await screen.findByRole("button", { name: session.id })).toBeVisible();
+  expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);
+});

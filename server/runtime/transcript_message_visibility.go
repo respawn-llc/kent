@@ -244,7 +244,9 @@ func compactLabelForMessage(msg llm.Message) string {
 		}
 		return "AGENTS.md file content"
 	case llm.MessageTypeSkills:
-		return "Skill guidance"
+		return "Available skills"
+	case llm.MessageTypeSubagents:
+		return "Available subagents"
 	case llm.MessageTypeEnvironment:
 		return "Environment info"
 	case llm.MessageTypeHeadlessMode:

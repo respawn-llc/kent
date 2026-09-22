@@ -16,6 +16,7 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -189,6 +190,9 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAndPreservedUserMes
 			item.Content != nil &&
 			strings.Contains(*item.Content, ownedShell.SessionID) {
 			reminderIndex = idx
+			if item.CompactContent == nil || *item.CompactContent != clientui.RunningShellsCompactLabel {
+				t.Fatalf("running-shell reminder lost its compact presentation: %+v", item)
+			}
 			if !strings.Contains(*item.Content, ownedShell.SessionID) ||
 				!strings.Contains(*item.Content, "owned running shell") {
 				t.Fatalf("running-shell reminder omitted owned shell data: %+v", item)

@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
-import { cx } from "./classes";
+import { cn, cx } from "./classes";
 
 type ChipAppearanceProps = Readonly<{
   children: ReactNode;
@@ -11,7 +11,9 @@ type ChipAppearanceProps = Readonly<{
 
 export type ChipProps = ChipAppearanceProps & HTMLAttributes<HTMLSpanElement>;
 
-export type InteractiveChipProps = ChipAppearanceProps & ButtonHTMLAttributes<HTMLButtonElement>;
+export type InteractiveChipProps = ChipAppearanceProps &
+  ButtonHTMLAttributes<HTMLButtonElement> &
+  Readonly<{ variant?: "filled" | "ghost" }>;
 
 export type InteractiveChipSize = "compact" | "default" | "label";
 export type InteractiveChipTone = "neutral" | "primary" | "success";
@@ -47,17 +49,19 @@ export function InteractiveChip({
   size = "default",
   tone = "neutral",
   type = "button",
+  variant = "filled",
   ...props
 }: InteractiveChipProps) {
   return (
     <button
       aria-pressed={selected}
-      className={cx(
+      className={cn(
         chipBaseClassName,
         "outline-none transition-[background-color,border-color,color,opacity] duration-100 motion-reduce:transition-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-45",
         interactiveChipSizeClassNames[size],
         chipToneClassNames[tone],
         interactiveChipToneClassNames[tone],
+        variant === "ghost" && "border-transparent bg-transparent data-[selected=true]:bg-transparent",
         className,
       )}
       data-selected={selected === true}

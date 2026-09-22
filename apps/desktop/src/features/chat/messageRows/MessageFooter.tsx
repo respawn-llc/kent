@@ -33,13 +33,13 @@ export function MessageFooter({
         </TooltipProvider>
       )}
       <div className="chat-message-actions">
+        {edit}
         <TranscriptCopyAction
           copiedLabel={t("chatTranscript.copied")}
           copyLabel={t("chatTranscript.copy")}
           failureLabel={t("chatTranscript.copyFailed")}
           value={text}
         />
-        {edit}
       </div>
     </footer>
   );
