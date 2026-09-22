@@ -247,17 +247,6 @@ func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainVie
 	return &sessionpb.MainViewSuccess{MainView: view}, nil
 }
 
-func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID string) ([]runtime.ChatEntry, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil, serverapi.ErrSessionIDRequired
-	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptTailEntries(ctx)
-}
-
 func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err

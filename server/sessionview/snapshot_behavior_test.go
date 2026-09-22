@@ -94,11 +94,6 @@ func TestServiceTranscriptReadsHonorCanceledContext(t *testing.T) {
 			}
 		})
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := service.SessionTranscriptTailEntries(ctx, store.Meta().SessionID); !errors.Is(err, context.Canceled) {
-		t.Fatalf("tail error = %v, want context canceled", err)
-	}
 }
 
 func TestRuntimeMainViewSnapshotDoesNotRequirePersistedSessionResolution(t *testing.T) {

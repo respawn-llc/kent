@@ -401,7 +401,7 @@
 - A Question belongs to its Session. Workflow attention refers to that Question and does not create a second Task-owned copy.
 - Workflow Question attention carries Session, Step, and Tool Call ID only in its Question payload. The attention item and its Current Node do not repeat Question Session identity.
 - Live Questions and live Approvals exist only within their Exact Execution Scope. Process death does not restore them, replay answers, or apply a blocked Workflow effect. The affected Current Node follows ordinary lost-execution interruption behavior.
-- The bounded active Session transcript supplies Question content to read surfaces. An unfinished transcript operation without a matching Exact Execution Scope does not create a live Question or `waiting_question` Task status.
+- Live pending Questions supply Workflow Question content to read surfaces. An unfinished transcript operation without a matching Exact Execution Scope does not create a live Question or `waiting_question` Task status.
 - A pending Workflow Transition Approval belongs to the current Task and survives restart.
 - Approval is a Transition Branch property.
 - If any branch of a selected Transition requires Approval, the complete Transition waits for one Approval before any target becomes current or begins work.
@@ -602,7 +602,7 @@
 - Workflow attention is task-scoped. It includes only unresolved Questions, unresolved Workflow Approvals, and executable Nodes interrupted by errors.
 - Workflow validity is not attention and does not create Inbox items.
 - Core Task detail includes an unresolved-attention count but not the attention items. It does not scan transcript history.
-- The Task-specific attention feed can read the newest active transcript segment to recover unresolved Question content. Desktop Task detail loads this feed independently so it does not delay core Task detail.
+- The Task-specific attention feed reads unresolved Question content from live pending Questions, without transcript-backed recovery. Desktop Task detail loads this feed independently so it does not delay core Task detail.
 - Task Activity is a server-paginated projection of durable Comments and retained Session creation. It contains no workflow movement, Node completion, interruption, attempt, or diagnostic history. Clients render Session creation as localized `Session started` activity.
 - Task Activity uses the offset pagination contract defined below.
 - Task Activity requests may omit offset and limit. An omitted offset starts at zero, offsets are zero-based and non-negative, and an omitted limit defaults to 100 with a maximum of 100.

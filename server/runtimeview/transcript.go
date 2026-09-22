@@ -8,8 +8,6 @@ import (
 	"core/shared/textutil"
 )
 
-const RecentTailEntryLimit = 500
-
 func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page)
 	if err != nil {
