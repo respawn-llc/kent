@@ -208,7 +208,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
-	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, authSupport.AuthManager).
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority).
 		WithPersistedSessionResolver(metadataStore).
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).

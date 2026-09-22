@@ -84,7 +84,7 @@ func newSessionRemovalServiceFixture(t *testing.T) sessionRemovalServiceFixture 
 			t.Errorf("close Session Runtime authority: %v", err)
 		}
 	})
-	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil).
+	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority).
 		WithPersistedSessionResolver(metadataStore)
 	return sessionRemovalServiceFixture{service: service, authority: authority, metadata: metadataStore, session: persisted}
 }
@@ -163,7 +163,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 func TestArchiveDestinationRejectionLeavesIdleRuntimeOpen(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
 	fixture.openRuntime(t)
-	service := NewGlobalSessionLifecycleService("", fixture.authority, nil).
+	service := NewGlobalSessionLifecycleService("", fixture.authority).
 		WithPersistedSessionResolver(fixture.metadata)
 	assertRuntimeOpen := func() {
 		t.Helper()
@@ -277,7 +277,7 @@ func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
 				t.Errorf("close Session Runtime authority: %v", err)
 			}
 		}()
-		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil).
+		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority).
 			WithPersistedSessionResolver(metadataStore).
 			WithDebugMode(debug)
 		resolveStarted := make(chan struct{})
