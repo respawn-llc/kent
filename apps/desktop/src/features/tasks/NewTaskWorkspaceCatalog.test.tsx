@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
+import { QueryClient } from "@tanstack/react-query";
 
 import {
   RpcError,
@@ -10,10 +11,11 @@ import {
   type WorkspaceCatalogPage,
   type WorkspaceCatalogRow,
 } from "@/api";
-import type { TaskSearchResult } from "@/app-facade";
+import { queryKeys, type AppLogger, type TaskSearchResult } from "@/app-facade";
 import type { PreparedTaskDependency } from "@/shared/task-dependencies";
-import type { CreateTaskSubmission } from "@/shared/task-mutations";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { deferred } from "@/test-support/chat-runtime";
 import type { SelectFieldPaging } from "@/ui";
 import type * as UiModule from "@/ui";
 
@@ -26,57 +28,16 @@ interface TestSelectProps {
 }
 
 interface TestState {
-  catalog: {
-    data: { pages: readonly WorkspaceCatalogPage[]; pageParams: readonly number[] } | undefined;
-    error: Error | null;
-    fetchNextPage: ReturnType<typeof vi.fn>;
-    fetchPreviousPage: ReturnType<typeof vi.fn>;
-    hasNextPage: boolean;
-    isError: boolean;
-    isFetchNextPageError: boolean;
-    isFetchingNextPage: boolean;
-    isFetchingPreviousPage: boolean;
-    isPending: boolean;
-    refetch: ReturnType<typeof vi.fn>;
-  };
-  exact: {
-    data: { kind: "attached"; workspace: WorkspaceCatalogRow } | { kind: "not_attached" } | undefined;
-    error: Error | null;
-    isError: boolean;
-    isPending: boolean;
-    refetch: ReturnType<typeof vi.fn>;
-  };
   select: TestSelectProps | undefined;
   create: ReturnType<typeof vi.fn<ApiService["createTask"]>>;
-  loggerAppend: ReturnType<typeof vi.fn>;
+  loggerAppend: ReturnType<typeof vi.fn<AppLogger["append"]>>;
   labels: { labels: readonly { id: string; name: string }[] } | undefined;
-  resetQueries: ReturnType<typeof vi.fn>;
   searchResults: readonly TaskSearchResult[];
   statusDismiss: ReturnType<typeof vi.fn>;
   statusPush: ReturnType<typeof vi.fn>;
 }
 
 const state = vi.hoisted((): TestState => ({
-  catalog: {
-    data: undefined,
-    error: null,
-    fetchNextPage: vi.fn(async () => undefined),
-    fetchPreviousPage: vi.fn(async () => undefined),
-    hasNextPage: false,
-    isError: false,
-    isFetchNextPageError: false,
-    isFetchingNextPage: false,
-    isFetchingPreviousPage: false,
-    isPending: true,
-    refetch: vi.fn(async () => undefined),
-  },
-  exact: {
-    data: undefined,
-    error: null,
-    isError: false,
-    isPending: true,
-    refetch: vi.fn(async () => undefined),
-  },
   select: undefined,
   create: vi.fn(async () => ({
     id: "task-created",
@@ -86,25 +47,17 @@ const state = vi.hoisted((): TestState => ({
   })),
   loggerAppend: vi.fn(async () => undefined),
   labels: { labels: [] },
-  resetQueries: vi.fn(async () => undefined),
   searchResults: [],
   statusDismiss: vi.fn(),
   statusPush: vi.fn(),
 }));
 
-vi.mock("@tanstack/react-query", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useInfiniteQuery: () => state.catalog,
-  useQuery: () => state.exact,
-  useQueryClient: () => ({ resetQueries: state.resetQueries }),
+vi.mock("react-i18next", async (original) => ({
+  ...(await original()),
+  useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock("@/app-facade", () => ({
-  projectWorkspaceQueryOptions: () => ({}),
-  queryKeys: {
-    projectWorkspaceCatalog: (projectID: string) => ["project-catalog", projectID, "workspaces"],
-  },
-  useAppServices: () => ({ api: {}, logger: { append: state.loggerAppend } }),
+vi.mock("@/app-facade", async (original) => ({
+  ...(await original()),
   useStatusController: () => ({ dismiss: state.statusDismiss, push: state.statusPush }),
   useTaskSearch: () => ({
     displayedQuery: null,
@@ -125,7 +78,6 @@ vi.mock("@/app-facade", () => ({
     searchable: state.searchResults.length > 0,
   }),
   useTextFieldSubmitShortcut: () => undefined,
-  workspaceCatalogInfiniteQueryOptions: () => ({}),
 }));
 vi.mock("@/shared/labels", () => ({
   LabelChooser: () => null,
@@ -135,15 +87,6 @@ vi.mock("@/shared/labels", () => ({
 }));
 vi.mock("@/shared/native-dialog", () => ({
   NativeDialogWindow: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
-}));
-vi.mock("@/shared/task-mutations", () => ({
-  useCreateTask: () => ({
-    error: null,
-    isPending: false,
-    submit: (submission: CreateTaskSubmission) => {
-      void state.create(submission.input).then(submission.onSuccess).catch(submission.onError);
-    },
-  }),
 }));
 vi.mock("@/ui", async (importOriginal) => ({
   ...(await importOriginal<typeof UiModule>()),
@@ -214,14 +157,35 @@ const props = {
   projectID: "project-1",
   workflowID: "workflow-1",
 };
+let services: ReturnType<typeof createTestServices>;
+let client: QueryClient;
+let listWorkspaces: ReturnType<typeof vi.fn<ApiService["listWorkspaces"]>>;
+let getProjectWorkspace: ReturnType<typeof vi.fn<ApiService["getProjectWorkspace"]>>;
+function render(element: ReactElement) {
+  return renderUI(element, {
+    wrapper: ({ children }) => (
+      <TestAppProviders services={services} queryClient={client}>
+        {children}
+      </TestAppProviders>
+    ),
+  });
+}
 function loadCatalog(workspaces?: WorkspaceCatalogRow[]) {
-  state.catalog.data = { pages: [page(workspaces)], pageParams: [0] };
-  state.catalog.isError = state.catalog.isPending = false;
+  act(() => {
+    client.setQueryData(queryKeys.projectWorkspaceCatalog("project-1"), {
+      pages: [page(workspaces)],
+      pageParams: [0],
+    });
+  });
+}
+function loadExact(data: Awaited<ReturnType<ApiService["getProjectWorkspace"]>>) {
+  act(() => {
+    client.setQueryData(queryKeys.projectWorkspace("project-1", "source"), data);
+  });
 }
 function loadAttachedCatalog() {
   loadCatalog();
-  state.exact.data = { kind: "attached", workspace: row("source") };
-  state.exact.isPending = false;
+  loadExact({ kind: "attached", workspace: row("source") });
 }
 function rerender(view: ReturnType<typeof render>) {
   view.rerender(<NewTaskForm {...props} />);
@@ -229,24 +193,21 @@ function rerender(view: ReturnType<typeof render>) {
 
 describe("New Task Workspace catalog integration", () => {
   beforeEach(() => {
-    Object.assign(state.catalog, {
-      data: undefined,
-      error: null,
-      hasNextPage: false,
-      isError: false,
-      isFetchNextPageError: false,
-      isFetchingNextPage: false,
-      isPending: true,
+    services = createTestServices([]);
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
     });
-    Object.assign(state.exact, { data: undefined, error: null, isError: false, isPending: true });
-    state.catalog.fetchNextPage.mockClear();
-    state.catalog.fetchPreviousPage.mockClear();
-    state.catalog.refetch.mockClear();
-    state.exact.refetch.mockClear();
+    listWorkspaces = vi
+      .spyOn(services.api, "listWorkspaces")
+      .mockImplementation(async () => new Promise(() => undefined));
+    getProjectWorkspace = vi
+      .spyOn(services.api, "getProjectWorkspace")
+      .mockImplementation(async () => new Promise(() => undefined));
+    vi.spyOn(services.api, "createTask").mockImplementation(state.create);
+    vi.spyOn(services.logger, "append").mockImplementation(state.loggerAppend);
     state.create.mockClear();
     state.loggerAppend.mockClear();
     state.labels = { labels: [] };
-    state.resetQueries.mockClear();
     state.searchResults = [];
     state.statusDismiss.mockClear();
     state.statusPush.mockClear();
@@ -258,13 +219,11 @@ describe("New Task Workspace catalog integration", () => {
     (order) => {
       if (order === "catalog-first") loadCatalog();
       else {
-        state.exact.data = { kind: "attached", workspace: row("source") };
-        state.exact.isPending = false;
+        loadExact({ kind: "attached", workspace: row("source") });
       }
       const view = render(<NewTaskForm {...props} />);
       if (order === "catalog-first") {
-        state.exact.data = { kind: "attached", workspace: row("source") };
-        state.exact.isPending = false;
+        loadExact({ kind: "attached", workspace: row("source") });
       } else loadCatalog();
       rerender(view);
       expect(state.select?.value).toBe("source");
@@ -276,15 +235,13 @@ describe("New Task Workspace catalog integration", () => {
     (order) => {
       if (order === "catalog-first") loadCatalog();
       else {
-        state.exact.data = { kind: "not_attached" };
-        state.exact.isPending = false;
+        loadExact({ kind: "not_attached" });
       }
       const view = render(<NewTaskForm {...props} />);
       expect(state.select?.value).toBeUndefined();
 
       if (order === "catalog-first") {
-        state.exact.data = { kind: "not_attached" };
-        state.exact.isPending = false;
+        loadExact({ kind: "not_attached" });
       } else loadCatalog();
       rerender(view);
 
@@ -303,8 +260,7 @@ describe("New Task Workspace catalog integration", () => {
     });
     expect(state.select?.value).toBeUndefined();
 
-    state.exact.data = { kind: "attached", workspace: row("source") };
-    state.exact.isPending = false;
+    loadExact({ kind: "attached", workspace: row("source") });
     rerender(view);
 
     expect(state.select?.value).toBe("source");
@@ -313,8 +269,8 @@ describe("New Task Workspace catalog integration", () => {
     expect(screen.getByRole("button", { name: "task.create" })).toBeEnabled();
   });
 
-  it("restarts once from the default-first page when the retained catalog window starts after zero", () => {
-    state.catalog.data = {
+  it("restarts once from the default-first page when the retained catalog window starts after zero", async () => {
+    client.setQueryData(queryKeys.projectWorkspaceCatalog("project-1"), {
       pages: [
         {
           projectID: "project-1",
@@ -324,51 +280,57 @@ describe("New Task Workspace catalog integration", () => {
         },
       ],
       pageParams: [200],
-    };
-    state.catalog.isPending = false;
-    state.exact.data = { kind: "not_attached" };
-    state.exact.isPending = false;
+    });
+    loadExact({ kind: "not_attached" });
+    listWorkspaces.mockResolvedValue(page());
 
     render(<NewTaskForm {...props} />);
 
-    expect(state.resetQueries).toHaveBeenCalledWith({
-      exact: true,
-      queryKey: ["project-catalog", "project-1", "workspaces"],
+    await waitFor(() => {
+      expect(state.select?.value).toBe("default");
     });
-    expect(state.select?.value).toBeUndefined();
-    expect(screen.getByRole("button", { name: "task.create" })).toBeDisabled();
+    expect(listWorkspaces).toHaveBeenCalledExactlyOnceWith("project-1", 0);
   });
 
-  it("keeps attached exact selection usable through first-page failure and Retry", () => {
-    state.exact.data = { kind: "attached", workspace: row("source") };
-    state.exact.isPending = false;
-    Object.assign(state.catalog, { error: new Error("catalog"), isError: true, isPending: false });
+  it("keeps attached exact selection usable through first-page failure and Retry", async () => {
+    loadExact({ kind: "attached", workspace: row("source") });
+    listWorkspaces.mockRejectedValueOnce(new Error("catalog")).mockResolvedValue(page());
     render(<NewTaskForm {...props} />);
     expect(state.select?.value).toBe("source");
+    await waitFor(() => {
+      expect(state.select?.paging?.initialBoundary?.state).toBe("error");
+    });
     const initialBoundary = state.select?.paging?.initialBoundary;
     if (initialBoundary?.state === "error") {
-      initialBoundary.onRetry();
+      act(() => {
+        initialBoundary.onRetry();
+      });
     }
-    expect(state.catalog.refetch).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(state.select?.paging?.initialBoundary).toBeUndefined();
+    });
+    expect(listWorkspaces).toHaveBeenCalledTimes(2);
+    expect(state.select?.value).toBe("source");
   });
 
-  it("retries exact failure without fallback and never overwrites an explicit choice", () => {
+  it("retries exact failure without fallback and never overwrites an explicit choice", async () => {
     loadCatalog();
-    Object.assign(state.exact, { error: new Error("exact"), isError: true, isPending: false });
+    getProjectWorkspace.mockRejectedValueOnce(new Error("exact"));
     const view = render(<NewTaskForm {...props} />);
     expect(state.select?.value).toBeUndefined();
-    fireEvent.click(screen.getByRole("button", { name: "exact-retry" }));
-    expect(state.exact.refetch).toHaveBeenCalledOnce();
+    fireEvent.click(await screen.findByRole("button", { name: "exact-retry" }));
+    await waitFor(() => {
+      expect(getProjectWorkspace).toHaveBeenCalledTimes(2);
+    });
     fireEvent.click(screen.getByRole("button", { name: "other" }));
-    state.exact.data = { kind: "attached", workspace: row("source") };
-    state.exact.isError = false;
+    loadExact({ kind: "attached", workspace: row("source") });
     rerender(view);
     expect(state.select?.value).toBe("other");
   });
 
-  it("keeps one loaded Workspace selectable while the exact read remains failed", () => {
+  it("keeps one loaded Workspace selectable while the exact read remains failed", async () => {
     loadCatalog([row("only", true)]);
-    Object.assign(state.exact, { error: new Error("exact"), isError: true, isPending: false });
+    getProjectWorkspace.mockRejectedValueOnce(new Error("exact"));
     render(<NewTaskForm {...props} />);
 
     expect(state.select?.disabled).toBe(false);
@@ -376,38 +338,49 @@ describe("New Task Workspace catalog integration", () => {
 
     expect(state.select?.value).toBe("only");
     expect(screen.getByRole("button", { name: "task.create" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "exact-retry" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "exact-retry" })).toBeInTheDocument();
   });
 
   it("pins initiating and evicted selected rows once while fresh loaded rows replace snapshots", () => {
     loadCatalog([row("selected")]);
-    state.exact.data = { kind: "attached", workspace: row("source") };
-    state.exact.isPending = false;
+    loadExact({ kind: "attached", workspace: row("source") });
     const view = render(<NewTaskForm {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "selected" }));
-    state.catalog.data = {
-      pages: [{ projectID: "project-1", offset: 400, workspaces: [row("retained")], nextOffset: null }],
-      pageParams: [400],
-    };
+    act(() => {
+      client.setQueryData(queryKeys.projectWorkspaceCatalog("project-1"), {
+        pages: [{ projectID: "project-1", offset: 400, workspaces: [row("retained")], nextOffset: null }],
+        pageParams: [400],
+      });
+    });
     rerender(view);
     expect(state.select?.options.map(({ value }) => value)).toEqual(["source", "selected", "retained"]);
   });
 
-  it("falls back only after typed detachment and retries a failed page edge", () => {
+  it("falls back only after typed detachment and retries a failed page edge", async () => {
     loadCatalog();
-    state.catalog.hasNextPage = state.catalog.isFetchNextPageError = true;
-    state.exact.data = { kind: "not_attached" };
-    state.exact.isPending = false;
+    loadExact({ kind: "not_attached" });
+    listWorkspaces.mockRejectedValueOnce(new Error("edge")).mockResolvedValue({
+      projectID: "project-1",
+      offset: 100,
+      workspaces: [row("next")],
+      nextOffset: null,
+    });
     render(<NewTaskForm {...props} />);
     expect(state.select?.value).toBe("default");
-    fireEvent.click(screen.getByRole("button", { name: "edge-retry" }));
-    expect(state.catalog.fetchNextPage).toHaveBeenCalledOnce();
+    act(() => {
+      state.select?.paging?.onLoadNext();
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "edge-retry" }));
+    await waitFor(() => {
+      expect(state.select?.options.map(({ value }) => value)).toContain("next");
+    });
+    expect(listWorkspaces).toHaveBeenCalledTimes(2);
+    expect(state.select?.value).toBe("default");
   });
 
   it("propagates missing Project and submits the displayed Workspace identity", async () => {
     loadCatalog();
-    state.exact.data = { kind: "not_attached" };
-    state.exact.isPending = false;
+    loadExact({ kind: "not_attached" });
     const navigator = createTestSidebarNavigator();
     const view = render(<NewTaskForm {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "other" }));
@@ -417,13 +390,14 @@ describe("New Task Workspace catalog integration", () => {
       expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ sourceWorkspaceID: "other" }));
     });
     view.unmount();
-    state.exact.error = new RpcError({
-      code: rpcErrorCodes.projectNotFound,
-      message: "gone",
-      method: "project.workspace.get",
-    });
-    state.exact.data = undefined;
-    state.exact.isError = true;
+    client.removeQueries({ queryKey: queryKeys.projectWorkspace("project-1", "source") });
+    getProjectWorkspace.mockRejectedValueOnce(
+      new RpcError({
+        code: rpcErrorCodes.projectNotFound,
+        message: "gone",
+        method: "project.workspace.get",
+      }),
+    );
     render(<NewTaskForm {...props} navigator={navigator} />);
     await vi.waitFor(() => {
       expect(navigator.back).toHaveBeenCalled();
@@ -603,6 +577,36 @@ describe("New Task Workspace catalog integration", () => {
     });
   });
 
+  it("completes accepted creation after leaving without following stale parent navigation", async () => {
+    loadAttachedCatalog();
+    const response = deferred<Awaited<ReturnType<ApiService["createTask"]>>>();
+    state.create.mockReturnValueOnce(response.promise);
+    const navigator = createTestSidebarNavigator();
+    const onCreated = vi.fn();
+    const view = render(
+      <NewTaskForm
+        {...props}
+        navigator={navigator}
+        onCreated={onCreated}
+        parentReturnDirection="blocked-by"
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), { target: { value: "Child" } });
+    fireEvent.click(screen.getByRole("button", { name: "task.create" }));
+    await waitFor(() => {
+      expect(state.create).toHaveBeenCalledOnce();
+    });
+    view.unmount();
+    vi.mocked(navigator.back).mockReturnValue("stale");
+    await act(async () => {
+      response.resolve({ id: "task-created", shortID: "KENT-42", title: "Child", workflowID: "workflow-1" });
+    });
+    await waitFor(() => {
+      expect(navigator.back).toHaveBeenCalledOnce();
+    });
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
   it("presents reciprocal rejection as product copy and preserves authored dependencies", async () => {
     loadAttachedCatalog();
     state.searchResults = [candidate("task-related")];
@@ -651,8 +655,7 @@ describe("New Task Workspace catalog integration", () => {
 
   it("submits Project-scoped creation without inventing a Workflow selection", async () => {
     loadCatalog();
-    state.exact.data = { kind: "not_attached" };
-    state.exact.isPending = false;
+    loadExact({ kind: "not_attached" });
     render(<NewTaskForm {...props} boardQueryWorkflowID={undefined} workflowID={undefined} />);
 
     fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), {
