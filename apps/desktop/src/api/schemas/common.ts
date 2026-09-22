@@ -4,7 +4,6 @@ import type {
   ApprovalDecision,
   ProjectBinding,
   TaskActions,
-  TaskComment,
   TaskCurrentNode,
   TaskScriptCurrentNode,
   TaskStatus,
@@ -408,23 +407,3 @@ export const attentionItemSchema: z.ZodType<AttentionItem> = z.discriminatedUnio
       message: value.message,
     })),
 ]);
-
-export const commentSchema: z.ZodType<TaskComment> = z
-  .object({
-    id: z.string(),
-    task_id: z.string(),
-    body: z.string(),
-    author: z.enum(["agent", "user"]),
-    author_id: z.string().min(1).optional(),
-    created_at_unix_ms: z.number(),
-    updated_at_unix_ms: z.number(),
-  })
-  .transform((value) => ({
-    id: value.id,
-    taskID: value.task_id,
-    body: value.body,
-    authorKind: value.author,
-    authorID: value.author_id ?? null,
-    createdAt: value.created_at_unix_ms,
-    updatedAt: value.updated_at_unix_ms,
-  }));

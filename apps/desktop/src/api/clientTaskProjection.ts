@@ -1,6 +1,6 @@
 import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
-import type { SelectionRequired, Comment as GeneratedComment } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import type { SelectionRequired, Comment as GeneratedComment, ActivityItem as GeneratedActivity } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
 import type {
@@ -17,6 +17,7 @@ import type {
   TaskDependencyItem,
   TaskDependencyAddAvailability,
   TaskComment,
+  ActivityItem,
 } from "./models";
 import { projectAvailability } from "./clientProject";
 import { workflowValidationError } from "./clientWorkflowProjection";
@@ -225,6 +226,24 @@ export function taskComment(value: GeneratedComment | undefined): TaskComment {
     createdAt: timestampMillis(value.createdAt),
     updatedAt: timestampMillis(value.updatedAt),
   };
+}
+
+export function taskActivity(value: GeneratedActivity): ActivityItem {
+  if (value.occurredAt === undefined || value.updatedAt === undefined) throw new ContractError("Task activity times are required.");
+  const common = {
+    id: value.activityId,
+    taskID: value.taskId,
+    occurredAt: timestampMillis(value.occurredAt),
+    updatedAt: timestampMillis(value.updatedAt),
+  };
+  switch (value.activity.case) {
+    case "comment":
+      return { ...common, type: "comment", comment: taskComment(value.activity.value) };
+    case "sessionStarted":
+      return { ...common, type: "session_started", sessionID: value.activity.value.sessionId, sessionName: value.activity.value.name };
+    case undefined:
+      throw new ContractError("Task activity variant is required.");
+  }
 }
 
 export function taskTargetSelectionRequired(value: SelectionRequired): WorkflowExecutionTargetSelectionRequirement {

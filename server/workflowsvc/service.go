@@ -2272,15 +2272,8 @@ func (s *Service) ListWorkflowTaskAttention(ctx context.Context, req serverapi.W
 	return response, nil
 }
 
-func (s *Service) ListWorkflowTaskSessions(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
-	}
-	response, err := s.readModels.TaskSessions.List(ctx, req)
-	if err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
-	}
-	return response, nil
+func (s *Service) ListWorkflowTaskSessions(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
+	return s.readModels.TaskSessions.List(ctx, req)
 }
 
 func (s *Service) AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error) {
@@ -2313,10 +2306,7 @@ func (s *Service) ListWorkflowTaskComments(ctx context.Context, req *taskpb.Task
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	window := serverapi.OffsetWindow{Offset: int(req.GetOffset()), Limit: serverapi.OffsetPaginationMaxLimit}
-	if req.Limit != nil {
-		window.Limit = int(*req.Limit)
-	}
+	window := workflowview.TaskPageWindow(req)
 	totalCount, err := s.store.CountTaskComments(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
@@ -2373,18 +2363,8 @@ func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req *taskpb.Com
 	return &emptypb.Empty{}, nil
 }
 
-func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskActivityListResponse{}, err
-	}
-	response, err := s.readModels.Activity.List(ctx, req)
-	if err != nil {
-		return serverapi.WorkflowTaskActivityListResponse{}, err
-	}
-	if err := response.ValidateForTask(strings.TrimSpace(req.TaskID)); err != nil {
-		return serverapi.WorkflowTaskActivityListResponse{}, err
-	}
-	return response, nil
+func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.ActivityListSuccess, error) {
+	return s.readModels.Activity.List(ctx, req)
 }
 
 func (s *Service) ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {

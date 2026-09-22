@@ -44,11 +44,11 @@ type WorkflowTaskDependencyReadModel interface {
 }
 
 type WorkflowActivityReadModel interface {
-	List(context.Context, serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error)
+	List(context.Context, *taskpb.TaskOffsetPageRequest) (*taskpb.ActivityListSuccess, error)
 }
 
 type WorkflowTaskSessionReadModel interface {
-	List(context.Context, serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error)
+	List(context.Context, *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error)
 }
 
 type WorkflowAttentionReadModel interface {

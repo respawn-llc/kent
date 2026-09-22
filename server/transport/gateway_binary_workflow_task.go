@@ -91,6 +91,12 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, comments, "Delete",
 			func() *taskpb.CommentDeleteRequest { return &taskpb.CommentDeleteRequest{} },
 			apicontract.WorkflowService.DeleteWorkflowTaskComment, binaryWorkflowCreateFailure[*taskpb.CommentDeleteRequest]),
+		registerWorkflowUnary(bindings, taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskActivityService"), "List",
+			func() *taskpb.TaskOffsetPageRequest { return &taskpb.TaskOffsetPageRequest{} },
+			apicontract.WorkflowService.ListWorkflowTaskActivity, binaryTaskEntityFailure[*taskpb.TaskOffsetPageRequest]),
+		registerWorkflowUnary(bindings, taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskSessionService"), "List",
+			func() *taskpb.TaskOffsetPageRequest { return &taskpb.TaskOffsetPageRequest{} },
+			apicontract.WorkflowService.ListWorkflowTaskSessions, binaryTaskEntityFailure[*taskpb.TaskOffsetPageRequest]),
 	)
 }
 

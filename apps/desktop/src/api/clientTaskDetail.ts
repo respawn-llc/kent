@@ -1,16 +1,15 @@
 import { create } from "@app/server-api-contract";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
-import { TaskCommentService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { TaskCommentService, TaskActivityService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { pendingQuestion } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
-import { taskDetail, taskComment } from "./clientTaskProjection";
+import { taskDetail, taskComment, taskActivity } from "./clientTaskProjection";
 import { taskCommentAuthor } from "./workflowProtoValues";
 import { parseRpcResponse } from "./clientParse";
 import { requireTaskBoundItems } from "./clientParse";
 import type { ActivityPage, CommentPage, PendingAsk, TaskAttention, TaskComment, TaskDetail } from "./models";
 import {
-  activityPageSchema,
   taskAttentionSchema,
 } from "./schemas/workflowBoard";
 import type { DescriptorRpcTransport, RpcTransport, SessionAttachmentTarget } from "./transport";
@@ -32,21 +31,16 @@ export async function getTask(transport: DescriptorRpcTransport, taskID: string)
 }
 
 export async function listTaskActivity(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   offset: number,
 ): Promise<ActivityPage> {
-  const response = parseRpcResponse(
-    "workflow.task.activity.list",
-    activityPageSchema,
-    await transport.call("workflow.task.activity.list", {
-      task_id: taskID,
-      offset,
-      limit: 50,
-    }),
-  );
-  requireTaskBoundItems(taskID, response.items);
-  return response;
+  const method = TaskActivityService.method.list;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID, offset, limit: 50 }));
+  const response = requireUnarySuccess(method, result);
+  const items = response.items.map(taskActivity);
+  requireTaskBoundItems(taskID, items);
+  return { items, nextOffset: response.nextOffset ?? null };
 }
 
 export async function listTaskComments(

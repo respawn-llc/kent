@@ -16,6 +16,7 @@ import (
 	"core/server/workflow"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
 
@@ -29,7 +30,7 @@ type ActiveTaskSessionActivitySource interface {
 }
 
 type taskSessionProjection struct {
-	item            serverapi.WorkflowTaskSessionItem
+	item            *taskpb.SessionItem
 	createdAtUnixMs int64
 }
 
@@ -43,27 +44,24 @@ func NewTaskSessions(metadataStore *metadata.Store, activities ActiveTaskSession
 	return &TaskSessions{queries: metadataStore.Queries(), activities: activities}, nil
 }
 
-func (s *TaskSessions) List(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error) {
+func (s *TaskSessions) List(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
 	if s == nil || s.queries == nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, errors.New("Task Sessions read model is required")
+		return nil, errors.New("Task Sessions read model is required")
 	}
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	taskID := strings.TrimSpace(req.TaskID)
+	taskID := strings.TrimSpace(req.TaskId)
 	if _, err := s.queries.GetTask(ctx, taskID); err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
+		return nil, err
 	}
-	window, err := serverapi.ResolveWorkflowOffsetWindow(req.Offset, req.Limit)
-	if err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
-	}
+	window := TaskPageWindow(req)
 	active, activeSessionIDs, err := s.activeTaskSessions(ctx, taskID)
 	if err != nil {
-		return serverapi.WorkflowTaskSessionListResponse{}, err
+		return nil, err
 	}
 	capacity := window.Limit + 1
-	items := make([]serverapi.WorkflowTaskSessionItem, 0, capacity)
+	items := make([]*taskpb.SessionItem, 0, capacity)
 	if window.Offset < len(active) {
 		activeEnd := min(len(active), window.Offset+capacity)
 		for _, projection := range active[window.Offset:activeEnd] {
@@ -74,7 +72,7 @@ func (s *TaskSessions) List(ctx context.Context, req serverapi.WorkflowTaskOffse
 	if remaining > 0 {
 		excludedSessionIDsJSON, err := json.Marshal(activeSessionIDs)
 		if err != nil {
-			return serverapi.WorkflowTaskSessionListResponse{}, err
+			return nil, err
 		}
 		idleOffset := max(window.Offset-len(active), 0)
 		rows, err := s.queries.ListIdleWorkflowTaskSessions(ctx, sqlitegen.ListIdleWorkflowTaskSessionsParams{
@@ -84,7 +82,7 @@ func (s *TaskSessions) List(ctx context.Context, req serverapi.WorkflowTaskOffse
 			PageLimit:              int64(remaining),
 		})
 		if err != nil {
-			return serverapi.WorkflowTaskSessionListResponse{}, err
+			return nil, err
 		}
 		for _, row := range rows {
 			projection, err := taskSessionProjectionFromFields(
@@ -93,19 +91,20 @@ func (s *TaskSessions) List(ctx context.Context, req serverapi.WorkflowTaskOffse
 				row.NodeName,
 				row.ContinuationJson,
 				row.CreatedAtUnixMs,
-				serverapi.WorkflowTaskSessionStatusIdle,
+				taskpb.SessionStatus_SESSION_STATUS_IDLE,
 			)
 			if err != nil {
-				return serverapi.WorkflowTaskSessionListResponse{}, err
+				return nil, err
 			}
 			items = append(items, projection.item)
 		}
 	}
 	page := serverapi.FinalizeWorkflowOffsetPage(window, items)
-	return serverapi.WorkflowTaskSessionListResponse{
-		TaskID:             taskID,
-		WorkflowOffsetPage: page,
-	}, nil
+	next, err := TaskNextOffset(page.NextOffset)
+	if err != nil {
+		return nil, err
+	}
+	return &taskpb.SessionListSuccess{TaskId: taskID, Items: page.Items, NextOffset: next}, nil
 }
 
 func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([]taskSessionProjection, []string, error) {
@@ -113,14 +112,14 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 	if err != nil {
 		return nil, nil, err
 	}
-	statuses := make(map[string]serverapi.WorkflowTaskSessionStatus, len(snapshots))
+	statuses := make(map[string]taskpb.SessionStatus, len(snapshots))
 	candidateIDs := make([]string, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		status, err := taskSessionStatus(snapshot.Activity)
 		if err != nil {
 			return nil, nil, fmt.Errorf("Session %q runtime activity: %w", snapshot.SessionID, err)
 		}
-		if status == serverapi.WorkflowTaskSessionStatusIdle {
+		if status == taskpb.SessionStatus_SESSION_STATUS_IDLE {
 			continue
 		}
 		statuses[snapshot.SessionID] = status
@@ -170,37 +169,37 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 		if active[left].createdAtUnixMs != active[right].createdAtUnixMs {
 			return active[left].createdAtUnixMs > active[right].createdAtUnixMs
 		}
-		return active[left].item.SessionID > active[right].item.SessionID
+		return active[left].item.SessionId > active[right].item.SessionId
 	})
 	return active, activeSessionIDs, nil
 }
 
-func taskSessionStatus(activity *runtimepb.Activity) (serverapi.WorkflowTaskSessionStatus, error) {
+func taskSessionStatus(activity *runtimepb.Activity) (taskpb.SessionStatus, error) {
 	if err := protoapi.Validate(activity); err != nil {
-		return "", err
+		return taskpb.SessionStatus_SESSION_STATUS_UNSPECIFIED, err
 	}
 	switch activity.State {
 	case runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT:
-		return serverapi.WorkflowTaskSessionStatusQuestion, nil
+		return taskpb.SessionStatus_SESSION_STATUS_QUESTION, nil
 	case runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING,
 		runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 		runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING,
 		runtimepb.ActivityState_RUNTIME_ACTIVITY_CLOSING:
-		return serverapi.WorkflowTaskSessionStatusRunning, nil
+		return taskpb.SessionStatus_SESSION_STATUS_RUNNING, nil
 	case runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE, runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE:
-		return serverapi.WorkflowTaskSessionStatusIdle, nil
+		return taskpb.SessionStatus_SESSION_STATUS_IDLE, nil
 	default:
-		return "", fmt.Errorf("unsupported runtime activity state %q", activity.State)
+		return taskpb.SessionStatus_SESSION_STATUS_UNSPECIFIED, fmt.Errorf("unsupported runtime activity state %q", activity.State)
 	}
 }
 
-func taskSessionStatusRank(status serverapi.WorkflowTaskSessionStatus) int {
+func taskSessionStatusRank(status taskpb.SessionStatus) int {
 	switch status {
-	case serverapi.WorkflowTaskSessionStatusRunning:
+	case taskpb.SessionStatus_SESSION_STATUS_RUNNING:
 		return 0
-	case serverapi.WorkflowTaskSessionStatusQuestion:
+	case taskpb.SessionStatus_SESSION_STATUS_QUESTION:
 		return 1
-	case serverapi.WorkflowTaskSessionStatusIdle:
+	case taskpb.SessionStatus_SESSION_STATUS_IDLE:
 		return 2
 	default:
 		panic(fmt.Sprintf("unknown Task Session status %q", status))
@@ -213,15 +212,15 @@ func taskSessionProjectionFromFields(
 	nodeName sql.NullString,
 	continuationJSON string,
 	createdAtUnixMs int64,
-	status serverapi.WorkflowTaskSessionStatus,
+	status taskpb.SessionStatus,
 ) (taskSessionProjection, error) {
 	agentRole, err := taskSessionAgentRole(continuationJSON)
 	if err != nil {
 		return taskSessionProjection{}, fmt.Errorf("Session %q Agent role: %w", sessionID, err)
 	}
 	return taskSessionProjection{
-		item: serverapi.WorkflowTaskSessionItem{
-			SessionID:   sessionID,
+		item: &taskpb.SessionItem{
+			SessionId:   sessionID,
 			SessionName: optionalTaskSessionString(sessionName),
 			NodeName:    metadata.OptionalString(nodeName),
 			AgentRole:   agentRole,

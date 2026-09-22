@@ -558,13 +558,23 @@ func (c *Remote) DeleteWorkflowTaskComment(ctx context.Context, req *taskpb.Comm
 	return callGeneratedBinary(c, ctx, method, req, &taskpb.CommentDeleteResult{}, taskEntityGeneratedError[*taskpb.CommentDeleteError])
 }
 
-func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskActivityListResponse](c, ctx, protocol.MethodWorkflowTaskActivityList, req)
-	return validateWorkflowTaskBoundResponse("list workflow task activity", strings.TrimSpace(req.TaskID), response, err)
+func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.ActivityListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskActivityService").Methods().ByName("List")
+	response, err := callGeneratedBinary(c, ctx, method, req, &taskpb.ActivityListResult{}, taskEntityGeneratedError[*taskpb.ActivityListError])
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range response.Items {
+		if item.TaskId != req.TaskId {
+			return nil, fmt.Errorf("Task activity returned an item for another Task")
+		}
+	}
+	return response, nil
 }
 
-func (c *Remote) ListWorkflowTaskSessions(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskOffsetPageRequest, serverapi.WorkflowTaskSessionListResponse](c, ctx, protocol.MethodWorkflowTaskSessionList, req)
+func (c *Remote) ListWorkflowTaskSessions(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskSessionService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.SessionListResult{}, taskEntityGeneratedError[*taskpb.SessionListError])
 }
 
 func (c *Remote) ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {

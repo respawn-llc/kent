@@ -8,8 +8,6 @@ import (
 const (
 	MethodWorkflowAttentionList          = "workflow.attention.list"
 	MethodWorkflowTaskAttentionList      = "workflow.task.attention.list"
-	MethodWorkflowTaskActivityList       = "workflow.task.activity.list"
-	MethodWorkflowTaskSessionList        = "workflow.task.session.list"
 	MethodWorkflowSubscribe              = "workflow.subscribe"
 	MethodWorkflowSubscribeProject       = "workflow.subscribeProject"
 	MethodWorkflowEvent                  = "workflow.event"
