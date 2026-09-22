@@ -1,4 +1,4 @@
-import { Settings, Zap } from "lucide-react";
+import { ComposerIcon } from "./ComposerIcon";
 import { useTranslation } from "react-i18next";
 import {
   InteractiveChip,
@@ -23,8 +23,8 @@ export function ChatSettingsChip({ role, model, thinking, fast }: SummaryProps) 
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <InteractiveChip aria-label={t("chatSettings.open")} className="min-w-0">
-              <Settings className="shrink-0" size={14} />
+            <InteractiveChip variant="ghost" aria-label={t("chatSettings.open")} className="min-w-0">
+              <ComposerIcon kind="settings" />
               <span className="shrink-0 whitespace-nowrap">{role}:</span>
               <span className="min-w-0 truncate font-mono text-[var(--color-muted)] [direction:rtl] [text-align:left]">
                 <bdi dir="ltr">{model}</bdi>
@@ -32,7 +32,7 @@ export function ChatSettingsChip({ role, model, thinking, fast }: SummaryProps) 
               {thinking !== null && (
                 <span className="shrink-0 font-mono text-[var(--color-muted)]">{thinking}</span>
               )}
-              {fast && <Zap className="shrink-0 text-[var(--color-secondary)]" size={14} />}
+              {fast && <ComposerIcon kind="fast" className="text-[var(--color-secondary)]" />}
             </InteractiveChip>
           </PopoverTrigger>
         </TooltipTrigger>

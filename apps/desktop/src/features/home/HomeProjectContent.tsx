@@ -23,8 +23,9 @@ import {
 import {
   directionalBoundary,
   EmptyState,
-  homeListCardListMaxWidthClassName,
-  HomeListCard,
+  Item,
+  ItemContent,
+  ItemTitle,
   InfiniteListBoundary,
   IslandTabs,
   VirtualizedInfiniteList,
@@ -192,7 +193,7 @@ function SessionList({
   });
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict"
       empty={
         initialBoundary === undefined ? (
           <EmptyState
@@ -216,8 +217,9 @@ function SessionList({
       paddingEnd={16}
       paddingStart={16}
       renderItem={(session) => (
-        <HomeListCard
-          ariaLabel={session.name ?? session.firstPromptPreview ?? session.id}
+        <Item
+          className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
+          aria-label={session.name ?? session.id}
           onClick={() => {
             void navigation.openSessionChat({
               catalogOrigin: { category },
@@ -226,14 +228,18 @@ function SessionList({
             });
           }}
         >
-          <span className="truncate text-sm text-[var(--color-muted)]">
-            {formatRelativeTime(session.updatedAt)}
-          </span>
-          <strong className="truncate">{session.name ?? session.firstPromptPreview ?? session.id}</strong>
-          <span className="truncate text-sm text-[var(--color-muted)]">
-            {session.firstPromptPreview ?? t("home.prototype.noPromptPreview")}
-          </span>
-        </HomeListCard>
+          <ItemContent className="min-w-0">
+            <ItemTitle className="max-w-full">
+              <strong className="truncate">{session.name ?? session.id}</strong>
+            </ItemTitle>
+            {session.firstPromptPreview === null ? null : (
+              <span className="line-clamp-2 break-words text-sm text-[var(--color-muted)]">
+                {session.firstPromptPreview}
+              </span>
+            )}
+            <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
+          </ItemContent>
+        </Item>
       )}
     />
   );

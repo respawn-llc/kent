@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	items := llm.ItemsFromMessages([]llm.Message{
-		{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
+		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary\n\nwith details\n")},
 		{Role: llm.RoleUser, Content: textutil.Value("preserved")},
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("environment")},
 	})
@@ -55,6 +56,14 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 		}
 	}
 	hydrationFacts := hydrationSnapshot(t, engine).CommittedRows
+	if !reflect.DeepEqual(hydrationFacts, pageFacts) {
+		for index := range hydrationFacts {
+			if index < len(pageFacts) && !reflect.DeepEqual(hydrationFacts[index], pageFacts[index]) {
+				t.Errorf("row %d hydration=%#v page=%#v; notices hydration=%#v page=%#v", index, hydrationFacts[index], pageFacts[index], hydrationFacts[index].Notice, pageFacts[index].Notice)
+			}
+		}
+		t.Fatal("hydration and page payloads differ")
+	}
 	if len(hydrationFacts) != len(live) {
 		t.Fatalf("current hydration facts = %+v, live facts = %+v", hydrationFacts, live)
 	}
@@ -87,6 +96,32 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 	}
 
 	_ = transcript.EntryVisibilityOngoing
+}
+
+func TestHandoffContextPayloadAgreesAcrossPageAndHydration(t *testing.T) {
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	var messages []llm.Message
+	for _, kind := range []llm.MessageType{
+		llm.MessageTypeSubagents, llm.MessageTypeSkills, llm.MessageTypeWorktreeMode,
+		llm.MessageTypeAgentsMD, llm.MessageTypeCompactionSummary, llm.MessageTypeEnvironment,
+		llm.MessageTypeCompactionPreservedUserMessage, llm.MessageTypeHandoffFutureMessage,
+	} {
+		messages = append(messages, llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(kind), Content: textutil.Value("context\n\ncontent\n")})
+	}
+	if err := steerTestActiveStep(engine, "compaction", steerHistoryReplacementIntent("local", compactionModeHandoff, 4, nil, llm.ItemsFromMessages(messages))); err != nil {
+		t.Fatal(err)
+	}
+	page := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot)
+	hydrated := hydrationSnapshot(t, engine).CommittedRows
+	if !reflect.DeepEqual(page, hydrated) {
+		for index := range hydrated {
+			if index < len(page) && !reflect.DeepEqual(page[index], hydrated[index]) {
+				t.Errorf("row %d page=%#v hydration=%#v", index, page[index].Notice, hydrated[index].Notice)
+			}
+		}
+		t.Fatal("handoff page and hydration disagree")
+	}
 }
 
 func TestHistoryReplacementLocatorsSkipFilteredToolCallEntries(t *testing.T) {

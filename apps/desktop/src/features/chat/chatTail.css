@@ -1,6 +1,15 @@
+.chat-transcript pre,
+.chat-transcript pre code {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .chat-tail-control {
   position: absolute;
-  inset-inline-end: var(--space-3);
+  left: 50%;
+  translate: -50% 0;
   bottom: var(--space-3);
   transform: scale(1);
   transition: transform var(--motion-fast);

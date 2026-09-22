@@ -383,9 +383,10 @@ func (b metaContextBuilder) discoverAgents(home string, permissive bool) ([]llm.
 			return nil, fmt.Errorf("read AGENTS.md: %w", readErr)
 		}
 		out = append(out, llm.Message{
-			Role:        llm.RoleDeveloper,
-			MessageType: textutil.Value(llm.MessageTypeAgentsMD),
-			SourcePath:  textutil.Value(path),
+			Role:           llm.RoleDeveloper,
+			MessageType:    textutil.Value(llm.MessageTypeAgentsMD),
+			SourcePath:     textutil.Value(path),
+			CompactContent: textutil.Value(pathutil.Compact(path, b.environmentCWD, home) + " content"),
 			Content: textutil.Value(fmt.Sprintf(
 				"# Authoritative instructions, rules, and important context from the %s file:\n\n%s",
 				pathutil.Compact(path, b.environmentCWD, home), data,

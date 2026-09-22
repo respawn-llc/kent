@@ -1,4 +1,4 @@
-import { AlertTriangle, GitBranch } from "lucide-react";
+import { ComposerIcon } from "./ComposerIcon";
 import type { ChatExecutionTarget } from "@/api";
 import { useOwnedSidebarRoots } from "@/app-facade";
 import { InteractiveChip } from "@/ui";
@@ -20,6 +20,7 @@ export function WorktreeControl({
   return (
     <div className="chat-composer-worktree">
       <InteractiveChip
+        variant="ghost"
         className="flex max-w-full items-center gap-[var(--space-2)] text-sm"
         onClick={(event) => {
           const returnFocus = event.currentTarget;
@@ -30,9 +31,9 @@ export function WorktreeControl({
         }}
       >
         {label.warning ? (
-          <AlertTriangle className="shrink-0 text-[var(--color-warning)]" size={16} />
+          <ComposerIcon kind="warning" className="text-[var(--color-warning)]" />
         ) : (
-          <GitBranch className="shrink-0" size={16} />
+          <ComposerIcon kind="worktree" />
         )}
         <span className="truncate">{label.title}</span>
       </InteractiveChip>

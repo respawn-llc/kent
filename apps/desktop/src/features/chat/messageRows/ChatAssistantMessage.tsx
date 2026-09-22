@@ -19,7 +19,7 @@ export function ChatAssistantMessage({
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
-        <Island className="chat-message-island" level={1} unpadded>
+        <Island className="chat-message-island" level={1} radius="l" unpadded>
           {item.state === "live" ? (
             <StreamingMarkdown value={item.value.Text} />
           ) : (
