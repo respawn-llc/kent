@@ -6,7 +6,6 @@ export type PromptPrimaryControl = Readonly<{
 
 export type PromptPrimaryFocusRequest = Readonly<{
   key: PromptAnswerKey;
-  requestID: number;
 }>;
 
 export class PromptPrimaryControlRegistry {

@@ -39,7 +39,7 @@ describe("Task Detail prompt primary controls", () => {
       <I18nextProvider i18n={appI18n}>
         <AppServicesProvider services={services}>
           <QuestionFormView
-            answerQuestion={{ isPending: false, mutateAsync: async () => undefined }}
+            answerQuestion={{ submit: () => undefined }}
             attention={attention}
             onSelectionStateChange={() => undefined}
             presentation={questionPresentation(attention)}

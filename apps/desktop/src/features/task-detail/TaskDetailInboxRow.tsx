@@ -6,9 +6,9 @@ import { LoadingState } from "@/ui";
 import { TaskInbox } from "./TaskDetailInbox";
 import type { PromptAnswerKey, PromptAnswerState } from "./PromptAnswerState";
 import type { PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
-import type { useTaskMutations } from "./useTaskDetailData";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 
 export function TaskDetailInboxRow({
   answerQuestion,
@@ -21,12 +21,12 @@ export function TaskDetailInboxRow({
   primaryFocusRequest,
   promptAnswerState,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
   attentionPending: boolean;
   detail: TaskDetail;
   initialFocus?: TaskDetailInitialFocus | undefined;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;

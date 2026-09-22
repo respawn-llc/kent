@@ -28,7 +28,7 @@ import { TaskResumeButton, TaskStartButton } from "./TaskResumeButton";
 import { TaskPropertyLine } from "./TaskPropertyLine";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 import { taskExecutionRoot } from "./taskExecutionTarget";
-import type { useTaskMutations } from "./useTaskDetailData";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 
 export type TaskDraft = Readonly<{
   title: string;
@@ -198,7 +198,7 @@ export function PropertiesIsland({
   openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
@@ -266,7 +266,7 @@ function TaskActionPanel({
   openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
@@ -292,9 +292,9 @@ function TaskActionPanel({
         {detail.actions.canInterrupt ? (
           <Button
             aria-label={interruptFullLabel}
-            disabled={mutations.interrupt.isPending}
+            disabled={mutations.interruptPending}
             onClick={() => {
-              mutations.interrupt.mutate(undefined);
+              mutations.interrupt();
             }}
             title={interruptFullLabel}
             variant="danger"

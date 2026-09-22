@@ -2,59 +2,38 @@ import { Bot, Save, Trash2, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ActivityItem, TaskComment } from "@/api";
-import { errorMessage } from "@/api";
-import { formatRelativeTime, useStatusController, useTextFieldSubmitShortcut } from "@/app-facade";
+import { formatRelativeTime, useTextFieldSubmitShortcut } from "@/app-facade";
 import { Button, IslandSurface, StaticMarkdown } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
-import type { useTaskMutations } from "./useTaskDetailData";
 import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskDetailIslandStyles";
+
+export type CommentActions = Readonly<{
+  pending: boolean;
+  editingPending: boolean;
+  submit(): void;
+  remove(id: string): void;
+}>;
 
 export function CommentComposer({
   body,
   editing,
-  mutations,
+  actions,
   onBodyChange,
   onEditingChange,
 }: Readonly<{
   body: string;
   editing: Readonly<{ id: string; body: string }> | null;
-  mutations: ReturnType<typeof useTaskMutations>;
+  actions: CommentActions;
   onBodyChange: (body: string) => void;
   onEditingChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
 }>) {
   const { t } = useTranslation();
-  const { push } = useStatusController();
   const commentBody = editing?.body ?? body;
-  const pending =
-    mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
-  const interactionDisabled = pending;
+  const interactionDisabled = actions.pending;
   const canSubmit = !interactionDisabled && commentBody.trim().length > 0;
 
-  async function submit(): Promise<void> {
-    if (interactionDisabled || commentBody.trim().length === 0) {
-      return;
-    }
-    try {
-      if (editing === null) {
-        await mutations.addComment.mutateAsync(body);
-        onBodyChange("");
-        return;
-      }
-      await mutations.replaceComment.mutateAsync({ commentID: editing.id, body: editing.body });
-      onEditingChange(null);
-    } catch (error) {
-      push({
-        id: "task-comment-save-error",
-        tone: "danger",
-        title: t("task.commentSaveFailed"),
-        body: errorMessage(error),
-      });
-    }
-  }
   const submitShortcut = useTextFieldSubmitShortcut({
-    action: () => {
-      void submit();
-    },
+    action: actions.submit,
     available: canSubmit,
     kind: "direct",
   });
@@ -86,7 +65,7 @@ export function CommentComposer({
           className="relative z-10 col-start-1 row-start-1 self-end justify-self-end"
           data-testid="task-comment-save"
           disabled={!canSubmit}
-          onClick={() => void submit()}
+          onClick={actions.submit}
           size="icon"
           style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
           variant="primary"
@@ -101,38 +80,19 @@ export function CommentComposer({
 export function CommentRow({
   comment,
   editing,
-  mutations,
+  actions,
   onEdit,
 }: Readonly<{
   comment: TaskComment;
   editing: boolean;
-  mutations: ReturnType<typeof useTaskMutations>;
+  actions: CommentActions;
   onEdit: (comment: TaskComment) => void;
 }>) {
   const { t } = useTranslation();
-  const { push } = useStatusController();
-  const pending =
-    mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
-  const interactionDisabled = pending;
+  const interactionDisabled = actions.pending;
   const authorLabel =
     comment.authorID ??
     t(comment.authorKind === "agent" ? "task.commentAuthorAgent" : "task.commentAuthorUser");
-
-  async function deleteComment(commentID: string): Promise<void> {
-    if (interactionDisabled) {
-      return;
-    }
-    try {
-      await mutations.deleteComment.mutateAsync(commentID);
-    } catch (error) {
-      push({
-        id: "task-comment-delete-error",
-        tone: "danger",
-        title: t("task.commentDeleteFailed"),
-        body: errorMessage(error),
-      });
-    }
-  }
 
   return (
     <IslandSurface
@@ -168,7 +128,9 @@ export function CommentRow({
           aria-label={t("task.deleteComment")}
           className="grid h-8 w-8 place-items-center rounded-full text-[var(--color-error)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)] disabled:cursor-not-allowed disabled:opacity-55"
           disabled={interactionDisabled}
-          onClick={() => void deleteComment(comment.id)}
+          onClick={() => {
+            actions.remove(comment.id);
+          }}
           type="button"
         >
           <Trash2 aria-hidden="true" size={16} strokeWidth={1.8} />
