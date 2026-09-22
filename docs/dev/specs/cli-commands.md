@@ -326,6 +326,10 @@
 - CLI Worktree deletion must retain branches by default for both humans and agents. `--delete-branch` must attempt safe branch deletion without confirmation. `--delete-branch --force-delete-branch` must authorize deletion even when the branch is unmerged. A failed branch deletion must report the retained branch and its diagnostic.
 - When active Sessions block Worktree deletion, CLI must tell the caller to ask those Sessions to leave the Worktree or finish their work, then retry. CLI must present the bounded Session details defined in [Worktree Management](tui-transcript.md#worktree-management) as `<name> (<id>)`, using “Sessions” rather than “runs”.
 - CLI Worktree creation must stop after setup without entering the created Worktree.
+- CLI Worktree creation must require options before its branch/ref and optional destination arguments.
+- CLI Worktree creation must reject positional arguments beginning with `-`, including after `--`. Literal destinations with dash-prefixed names must use `./` or an absolute path.
+- For a dash-prefixed positional argument, CLI Worktree creation must exit with code 2 before contacting the server and explain on stderr that options belong before the branch/ref and literal paths must use `./` or an absolute path.
+- For an unknown option or a missing option value, CLI Worktree creation must exit with code 2 before contacting the server and identify the invalid option or missing value on stderr with usage guidance.
 - When Session context exists, successful CLI Worktree creation must print a separate enter action.
 - For cross-Workspace creation, the enter action must use the created Worktree's absolute path.
 - Outside agent shells, the enter action must include `--session`.

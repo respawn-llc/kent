@@ -181,6 +181,13 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return exitCode
 	}
 	positionals := fs.Args()
+	for _, positional := range positionals {
+		positional = strings.TrimSpace(positional)
+		if strings.HasPrefix(positional, "-") {
+			fmt.Fprintf(stderr, "worktree create does not accept option-looking positional argument %q; put options before the branch/ref, or use ./ or an absolute path for a literal directory\n", positional)
+			return 2
+		}
+	}
 	if len(positionals) < 1 || len(positionals) > 2 {
 		fmt.Fprintln(stderr, "worktree create requires <branch-or-ref> and optional [path]")
 		return 2
