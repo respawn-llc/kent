@@ -33,8 +33,8 @@ Press Tab to autocomplete a command, and Enter to autocomplete and send. Press T
 | `/init <instructions>`                                                                  | optional free-form text      | Run repository initialization. It reuses an empty session; otherwise it starts a fresh child session.                                                              |
 | `/prompt:<name>`                                                                        | optional trailing arguments  | Run a server-owned custom prompt command.                                                                                                                          |
 
-
 ## File-backed Prompt Commands
+
 Kent discovers Markdown prompt commands on the server that owns the attached Project Workspace.
 
 The effective roots, in descending precedence, are:

@@ -36,6 +36,7 @@ kent run watch <session-id> # report the next question or terminal outcome
 When a human invokes `kent run steer`, the running Session receives a user message. When agents communicate, they also receive guidance on how to respond.
 
 ### Questions
+
 Subagent `kent run` sessions cannot ask questions, but agents can answer each other's questions for workflow tasks and interactive sessions. In general, humans don't need to use the CLI, agents know how to ask and answer each other's questions.
 
 To inspect or answer a pending Question from an interactive or Workflow Session:
@@ -52,6 +53,7 @@ kent questions list --session <session-id> --max-handoffs 1 --json
 More info in the CLI help.
 
 ## Subagent Roles
+
 Roles select the model settings and context used by a headless Session.
 
 - Resuming a Session preserves the Session's last-used role.
@@ -81,20 +83,20 @@ This is needed to enable functionality related to project management and allows 
 - `kent rebind <session-id> <new-path>` retargets a session to a target path's only attached project.
 - `kent rebind --project <project-id> <session-id> <new-path>` selects a non-workflow session's project explicitly and attaches an unbound target workspace.
 
-
-- Workflow sessions cannot move across projects. 
-- Existing background commands continue in their original directories. 
+- Workflow sessions cannot move across projects.
+- Existing background commands continue in their original directories.
 
 More info in the CLI help.
 
 ### Project deletion
+
 Delete a Project by its canonical Project ID:
 
 ```bash
 kent project delete <project-id>
 ```
 
-You can only do that if there are no active sessions or tasks targeting it. 
+You can only do that if there are no active sessions or tasks targeting it.
 
 :::warning
 
