@@ -20,9 +20,11 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCompleteWorkflowTaskReturnsPendingApprovalWithoutReplacingCurrentNode(t *testing.T) {
@@ -39,25 +41,25 @@ func TestCompleteWorkflowTaskReturnsPendingApprovalWithoutReplacingCurrentNode(t
 	service := currentNodeCompletionService(execution)
 	sessionID := runtimeids.NewSessionID()
 
-	response, err := service.CompleteWorkflowTask(context.Background(), serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-		AgentSessionID: sessionID.String(),
-		RunID:          currentNodeCompletionRunID(t),
-		StepID:         currentNodeCompletionStepID(t),
-		TransitionID:   "done",
+	response, err := service.CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
+		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+		AgentSessionId: proto.String(sessionID.String()),
+		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+		TransitionId:   proto.String("done"),
 	})
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.AgentCompletion == nil {
+	if response.GetAgentCompletion() == nil {
 		t.Fatalf("agent completion response = %+v", response)
 	}
-	completion := response.AgentCompletion
-	if completion.TaskID != string(source.TaskID) {
-		t.Fatalf("task id = %q, want %q", completion.TaskID, source.TaskID)
+	completion := response.GetAgentCompletion()
+	if completion.TaskId != string(source.TaskID) {
+		t.Fatalf("task id = %q, want %q", completion.TaskId, source.TaskID)
 	}
-	if completion.PendingApprovalID == nil || *completion.PendingApprovalID != approvalID.String() {
-		t.Fatalf("pending approval id = %v, want %q", completion.PendingApprovalID, approvalID)
+	if completion.PendingApprovalId == nil || *completion.PendingApprovalId != approvalID.String() {
+		t.Fatalf("pending approval id = %v, want %q", completion.PendingApprovalId, approvalID)
 	}
 	if len(completion.CurrentNodes) != 0 {
 		t.Fatalf("current nodes = %+v, want none while source remains pending approval", completion.CurrentNodes)
@@ -80,19 +82,18 @@ func TestCompleteWorkflowTaskReturnsResultDespitePostCommitDiagnostic(t *testing
 		sessionDiagnostic: publicationErr,
 	}
 	response, err := currentNodeCompletionService(execution).CompleteWorkflowTask(
-		context.Background(),
-		serverapi.WorkflowTaskCompleteRequest{
-			ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-			AgentSessionID: runtimeids.NewSessionID().String(),
-			RunID:          currentNodeCompletionRunID(t),
-			StepID:         currentNodeCompletionStepID(t),
-			TransitionID:   "done",
+		context.Background(), &taskpb.CompleteRequest{
+			ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+			AgentSessionId: proto.String(runtimeids.NewSessionID().String()),
+			RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+			StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+			TransitionId:   proto.String("done"),
 		},
 	)
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.AgentCompletion == nil || response.AgentCompletion.TaskID != string(source.TaskID) {
+	if response.GetAgentCompletion() == nil || response.GetAgentCompletion().TaskId != string(source.TaskID) {
 		t.Fatalf("accepted completion response = %+v, want Task %s", response, source.TaskID)
 	}
 }
@@ -102,8 +103,8 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.ID), started.CurrentNodes[0])
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
+	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.Id), started.CurrentNodes[0])
 
 	feed := &approvalCompletionFeed{pending: make(chan struct{}, 1), resolutionStarted: make(chan struct{}, 2), resolutionRelease: make(chan struct{})}
 	t.Cleanup(feed.release)
@@ -191,13 +192,13 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 		t.Fatal("timed out waiting for pending Approval")
 	}
 
-	completionDone := make(chan approvalCompletionAsync[serverapi.WorkflowTaskCompleteResponse], 1)
+	completionDone := make(chan approvalCompletionAsync[*taskpb.CompleteSuccess], 1)
 	go func() {
-		response, completeErr := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-			ActorKind: serverapi.WorkflowTaskCompleteActorUser, Force: true, TaskID: task.Task.ID, TransitionID: "next",
-			OutputValues: map[string]string{"prior_summary": "planned"},
+		response, completeErr := service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+			ActorKind: taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER, Force: true, TaskId: proto.String(task.Task.Id), TransitionId: proto.String("next"),
+			OutputValues: []*taskpb.NamedValue{{Name: "prior_summary", Value: "planned"}},
 		})
-		completionDone <- approvalCompletionAsync[serverapi.WorkflowTaskCompleteResponse]{value: response, err: completeErr}
+		completionDone <- approvalCompletionAsync[*taskpb.CompleteSuccess]{value: response, err: completeErr}
 	}()
 	select {
 	case <-feed.resolutionStarted:
@@ -246,7 +247,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	if answer.err != nil || len(answer.value) != 1 || answer.value[0].Outcome != sessionruntime.PromptAnswerOutcomeSkipped {
 		t.Fatalf("stale Approval answer = (%+v, %v), want Skipped", answer.value, answer.err)
 	}
-	var completion approvalCompletionAsync[serverapi.WorkflowTaskCompleteResponse]
+	var completion approvalCompletionAsync[*taskpb.CompleteSuccess]
 	select {
 	case completion = <-completionDone:
 	case <-time.After(5 * time.Second):
@@ -255,8 +256,8 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	if completion.err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", completion.err)
 	}
-	if completion.value.ForcedMove == nil || completion.value.ForcedMove.TaskID != task.Task.ID || completion.value.ForcedMove.TargetNodeID == "" || completion.value.ForcedMove.Outcome.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied || completion.value.ForcedMove.Outcome.Applied == nil || len(completion.value.ForcedMove.Outcome.Applied.CurrentNodes) != 1 {
-		t.Fatalf("forced completion response = %+v, want applied move", completion.value.ForcedMove)
+	if completion.value.GetForcedMove() == nil || completion.value.GetForcedMove().TaskId != task.Task.Id || completion.value.GetForcedMove().TargetNodeId == "" || completion.value.GetForcedMove().Outcome.GetApplied() == nil || completion.value.GetForcedMove().Outcome.GetApplied() == nil || len(completion.value.GetForcedMove().Outcome.GetApplied().CurrentNodes) != 1 {
+		t.Fatalf("forced completion response = %+v, want applied move", completion.value.GetForcedMove())
 	}
 	if execution.manualMoveSelections != 1 {
 		t.Fatalf("Manual Move selections = %d, want 1", execution.manualMoveSelections)
@@ -317,31 +318,30 @@ func TestCompleteWorkflowTaskForceReturnsDependencyConfirmationManualMoveOutcome
 	blocked := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	startWorkflowServiceTask(t, ctx, service, blocked.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, blocked.Task.Id)
 	execution.calls = nil
-	if _, err := service.AddWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyAddRequest{
-		BlockerTaskID: blocker.Task.ID,
-		BlockedTaskID: blocked.Task.ID,
+	if _, err := service.AddWorkflowTaskDependency(ctx, &taskpb.DependencyAddRequest{
+		BlockerTaskId: blocker.Task.Id,
+		BlockedTaskId: blocked.Task.Id,
 	}); err != nil {
 		t.Fatalf("AddWorkflowTaskDependency: %v", err)
 	}
 
-	response, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:    serverapi.WorkflowTaskCompleteActorUser,
+	response, err := service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+		ActorKind:    taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER,
 		Force:        true,
-		TaskID:       blocked.Task.ID,
-		TransitionID: "next",
-		OutputValues: map[string]string{"prior_summary": "planned"},
+		TaskId:       proto.String(blocked.Task.Id),
+		TransitionId: proto.String("next"),
+		OutputValues: []*taskpb.NamedValue{{Name: "prior_summary", Value: "planned"}},
 	})
 	if err != nil {
 		t.Fatalf("CompleteWorkflowTask: %v", err)
 	}
-	if response.ForcedMove == nil ||
-		response.ForcedMove.TaskID != blocked.Task.ID ||
-		response.ForcedMove.TargetNodeID == "" ||
-		response.ForcedMove.Outcome.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeDependencyConfirmationRequired ||
-		response.ForcedMove.Outcome.UnsatisfiedDependencyCount == nil ||
-		*response.ForcedMove.Outcome.UnsatisfiedDependencyCount != 1 {
+	if response.GetForcedMove() == nil ||
+		response.GetForcedMove().TaskId != blocked.Task.Id ||
+		response.GetForcedMove().TargetNodeId == "" ||
+		response.GetForcedMove().Outcome.GetDependencyConfirmationRequired() == nil ||
+		response.GetForcedMove().Outcome.GetDependencyConfirmationRequired().UnsatisfiedDependencyCount != 1 {
 		t.Fatalf("forced completion response = %+v", response)
 	}
 	if !reflect.DeepEqual(execution.calls, []string{"interrupt"}) {
@@ -352,34 +352,15 @@ func TestCompleteWorkflowTaskForceReturnsDependencyConfirmationManualMoveOutcome
 func TestCompleteWorkflowTaskMapsMissingLiveSourceFailure(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 	execution := &currentNodeCompletionExecutionStub{sessionErr: sessionruntime.ErrExecutionNoLongerLive}
-	_, err := currentNodeCompletionService(execution).CompleteWorkflowTask(context.Background(), serverapi.WorkflowTaskCompleteRequest{
-		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
-		AgentSessionID: sessionID.String(),
-		RunID:          currentNodeCompletionRunID(t),
-		StepID:         currentNodeCompletionStepID(t),
-		TransitionID:   "done",
+	_, err := currentNodeCompletionService(execution).CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
+		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
+		AgentSessionId: proto.String(sessionID.String()),
+		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
+		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
+		TransitionId:   proto.String("done"),
 	})
 	if !errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
 		t.Fatalf("live completion error = %v, want target-not-found", err)
-	}
-}
-
-func TestWorkflowTaskCompleteContractHasExactAgentProvenanceAndNoPlacementFields(t *testing.T) {
-	for _, contract := range []reflect.Type{
-		reflect.TypeOf(serverapi.WorkflowTaskCompleteRequest{}),
-		reflect.TypeOf(serverapi.WorkflowTaskCompleteResponse{}),
-	} {
-		for _, removed := range []string{"RunIDs", "PlacementID", "PlacementIDs", "ProjectID", "ShortID"} {
-			if _, exists := contract.FieldByName(removed); exists {
-				t.Fatalf("%s still exposes removed completion field %s", contract.Name(), removed)
-			}
-		}
-	}
-	request := reflect.TypeOf(serverapi.WorkflowTaskCompleteRequest{})
-	for _, required := range []string{"RunID", "StepID"} {
-		if _, exists := request.FieldByName(required); !exists {
-			t.Fatalf("WorkflowTaskCompleteRequest lacks %s provenance", required)
-		}
 	}
 }
 
@@ -410,20 +391,20 @@ func currentNodeCompletionStepID(t *testing.T) *runtimeids.StepID {
 
 type currentNodeCompletionUnavailableTaskDetail struct{}
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTask(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTask(context.Context, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTaskByProjectShortID(context.Context, string, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTaskByProjectShortID(context.Context, string, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
 func (currentNodeCompletionUnavailableTaskDetail) ListCurrentNodes(context.Context, string) ([]workflow.CurrentNode, error) {
 	return nil, errors.New("current nodes unavailable")
 }
 
-func (currentNodeCompletionUnavailableTaskDetail) GetTaskByShortID(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
-	return serverapi.WorkflowTaskDetail{}, errors.New("task detail unavailable")
+func (currentNodeCompletionUnavailableTaskDetail) GetTaskByShortID(context.Context, string) (*taskpb.TaskDetail, error) {
+	return &taskpb.TaskDetail{}, errors.New("task detail unavailable")
 }
 
 func currentNodeCompletionReference(t *testing.T, taskID, nodeID string) workflow.CurrentNodeReference {
