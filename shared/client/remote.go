@@ -228,7 +228,7 @@ func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstra
 		req,
 		&authpb.GetBootstrapStatusResult{},
 		func(failure *authpb.GetBootstrapStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 
@@ -238,7 +238,7 @@ func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBoot
 		req,
 		&authpb.CompleteBootstrapResult{},
 		func(failure *authpb.CompleteBootstrapError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 	if err != nil {
 		return nil, err
@@ -252,7 +252,7 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		req,
 		&authpb.GetStatusResult{},
 		func(failure *authpb.GetStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return generatedOperationFailure(failure.Code)
 		})
 }
 

@@ -4,10 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"core/shared/protoapi"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
-	"core/shared/serverapi"
-
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -25,17 +21,6 @@ func bootstrapMethod(
 		panic(fmt.Sprintf("generated %s.%s descriptor is required", serviceName, methodName))
 	}
 	return method
-}
-
-func authGeneratedError(code string, internal *sharedpb.InternalFailureDetails) error {
-	switch code {
-	case "auth_required":
-		return serverapi.ErrServerAuthRequired
-	case "internal_failure":
-		return protoapi.InternalFailureFromProto(internal)
-	default:
-		return generatedOperationFailure(code)
-	}
 }
 
 func generatedOperationFailure(code string) error {
