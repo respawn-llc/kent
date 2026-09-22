@@ -1,14 +1,11 @@
-import {
-  createContext,
-  createElement,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, createElement, useCallback, useContext, useMemo, type ReactNode } from "react";
+import { useAtomSuspense } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { useAppServices } from "./useAppServices";
+import { shellObservationDiagnostics } from "./shellObservationDiagnostics";
 
 const WindowFocusContext = createContext<boolean | null | undefined>(undefined);
 
@@ -41,59 +38,43 @@ export function useWindowFocus(): boolean | null {
 
 function useWindowFocusSource(): boolean | null {
   const { logger, nativeBridge } = useAppServices();
-  const [focused, setFocused] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let focusEventObserved = false;
-    let focusListenerFailed = false;
-    let unlisten: (() => void) | null = null;
-
-    void nativeBridge.window
-      .onFocusChanged((nextFocused) => {
-        focusEventObserved = true;
-        if (active) {
-          setFocused(nextFocused);
-        }
-      })
-      .then((nextUnlisten) => {
-        if (active) {
-          unlisten = nextUnlisten;
-        } else {
-          nextUnlisten();
-        }
-      })
-      .catch((error: unknown) => {
-        focusListenerFailed = true;
-        if (active) {
-          setFocused(false);
-        }
-        void logger.append("warn", "Listening for native window focus changes failed.", {
-          error: error instanceof Error ? error.message : "unknown",
-        });
-      });
-
-    void nativeBridge.window
-      .isFocused()
-      .then((nextFocused) => {
-        if (active && !focusEventObserved && !focusListenerFailed) {
-          setFocused(nextFocused);
-        }
-      })
-      .catch((error: unknown) => {
-        if (active && !focusEventObserved) {
-          setFocused(false);
-        }
-        void logger.append("warn", "Reading native window focus state failed.", {
-          error: error instanceof Error ? error.message : "unknown",
-        });
-      });
-
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, [logger, nativeBridge.window]);
-
-  return focused;
+  const focused = useMemo(
+    () =>
+      Atom.make(
+        Stream.suspend((): Stream.Stream<boolean | null> => {
+          let observed = false;
+          const changes = nativeBridge.window.focusChanges(shellObservationDiagnostics(logger, "focus")).pipe(
+            Stream.catch((error) =>
+              Stream.fromEffect(
+                Effect.promise(async () =>
+                  logger.append("warn", "Listening for native window focus changes failed.", {
+                    error: error.message,
+                  }),
+                ).pipe(Effect.as(false)),
+              ),
+            ),
+            Stream.tap(() =>
+              Effect.sync(() => {
+                observed = true;
+              }),
+            ),
+          );
+          const initial = Stream.fromEffect(
+            Effect.tryPromise(async () => nativeBridge.window.isFocused()).pipe(
+              Effect.catch((error) =>
+                Effect.promise(async () =>
+                  logger.append("warn", "Reading native window focus state failed.", {
+                    error: String(error.cause),
+                  }),
+                ).pipe(Effect.as(false)),
+              ),
+            ),
+          ).pipe(Stream.filter(() => !observed));
+          return Stream.merge(changes, initial);
+        }),
+        { initialValue: null },
+      ),
+    [logger, nativeBridge.window],
+  );
+  return useAtomSuspense(focused).value;
 }

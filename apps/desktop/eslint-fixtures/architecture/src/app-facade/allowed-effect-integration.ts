@@ -17,7 +17,7 @@ export function changes(bridge: NativeBridge, projectID: string) {
     (queue) =>
       Effect.acquireRelease(
         Effect.promise(() =>
-          bridge.projectDeletion.onDeleted((event) => {
+          bridge.projectCreation.onCreated((event) => {
             if (event.projectID === projectID) Queue.offerUnsafe(queue, event);
           }),
         ),

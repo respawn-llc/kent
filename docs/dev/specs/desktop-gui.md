@@ -2,6 +2,8 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error instead of a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
+
 - On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
 

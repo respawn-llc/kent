@@ -84,9 +84,8 @@ export type AttentionNotificationEvent =
 
 export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotificationEvent }>;
 
-export type AttentionNotificationEventHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(event: AttentionNotificationEvent): void;
-  onComplete(code: number, message: string): void;
-  onError(error: Error): void;
-}>;
+export type AttentionObservation =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: AttentionNotificationEvent }>
+  | Readonly<{ kind: "complete"; code: number; message: string }>
+  | Readonly<{ kind: "error"; error: Error }>;

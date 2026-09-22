@@ -1,14 +1,32 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
+import type { AttentionObservation } from "./attentionNotifications";
 import { ContractError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { attentionNotificationEventParamsSchema } from "./schemas/attentionNotification";
-import type { RpcEventHandler } from "./transport";
+import type { DescriptorRpcTransport, RpcEventHandler } from "./transport";
+import { subscriptionStream } from "./subscriptionStream";
 
-export function attentionNotificationRpcHandler(handler: AttentionNotificationEventHandler): RpcEventHandler {
+export function attentionNotifications(
+  transport: DescriptorRpcTransport,
+  reportOverflow: () => Promise<void>,
+) {
+  return subscriptionStream<AttentionObservation>(
+    (emit) =>
+      transport.subscribe("attention.notification.subscribe", {}, attentionNotificationRpcHandler(emit)),
+    reportOverflow,
+  );
+}
+
+function attentionNotificationRpcHandler(emit: (value: AttentionObservation) => void): RpcEventHandler {
   return {
-    ...(handler.onOpen !== undefined ? { onOpen: handler.onOpen } : {}),
-    onComplete: handler.onComplete,
-    onError: handler.onError,
+    onOpen: () => {
+      emit({ kind: "open" });
+    },
+    onComplete: (code, message) => {
+      emit({ kind: "complete", code, message });
+    },
+    onError: (error) => {
+      emit({ kind: "error", error });
+    },
     onEvent(method, params) {
       if (method !== "attention.notification") {
         return;
@@ -18,10 +36,10 @@ export function attentionNotificationRpcHandler(handler: AttentionNotificationEv
         parsed = parseRpcResponse(method, attentionNotificationEventParamsSchema, params);
       } catch (error) {
         if (!(error instanceof ContractError)) throw error;
-        handler.onError(error);
+        emit({ kind: "error", error });
         return;
       }
-      handler.onEvent(parsed.event);
+      emit({ kind: "event", event: parsed.event });
     },
   };
 }

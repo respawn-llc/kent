@@ -88,9 +88,15 @@
         "@tauri-apps/plugin-process",
         "@tauri-apps/plugin-store",
         "@tauri-apps/plugin-updater",
+        "effect",
         "zod"
       ],
-      "devDependencies": ["typescript", "typescript7", "vitest"]
+      "devDependencies": [
+        "@effect/vitest",
+        "typescript",
+        "typescript7",
+        "vitest"
+      ]
     },
     "@app/server-api-contract": {
       "dependencies": ["@bufbuild/protobuf", "@bufbuild/protovalidate"],

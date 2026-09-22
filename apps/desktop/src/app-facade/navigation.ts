@@ -1,5 +1,6 @@
-import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useRouter, useRouterState, type RouterHistory } from "@tanstack/react-router";
+import { createContext, useCallback, useContext, useMemo } from "react";
+import { nativeObservation } from "@app/native-bridge";
 
 import { errorMessage } from "@/api";
 import { runNavigationTransition } from "./navigationTransitions";
@@ -41,6 +42,12 @@ export type NavigationStackState = Readonly<{
   canGoForward: boolean;
   hasHistory: boolean;
 }>;
+export const NavigationStackContext = createContext<NavigationStackState | null>(null);
+
+export function navigationHistoryChanges(history: RouterHistory, reportOverflow: () => Promise<void>) {
+  type Change = Parameters<Parameters<typeof history.subscribe>[0]>[0];
+  return nativeObservation<Change>(async (emit) => history.subscribe(emit), reportOverflow);
+}
 
 export function useAppNavigation(): AppNavigation {
   const navigate = useNavigate();
@@ -227,26 +234,9 @@ function searchValue(searchStr: string, key: string): string | null {
 }
 
 export function useNavigationStackState(): NavigationStackState {
-  const router = useRouter();
-  const currentIndex = useRouterState({
-    select: (state) => state.location.state.__TSR_index,
-  });
-  const [maxReachableIndex, setMaxReachableIndex] = useState(() => currentIndex);
-
-  useEffect(() => {
-    return router.history.subscribe(({ action, location }) => {
-      const nextIndex = location.state.__TSR_index;
-      setMaxReachableIndex((currentMax) => nextReachableHistoryIndex(currentMax, action.type, nextIndex));
-    });
-  }, [currentIndex, router.history]);
-
-  const canGoBack = currentIndex > 0;
-  const canGoForward = currentIndex < maxReachableIndex;
-  return {
-    canGoBack,
-    canGoForward,
-    hasHistory: canGoBack || canGoForward,
-  };
+  const state = useContext(NavigationStackContext);
+  if (state === null) throw new Error("SessionChatCatalogReturnProvider is required.");
+  return state;
 }
 
 export function nextReachableHistoryIndex(

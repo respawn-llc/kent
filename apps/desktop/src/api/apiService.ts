@@ -1,4 +1,4 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
+import type { AttentionObservation } from "./attentionNotifications";
 import type * as Stream from "effect/Stream";
 import type { ProjectObservation } from "./projectEvents";
 import type {
@@ -192,7 +192,7 @@ export interface ApiService {
   listPendingPrompts(sessionID: string): Promise<readonly PendingPrompt[]>;
   subscribeProject(projectID: string): Stream.Stream<ProjectObservation>;
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription;
+  subscribeAttentionNotifications(reportOverflow: () => Promise<void>): Stream.Stream<AttentionObservation>;
   getWorktreeStatus(sessionID: string): Promise<StatusSuccess>;
   listWorktrees(sessionID: string): Promise<ListSuccess>;
   resolveWorktreeSelector(sessionID: string, selector: string): Promise<SelectorResolveSuccess>;

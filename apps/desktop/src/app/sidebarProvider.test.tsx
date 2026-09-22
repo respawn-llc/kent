@@ -1,5 +1,6 @@
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { RegistryProvider } from "@effect/atom-react";
 
 import {
   useSidebarRoots,
@@ -25,19 +26,29 @@ function destination(title: string): SidebarDestination {
 }
 
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
-  return <SidebarProvider policy={policy}>{children}</SidebarProvider>;
+  return (
+    <RegistryProvider>
+      <SidebarProvider policy={policy}>{children}</SidebarProvider>
+    </RegistryProvider>
+  );
 }
 
 function strictWrapper({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <StrictMode>
-      <SidebarProvider policy={policy}>{children}</SidebarProvider>
+      <RegistryProvider>
+        <SidebarProvider policy={policy}>{children}</SidebarProvider>
+      </RegistryProvider>
     </StrictMode>
   );
 }
 
 function productionWrapper({ children }: Readonly<{ children: ReactNode }>) {
-  return <SidebarProvider policy={sidebarDestinationPolicy}>{children}</SidebarProvider>;
+  return (
+    <RegistryProvider>
+      <SidebarProvider policy={sidebarDestinationPolicy}>{children}</SidebarProvider>
+    </RegistryProvider>
+  );
 }
 
 const newTaskDestination = {
@@ -451,9 +462,11 @@ describe("SidebarProvider stack", () => {
 
   it("renders X before Back, hides root Back, and mounts only the current page", () => {
     render(
-      <SidebarProvider policy={policy}>
-        <ShellHarness />
-      </SidebarProvider>,
+      <RegistryProvider>
+        <SidebarProvider policy={policy}>
+          <ShellHarness />
+        </SidebarProvider>
+      </RegistryProvider>,
     );
     const headerButtons = () =>
       within(screen.getByTestId("app-sidebar-leading-controls")).getAllByRole("button");
