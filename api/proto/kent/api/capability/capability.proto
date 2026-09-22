@@ -250,14 +250,11 @@ message DefaultFacts {
   }];
 }
 
-message RecommendationFacts {}
-
 message Facts {
   ModelFacts models = 1 [(buf.validate.field).required = true];
   ProviderFacts providers = 2 [(buf.validate.field).required = true];
   ImportFacts imports = 3 [(buf.validate.field).required = true];
   DefaultFacts defaults = 4 [(buf.validate.field).required = true];
-  RecommendationFacts recommendations = 5 [(buf.validate.field).required = true];
 }
 
 message UnsupportedProviderDetails {

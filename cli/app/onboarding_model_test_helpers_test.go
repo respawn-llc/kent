@@ -54,7 +54,6 @@ func emptyOnboardingCapabilityFacts() *capabilitypb.Facts {
 			Thinking:       &capabilitypb.ThinkingDefaultFact{Mode: "default"},
 			CompactionMode: "native",
 		},
-		Recommendations: &capabilitypb.RecommendationFacts{},
 	}
 }
 
