@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
@@ -25,6 +26,10 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 		operation: operation, policy: gatewayBinaryCoreActiveOrdinary, progressEvent: &progressOperation,
 		request: func() proto.Message { return &runpromptpb.Request{} },
 		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
+			var rejected *serverapi.RunSelectionRejectedError
+			if errors.As(err, &rejected) {
+				return gatewayBinaryFailureResult(method, &chatsettingspb.MutationRejected{Reason: rejected.Reason})
+			}
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}

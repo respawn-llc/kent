@@ -6,6 +6,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	"core/shared/textutil"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,7 +22,12 @@ type PreparedChatSettingsOperationInput struct {
 	Locked             *session.LockedContract
 	WorkflowLocked     bool
 	CompactionMode     config.CompactionMode
-	PreparedSelection  *launch.PreparedChatSettings
+	PreparedSelection  *PreparedChatSettingsSelection
+}
+
+type PreparedChatSettingsSelection struct {
+	State    session.ChatSettingsState
+	Settings launch.PreparedChatSettings
 }
 type PreparedChatSettingsOperationResult struct {
 	State     session.ChatSettingsState
@@ -39,15 +45,16 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 	if !selectedAvailable {
 		selectedEntry = defaultEntry
 	}
+	if input.PreparedSelection != nil {
+		selectedEntry.Settings = &input.PreparedSelection.Settings
+		selectedAvailable = true
+	}
 	if input.Locked != nil {
 		selectedSettings, err := lockedPreparedChatSettings(*input.Locked, *selectedEntry.Settings, input.Effective)
 		if err != nil {
 			return PreparedChatSettingsOperationResult{}, err
 		}
 		selectedEntry.Settings = &selectedSettings
-	}
-	if input.PreparedSelection != nil {
-		selectedEntry.Settings = input.PreparedSelection
 	}
 	baseSettings := input.Effective
 	if !selectedAvailable && input.Locked == nil {
@@ -82,24 +89,31 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			return PreparedChatSettingsOperationResult{}, fmt.Errorf("Chat Agent %q is invalid", operation.AgentRole)
 		}
 		entry, available := input.Catalog.Lookup(agent)
+		sameAgent := agent == rawAgent
+		if input.PreparedSelection != nil {
+			entry.Settings = &input.PreparedSelection.Settings
+			available = true
+			sameAgent = textutil.EqualOptional(input.PreparedSelection.State.AgentRole, input.Raw.AgentRole)
+		}
 		if !available {
 			return rejectedChatSettingsOperation(input, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE), nil
 		}
-		if (input.Locked != nil || input.WorkflowLocked) && agent != rawAgent {
+		if (input.Locked != nil || input.WorkflowLocked) && !sameAgent {
 			return rejectedChatSettingsOperation(input, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 		}
-		if input.PreparedSelection != nil {
-			entry.Settings = input.PreparedSelection
-		}
-		if agent != rawAgent || !selectedAvailable {
-			if entry.SelectionError != nil {
-				return PreparedChatSettingsOperationResult{}, fmt.Errorf("select Agent %q: %w", agent, entry.SelectionError)
+		if !sameAgent || !selectedAvailable {
+			if input.PreparedSelection != nil {
+				target = input.PreparedSelection.State
+			} else {
+				if entry.SelectionError != nil {
+					return PreparedChatSettingsOperationResult{}, fmt.Errorf("select Agent %q: %w", agent, entry.SelectionError)
+				}
+				target, err = session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, entry.Settings.Baseline)
+				if err != nil {
+					return PreparedChatSettingsOperationResult{}, err
+				}
+				target.ConnectionID = entry.ConnectionID
 			}
-			target, err = session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, entry.Settings.Baseline)
-			if err != nil {
-				return PreparedChatSettingsOperationResult{}, err
-			}
-			target.ConnectionID = entry.ConnectionID
 		}
 		selectedEntry = entry
 	case *chatsettingspb.MutationOperation_Supervisor:
@@ -110,13 +124,7 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		target.Settings.Supervisor = &supervisor
 	case *chatsettingspb.MutationOperation_Thinking:
 		thinking := strings.TrimSpace(operation.Thinking)
-		capabilityThinking := baseSettings.Thinking
-		if input.PreparedSelection != nil {
-			// A previous model's saved effort cannot turn the newly selected
-			// model's enumerated choices into custom-value support.
-			capabilityThinking = input.PreparedSelection.Baseline.Thinking
-		}
-		thinkingProjection := projectChatThinking(capabilityThinking, *selectedEntry.Settings)
+		thinkingProjection := projectChatThinking(baseSettings.Thinking, *selectedEntry.Settings)
 		if thinkingProjection == nil ||
 			(thinkingProjection.Kind == chatsettingspb.ThinkingKind_THINKING_KIND_ENUMERATED &&
 				!slices.Contains(thinkingProjection.Values, thinking)) {

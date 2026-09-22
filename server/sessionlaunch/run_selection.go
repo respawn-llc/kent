@@ -3,7 +3,7 @@ package sessionlaunch
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 
 	"core/server/launch"
 	"core/server/llm"
@@ -12,6 +12,7 @@ import (
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 )
 
 // SaveRunSelection prepares and saves the existing Session's selection without
@@ -68,8 +69,23 @@ func (s *Service) SaveRunSelection(ctx context.Context, req PlanRequest) (PlanRe
 		if err != nil {
 			return input, PreparedChatSettingsOperationResult{}, err
 		}
+		selectedMeta, _, _, err := applyPreparedAgentChatSettings(planner.Config, role, prepared, store.Meta())
+		if err != nil {
+			return input, PreparedChatSettingsOperationResult{}, err
+		}
+		state, err := session.ChatSettingsStateFromMeta(selectedMeta)
+		if err != nil {
+			return input, PreparedChatSettingsOperationResult{}, err
+		}
 		selection := input
-		selection.PreparedSelection = &settings
+		selection.PreparedSelection = &PreparedChatSettingsSelection{State: state, Settings: settings}
+		if !textutil.EqualOptional(state.AgentRole, input.Raw.AgentRole) ||
+			(input.Locked == nil && strings.TrimSpace(req.Overrides.Model) != "") {
+			// New selections validate against their own configured capability,
+			// independently of the old model's saved custom effort.
+			selection.Effective.Thinking = settings.Baseline.Thinking
+			selection.PersistedThinking = nil
+		}
 		if role.Present {
 			agent := role.Role
 			if role.Default {
@@ -96,7 +112,7 @@ func (s *Service) SaveRunSelection(ctx context.Context, req PlanRequest) (PlanRe
 		return PlanRequest{}, err
 	}
 	if rejected := result.GetRejected(); rejected != nil {
-		return PlanRequest{}, fmt.Errorf("Run selection rejected: %s", rejected.Reason)
+		return PlanRequest{}, &serverapi.RunSelectionRejectedError{Reason: rejected.Reason}
 	}
 	req.Overrides.AgentRole = nil
 	return req, nil

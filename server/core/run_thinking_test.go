@@ -48,6 +48,10 @@ frequency = "off"
 [subagents.worker]
 model = "gpt-5-mini"
 thinking_level = "low"
+[subagents.default]
+model = "gpt-5.6-sol"
+thinking_level = "medium"
+[subagents.equivalent]
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -69,10 +73,84 @@ thinking_level = "low"
 	return app, store, client
 }
 
+func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
+	app, store, client, requests := newRunThinkingRecordingSession(t)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SetGoal("finish interactively", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "select headless default",
+		Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value(config.DefaultSubagentRole), ThinkingLevel: "high"},
+	}, nil)
+	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
+		t.Fatal(err)
+	}
+	reopened, err := session.Open(store.Dir(), app.MetadataStore().AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role := session.ContinuationAgentRole(reopened.Meta()); role == nil || *role != config.DefaultSubagentRole {
+		t.Fatalf("saved headless default identity = %v", role)
+	}
+	if _, _, err := reopened.ClearGoal(session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "use saved headless default",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request := <-requests; request.Model != "gpt-5.6-sol" || request.Reasoning.Effort != "high" {
+		t.Fatalf("omitted-flag continuation lost headless selection: %+v", request)
+	}
+}
+
 func TestRunThinkingCombinedSelectionUsesExplicitModel(t *testing.T) {
 	testRunThinkingEffectiveSelection(t, false, serverapi.RunPromptOverrides{
 		AgentRole: textutil.Value("worker"), Model: "gpt-5.6-sol", ThinkingLevel: "xhigh",
 	}, "worker", "gpt-5.6-sol")
+}
+
+func TestRunThinkingAcceptsConfiguredAgentOmittedFromPicker(t *testing.T) {
+	testRunThinkingEffectiveSelection(t, false, serverapi.RunPromptOverrides{
+		AgentRole: textutil.Value("equivalent"), ThinkingLevel: "high",
+	}, "equivalent", "gpt-5")
+}
+
+func TestRunThinkingKeepsConfiguredAgentOmittedFromPicker(t *testing.T) {
+	app, store, client := newRunThinkingSession(t, nil)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("equivalent")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SetGoal("continue interactively", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "keep the configured selection",
+		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
+	}, nil)
+	if !errors.Is(err, runprompt.ErrHeadlessGoalSession) {
+		t.Fatal(err)
+	}
+	reopened, err := session.Open(store.Dir(), app.MetadataStore().AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role := session.ContinuationAgentRole(reopened.Meta()); role == nil || *role != "equivalent" {
+		t.Fatalf("saved configured Agent identity = %v", role)
+	}
 }
 
 func TestRunThinkingOnlySelectionReachesProvider(t *testing.T) {
@@ -344,8 +422,9 @@ func testRunThinkingRejected(t *testing.T, overrides serverapi.RunPromptOverride
 		Prompt:    "must not be submitted",
 		Overrides: overrides,
 	}, nil)
-	if err == nil {
-		t.Fatal("unsupported Thinking was accepted")
+	var rejected *serverapi.RunSelectionRejectedError
+	if !errors.As(err, &rejected) || rejected.Reason != chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE {
+		t.Fatalf("unsupported Thinking rejection lost its reason: %v", err)
 	}
 	after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), id.String())
 	if err != nil {
@@ -379,6 +458,86 @@ func TestRunThinkingLockedSelectionRejectsRequestedModelCapability(t *testing.T)
 	testRunThinkingRejected(t, serverapi.RunPromptOverrides{
 		AgentRole: textutil.Value("worker"), Model: "gpt-5.6-sol", ThinkingLevel: "xhigh",
 	}, true)
+}
+
+func TestRunThinkingRejectsWhenLockedContractDisablesReasoning(t *testing.T) {
+	app, store, client := newRunThinkingSession(t, nil)
+	if err := store.MarkModelDispatchLocked(session.LockedContract{
+		Model: "gpt-5", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
+		ProviderContract:  session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
+		ModelCapabilities: session.LockedModelCapabilities{SupportsVisionInputs: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.GetSession().Settings.Thinking != nil {
+		t.Fatal("fixture has available Thinking despite its locked capability")
+	}
+	before, err := app.MetadataStore().ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "must not dispatch",
+		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
+	}, nil)
+	if err == nil {
+		t.Fatal("accepted Thinking despite locked capability")
+	}
+	after, err := app.MetadataStore().ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Meta, after.Meta) {
+		t.Fatal("unsupported Thinking changed locked Session")
+	}
+}
+
+func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
+	app, store, client := newRunThinkingSession(t, nil)
+	// This is valid persisted state from a provider-specific custom selection.
+	if err := store.SetThinkingOverride(textutil.Value("provider-depth")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SetGoal("continue interactively", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.GetSession().Settings.Thinking.Kind != chatsettingspb.ThinkingKind_THINKING_KIND_CUSTOM {
+		t.Fatal("fixture is not a custom-valued Thinking selection")
+	}
+	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "save another custom Thinking value",
+		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "provider-depth-next"},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected continuation to fail after saving the custom selection")
+	}
+	reopened, err := session.Open(store.Dir(), app.MetadataStore().AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Meta().ChatSettings; got.Thinking == nil || *got.Thinking != "provider-depth-next" {
+		t.Fatalf("custom Thinking was not saved: %+v", got)
+	}
 }
 
 func TestRunThinkingPersistsWhileBusy(t *testing.T) {

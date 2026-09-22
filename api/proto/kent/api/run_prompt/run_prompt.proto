@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
+import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/shared/foundation.proto";
@@ -59,6 +60,10 @@ message Error {
     kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
+    }];
+    kent.api.chat_settings.MutationRejected selection_rejected = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "selection_rejected"
     }];
   }
 }

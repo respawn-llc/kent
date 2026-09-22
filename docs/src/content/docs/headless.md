@@ -28,7 +28,7 @@ With `--continue` or `--session`, `--thinking-level` saves the session's thinkin
 
 For an unlocked session, `--agent` supplies defaults and explicit `--model` and `--thinking-level` values override those defaults. Kent validates the combination before saving either the agent or thinking selection. A locked session validates thinking against its locked agent and model.
 
-Omitting `--thinking-level` uses the existing session choice. For a new session, the flag selects its initial thinking level.
+Continuing without an agent change or `--thinking-level` uses the existing session's thinking choice. Selecting a different agent for an unlocked session without `--thinking-level` uses that agent's thinking default. For a new session, the flag selects its initial thinking level.
 
 Control an active shared run from another shell or agent:
 
@@ -136,6 +136,8 @@ JSON mode emits exactly one final object on `stdout`.
 ```
 
 On failure, JSON mode emits `status: "error"` and an `error` object instead of `result`.
+
+A thinking value rejected by the session settings uses the `selection_rejected` error code, with guidance in `error.message`.
 
 An over-limit child launch uses the stable `subagent_max_depth_exceeded` code and includes the attempted depth and active maximum:
 
