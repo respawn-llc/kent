@@ -307,6 +307,11 @@ func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
 			}
 		},
 	})
+	// Let compaction release queued work before the Stop caller resumes.
+	eng.stepLifecycle = &settledInterruptStepLifecycle{
+		exclusiveStepLifecycle: eng.stepLifecycle,
+		settle:                 func() { waitEngineLifecycleTasks(t, eng) },
+	}
 	started, release := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -355,6 +360,17 @@ func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("Stop launched continuation: provider calls = %d", calls)
 	}
+}
+
+type settledInterruptStepLifecycle struct {
+	exclusiveStepLifecycle
+	settle func()
+}
+
+func (s *settledInterruptStepLifecycle) InterruptCurrent(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error) {
+	snapshot, err := s.exclusiveStepLifecycle.InterruptCurrent(beforeCancel)
+	s.settle()
+	return snapshot, err
 }
 
 func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
