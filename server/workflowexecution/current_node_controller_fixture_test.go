@@ -2,7 +2,6 @@ package workflowexecution
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"os/exec"
 	"path/filepath"
@@ -425,8 +424,6 @@ type currentNodeControllerStore struct {
 	interruptRelease      chan struct{}
 	interruptOnce         sync.Once
 	interruptionErr       error
-	idleResolved          *workflow.CurrentNode
-	idleResolvedSequence  []workflow.CurrentNode
 }
 
 type currentNodeAttentionRecorder struct {
@@ -572,18 +569,6 @@ func (s *currentNodeControllerStore) ReconcileTaskResume(ctx context.Context, ta
 		}
 	}
 	return nil
-}
-
-func (s *currentNodeControllerStore) ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error) {
-	if len(s.idleResolvedSequence) != 0 {
-		resolved := s.idleResolvedSequence[0]
-		s.idleResolvedSequence = s.idleResolvedSequence[1:]
-		return resolved, nil
-	}
-	if s.idleResolved == nil {
-		return workflow.CurrentNode{}, sql.ErrNoRows
-	}
-	return *s.idleResolved, nil
 }
 
 func (s *currentNodeControllerStore) CommitCurrentNodeCompletion(ctx context.Context, plan workflowstore.CurrentNodeCompletionPlan, sessions []workflowstore.PlannedCurrentNodeSession) (workflowstore.CurrentNodeCompletionOutcome, error) {
