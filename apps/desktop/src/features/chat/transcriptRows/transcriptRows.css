@@ -28,18 +28,30 @@
   min-width: 0;
 }
 
+.chat-transcript-question-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
 .chat-transcript-question-option {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: start;
   gap: var(--space-2);
   min-width: 0;
-  color: var(--color-on-background);
+  color: var(--color-muted);
 }
 
 .chat-transcript-question-option--selected {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-primary);
+}
+
+.chat-transcript-question-option-label {
+  min-width: 0;
 }
 
 .chat-transcript-question-answer {

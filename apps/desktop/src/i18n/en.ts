@@ -76,8 +76,8 @@ export const englishResources = {
       editUnknownFailure: "Could not create an edited Session ({{code}}).",
       editFailureRecovery:
         "Your draft is unchanged. Try Edit again. If it keeps failing, report these details:\n\n{{diagnostic}}",
-      reviewerSuggestions_one: "{{count}} suggestion",
-      reviewerSuggestions_other: "{{count}} suggestions",
+      reviewerSuggestions_one: "Supervisor made {{count}} suggestion",
+      reviewerSuggestions_other: "Supervisor made {{count}} suggestions",
       notice: {
         thinkingSet: "Thinking set: {{effort}}",
         cacheMiss: "Cache miss: {{reason}}",
@@ -397,7 +397,8 @@ export const englishResources = {
       delete: "Delete",
     },
     processes: {
-      activeCount: "PS {{count}}",
+      activeCount_one: "{{count}} shell",
+      activeCount_other: "{{count}} shells",
       sessionRequired: "Create a Session before opening its processes.",
       title: "Processes",
       loading: "Loading processes",
@@ -513,6 +514,7 @@ export const englishResources = {
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
       recommended: "Recommended",
+      recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
       approvalDecisionAllowOnce: "Allow once",
       approvalDecisionAllowSession: "Allow for this session",

@@ -1,12 +1,13 @@
 import { useTranslation } from "react-i18next";
-import { StaticMarkdown } from "@/ui";
+import { cx, StaticMarkdown } from "@/ui";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { basename } from "@/app-facade";
 import { firstPresent } from "@/shared/text";
 
 import { projectNotice, type TranscriptNotice, type TranscriptNoticeProse } from "./transcriptNoticePolicy";
-import { TranscriptFlatRow } from "./TranscriptFlatRow";
+import { TranscriptFlatRow, type TranscriptFlatRowIconTone } from "./TranscriptFlatRow";
+import { TranscriptDiagnosticRow } from "./TranscriptDiagnosticRow";
 
 export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommittedRow }>) {
   const { t } = useTranslation();
@@ -19,15 +20,29 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
   const Icon = policy.icon;
   if (policy.kind === "compact") {
     return (
-      <p className="chat-transcript-row-body flex min-w-0 items-center gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)] text-sm text-[var(--color-muted)]">
+      <p
+        className="chat-transcript-row-body flex min-w-0 items-center gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)] text-sm text-[var(--color-muted)]"
+        data-transcript-collapsed
+      >
         <Icon className="size-4 shrink-0" />
         <span>{policy.summary}</span>
       </p>
     );
   }
 
+  if (isAlwaysVisibleDiagnostic(notice)) {
+    return (
+      <TranscriptDiagnosticRow
+        text={policy.copyText}
+        icon={<Icon className="size-4" />}
+        tone={notice.Reason === "cache_warning" ? "warning" : "error"}
+      />
+    );
+  }
+  const summaryAccent = noticeSummaryAccent(notice, policy.iconTone);
   return (
     <TranscriptFlatRow
+      textTone="secondary"
       body={
         policy.body.kind === "markdown" ? (
           <StaticMarkdown value={policy.body.text} />
@@ -41,17 +56,38 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
       }
       copyText={policy.copyText}
       defaultExpanded={policy.defaultExpanded}
-      icon={<Icon className="size-4" />}
+      icon={<Icon className={cx("size-4", summaryAccent, worktreeIconAccent(notice))} />}
       iconTone={policy.iconTone}
       summary={
-        notice.MessageType === "user_shell_command" ? (
-          <span className="font-mono">{policy.summary}</span>
-        ) : (
-          policy.summary
-        )
+        <span className={cx(summaryAccent, notice.MessageType === "user_shell_command" && "font-mono")}>
+          {policy.summary}
+        </span>
       }
     />
   );
+}
+
+function isAlwaysVisibleDiagnostic(notice: TranscriptNotice): boolean {
+  return (
+    notice.Severity === "error" ||
+    notice.MessageType === "error_feedback" ||
+    notice.Reason === "cache_warning"
+  );
+}
+
+function noticeSummaryAccent(
+  notice: TranscriptNotice,
+  iconTone: TranscriptFlatRowIconTone,
+): string | undefined {
+  if (notice.Background != null) return undefined;
+  if (iconTone === "error") return "text-[var(--color-error)]";
+  return notice.Reason === "compaction" ? "text-[var(--color-secondary)]" : undefined;
+}
+
+function worktreeIconAccent(notice: TranscriptNotice): string | undefined {
+  return notice.MessageType === "worktree_mode" || notice.MessageType === "worktree_mode_exit"
+    ? "text-[var(--color-primary)]"
+    : undefined;
 }
 
 type Translate = ReturnType<typeof useTranslation>["t"];

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ActivityItem, TaskComment } from "@/api";
 import { formatRelativeTime, useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, homeListCardMaxWidthClassName, IslandSurface, StaticMarkdown } from "@/ui";
+import { Button, IslandSurface, StaticMarkdown } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskDetailIslandStyles";
 
@@ -172,7 +172,7 @@ export function ActivityRow({ item }: Readonly<{ item: ActivityItem }>) {
       className={cx(
         "grid w-full gap-[var(--space-1)] p-[var(--space-2)]",
         taskDetailIslandRadiusClassName,
-        homeListCardMaxWidthClassName,
+        "max-w-[600px]",
       )}
       level={1}
     >

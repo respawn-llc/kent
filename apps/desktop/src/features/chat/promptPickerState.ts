@@ -10,7 +10,7 @@ export type PickerSelection =
 export type PickerDraft = Readonly<{
   selection: PickerSelection;
   commentary: string;
-  status: "tentative" | "answered" | "declined";
+  status: "tentative" | "pointer-selected" | "answered" | "declined";
 }>;
 
 export type PickerState = Readonly<{
@@ -75,7 +75,7 @@ function editDraft(
 ): PickerTransition {
   const { current, drafts } = state;
   const index = batch.findIndex((prompt) => prompt.toolCallID === current);
-  if (action.kind === "confirm" && [...drafts.values()].every((item) => item.status !== "tentative")) {
+  if (action.kind === "confirm" && [...drafts.values()].every(isPickerDraftComplete)) {
     return { state, effect: "submit" };
   }
   if (draft.status === "declined") return { state, effect: "none" };
@@ -88,8 +88,9 @@ function editDraft(
     return { state, effect: "none" };
   }
   if (action.kind === "select" || action.kind === "activate") {
-    drafts.set(current, { ...draft, selection: action.selection, status: "tentative" });
-    if (action.kind === "select") return { state, effect: "none" };
+    const chosen = selectDraft(draft, action);
+    drafts.set(current, chosen.draft);
+    if (chosen.effect !== null) return { state, effect: chosen.effect };
   }
   const selected = drafts.get(current);
   if (selected === undefined) throw new Error("Visible prompt has no draft.");
@@ -124,11 +125,48 @@ function currentAfterSync(previous: PickerState, drafts: ReadonlyMap<string, Pic
 function advance(state: PickerState, batch: readonly PendingPrompt[], index: number): PickerTransition {
   for (let offset = 1; offset <= batch.length; offset++) {
     const next = batch[(index + offset) % batch.length];
-    if (next !== undefined && state.drafts.get(next.toolCallID)?.status === "tentative") {
+    const nextDraft = next === undefined ? undefined : state.drafts.get(next.toolCallID);
+    if (next !== undefined && nextDraft !== undefined && !isPickerDraftComplete(nextDraft)) {
       return { state: { ...state, current: next.toolCallID }, effect: "none" };
     }
   }
   return { state, effect: "submit" };
+}
+
+function selectDraft(
+  draft: PickerDraft,
+  action: Extract<PickerAction, { kind: "select" | "activate" }>,
+): Readonly<{ draft: PickerDraft; effect: "none" | "focus-field" | null }> {
+  const selected: PickerDraft = { ...draft, selection: action.selection, status: "tentative" };
+  if (action.kind === "select") return { draft: selected, effect: "none" };
+  if (action.selection.kind === "neither" || action.selection.kind === "freeform") {
+    return { draft: selected, effect: "focus-field" };
+  }
+  if (
+    draft.commentary.length > 0 &&
+    (draft.status !== "pointer-selected" || !sameSelection(draft.selection, action.selection))
+  ) {
+    return { draft: { ...selected, status: "pointer-selected" }, effect: "none" };
+  }
+  return { draft: selected, effect: null };
+}
+
+export function isPickerDraftComplete(draft: PickerDraft): boolean {
+  return draft.status === "answered" || draft.status === "declined";
+}
+
+export function canConfirmPicker(state: PickerState): boolean {
+  const current = state.current === null ? undefined : state.drafts.get(state.current);
+  if (current === undefined) return false;
+  if ([...state.drafts.values()].every(isPickerDraftComplete)) return true;
+  return current.status !== "declined" && invalidAnswer(current) === null;
+}
+
+export function sameSelection(left: PickerSelection, right: PickerSelection): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "suggested" && right.kind === "suggested") return left.number === right.number;
+  if (left.kind === "approval" && right.kind === "approval") return left.decision === right.decision;
+  return true;
 }
 
 function initialDraft(prompt: PendingPrompt): PickerDraft {

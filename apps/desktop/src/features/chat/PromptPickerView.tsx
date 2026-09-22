@@ -12,8 +12,8 @@ import {
   Spinner,
   StaticMarkdown,
 } from "@/ui";
-import { pickerBatch, type PickerAction, type PickerState } from "./promptPickerState";
-import { pickerOptions, sameSelection } from "./promptPickerPresentation";
+import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
+import { pickerOptions } from "./promptPickerPresentation";
 import { promptPickerKeyboard } from "./promptPickerKeyboard";
 import "./PromptPickerView.css";
 
@@ -98,6 +98,7 @@ export function PromptPickerView({
           </div>
           <div ref={answerArea} tabIndex={0} className="min-w-0 outline-none">
             <RadioGroup
+              className="gap-[var(--space-1)]"
               disabled={disabled}
               value={selected?.value ?? null}
               onValueChange={(value) => {
@@ -111,7 +112,12 @@ export function PromptPickerView({
                   {...option}
                   disabled={disabled}
                   selected={option === selected}
-                  appearance="card"
+                  appearance="picker"
+                  className={
+                    option.selection.kind !== "neither" && !disabled
+                      ? "hover:bg-[color-mix(in_srgb,var(--color-island-2)_50%,transparent)]"
+                      : undefined
+                  }
                   onActivate={() => {
                     act({ kind: "activate", selection: option.selection });
                   }}

@@ -18,32 +18,27 @@ export type ChatShellState =
 
 export type ChatShellProps<Target = SelectedSession> = Readonly<{
   composer: (session: Target, layout: ChatComposerLayout) => ReactNode;
-  content: (session: Target) => ReactNode;
+  content: (session: Target, bottomInset: number) => ReactNode;
   selectedSession: Target;
   sessionName: string | null;
   state: ChatShellState;
-  onComposerHeightChange?: (height: number) => void;
 }>;
 export type ChatComposerLayout = Readonly<{
   availableHeight: number | null;
   onHeightChange(height: number): void;
 }>;
-const ignoreHeight = () => {
-  /* Flex layout resizes the transcript; its viewport owns end anchoring. */
-};
-
 export function ChatShell<Target>({
   composer,
   content,
   selectedSession,
   sessionName,
   state,
-  onComposerHeightChange = ignoreHeight,
 }: ChatShellProps<Target>) {
   const { t } = useTranslation();
   useWindowChromeTitle(sessionName);
   const container = useRef<HTMLDivElement>(null);
   const [availableHeight, setAvailableHeight] = useState<number | null>(null);
+  const [composerHeight, setComposerHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
     const element = container.current;
     if (element === null) return;
@@ -76,10 +71,10 @@ export function ChatShell<Target>({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="chat-shell" ref={container}>
-      <div className="min-h-0 flex-1">{content(selectedSession)}</div>
-      <div className="shrink-0">
-        {composer(selectedSession, { availableHeight, onHeightChange: onComposerHeightChange })}
+    <div className="relative h-full min-h-0" data-testid="chat-shell" ref={container}>
+      <div className="h-full min-h-0">{content(selectedSession, composerHeight ?? 0)}</div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0">
+        {composer(selectedSession, { availableHeight, onHeightChange: setComposerHeight })}
       </div>
     </div>
   );

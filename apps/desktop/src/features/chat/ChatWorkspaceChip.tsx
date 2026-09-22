@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Folder } from "lucide-react";
+import { ComposerIcon } from "./ComposerIcon";
 import { errorMessage, type WorkspaceCatalogRow } from "@/api";
 import type { useChatDestination } from "./useChatDestination";
 import { projectWorkspaceSelectorProjection } from "@/shared/workspaces";
@@ -10,7 +10,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -61,8 +60,8 @@ export function ChatWorkspaceChip({
           <TooltipTrigger asChild>
             <span className="min-w-0">
               <PopoverTrigger asChild>
-                <InteractiveChip disabled={pending}>
-                  {pending || loading ? <Spinner size="sm" /> : <Folder size={14} />}
+                <InteractiveChip variant="ghost" disabled={pending}>
+                  <ComposerIcon kind={pending || loading ? "loading" : "workspace"} />
                   <span className="truncate">{selected.name}</span>
                 </InteractiveChip>
               </PopoverTrigger>

@@ -234,16 +234,16 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
-  const nativeEnd = useVirtualizedEndAnchoring(endAnchoring);
+  const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
+  const directPositioning = endAnchoring !== undefined;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd,
     paddingStart,
-    // Scroll commands run from layout effects; do not re-enter React there.
-    // End-anchored measured resize correction is completed after commit below.
     useFlushSync: false,
+    directDomUpdates: directPositioning,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -254,11 +254,11 @@ function VirtualizedInfiniteListContent<TItem>({
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
     rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
-    ...nativeEnd.options,
+    ...endOptions,
   });
   useLayoutEffect(() => {
-    nativeEnd.afterCommit(virtualizer);
-  });
+    applyScrollRequest(virtualizer);
+  }, [endAnchoring?.scrollRequest, applyScrollRequest, virtualizer]);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
     nonAdjustingResizeItemKey === undefined
       ? undefined
@@ -386,6 +386,7 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
+      directPositioning,
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
@@ -401,8 +402,9 @@ function VirtualizedInfiniteListContent<TItem>({
       role={role}
     >
       <div
+        ref={virtualizer.containerRef}
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directPositioning)}
       >
         {virtualItems.length > 0
           ? renderedRows

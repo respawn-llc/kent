@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowruntime"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -604,8 +605,9 @@ func (e *Engine) compactionRunningShellReminder() []llm.Message {
 		return nil
 	}
 	return []llm.Message{{
-		Role:    llm.RoleDeveloper,
-		Content: textutil.Value(prompts.RenderCompactionRunningShellsReminder(strings.Join(lines, "\n"))),
+		Role:           llm.RoleDeveloper,
+		Content:        textutil.Value(prompts.RenderCompactionRunningShellsReminder(strings.Join(lines, "\n"))),
+		CompactContent: textutil.Value(clientui.RunningShellsCompactLabel),
 	}}
 }
 

@@ -1,5 +1,6 @@
-import { Copy, FileDiff, Globe, Terminal, Wrench } from "lucide-react";
+import { BroomSparkles, Copy, Globe, Image, PenLine, Terminal, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
+import { AnimatePresence } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -7,6 +8,7 @@ import { useAppServices, useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import {
   cx,
+  AnimatedReveal,
   IconTooltipButton,
   showStatusToast,
   safeExternalUrl,
@@ -74,6 +76,7 @@ function WebSearchRow({
       icon={icon}
       iconTone={presentation.iconTone}
       summary={presentation.compact}
+      textTone="secondary"
     />
   );
 }
@@ -152,7 +155,7 @@ function PatchInvalidInputRow({
   const icon = presentation.running ? (
     <Spinner size="sm" />
   ) : (
-    <FileDiff aria-hidden="true" className="size-4" strokeWidth={1.8} />
+    <PenLine aria-hidden="true" className="size-4" strokeWidth={1.8} />
   );
   if (presentation.detail === undefined) {
     return <StaticToolRow compact={presentation.compact} icon={icon} iconTone={presentation.iconTone} />;
@@ -166,6 +169,7 @@ function PatchInvalidInputRow({
       icon={icon}
       iconTone={presentation.iconTone}
       summary={presentation.compact}
+      textTone="secondary"
     />
   );
 }
@@ -180,14 +184,14 @@ function StaticToolRow({
   iconTone: TranscriptDisclosureIconTone;
 }>) {
   return (
-    <div className="transcript-tool-static-row min-h-9">
+    <div className="transcript-tool-static-row min-h-9" data-transcript-collapsed>
       <span
         aria-hidden="true"
         className={cx("transcript-tool-static-icon size-5", `transcript-disclosure-icon--${iconTone}`)}
       >
         {icon}
       </span>
-      <span className="min-w-0 truncate text-sm text-[var(--color-on-background)]">{compact}</span>
+      <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">{compact}</span>
     </div>
   );
 }
@@ -206,12 +210,19 @@ function PatchChangesRow({
         presentation.running ? (
           <Spinner size="sm" />
         ) : (
-          <FileDiff aria-hidden="true" className="size-4" strokeWidth={1.8} />
+          <PenLine aria-hidden="true" className="size-4" strokeWidth={1.8} />
         )
       }
       iconTone={presentation.iconTone}
-      summary={<PatchChangesSummary files={presentation.files} label={t("chat.toolRows.edited")} />}
+      renderSummary={(expanded) => (
+        <PatchChangesSummary
+          expanded={expanded}
+          files={presentation.files}
+          label={t("chat.toolRows.edited")}
+        />
+      )}
       summaryMode="multiline"
+      textTone="secondary"
     />
   );
 }
@@ -219,17 +230,24 @@ function PatchChangesRow({
 function PatchChangesSummary({
   files,
   label,
-}: Readonly<{ files: readonly PatchChangedFile[]; label: string }>) {
+  expanded,
+}: Readonly<{ files: readonly PatchChangedFile[]; label: string; expanded: boolean }>) {
   return (
-    <span className="transcript-patch-summary">
+    <div className="transcript-patch-summary">
       <span className="transcript-patch-summary-label">{label}</span>
-      {files.map((file) => (
-        <span className="transcript-patch-summary-file" key={file.Path.Absolute}>
-          <span className="transcript-patch-path">{file.Path.Relative}</span>
-          <PatchCounts file={file} />
-        </span>
-      ))}
-    </span>
+      <AnimatePresence initial={false}>
+        {!expanded && (
+          <AnimatedReveal key="paths">
+            {files.map((file) => (
+              <span className="transcript-patch-summary-file" key={file.Path.Absolute}>
+                <span className="transcript-patch-path">{file.Path.Relative}</span>
+                <PatchCounts file={file} />
+              </span>
+            ))}
+          </AnimatedReveal>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -257,8 +275,8 @@ function PatchChangesDetails({
         {files.map((file) => (
           <section className="transcript-patch-file" key={file.Path.Absolute}>
             <div className="transcript-patch-detail-path">
-              <span className="transcript-patch-path">{file.Path.Absolute}</span>
-              {hasOnlyWholeFileDeletion(file) ? <PatchCounts file={file} /> : null}
+              <span className="transcript-patch-path">{file.Path.Relative}</span>
+              <PatchCounts file={file} />
             </div>
             {file.Operations.flatMap((operation) => operation.Groups).map((group, groupIndex) => (
               <SyntaxHighlightedCode
@@ -319,6 +337,10 @@ function ExpandableToolRow({ presentation }: Readonly<{ presentation: Expandable
           <Spinner size="sm" />
         ) : presentation.icon === "terminal" ? (
           <Terminal aria-hidden="true" className="size-4" strokeWidth={1.8} />
+        ) : presentation.icon === "image" ? (
+          <Image aria-hidden="true" className="size-4" strokeWidth={1.8} />
+        ) : presentation.icon === "broom-sparkles" ? (
+          <BroomSparkles aria-hidden="true" className="size-4" strokeWidth={1.8} />
         ) : (
           <Wrench aria-hidden="true" className="size-4" strokeWidth={1.8} />
         )
@@ -329,6 +351,7 @@ function ExpandableToolRow({ presentation }: Readonly<{ presentation: Expandable
           <span className="transcript-tool-status text-xs">{presentation.status}</span>
         )
       }
+      textTone="secondary"
       summary={
         presentation.kind === "shell-command" ? (
           <span className="transcript-tool-command-summary">{presentation.compact}</span>
@@ -356,7 +379,11 @@ function ShellCommandDetails({
   const { t } = useTranslation();
   return (
     <div className="transcript-tool-sections">
-      {command === null ? null : <SyntaxHighlightedCode code={command} languageHint={commandLanguage} />}
+      {command === null ? null : (
+        <div className="transcript-tool-command">
+          <SyntaxHighlightedCode code={command} languageHint={commandLanguage} />
+        </div>
+      )}
       {output === undefined ? null : outputLanguage === undefined ? (
         <pre className="transcript-tool-plain-text">{output}</pre>
       ) : (
@@ -417,7 +444,7 @@ function ToolCopyAction({ payload }: Readonly<{ payload: string }>) {
       }}
       size="icon-sm"
     >
-      <Copy aria-hidden="true" className="size-4" strokeWidth={1.8} />
+      <Copy aria-hidden="true" className="size-4 text-[var(--color-muted)]" strokeWidth={1.8} />
     </IconTooltipButton>
   );
 }

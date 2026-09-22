@@ -14,7 +14,7 @@ export type VirtualizedEndAnchoring = Readonly<{
   followEnabled: boolean;
   threshold: number;
   onEndChange(atEnd: boolean): void;
-  scrollRequest: symbol | null;
+  scrollRequest: Readonly<{ behavior: "auto" | "smooth" }> | null;
 }>;
 
 type ListVirtualizer = Virtualizer<HTMLDivElement, Element>;
@@ -27,7 +27,6 @@ function scrollToNativeEnd(instance: ListVirtualizer): void {
 export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undefined) {
   const end = useRef<boolean | null>(null);
   const resizeRequest = useRef<symbol | null>(null);
-  const lastExplicitRequest = useRef<symbol | null>(null);
   const publish = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
     end.current = instance.isAtEnd();
@@ -54,24 +53,29 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
   );
   const measure = useCallback<NonNullable<ListOptions["measureElement"]>>((element, entry, instance) => {
     const index = instance.indexFromElement(element);
-    const previousSize = instance.itemSizeCache.get(instance.options.getItemKey(index));
+    const previousSize = instance.measurementsCache[index]?.size;
     const size = measureElement(element, entry, instance);
-    if (entry !== undefined && previousSize !== undefined && previousSize !== size && end.current === true) {
+    if (entry !== undefined && previousSize !== size && end.current === true) {
       resizeRequest.current = Symbol("resize at native end");
     }
     return size;
   }, []);
-  const afterCommit = useStableCallback((instance: ListVirtualizer) => {
+  const applyScrollRequest = useStableCallback((instance: ListVirtualizer) => {
+    if (mode?.scrollRequest == null) return;
+    resizeRequest.current = null;
+    instance.scrollToEnd({
+      behavior: prefersReducedMotion() ? "auto" : mode.scrollRequest.behavior,
+    });
+  });
+  const onChange = useStableCallback((instance: ListVirtualizer) => {
     if (mode === undefined) return;
-    const explicit = mode.scrollRequest !== null && mode.scrollRequest !== lastExplicitRequest.current;
-    lastExplicitRequest.current = mode.scrollRequest;
     const resize = resizeRequest.current;
     resizeRequest.current = null;
-    if (explicit) scrollToNativeEnd(instance);
-    else if (resize !== null) instance.scrollToEnd();
+    if (resize !== null) instance.scrollToEnd();
+    publish(instance);
   });
   return {
-    afterCommit,
+    applyScrollRequest,
     options:
       mode === undefined
         ? {}
@@ -81,16 +85,10 @@ export function useVirtualizedEndAnchoring(mode: VirtualizedEndAnchoring | undef
             scrollEndThreshold: mode.threshold,
             observeElementOffset: observeOffset,
             observeElementRect: observeRect,
-            onChange: publish,
-            // Core 3.17.7 adjusts scroll before React has grown the size container.
-            // The browser can clamp that write; batched resizes then lose the local
-            // bottom. Restoring useFlushSync was tried and still left content clipped.
-            // Finish the resize with native scrollToEnd after commit. Reuse the library's
-            // measured-size cache and observer entry so mounting/admitting a page
-            // is not an expansion. The preceding native end result lets historical
-            // bottom resizing follow without revealing expansions elsewhere.
-            // Do not replace this with anchorTo/followOnAppend alone or manual
-            // pixel compensation.
+            // Direct positioning updates the size container before this callback.
+            // Finish any end resize here, in the same observer delivery, because
+            // the earlier scroll write can be clamped against the old DOM extent.
+            onChange,
             measureElement: measure,
           },
   };

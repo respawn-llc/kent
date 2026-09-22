@@ -12,6 +12,96 @@ function open(window: TranscriptWindow, tail: ChatTranscriptPage): void {
 }
 
 describe("bounded transcript window", () => {
+  it("finishes a live stream when its persisted completed row arrived first", () => {
+    const window = new TranscriptWindow();
+    const completed = {
+      ...row(30),
+      Kind: "assistant",
+      User: null,
+      Assistant: {
+        StepID: "step",
+        StreamID: null,
+        Phase: "commentary",
+        Text: "Finished",
+        CondensedText: null,
+        committed_at_unix_ms: null,
+      },
+    } as const;
+    open(window, page([completed], null));
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "assistant_delta",
+        payload: {
+          StepID: "step",
+          StreamID: "stream",
+          Phase: "commentary",
+          Delta: "Finished",
+        },
+      },
+    });
+    expect(
+      window.dispatch({
+        kind: "committed-row",
+        row: { ...completed, Assistant: { ...completed.Assistant, StreamID: "stream" } },
+      }).kind,
+    ).toBe("accepted");
+    expect(window.snapshot.items).toHaveLength(1);
+    expect(window.snapshot.items[0]).toMatchObject({
+      kind: "assistant",
+      state: "committed",
+      value: { Text: completed.Assistant.Text },
+    });
+  });
+
+  it("can revisit streamed assistant history when persisted pages omit live stream correlation", () => {
+    const window = new TranscriptWindow();
+    const streamed = {
+      ...row(40),
+      Kind: "assistant",
+      User: null,
+      Assistant: {
+        StepID: "step",
+        StreamID: "stream",
+        Phase: "commentary",
+        Text: "Finished",
+        CondensedText: null,
+        committed_at_unix_ms: null,
+      },
+    } as const;
+    const persisted = { ...streamed, Assistant: { ...streamed.Assistant, StreamID: null } };
+    open(window, page([row(30)], 300));
+    expect(window.dispatch({ kind: "committed-row", row: streamed }).kind).toBe("accepted");
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request: visit(window, "older"),
+        page: page([row(20)], 200, 300),
+      }).kind,
+    ).toBe("accepted");
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request: visit(window, "older"),
+        page: page([row(10)], null, 200),
+      }).kind,
+    ).toBe("accepted");
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request: visit(window, "newer"),
+        page: page([row(30), persisted], 300),
+      }).kind,
+    ).toBe("accepted");
+    expect(window.snapshot.items.filter((item) => item.kind === "assistant")).toHaveLength(1);
+    expect(
+      window.dispatch({
+        kind: "replace-window",
+        page: page([{ ...persisted, Assistant: { ...persisted.Assistant, Text: "Different content" } }], 200),
+      }).kind,
+    ).toBe("contract-failure");
+  });
+
   it("opens one admitted tail once, retaining source rows and opaque edges", () => {
     const window = new TranscriptWindow();
     expect(window.snapshot.items).toEqual([]);

@@ -19,10 +19,14 @@ export type TranscriptDisclosureProps = Readonly<{
   icon: ReactNode;
   iconTone?: TranscriptDisclosureIconTone | undefined;
   liveStatus?: ReactNode;
-  summary: ReactNode;
   summaryMode?: TranscriptDisclosureSummaryMode | undefined;
   typeLabel?: ReactNode;
-}>;
+  textTone?: "primary" | "secondary";
+}> &
+  (
+    | Readonly<{ summary: ReactNode; renderSummary?: never }>
+    | Readonly<{ summary?: never; renderSummary: (expanded: boolean) => ReactNode }>
+  );
 
 const iconToneClassNames: Readonly<Record<TranscriptDisclosureIconTone, string>> = {
   neutral: "transcript-disclosure-icon--neutral",
@@ -41,8 +45,10 @@ export function TranscriptDisclosure({
   iconTone = "neutral",
   liveStatus,
   summary,
+  renderSummary,
   summaryMode = "single-line",
   typeLabel,
+  textTone = "primary",
 }: TranscriptDisclosureProps) {
   const bodyId = `transcript-disclosure-body-${useId()}`;
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -53,7 +59,11 @@ export function TranscriptDisclosure({
     <Collapsible
       open={expanded}
       onOpenChange={setExpanded}
-      className="transcript-disclosure-shell group/transcript-disclosure relative w-full bg-transparent"
+      data-transcript-collapsed={!expanded}
+      className={cx(
+        "transcript-disclosure-shell group/transcript-disclosure relative w-full bg-transparent",
+        textTone === "secondary" ? "text-[var(--color-muted)]" : "text-[var(--color-on-background)]",
+      )}
     >
       <TranscriptDisclosureHeader
         actions={actions}
@@ -64,7 +74,7 @@ export function TranscriptDisclosure({
         icon={icon}
         iconTone={iconTone}
         liveStatus={liveStatus}
-        summary={summary}
+        summary={renderSummary === undefined ? summary : renderSummary(expanded)}
         summaryMode={summaryMode}
         typeLabel={typeLabel}
       />
@@ -108,10 +118,7 @@ function DisclosureBody({ bodyId, children }: Readonly<{ bodyId: string; childre
         exit={{ height: 0, opacity: 0 }}
         transition={{ duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
       >
-        <div
-          ref={ref}
-          className="min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm text-[var(--color-on-background)]"
-        >
+        <div ref={ref} className="min-w-0 px-[var(--space-2)] pb-[var(--space-2)] text-sm">
           {children}
         </div>
       </motion.div>
@@ -147,7 +154,10 @@ function TranscriptDisclosureHeader({
   return (
     <header
       className={cx(
-        "relative grid min-h-[var(--space-6)] grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] gap-[var(--space-2)] px-[var(--space-2)]",
+        "relative grid min-h-[var(--space-6)] gap-[var(--space-2)] px-[var(--space-2)]",
+        typeLabel === undefined
+          ? "grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+          : "grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]",
         expanded && "py-[var(--space-1)]",
         summaryMode === "multiline" ? "items-start" : "items-center",
       )}
@@ -168,21 +178,19 @@ function TranscriptDisclosureHeader({
       >
         {icon}
       </span>
-      {typeLabel === undefined ? (
-        <span aria-hidden="true" className="pointer-events-none" />
-      ) : (
+      {typeLabel !== undefined && (
         <span className="pointer-events-none relative z-0 min-w-0 truncate text-xs font-medium text-[var(--color-muted)]">
           {typeLabel}
         </span>
       )}
-      <span
+      <div
         className={cx(
-          "pointer-events-none relative z-0 min-w-0 text-left text-sm text-[var(--color-on-background)]",
+          "pointer-events-none relative z-0 min-w-0 text-left text-sm",
           summaryMode === "multiline" ? "transcript-disclosure-summary--multiline" : "truncate",
         )}
       >
         {summary}
-      </span>
+      </div>
       <div className="pointer-events-none relative z-10 flex min-w-0 items-center justify-end gap-[var(--space-1)]">
         {liveStatus === undefined ? null : (
           <div className="pointer-events-auto flex min-w-0 items-center">{liveStatus}</div>

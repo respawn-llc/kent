@@ -33,13 +33,13 @@ function renderAttention(item: AttentionItem) {
   return { openSidebar, view };
 }
 
-it("splits a Session-bearing attention card between Chat header and Task Detail body", () => {
+it("opens Task Detail from the attention row and Chat only from its separate action", () => {
   const { openSidebar } = renderAttention(questionAttention);
   const row = screen.getByTestId("attention-row");
 
   expect(within(row).getAllByRole("button")).toHaveLength(2);
-  fireEvent.click(screen.getByTestId("attention-chat-header"));
-  fireEvent.click(screen.getByTestId("attention-task-detail-body"));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("task.openChat", { name: base.taskTitle }) }));
+  fireEvent.click(screen.getByRole("button", { name: `${base.taskShortID} ${base.taskTitle}` }));
 
   expect(fixture.openSessionChat).toHaveBeenCalledWith({
     projectID: "project-1",
@@ -136,7 +136,9 @@ it.each([
   ["Task Approval", approval, null],
 ] as const)("keeps the typed Chat affordance for %s", (_name, item, expectedTarget) => {
   const { openSidebar } = renderAttention(item);
-  const chatHeader = screen.queryByTestId("attention-chat-header");
+  const chatHeader = screen.queryByRole("button", {
+    name: appI18n.t("task.openChat", { name: item.taskTitle }),
+  });
 
   expect(chatHeader !== null).toBe(expectedTarget !== null);
   if (expectedTarget !== null) {
@@ -144,9 +146,8 @@ it.each([
     fireEvent.click(chatHeader);
     expect(fixture.openSessionChat).toHaveBeenCalledWith(expectedTarget);
   } else {
-    const row = screen.getByTestId("attention-row");
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    fireEvent.click(row);
+    fireEvent.click(screen.getByRole("button"));
     expect(openSidebar).toHaveBeenCalledOnce();
   }
 });
@@ -158,6 +159,6 @@ it("keeps production attention rows as one Task Detail interaction", () => {
 
   expect(within(row).queryByTestId("attention-chat-header")).not.toBeInTheDocument();
   expect(screen.getAllByRole("button")).toHaveLength(1);
-  fireEvent.click(row);
+  fireEvent.click(screen.getByRole("button"));
   expect(openSidebar).toHaveBeenCalledOnce();
 });

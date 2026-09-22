@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatSessionTarget } from "@/api";
 import { useOwnedSidebarRoots } from "@/app-facade";
 import { InteractiveChip, useDelayedAppearance } from "@/ui";
+import { ComposerIcon } from "./ComposerIcon";
 
 export function ChatProcessesChip(props: Readonly<{ target: ChatSessionTarget; count: number }>) {
   return props.count > 0 ? <ActiveProcessesChip {...props} /> : null;
@@ -14,6 +15,7 @@ function ActiveProcessesChip({ target, count }: Readonly<{ target: ChatSessionTa
   if (!visible) return null;
   return (
     <InteractiveChip
+      variant="ghost"
       size="default"
       className="shrink-0 whitespace-nowrap"
       onClick={(event) => {
@@ -25,6 +27,7 @@ function ActiveProcessesChip({ target, count }: Readonly<{ target: ChatSessionTa
           });
       }}
     >
+      <ComposerIcon kind="processes" />
       {t("processes.activeCount", { count })}
     </InteractiveChip>
   );

@@ -2,6 +2,8 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
+
 - On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
 

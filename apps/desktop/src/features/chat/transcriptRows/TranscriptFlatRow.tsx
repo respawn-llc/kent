@@ -14,6 +14,7 @@ export function TranscriptFlatRow({
   icon,
   iconTone,
   summary,
+  textTone = "primary",
 }: Readonly<{
   body: ReactNode;
   copyText: string;
@@ -21,6 +22,7 @@ export function TranscriptFlatRow({
   icon: ReactNode;
   iconTone: TranscriptFlatRowIconTone;
   summary: ReactNode;
+  textTone?: "primary" | "secondary";
 }>) {
   const { t } = useTranslation();
   return (
@@ -40,6 +42,7 @@ export function TranscriptFlatRow({
       icon={icon}
       iconTone={iconTone}
       summary={summary}
+      textTone={textTone}
     />
   );
 }

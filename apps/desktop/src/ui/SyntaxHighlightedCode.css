@@ -25,11 +25,7 @@
 }
 
 .syntax-highlighted-code-token {
-  color: color-mix(
-    in srgb,
-    var(--shiki-light) 25%,
-    var(--syntax-highlighted-code-semantic-color, var(--shiki-light))
-  );
+  color: var(--shiki-light);
 }
 
 .syntax-highlighted-code-line {
@@ -38,19 +34,11 @@
 }
 
 [data-theme="dark"] .syntax-highlighted-code-token {
-  color: color-mix(
-    in srgb,
-    var(--shiki-dark) 25%,
-    var(--syntax-highlighted-code-semantic-color, var(--shiki-dark))
-  );
+  color: var(--shiki-dark);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .syntax-highlighted-code-token {
-    color: color-mix(
-      in srgb,
-      var(--shiki-dark) 25%,
-      var(--syntax-highlighted-code-semantic-color, var(--shiki-dark))
-    );
+    color: var(--shiki-dark);
   }
 }

@@ -1,4 +1,4 @@
-import { Target } from "lucide-react";
+import { ComposerIcon } from "../ComposerIcon";
 import { useTranslation } from "react-i18next";
 
 import type { ChatGoalFact } from "@/api";
@@ -13,6 +13,7 @@ export function GoalAffordance({ goal, onActivate }: GoalAffordanceProps) {
   const { t } = useTranslation();
   return (
     <InteractiveChip
+      variant="ghost"
       aria-label={t("chat.goal.objective")}
       className="shrink-0 whitespace-nowrap"
       onClick={onActivate}
@@ -20,7 +21,7 @@ export function GoalAffordance({ goal, onActivate }: GoalAffordanceProps) {
       tone={goal.goal?.status === "active" ? "primary" : "neutral"}
       data-state={goal.goal?.status === "active" ? "active" : "neutral"}
     >
-      <Target aria-hidden="true" size={17} strokeWidth={1.7} />
+      <ComposerIcon kind="goal" />
       <span>{t("chat.goal.objective")}</span>
     </InteractiveChip>
   );

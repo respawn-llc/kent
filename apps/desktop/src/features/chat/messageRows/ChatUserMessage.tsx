@@ -1,9 +1,8 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil } from "lucide-react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
-import { CollapsibleMarkdownViewport, IconTooltipButton, Island, StaticMarkdown } from "@/ui";
+import { IconTooltipButton, Island, StaticMarkdown } from "@/ui";
 
 import "./messageRows.css";
 import { MessageFooter } from "./MessageFooter";
@@ -23,7 +22,6 @@ export function ChatUserMessage({
   edit: ChatMessageEditControl;
 }>) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
   return (
     <div
       className="chat-message-row chat-message-user"
@@ -31,17 +29,8 @@ export function ChatUserMessage({
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
-        <Island className="chat-message-island" level={1} unpadded>
-          <CollapsibleMarkdownViewport
-            collapsedHeightClamp={{ kind: "lines", minimumLines: 10, maximumLines: 10, viewportPercent: 100 }}
-            expanded={expanded}
-            expandLabel={t("app.expand")}
-            onExpand={() => {
-              setExpanded(true);
-            }}
-          >
-            <StaticMarkdown value={item.value.Text} />
-          </CollapsibleMarkdownViewport>
+        <Island className="chat-message-island" level={1} radius="l" unpadded>
+          <StaticMarkdown value={item.value.Text} />
           <MessageFooter
             text={item.value.Text}
             committedAt={item.value.committed_at_unix_ms}

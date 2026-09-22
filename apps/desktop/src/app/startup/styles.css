@@ -134,6 +134,7 @@
     "App Sans", "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "App Mono", "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
+  --chat-tool-mono-size: 0.8125rem;
   --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
@@ -142,6 +143,8 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
+  --chat-content-max-width: 960px;
+  --chat-message-min-width: 160px;
   --button-primary-min-width: calc(var(--space-7) + var(--space-5));
   --radius-s: 8px;
   --radius-m: 12px;
@@ -149,6 +152,7 @@
   --radius-x: 18px;
   --radius-xl: 24px;
   --motion-fast: 140ms ease;
+  --motion-reveal: 280ms ease-out;
   --motion-shimmer-duration: 1000ms;
   --motion-normal: 400ms ease;
   --motion-expressive: 700ms ease;
@@ -174,11 +178,11 @@
   --color-on-success: var(--color-on-background);
   --color-error: #dc2e3c;
   --color-on-error: var(--color-on-background);
-  --shadow-island-0: 0 4px 4px rgba(0, 0, 0, 0.1);
-  --shadow-island-1: 0 4px 4px rgba(0, 0, 0, 0.24);
-  --shadow-island-2: 0 8px 8px rgba(0, 0, 0, 0.32);
-  --shadow-island-3: 0 16px 16px rgba(0, 0, 0, 0.38);
-  --shadow-island-4: 0 24px 24px rgba(0, 0, 0, 0.42);
+  --shadow-island-0: 0 2px 8px light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.08));
+  --shadow-island-1: 0 3px 12px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.12));
+  --shadow-island-2: 0 6px 20px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.16));
+  --shadow-island-3: 0 10px 32px light-dark(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.19));
+  --shadow-island-4: 0 16px 48px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.22));
   --shadow-bleed-island: 96px;
   --window-glass-tint: light-dark(rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.11));
   --window-noise-opacity: 0.12;

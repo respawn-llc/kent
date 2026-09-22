@@ -1,4 +1,4 @@
-import { ChevronRight, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -11,7 +11,7 @@ import {
   type SidebarRootController,
 } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import { cx, islandSurfaceClassName, PromptAccessTargets } from "@/ui";
+import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
 export const AttentionRow = memo(function AttentionRow({
@@ -33,57 +33,36 @@ export const AttentionRow = memo(function AttentionRow({
         ? t("app.attention.interruptedCurrentNodeFallback")
         : null);
   const chatTarget = desktopChatEnabled ? attentionChatTarget(item) : null;
-  if (chatTarget === null) {
-    return (
-      <button
-        className={cx(
-          "grid w-full min-w-0 gap-[var(--space-2)] rounded-[var(--radius-l)] p-[var(--space-3)] text-left text-[var(--color-on-island)]",
-          islandSurfaceClassName(1),
-        )}
-        data-testid="attention-row"
-        onClick={() => {
-          openTaskDetail(item, openSidebar, sidebarMode);
-        }}
-        type="button"
-      >
-        <AttentionHeader item={item} />
-        <AttentionBody item={item} message={message} />
-      </button>
-    );
-  }
   return (
-    <article
-      className={cx(
-        "grid w-full min-w-0 rounded-[var(--radius-l)] text-left text-[var(--color-on-island)]",
-        islandSurfaceClassName(1),
-      )}
-      data-testid="attention-row"
-    >
-      <button
-        className="flex min-w-0 items-center gap-[var(--space-2)] p-[var(--space-3)] text-left"
-        data-testid="attention-chat-header"
-        onClick={() => {
-          void navigation.openSessionChat(chatTarget);
-        }}
-        type="button"
-      >
-        <AttentionHeader item={item} showChat />
-      </button>
-      <button
-        className="grid min-w-0 gap-[var(--space-2)] p-[var(--space-3)] pt-0 text-left"
-        data-testid="attention-task-detail-body"
+    <div className="flex min-w-0 items-start" data-testid="attention-row">
+      <Item
+        className="min-w-0 flex-1 px-[var(--space-2)] py-[var(--space-3)]"
+        aria-label={`${item.taskShortID} ${item.taskTitle}`}
         onClick={() => {
           openTaskDetail(item, openSidebar, sidebarMode);
         }}
-        type="button"
       >
-        <AttentionBody item={item} message={message} />
-      </button>
-    </article>
+        <ItemContent className="min-w-0">
+          <AttentionHeader item={item} />
+          <AttentionBody item={item} message={message} />
+        </ItemContent>
+      </Item>
+      {chatTarget === null ? null : (
+        <IconTooltipButton
+          className="mt-[var(--space-2)] text-[var(--color-muted)]"
+          label={t("task.openChat", { name: item.taskTitle })}
+          onClick={() => {
+            void navigation.openSessionChat(chatTarget);
+          }}
+        >
+          <MessageCircle className="size-4" strokeWidth={1.5} />
+        </IconTooltipButton>
+      )}
+    </div>
   );
 }, attentionRowPropsEqual);
 
-function AttentionHeader({ item, showChat = false }: Readonly<{ item: AttentionItem; showChat?: boolean }>) {
+function AttentionHeader({ item }: Readonly<{ item: AttentionItem }>) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-[var(--space-2)]">
       {item.taskShortID.length > 0 ? (
@@ -93,12 +72,6 @@ function AttentionHeader({ item, showChat = false }: Readonly<{ item: AttentionI
       ) : null}
       {item.taskTitle.length > 0 ? (
         <strong className="min-w-0 flex-1 truncate">{item.taskTitle}</strong>
-      ) : null}
-      {showChat ? (
-        <>
-          <MessageCircle aria-hidden="true" className="shrink-0" size={16} strokeWidth={1.5} />
-          <ChevronRight aria-hidden="true" className="shrink-0" size={16} strokeWidth={1.5} />
-        </>
       ) : null}
     </div>
   );
@@ -110,13 +83,13 @@ function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; messag
       {item.kind === "question" &&
       item.question.kind === "approval" &&
       item.question.accessTargets.length > 0 ? (
-        <div className="min-w-0 break-words text-sm text-[var(--color-muted)]">
+        <div className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">
           <PromptAccessTargets targets={item.question.accessTargets} />
         </div>
       ) : (
-        <span className="min-w-0 line-clamp-5 break-words text-sm text-[var(--color-muted)]">{message}</span>
+        <span className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">{message}</span>
       )}
-      <span className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
+      <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
     </>
   );
 }

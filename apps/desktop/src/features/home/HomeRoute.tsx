@@ -12,7 +12,7 @@ import { useAppServices } from "@/app-facade";
 import { useNativeDialogFallback } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import { ErrorState, homeListCardListMaxWidthClassName, LoadingState, VirtualizedInfiniteList } from "@/ui";
+import { ErrorState, LoadingState, VirtualizedInfiniteList } from "@/ui";
 import { HomeSidebar, type HomeSidebarCategory } from "./HomeSidebar";
 import { HomeProjectContent } from "./HomeProjectContent";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
@@ -231,7 +231,7 @@ function AttentionList({ items, query, sidebarMode }: AttentionListProps) {
   }
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
       empty={<HomeInlineEmptyState body={t("home.noAttentionBody")} />}
       estimateSize={() => 144}
       getItemKey={(item) => item.id}

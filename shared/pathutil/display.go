@@ -20,7 +20,10 @@ func CollapseHome(path, home string) string {
 // It never constructs parent-relative paths or resolves symlinks.
 func Compact(path, cwd, home string) string {
 	if relative, err := filepath.Rel(cwd, path); err == nil && filepath.IsLocal(relative) {
-		return filepath.ToSlash(relative)
+		if relative == "." {
+			return "./"
+		}
+		return "./" + filepath.ToSlash(relative)
 	}
 	return CollapseHome(path, home)
 }

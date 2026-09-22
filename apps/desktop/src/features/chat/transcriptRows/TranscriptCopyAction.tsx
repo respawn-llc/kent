@@ -57,7 +57,12 @@ export function TranscriptCopyAction({
       size="icon-sm"
     >
       <span className="chat-transcript-copy-icon relative grid size-4 place-items-center">
-        <Copy className={cx("absolute size-4 transition-opacity", copied && "opacity-0")} />
+        <Copy
+          className={cx(
+            "absolute size-4 text-[var(--color-muted)] transition-opacity",
+            copied && "opacity-0",
+          )}
+        />
         <Check
           className={cx(
             "absolute size-4 text-[var(--color-success)] transition-opacity",

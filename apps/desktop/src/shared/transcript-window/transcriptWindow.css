@@ -1,0 +1,9 @@
+.transcript-window-message-row:has([data-next="true"]) {
+  padding-bottom: calc(var(--space-1) / 2);
+}
+
+.transcript-window-disclosure-row:has([data-transcript-collapsed="true"]):has(
+    + .transcript-window-disclosure-row [data-transcript-collapsed="true"]
+  ) {
+  padding-bottom: calc(var(--space-1) * 0.7);
+}

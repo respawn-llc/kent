@@ -7,10 +7,10 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
 } from "@/ui";
 import { contextPresentation } from "./chatContextPresentation";
 import "./chatContext.css";
+import { ComposerIcon } from "./ComposerIcon";
 
 type Props = Readonly<{
   used: number;
@@ -43,6 +43,7 @@ export function ChatContextControl(props: Props) {
     >
       <PopoverTrigger asChild>
         <InteractiveChip
+          variant="ghost"
           className="chat-context-trigger"
           onClick={(event) => {
             if (open && hoverOpened.current) {
@@ -130,7 +131,7 @@ function ContextMeter({
     return (
       <>
         <span>{t("chatComposer.context.compacting")}</span>
-        <Spinner tone="secondary" size="sm" className="chat-context-circle" />
+        <ComposerIcon kind="loading" className="text-[var(--color-secondary)]" />
       </>
     );
   return (

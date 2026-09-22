@@ -27,7 +27,7 @@
     "elkjs": "^0.12.0",
     "effect": "4.0.0-rc.112",
     "i18next": "^26.3.6",
-    "lucide-react": "^1.27.0",
+    "lucide-react": "^1.46.0",
     "motion": "^13.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -7,15 +7,12 @@
 .transcript-tool-plain-text {
   min-inline-size: 0;
   max-inline-size: 100%;
-  overflow: auto hidden;
   margin: 0;
   border: 0;
   background: transparent;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: inherit;
   line-height: inherit;
-  white-space: pre;
   user-select: text;
 }
 
@@ -34,6 +31,10 @@
   font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.transcript-tool-command {
+  min-inline-size: 0;
 }
 
 .transcript-tool-exit-code {
@@ -66,12 +67,10 @@
 }
 
 .transcript-patch-summary-file {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   min-inline-size: 0;
   align-items: baseline;
   gap: var(--space-2);
-  padding-inline-start: var(--space-2);
 }
 
 .transcript-patch-path {
@@ -118,7 +117,6 @@
   display: flex;
   min-inline-size: 0;
   align-items: baseline;
-  justify-content: space-between;
   gap: var(--space-2);
 }
 
@@ -136,20 +134,28 @@
 
 .transcript-patch-source-line--removed::before {
   content: "-";
+  color: var(--color-error);
 }
 
 .transcript-patch-source-line--added::before {
   content: "+";
+  color: var(--color-success);
 }
 
 .transcript-patch-source-line--removed {
-  --syntax-highlighted-code-semantic-color: var(--color-error);
-
-  color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-error) 12%, transparent);
 }
 
 .transcript-patch-source-line--added {
-  --syntax-highlighted-code-semantic-color: var(--color-success);
+  background-color: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
 
-  color: var(--color-success);
+.transcript-tool-command-summary,
+.transcript-tool-plain-text,
+.transcript-tool-exit-code,
+.transcript-patch-path,
+.transcript-patch-counts,
+.transcript-tool-sections .syntax-highlighted-code,
+.transcript-patch-file .syntax-highlighted-code {
+  font-size: var(--chat-tool-mono-size);
 }

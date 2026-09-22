@@ -116,9 +116,10 @@ export function useComposerKeyboard(
         });
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey) {
+      const unsupportedModifier = platform === "macos" ? event.ctrlKey : event.metaKey;
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !unsupportedModifier) {
         event.preventDefault();
-        composer.submit(event.ctrlKey ? "queue" : "send");
+        composer.submit((platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send");
       }
     },
   };

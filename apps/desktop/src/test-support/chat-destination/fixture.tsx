@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import {
@@ -93,14 +94,17 @@ function renderDestination(
           <SidebarShellContext.Provider value={createTestSidebarShell()}>
             <SidebarRootOwner>
               <ChatPromptPresenceProvider>
-                <ChatDestination opening={opening} navigation={navigation} />
-                {contextualContent}
+                <MotionConfig skipAnimations>
+                  <ChatDestination opening={opening} navigation={navigation} />
+                  {contextualContent}
+                </MotionConfig>
               </ChatPromptPresenceProvider>
             </SidebarRootOwner>
           </SidebarShellContext.Provider>
         </SidebarRootContext.Provider>
       </TestAppProviders>
     </RouterContextProvider>,
+    { reactStrictMode: true },
   );
   return { unmount: view.unmount, router };
 }
