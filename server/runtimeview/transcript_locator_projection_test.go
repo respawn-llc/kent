@@ -34,9 +34,7 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
-	})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot))
 	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
@@ -144,16 +142,14 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 	const sessionID = "12345678-1234-4234-8234-123456789012"
 	const stepID = "22222222-2222-4222-8222-222222222222"
 	malformed := &runtime.TranscriptCommittedRowProvenance{}
-	snapshot := runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{{
-			StepID:     runtimeStepIDPointer(stepID),
-			Kind:       runtime.TranscriptCommittedRowFactUser,
-			Locator:    transcript.CommittedRowLocator{},
-			Provenance: malformed,
-			User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
-		}},
-	}
-	if _, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false); err == nil {
+	facts := []runtime.TranscriptCommittedRowFact{{
+		StepID:     runtimeStepIDPointer(stepID),
+		Kind:       runtime.TranscriptCommittedRowFactUser,
+		Locator:    transcript.CommittedRowLocator{},
+		Provenance: malformed,
+		User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
+	}}
+	if _, err := transcriptTailSegmentFromFactsChecked(facts, nil, false); err == nil {
 		t.Fatal("checked hydration projection accepted malformed locator")
 	}
 

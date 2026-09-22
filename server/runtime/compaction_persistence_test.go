@@ -102,7 +102,7 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 	if len(localIndexes) != 2 || statusIndex < 0 || localIndexes[0] >= localIndexes[1] || localIndexes[1] >= statusIndex {
 		t.Fatalf("replacement/status publication order = locals:%v status:%d events:%+v", localIndexes, statusIndex, events)
 	}
-	rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows
+	rows := mustNewestTranscriptFacts(t, engine)
 	if len(rows) != 2 {
 		t.Fatalf("replacement hydration rows = %+v", rows)
 	}

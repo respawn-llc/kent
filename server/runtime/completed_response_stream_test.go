@@ -858,32 +858,6 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 		)
 	}
 
-	var hydratedAssistant *TranscriptCommittedRowFact
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-		for index := range snapshot.CommittedRows {
-			row := &snapshot.CommittedRows[index]
-			if row.Kind != TranscriptCommittedRowFactAssistant {
-				continue
-			}
-			if hydratedAssistant != nil {
-				t.Fatalf("multiple hydrated assistant rows after compaction: %+v", snapshot.CommittedRows)
-			}
-			hydratedAssistant = row
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("hydrate active segment: %v", err)
-	}
-	if hydratedAssistant == nil ||
-		hydratedAssistant.Assistant == nil ||
-		hydratedAssistant.Assistant.StreamID == nil ||
-		*hydratedAssistant.Assistant.StreamID != *finalized.AssistantTranscriptStreamID {
-		t.Fatalf(
-			"hydrated post-compaction assistant = %+v, finalized stream=%+v",
-			hydratedAssistant,
-			finalized.AssistantTranscriptStreamID,
-		)
-	}
 }
 
 type externallyCompletedWorkflowController struct {

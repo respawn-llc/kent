@@ -542,14 +542,8 @@ func TestStepLoopPersistsReasoningProgressAsDetailOnly(t *testing.T) {
 			facts[0].Integrity != transcript.RowIntegrityValid {
 			t.Fatalf("reasoning progress facts = %+v, want one valid detail-only row", facts)
 		}
-		var hydration TranscriptHydrationSnapshot
-		if err := eng.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-			hydration = snapshot
-			return nil
-		}); err != nil {
-			t.Fatalf("hydrate transcript: %v", err)
-		}
-		for _, row := range hydration.CommittedRows {
+		rows := mustNewestTranscriptFacts(t, eng)
+		for _, row := range rows {
 			if row.Kind == TranscriptCommittedRowFactReasoningTrace && row.ReasoningTrace != nil {
 				if row.Visibility != transcript.EntryVisibilityDetail ||
 					row.Integrity != transcript.RowIntegrityValid {
@@ -558,7 +552,7 @@ func TestStepLoopPersistsReasoningProgressAsDetailOnly(t *testing.T) {
 				return
 			}
 		}
-		t.Fatalf("hydration rows = %+v, want persisted reasoning row", hydration.CommittedRows)
+		t.Fatalf("hydration rows = %+v, want persisted reasoning row", rows)
 	}
 	t.Fatal("reasoning progress was not committed")
 }
@@ -591,27 +585,21 @@ func TestTranscriptHydrationSurvivesCommittedMessageWithoutProviderItems(t *test
 	}
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	var hydration TranscriptHydrationSnapshot
-	if err := eng.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-		hydration = snapshot
-		return nil
-	}); err != nil {
-		t.Fatalf("hydrate restored transcript: %v", err)
+	rows := mustNewestTranscriptFacts(t, eng)
+	if len(rows) != 2 {
+		t.Fatalf("hydrated rows = %+v, want only messages surrounding provider-empty assistant", rows)
 	}
-	if len(hydration.CommittedRows) != 2 {
-		t.Fatalf("hydrated rows = %+v, want only messages surrounding provider-empty assistant", hydration.CommittedRows)
+	if rows[0].StepID == nil ||
+		*rows[0].StepID != beforeStepID ||
+		rows[0].User == nil ||
+		rows[0].User.Text != "before" {
+		t.Fatalf("hydrated row before provider-empty assistant = %+v", rows[0])
 	}
-	if hydration.CommittedRows[0].StepID == nil ||
-		*hydration.CommittedRows[0].StepID != beforeStepID ||
-		hydration.CommittedRows[0].User == nil ||
-		hydration.CommittedRows[0].User.Text != "before" {
-		t.Fatalf("hydrated row before provider-empty assistant = %+v", hydration.CommittedRows[0])
-	}
-	if hydration.CommittedRows[1].StepID == nil ||
-		*hydration.CommittedRows[1].StepID != afterStepID ||
-		hydration.CommittedRows[1].User == nil ||
-		hydration.CommittedRows[1].User.Text != "after" {
-		t.Fatalf("hydrated row after provider-empty assistant = %+v", hydration.CommittedRows[1])
+	if rows[1].StepID == nil ||
+		*rows[1].StepID != afterStepID ||
+		rows[1].User == nil ||
+		rows[1].User.Text != "after" {
+		t.Fatalf("hydrated row after provider-empty assistant = %+v", rows[1])
 	}
 }
 

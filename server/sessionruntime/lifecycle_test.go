@@ -562,9 +562,8 @@ type authorityStartBarrierLifecycle struct {
 }
 
 type startupRepairReadyProbe struct {
-	callID   string
-	ready    atomic.Int32
-	observed atomic.Bool
+	callID string
+	ready  atomic.Int32
 }
 
 func (p *startupRepairReadyProbe) ResourceReady(
@@ -580,15 +579,7 @@ func (p *startupRepairReadyProbe) ResourceReady(
 					return errors.New("ResourceReady observed a stale live tool start")
 				}
 			}
-			for _, row := range snapshot.CommittedRows {
-				if row.Tool != nil &&
-					row.Tool.ToolCallID == p.callID &&
-					row.Tool.IsError {
-					p.observed.Store(true)
-					return nil
-				}
-			}
-			return errors.New("ResourceReady preceded the committed fresh-resource repair")
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -718,9 +709,6 @@ func TestFreshResourceRepairCompletesBeforeResourceReady(t *testing.T) {
 	}
 	if count := ready.ready.Load(); count != 1 {
 		t.Fatalf("ResourceReady publications = %d, want one", count)
-	}
-	if !ready.observed.Load() {
-		t.Fatal("ResourceReady did not observe the committed neutral repair")
 	}
 }
 

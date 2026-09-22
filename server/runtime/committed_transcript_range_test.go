@@ -428,18 +428,12 @@ func TestTranscriptHydrationRetainsAdjacentRowsAroundProviderEmptyAssistant(t *t
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 	restoreStep := setTestActiveStep(engine, "compaction")
 	defer restoreStep()
-	var hydration TranscriptHydrationSnapshot
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-		hydration = snapshot
-		return nil
-	}); err != nil {
-		t.Fatalf("hydrate restored transcript: %v", err)
-	}
-	if len(hydration.CommittedRows) != 2 {
-		t.Fatalf("hydrated rows = %+v", hydration.CommittedRows)
+	rows := mustNewestTranscriptFacts(t, engine)
+	if len(rows) != 2 {
+		t.Fatalf("hydrated rows = %+v", rows)
 	}
 	for index, stepID := range []string{beforeStepID, afterStepID} {
-		row := hydration.CommittedRows[index]
+		row := rows[index]
 		if row.StepID == nil || *row.StepID != stepID || row.Kind != TranscriptCommittedRowFactUser || row.User == nil {
 			t.Fatalf("hydrated row[%d] = %+v", index, row)
 		}

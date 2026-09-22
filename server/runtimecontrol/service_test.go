@@ -250,19 +250,18 @@ func waitForRuntimeControlAssistantFinal(t *testing.T, engine *runtime.Engine, t
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		found := false
-		if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-			for _, row := range snapshot.CommittedRows {
-				if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
-					row.Assistant != nil &&
-					row.Assistant.Phase == llm.MessagePhaseFinal &&
-					row.Assistant.Text == text {
-					found = true
-					break
-				}
+		page, err := engine.TranscriptNewestSegmentPage()
+		if err != nil {
+			t.Fatalf("read newest transcript segment: %v", err)
+		}
+		for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+			if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
+				row.Assistant != nil &&
+				row.Assistant.Phase == llm.MessagePhaseFinal &&
+				row.Assistant.Text == text {
+				found = true
+				break
 			}
-			return nil
-		}); err != nil {
-			t.Fatalf("read transcript hydration snapshot: %v", err)
 		}
 		if found {
 			return
@@ -1145,21 +1144,20 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	nextUserMessageCount := 0
 	finalResponseCount := 0
 	var finalResponseText string
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Kind == runtime.TranscriptCommittedRowFactUser && row.User != nil && row.User.Text == "next user message" {
-				nextUserMessageCount++
-			}
-			if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
-				row.Assistant != nil &&
-				row.Assistant.Phase == llm.MessagePhaseFinal {
-				finalResponseCount++
-				finalResponseText = row.Assistant.Text
-			}
+	page, err := engine.TranscriptNewestSegmentPage()
+	if err != nil {
+		t.Fatalf("read newest transcript segment: %v", err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Kind == runtime.TranscriptCommittedRowFactUser && row.User != nil && row.User.Text == "next user message" {
+			nextUserMessageCount++
 		}
-		return nil
-	}); err != nil {
-		t.Fatalf("read transcript hydration snapshot: %v", err)
+		if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
+			row.Assistant != nil &&
+			row.Assistant.Phase == llm.MessagePhaseFinal {
+			finalResponseCount++
+			finalResponseText = row.Assistant.Text
+		}
 	}
 	if nextUserMessageCount != 1 {
 		t.Fatalf("next user message rows = %d, want exactly 1", nextUserMessageCount)

@@ -805,18 +805,20 @@ func (f *currentNodeRunnerFixture) waitForAssistantFinal(
 			context.Background(),
 			sessionID,
 			func(_ context.Context, engine *agentruntime.Engine) error {
-				return engine.WithTranscriptHydrationSnapshot(func(snapshot agentruntime.TranscriptHydrationSnapshot) error {
-					for _, row := range snapshot.CommittedRows {
-						if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
-							row.Assistant != nil &&
-							row.Assistant.Phase == llm.MessagePhaseFinal &&
-							row.Assistant.Text == text {
-							found = true
-							return nil
-						}
+				page, err := engine.TranscriptNewestSegmentPage()
+				if err != nil {
+					return err
+				}
+				for _, row := range agentruntime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+					if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
+						row.Assistant != nil &&
+						row.Assistant.Phase == llm.MessagePhaseFinal &&
+						row.Assistant.Text == text {
+						found = true
+						return nil
 					}
-					return nil
-				})
+				}
+				return nil
 			},
 		)
 		if err != nil {

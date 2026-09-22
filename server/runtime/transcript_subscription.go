@@ -13,7 +13,6 @@ import (
 
 type TranscriptHydrationSnapshot struct {
 	ConnectionReplacement   *config.ConnectionReplacement
-	CommittedRows           []TranscriptCommittedRowFact
 	ActiveAssistantText     string
 	ActiveAssistantMetadata *AssistantStreamMetadata
 	ActiveAssistantStreamID *uuid.UUID
@@ -22,7 +21,6 @@ type TranscriptHydrationSnapshot struct {
 	ActiveReasoningTraces   []TranscriptReasoningTraceState
 	InFlightTools           []TranscriptLiveToolStart
 	ActiveCompaction        *TranscriptCompactionState
-	CompactionCount         int
 	ContextUsage            *ContextUsage
 	Goal                    *session.GoalState
 	GoalSuspended           bool
@@ -83,7 +81,6 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 	usage := e.ContextUsage()
 	return TranscriptHydrationSnapshot{
 		ConnectionReplacement:   e.transcriptRuntimeState().ConnectionReplacement(),
-		CommittedRows:           snapshot.Rows,
 		ActiveAssistantText:     snapshot.Streaming,
 		ActiveAssistantMetadata: cloneAssistantStreamMetadata(snapshot.StreamingMetadata),
 		ActiveAssistantStreamID: cloneTranscriptStreamID(snapshot.StreamingStreamID),
@@ -92,7 +89,6 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 		ActiveReasoningTraces:   reasoningTraces,
 		InFlightTools:           e.transcriptRuntimeState().LiveToolSnapshot(),
 		ActiveCompaction:        e.compactionRuntimeState().ActiveSnapshot(),
-		CompactionCount:         e.CompactionCount(),
 		ContextUsage:            &usage,
 		Goal:                    e.Goal(),
 		GoalSuspended:           e.GoalLoopSuspended(),

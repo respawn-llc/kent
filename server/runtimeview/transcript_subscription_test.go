@@ -256,35 +256,33 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 			if test.disposition != nil {
 				removed = textutil.Value(test.disposition.Removed)
 			}
-			hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-				CommittedRows: []runtime.TranscriptCommittedRowFact{{
-					StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
-					Visibility: transcript.EntryVisibilityOngoingCollapsed,
-					Integrity:  transcript.RowIntegrityValid,
-					Kind:       runtime.TranscriptCommittedRowFactTool,
-					Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
-					Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
-					Tool: &runtime.TranscriptToolRowFact{
-						ToolCallID: "call-delete",
-						ToolName:   "patch",
-						Presentation: &transcript.ToolCallMeta{
-							ToolName:       "patch",
-							Presentation:   transcript.ToolPresentationDefault,
-							RenderBehavior: transcript.ToolCallRenderBehaviorDefault,
-							PatchPresentation: &patchformat.Presentation{
-								Variant: patchformat.PresentationVariantChanges,
-								Changes: &patchformat.Changes{
-									Files: []patchformat.FileChange{
-										{
-											Path:    patchformat.Path{Absolute: "/workspace/target.txt", Relative: "target.txt"},
-											Removed: removed,
-											Operations: []patchformat.FileOperation{
-												{
-													Kind: patchformat.FileOperationDelete,
-													Deletion: &patchformat.WholeFileDeletionOperation{
-														ID:          id,
-														Disposition: test.disposition,
-													},
+			hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, []runtime.TranscriptCommittedRowFact{{
+				StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
+				Visibility: transcript.EntryVisibilityOngoingCollapsed,
+				Integrity:  transcript.RowIntegrityValid,
+				Kind:       runtime.TranscriptCommittedRowFactTool,
+				Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
+				Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+				Tool: &runtime.TranscriptToolRowFact{
+					ToolCallID: "call-delete",
+					ToolName:   "patch",
+					Presentation: &transcript.ToolCallMeta{
+						ToolName:       "patch",
+						Presentation:   transcript.ToolPresentationDefault,
+						RenderBehavior: transcript.ToolCallRenderBehaviorDefault,
+						PatchPresentation: &patchformat.Presentation{
+							Variant: patchformat.PresentationVariantChanges,
+							Changes: &patchformat.Changes{
+								Files: []patchformat.FileChange{
+									{
+										Path:    patchformat.Path{Absolute: "/workspace/target.txt", Relative: "target.txt"},
+										Removed: removed,
+										Operations: []patchformat.FileOperation{
+											{
+												Kind: patchformat.FileOperationDelete,
+												Deletion: &patchformat.WholeFileDeletionOperation{
+													ID:          id,
+													Disposition: test.disposition,
 												},
 											},
 										},
@@ -293,8 +291,9 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 							},
 						},
 					},
-				}},
-			})
+				},
+			}},
+			)
 			if len(hydration.TailSegment.Entries) != 1 ||
 				hydration.TailSegment.Entries[0].GetTool() == nil ||
 				hydration.TailSegment.Entries[0].GetTool().Presentation == nil ||
@@ -324,9 +323,13 @@ const (
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
-func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot) *transcriptpb.Hydration {
+func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot, facts ...[]runtime.TranscriptCommittedRowFact) *transcriptpb.Hydration {
 	t.Helper()
-	tailSegment, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false)
+	var committedRows []runtime.TranscriptCommittedRowFact
+	if len(facts) > 0 {
+		committedRows = facts[0]
+	}
+	tailSegment, err := transcriptTailSegmentFromFactsChecked(committedRows, nil, false)
 	if err != nil {
 		t.Fatalf("project transcript hydration tail: %v", err)
 	}
@@ -473,18 +476,17 @@ func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 		t.Fatalf("committed row visibility = %q, want detail", got)
 	}
 
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{{
-			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
-			Visibility: transcript.EntryVisibilityHidden,
-			Kind:       runtime.TranscriptCommittedRowFactUser,
-			Locator:    transcript.CommittedRowLocator{EventSequence: 2, RowOrdinal: 1},
-			User:       &runtime.TranscriptUserRowFact{Text: "hidden row"},
-			Provenance: &runtime.TranscriptCommittedRowProvenance{
-				EventSequence: 2,
-			},
-		}},
-	})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, []runtime.TranscriptCommittedRowFact{{
+		StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
+		Visibility: transcript.EntryVisibilityHidden,
+		Kind:       runtime.TranscriptCommittedRowFactUser,
+		Locator:    transcript.CommittedRowLocator{EventSequence: 2, RowOrdinal: 1},
+		User:       &runtime.TranscriptUserRowFact{Text: "hidden row"},
+		Provenance: &runtime.TranscriptCommittedRowProvenance{
+			EventSequence: 2,
+		},
+	}},
+	)
 	if len(hydration.TailSegment.Entries) != 1 {
 		t.Fatalf("hydration rows = %+v, want one committed row", hydration.TailSegment.Entries)
 	}
@@ -514,11 +516,10 @@ func TestDeveloperMessageProjectsAsRegularNotice(t *testing.T) {
 		t.Fatalf("native reminder events = %d, want one", len(messages))
 	}
 	live := messages[0].GetCommittedRow()
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(runtime.ChatSnapshot{
-			Entries: []runtime.ChatEntry{entry},
-		}),
-	})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, runtime.TranscriptCommittedRowFactsFromSnapshot(runtime.ChatSnapshot{
+		Entries: []runtime.ChatEntry{entry},
+	}),
+	)
 	if len(hydration.TailSegment.Entries) != 1 {
 		t.Fatalf("hydrated native reminder rows = %d, want one", len(hydration.TailSegment.Entries))
 	}
@@ -633,27 +634,25 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		t.Fatalf("Runtime live tool Step provenance = %+v, want absent", liveRow.GetTool())
 	}
 
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{
-			{
-				Visibility: transcript.EntryVisibilityOngoing,
-				Integrity:  transcript.RowIntegrityValid,
-				Kind:       runtime.TranscriptCommittedRowFactUser,
-				Locator:    transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
-				Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 3},
-				User:       &runtime.TranscriptUserRowFact{Text: "idle input"},
-			},
-			{
-				Visibility: transcript.EntryVisibilityOngoingCollapsed,
-				Integrity:  transcript.RowIntegrityValid,
-				Kind:       runtime.TranscriptCommittedRowFactTool,
-				Locator:    transcript.CommittedRowLocator{EventSequence: 4, RowOrdinal: 1},
-				Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 4},
-				Tool: &runtime.TranscriptToolRowFact{
-					ToolCallID: "call-runtime",
-					ToolName:   string(toolspec.ToolExecCommand),
-					Text:       "done",
-				},
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, []runtime.TranscriptCommittedRowFact{
+		{
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactUser,
+			Locator:    transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
+			Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 3},
+			User:       &runtime.TranscriptUserRowFact{Text: "idle input"},
+		},
+		{
+			Visibility: transcript.EntryVisibilityOngoingCollapsed,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactTool,
+			Locator:    transcript.CommittedRowLocator{EventSequence: 4, RowOrdinal: 1},
+			Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 4},
+			Tool: &runtime.TranscriptToolRowFact{
+				ToolCallID: "call-runtime",
+				ToolName:   string(toolspec.ToolExecCommand),
+				Text:       "done",
 			},
 		},
 	})
@@ -743,9 +742,7 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 			DurationMs:  &durationMs,
 		},
 	}
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{fact},
-	})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, []runtime.TranscriptCommittedRowFact{fact})
 	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetReasoningTrace() == nil ||
 		hydration.TailSegment.Entries[0].GetReasoningTrace().Duration == nil ||
 		hydration.TailSegment.Entries[0].GetReasoningTrace().Duration.AsDuration().Milliseconds() != durationMs {
@@ -999,18 +996,17 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 }
 
 func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testing.T) {
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{{
-			Visibility: transcript.EntryVisibilityOngoing,
-			Integrity:  transcript.RowIntegrityValid,
-			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
-			Kind:       runtime.TranscriptCommittedRowFactAssistant,
-			Locator:    transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
-			Assistant: &runtime.TranscriptAssistantRowFact{
-				Text: "legacy final answer",
-			},
-		}},
-	})
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, []runtime.TranscriptCommittedRowFact{{
+		Visibility: transcript.EntryVisibilityOngoing,
+		Integrity:  transcript.RowIntegrityValid,
+		StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
+		Kind:       runtime.TranscriptCommittedRowFactAssistant,
+		Locator:    transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
+		Assistant: &runtime.TranscriptAssistantRowFact{
+			Text: "legacy final answer",
+		},
+	}},
+	)
 	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetAssistant() == nil {
 		t.Fatalf("hydration rows = %+v, want one assistant row", hydration.TailSegment.Entries)
 	}

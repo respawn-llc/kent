@@ -251,7 +251,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[0].ID)
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[1].ID)
 	var hydrated []string
-	for _, row := range mustTranscriptHydrationSnapshot(t, first).CommittedRows {
+	for _, row := range mustNewestTranscriptFacts(t, first) {
 		if row.Kind == TranscriptCommittedRowFactTool && row.Tool != nil {
 			if row.Tool.ToolCallID == calls[0].ID || row.Tool.ToolCallID == calls[1].ID {
 				hydrated = append(hydrated, row.Tool.ToolCallID)

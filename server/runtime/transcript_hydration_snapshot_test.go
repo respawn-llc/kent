@@ -86,8 +86,8 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 
 	snapshot := hydrationSnapshot(t, engine)
 	if snapshot.ActiveCompaction == nil || snapshot.ActiveCompaction.StepID != stepID ||
-		snapshot.ActiveCompaction.Count != 8 || snapshot.CompactionCount != 7 {
-		t.Fatalf("compaction = active %+v count %d", snapshot.ActiveCompaction, snapshot.CompactionCount)
+		snapshot.ActiveCompaction.Count != 8 {
+		t.Fatalf("compaction = active %+v", snapshot.ActiveCompaction)
 	}
 	if snapshot.ContextUsage == nil ||
 		snapshot.ContextUsage.WindowTokens != int(engine.LiveChatContextSnapshot().Policy.ContextWindowTokens) ||
@@ -105,9 +105,8 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 		t.Fatalf("steer terminal owner events: %v", err)
 	}
 	snapshot = hydrationSnapshot(t, engine)
-	if snapshot.ActiveCompaction != nil || snapshot.CompactionCount != 7 {
-		t.Fatalf("terminal owner state = compaction %+v count %d",
-			snapshot.ActiveCompaction, snapshot.CompactionCount)
+	if snapshot.ActiveCompaction != nil {
+		t.Fatalf("terminal owner state = compaction %+v", snapshot.ActiveCompaction)
 	}
 }
 

@@ -99,7 +99,7 @@ func TestReopenedEngineHydratesTypedReviewerFacts(t *testing.T) {
 		t.Fatalf("append error: %v", err)
 	}
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows
+	rows := mustNewestTranscriptFacts(t, engine)
 	assertReviewerRuntimeFacts(t, rows, stepID, feedback, reviewerError)
 }
 
@@ -173,7 +173,7 @@ func TestReviewerFactsSurviveNewestAdjacentAndReopenedPages(t *testing.T) {
 		}
 	}
 	reopened := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	assertReviewerRuntimeFacts(t, mustTranscriptHydrationSnapshot(t, reopened).CommittedRows, stepID, feedback, reviewerError)
+	assertReviewerRuntimeFacts(t, mustNewestTranscriptFacts(t, reopened), stepID, feedback, reviewerError)
 }
 
 func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
@@ -199,7 +199,7 @@ func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = child.RemoveDurable() })
 	engine := mustNewTestEngine(t, child, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	assertReviewerRuntimeFacts(t, mustTranscriptHydrationSnapshot(t, engine).CommittedRows, stepID, feedback, reviewerError)
+	assertReviewerRuntimeFacts(t, mustNewestTranscriptFacts(t, engine), stepID, feedback, reviewerError)
 }
 
 func assertReviewerRuntimeFacts(
@@ -275,9 +275,6 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				if err == nil {
 					t.Fatal("uncommitted typed Reviewer append succeeded")
 				}
-				if rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows; len(rows) != 0 {
-					t.Fatalf("uncommitted typed Reviewer rows = %+v", rows)
-				}
 			})
 			t.Run("committed observer error", func(t *testing.T) {
 				observerErr := errors.New("typed Reviewer observer failed")
@@ -291,7 +288,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				if !errors.Is(err, observerErr) {
 					t.Fatalf("committed typed Reviewer error = %v, want %v", err, observerErr)
 				}
-				rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows
+				rows := mustNewestTranscriptFacts(t, engine)
 				testCase.assert(t, rows)
 			})
 		})

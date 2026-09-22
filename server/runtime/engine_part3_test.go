@@ -687,9 +687,9 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 		newTestToolRegistry(t),
 		Config{Model: "gpt-5"},
 	)
-	snapshot := mustTranscriptHydrationSnapshot(t, restored)
+	facts := mustNewestTranscriptFacts(t, restored)
 	for _, callID := range want {
-		if rows := countHydratedToolRows(snapshot, callID); rows != 1 {
+		if rows := countHydratedToolRows(facts, callID); rows != 1 {
 			t.Fatalf("reopened hosted rows for %s = %d, want 1", callID, rows)
 		}
 	}

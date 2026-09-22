@@ -75,7 +75,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	page := mustEngineNewestSegmentPage(t, engine)
 	pageFacts := TranscriptCommittedRowFactsFromSnapshot(page.Snapshot)
 	assertToolFactsFollowLocatorOrder(t, pageFacts, "page")
-	hydrationFacts := hydrationSnapshot(t, engine).CommittedRows
+	hydrationFacts := mustNewestTranscriptFacts(t, engine)
 	assertToolFactsFollowLocatorOrder(t, hydrationFacts, "hydration")
 	for _, callID := range []string{"call-1", "call-2"} {
 		pageFact := findToolFact(t, pageFacts, callID)
@@ -97,7 +97,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	assertToolFactsFollowLocatorOrder(t, reopenedFacts, "reopened page")
-	assertToolFactsFollowLocatorOrder(t, hydrationSnapshot(t, reopened).CommittedRows, "reopened hydration")
+	assertToolFactsFollowLocatorOrder(t, mustNewestTranscriptFacts(t, reopened), "reopened hydration")
 	for _, callID := range []string{"call-1", "call-2"} {
 		if got := findToolFact(t, reopenedFacts, callID).Locator; got != liveLocators[callID] {
 			t.Fatalf("reopened tool %s locator = %+v, live locator = %+v", callID, got, liveLocators[callID])
