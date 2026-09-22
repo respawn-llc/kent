@@ -13,7 +13,7 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
-import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import {
   TaskStatusKind,
@@ -164,6 +164,16 @@ export const taskExecutionResolutionCode = workflowEnum([
   [ExecutionTargetResolutionCode.INVALID_REVISION, "invalid_revision"],
   [ExecutionTargetResolutionCode.NON_COMMIT, "non_commit"],
   [ExecutionTargetResolutionCode.GIT_FAILURE, "git_failure"],
+]);
+
+export const taskMovePreviewBlocker = workflowEnum([
+  [MovePreviewBlocker.INVALID_WORKFLOW, "invalid_workflow"],
+  [MovePreviewBlocker.NO_SOURCE_POSITION, "no_source_position"],
+  [MovePreviewBlocker.UNSUPPORTED_DESTINATION, "unsupported_destination"],
+  [MovePreviewBlocker.LIFECYCLE_CONFLICT, "lifecycle_conflict"],
+  [MovePreviewBlocker.CONTEXT_SESSION_UNAVAILABLE, "context_session_unavailable"],
+  [MovePreviewBlocker.NO_USABLE_TRANSITION, "no_usable_transition"],
+  [MovePreviewBlocker.PARALLEL_BRANCH_REQUIRES_FAN_OUT, "parallel_branch_requires_fan_out"],
 ]);
 
 export const workflowNodeKind = workflowEnum([

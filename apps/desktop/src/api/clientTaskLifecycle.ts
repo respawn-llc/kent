@@ -5,10 +5,8 @@ import { requireUnarySuccess } from "./protobufRpc";
 import { ContractError } from "./errors";
 import { requireWorktreeSuccess } from "./clientWorktree";
 import { taskCurrentNode, taskTargetSelectionRequired } from "./clientTaskProjection";
-import { workflowExecutionTargetMode } from "./workflowProtoValues";
+import { workflowExecutionTargetMode, taskMovePreviewBlocker } from "./workflowProtoValues";
 import { throwTaskExecutionFailure } from "./taskExecutionFailure";
-import { parseRpcResponse } from "./clientParse";
-import { compactJsonObject } from "./json";
 import type {
   TaskApproveResponse,
   TaskMoveResponse,
@@ -17,12 +15,8 @@ import type {
   TaskStartResponse,
   WorkflowExecutionTargetSelection,
 } from "./models";
-import {
-  taskMoveResponseSchema,
-  taskMovePreviewResponseSchema,
-} from "./schemas/workflowBoard";
 import { newSetupOperationID } from "./setupOperationID";
-import type { DescriptorRpcTransport, RpcTransport } from "./transport";
+import type { DescriptorRpcTransport } from "./transport";
 
 export async function updateTask(transport: DescriptorRpcTransport, input: TaskEditInput): Promise<string> {
   const method = TaskLifecycleService.method.update;
@@ -72,42 +66,68 @@ export async function startTask(transport: DescriptorRpcTransport, input: TaskSt
   }
 }
 
-export async function moveTask(transport: RpcTransport, input: TaskMoveInput): Promise<TaskMoveResponse> {
-  const response = parseRpcResponse(
-    "workflow.task.move",
-    taskMoveResponseSchema,
-    await transport.call(
-      "workflow.task.move",
-      compactJsonObject({
-        task_id: input.taskID,
-        target_node_id: input.targetNodeID,
-        branch_name: input.executionTarget?.mode === "none" ? undefined : input.branchName,
-        transition_key: input.transitionKey,
-        values: input.values,
-        commentary: input.commentary,
-        execution_target: executionTargetPayload(input.executionTarget),
-        proceed_despite_dependencies: input.proceedDespiteDependencies ?? false,
-      }),
-      { timeoutMs: null },
-    ),
-  );
-  return response;
+export async function moveTask(transport: DescriptorRpcTransport, input: TaskMoveInput): Promise<TaskMoveResponse> {
+  const method = TaskLifecycleService.method.move;
+  const result = await transport.callDescriptor(method, create(method.input, {
+    taskId: input.taskID,
+    targetNodeId: input.targetNodeID,
+    branchName: input.executionTarget?.mode === "none" ? undefined : input.branchName,
+    transitionKey: input.transitionKey,
+    values: Object.entries(input.values ?? {}).map(([nodeKey, outputs]) => ({
+      nodeKey, outputs: Object.entries(outputs).map(([name, value]) => ({ name, value })),
+    })),
+    commentary: input.commentary,
+    executionTarget: executionTargetPayload(input.executionTarget),
+    proceedDespiteDependencies: input.proceedDespiteDependencies ?? false,
+  }), { timeoutMs: null });
+  throwTaskExecutionFailure(method, result.outcome);
+  const response = requireWorktreeSuccess(method, result);
+  switch (response.outcome.case) {
+    case "noOp":
+      return { outcome: "no_op", noOp: {
+        currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode),
+      } };
+    case "applied":
+      return { outcome: "applied", applied: {
+        currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode),
+      } };
+    case "selectionRequired":
+      return { outcome: "selection_required", selectionRequired: taskTargetSelectionRequired(response.outcome.value) };
+    case "dependencyConfirmationRequired":
+      return { outcome: "dependency_confirmation_required", unsatisfiedDependencyCount: response.outcome.value.unsatisfiedDependencyCount };
+    case undefined:
+      throw new ContractError("Task Move outcome is required.");
+  }
 }
 
 export async function previewMoveTask(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   targetNodeID: string,
 ): Promise<TaskMovePreviewResponse> {
-  return parseRpcResponse(
-    "workflow.task.move.preview",
-    taskMovePreviewResponseSchema,
-    await transport.call(
-      "workflow.task.move.preview",
-      { task_id: taskID, target_node_id: targetNodeID },
-      { timeoutMs: null },
-    ),
-  );
+  const method = TaskLifecycleService.method.previewMove;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID, targetNodeId: targetNodeID }), { timeoutMs: null });
+  const response = requireUnarySuccess(method, result);
+  switch (response.outcome.case) {
+    case "noOp":
+      return { outcome: "no_op", noOp: { currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode) } };
+    case "direct":
+      return { outcome: "direct", direct: {} };
+    case "blocked":
+      return { outcome: "blocked", blocked: { reason: taskMovePreviewBlocker.decode(response.outcome.value.reason) } };
+    case "transition":
+      return { outcome: "transition", transition: { choices: response.outcome.value.choices.map((choice) => ({
+        transitionKey: choice.transitionKey,
+        label: choice.label,
+        sourceNodeDisplayName: choice.sourceNodeDisplayName,
+        requiredValues: choice.requiredValues.map((value) => ({
+          nodeKey: value.nodeKey, outputName: value.outputName,
+          description: value.description ?? null, resolvedValue: value.resolvedValue ?? null,
+        })),
+      })) } };
+    case undefined:
+      throw new ContractError("Manual Move preview outcome is required.");
+  }
 }
 
 export async function approveApproval(

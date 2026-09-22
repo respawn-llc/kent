@@ -318,8 +318,8 @@ message MovePreviewRequest {
 message MoveRequiredValue {
   string node_key = 1 [(buf.validate.field).string.min_len = 1];
   string output_name = 2 [(buf.validate.field).string.min_len = 1];
-  optional string description = 3 [(buf.validate.field).string.min_len = 1];
-  optional string resolved_value = 4 [(buf.validate.field).string.min_len = 1];
+  optional string description = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string resolved_value = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message MoveTransitionChoice {
@@ -461,6 +461,11 @@ message CompleteRequest {
     expression:
       "(this.actor_kind == 1 && has(this.agent_session_id) && has(this.run_id) && has(this.step_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
       "(this.actor_kind == 2 && !has(this.agent_session_id) && !has(this.run_id) && !has(this.step_id) && this.force && (has(this.session_id) != has(this.task_id)))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.complete_output_names_unique"
+    message: "output names must be unique"
+    expression: "this.output_values.map(output, output.name).unique()"
   };
 }
 
@@ -985,6 +990,10 @@ message MoveError {
 message CompleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    ExecutionTargetResolutionDetails execution_target_resolution = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "execution_target_resolution"}];
+    LockedExecutionTargetDetails locked_execution_target = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "locked_execution_target"}];
+    InitialBranchDetails initial_branch = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "initial_branch"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
     kent.api.server.ServerNotReadyDetails server_not_ready = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
@@ -1299,13 +1308,13 @@ service TaskLifecycleService {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc PreviewMove(MovePreviewRequest) returns (MovePreviewResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.move.preview"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Move(MoveRequest) returns (MoveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.move"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Complete(CompleteRequest) returns (CompleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.complete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Delete(DeleteRequest) returns (DeleteResult) {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};

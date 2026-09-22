@@ -466,18 +466,49 @@ func (c *Remote) ApproveWorkflowTask(ctx context.Context, req *taskpb.ApproveReq
 		})
 }
 
-func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req serverapi.WorkflowTaskMovePreviewRequest) (serverapi.WorkflowTaskMovePreviewResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskMovePreviewRequest, serverapi.WorkflowTaskMovePreviewResponse](c, ctx, protocol.MethodWorkflowTaskMovePreview, req)
-	return validateWorkflowResponse("preview workflow task move", response, err)
+func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("PreviewMove")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.MovePreviewResult{},
+		func(failure *taskpb.MovePreviewError) error {
+			if failure.GetTaskNotFound() != nil {
+				return serverapi.ErrWorkflowTaskNotFound
+			}
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
-func (c *Remote) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskMoveRequest, serverapi.WorkflowTaskMoveResponse](c, ctx, protocol.MethodWorkflowTaskMove, req)
-	return validateWorkflowResponse("move workflow task", response, err)
+func (c *Remote) MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest) (*taskpb.MoveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Move")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.MoveResult{},
+		func(failure *taskpb.MoveError) error {
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
-func (c *Remote) CompleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCompleteRequest) (serverapi.WorkflowTaskCompleteResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskCompleteRequest, serverapi.WorkflowTaskCompleteResponse](c, ctx, protocol.MethodWorkflowTaskComplete, req)
+func (c *Remote) CompleteWorkflowTask(ctx context.Context, req *taskpb.CompleteRequest) (*taskpb.CompleteSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Complete")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CompleteResult{},
+		func(failure *taskpb.CompleteError) error {
+			switch failure.GetCode() {
+			case "task_not_found":
+				return serverapi.ErrWorkflowTaskNotFound
+			case "completion_target_not_found":
+				return serverapi.ErrWorkflowTaskCompleteTargetNotFound
+			case "completion_selector_ambiguous":
+				return serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous
+			case "execution_target_resolution":
+				return taskExecutionResolutionGeneratedError(failure.GetExecutionTargetResolution())
+			case "locked_execution_target":
+				return taskLockedTargetGeneratedError(failure.GetLockedExecutionTarget())
+			case "initial_branch":
+				return taskInitialBranchGeneratedError(failure.GetInitialBranch())
+			default:
+				return worktreeError(failure)
+			}
+		})
 }
 
 func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {

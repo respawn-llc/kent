@@ -59,7 +59,29 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, lifecycle, "Approve",
 			func() *taskpb.ApproveRequest { return &taskpb.ApproveRequest{} },
 			apicontract.WorkflowService.ApproveWorkflowTask, binaryTaskApproveFailure),
+		registerWorkflowUnary(bindings, lifecycle, "PreviewMove",
+			func() *taskpb.MovePreviewRequest { return &taskpb.MovePreviewRequest{} },
+			apicontract.WorkflowService.PreviewWorkflowTaskMove, binaryTaskEntityFailure[*taskpb.MovePreviewRequest]),
+		registerWorkflowUnary(bindings, lifecycle, "Move",
+			func() *taskpb.MoveRequest { return &taskpb.MoveRequest{} },
+			apicontract.WorkflowService.MoveWorkflowTask, binaryTaskExecutionFailure[*taskpb.MoveRequest]),
+		registerWorkflowUnary(bindings, lifecycle, "Complete",
+			func() *taskpb.CompleteRequest { return &taskpb.CompleteRequest{} },
+			apicontract.WorkflowService.CompleteWorkflowTask, binaryTaskCompleteFailure),
 	)
+}
+
+func binaryTaskCompleteFailure(request *taskpb.CompleteRequest, err error) proto.Message {
+	if errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
+		return &taskpb.CompletionTargetNotFoundDetails{}
+	}
+	if errors.Is(err, serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous) {
+		return &taskpb.CompletionSelectorAmbiguousDetails{}
+	}
+	if detail := binaryTaskExecutionDetail(err); detail != nil {
+		return detail
+	}
+	return binaryWorkflowCreateFailure(request, err)
 }
 
 func binaryTaskExecutionFailure[Request interface{ GetTaskId() string }](request Request, err error) proto.Message {

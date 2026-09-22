@@ -766,22 +766,22 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		preview, err := remote.PreviewWorkflowTaskMove(context.Background(), serverapi.WorkflowTaskMovePreviewRequest{
-			TaskID: taskID, TargetNodeID: positionals[1],
+		preview, err := remote.PreviewWorkflowTaskMove(context.Background(), &taskpb.MovePreviewRequest{
+			TaskId: taskID, TargetNodeId: positionals[1],
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := preview.Validate(); err != nil {
+		if err := protoapi.Validate(preview); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if preview.Outcome == serverapi.WorkflowTaskMovePreviewOutcomeBlocked {
-			fmt.Fprintf(stderr, "task move blocked: %s\n", manualMoveBlockerMessage(preview.Blocked.Reason))
+		if blocked := preview.GetBlocked(); blocked != nil {
+			fmt.Fprintf(stderr, "task move blocked: %s\n", manualMoveBlockerMessage(blocked.Reason))
 			return 1
 		}
-		if preview.Outcome == serverapi.WorkflowTaskMovePreviewOutcomeNoOp {
+		if noOp := preview.GetNoOp(); noOp != nil {
 			if rejectInitialBranchForMoveNoOp(stderr, branchName) {
 				return 2
 			}
@@ -790,12 +790,14 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 				return 2
 			}
 			if *jsonOut {
-				return writeCommandJSON(stdout, stderr, serverapi.WorkflowTaskMoveResponse{
-					Outcome: serverapi.WorkflowExecutionTargetActionOutcomeNoOp,
-					NoOp: &serverapi.WorkflowTaskMoveNoOp{
-						CurrentNodes: preview.NoOp.CurrentNodes,
-					},
-				})
+				output, err := taskMoveOutput(&taskpb.MoveSuccess{Outcome: &taskpb.MoveSuccess_NoOp{
+					NoOp: &taskpb.MoveNoOp{CurrentNodes: noOp.CurrentNodes},
+				}})
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					return 1
+				}
+				return writeCommandJSON(stdout, stderr, output)
 			}
 			detail, detailErr := getWorkflowTaskByID(context.Background(), remote, taskID)
 			if detailErr != nil {
@@ -805,14 +807,14 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			writeTaskLifecycleResult(stdout, "No-op move", detail)
 			return 0
 		}
-		if preview.Outcome == serverapi.WorkflowTaskMovePreviewOutcomeDirect {
+		if preview.GetDirect() != nil {
 			if flagExplicit(fs, "transition") || len(values) != 0 {
 				fmt.Fprintln(stderr, "direct task move does not accept --transition or --values-json/--values-file")
 				return 2
 			}
 		}
 		var transitionKey *string
-		if preview.Outcome == serverapi.WorkflowTaskMovePreviewOutcomeTransition {
+		if preview.GetTransition() != nil {
 			transitionKey, err = selectTaskMoveTransition(preview, *transition, flagExplicit(fs, "transition"))
 			if err != nil {
 				fmt.Fprintln(stderr, err)
@@ -831,13 +833,21 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp, err := remote.MoveWorkflowTask(context.Background(), serverapi.WorkflowTaskMoveRequest{
-			TaskID:                     taskID,
-			InvokingSessionID:          invokingSessionID,
-			TargetNodeID:               positionals[1],
+		var requestedValues []*taskpb.NodeOutputValues
+		for nodeKey, outputs := range values {
+			node := &taskpb.NodeOutputValues{NodeKey: nodeKey}
+			for name, value := range outputs {
+				node.Outputs = append(node.Outputs, &taskpb.NamedValue{Name: name, Value: value})
+			}
+			requestedValues = append(requestedValues, node)
+		}
+		resp, err := remote.MoveWorkflowTask(context.Background(), &taskpb.MoveRequest{
+			TaskId:                     taskID,
+			InvokingSessionId:          invokingSessionID,
+			TargetNodeId:               positionals[1],
 			TransitionKey:              transitionKey,
-			Values:                     values,
-			Commentary:                 *commentary,
+			Values:                     requestedValues,
+			Commentary:                 commentary,
 			ExecutionTarget:            executionTarget,
 			BranchName:                 branchName,
 			ProceedDespiteDependencies: *ignoreDependencies,
@@ -846,7 +856,12 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			var setupErr *worktreecontract.SetupRetainedError
 			if errors.As(err, &setupErr) {
 				if *jsonOut {
-					_ = writeCommandJSON(stdout, stderr, setupErr.RPCErrorData())
+					output, err := taskSetupRetainedOutput(setupErr.Details)
+					if err != nil {
+						fmt.Fprintln(stderr, err)
+					} else {
+						_ = writeCommandJSON(stdout, stderr, output)
+					}
 					return 1
 				}
 				guidance, projectionErr := projectRetainedSetupGuidance(recoveryArgs, executionTarget, setupErr)
@@ -873,34 +888,40 @@ func writeTaskMoveOutcome(
 	remote *client.Remote,
 	taskID string,
 	taskRef string,
-	resp serverapi.WorkflowTaskMoveResponse,
+	resp *taskpb.MoveSuccess,
 	jsonOut bool,
 	recoveryCommand string,
 ) int {
-	if err := resp.Validate(); err != nil {
+	if err := protoapi.Validate(resp); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if resp.Outcome == serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired {
+	output, err := taskMoveOutput(resp)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if selection := resp.GetSelectionRequired(); selection != nil {
 		if jsonOut {
-			_ = writeCommandJSON(stdout, stderr, resp)
+			_ = writeCommandJSON(stdout, stderr, output)
 		} else {
-			writeWorkflowExecutionTargetSelectionRequiredForCommand(stderr, resp.SelectionRequired, recoveryCommand)
+			writeWorkflowExecutionTargetSelectionRequiredForCommand(stderr, selection, recoveryCommand)
 		}
 		return 1
 	}
-	if resp.Outcome == serverapi.WorkflowExecutionTargetActionOutcomeDependencyConfirmationRequired {
+	if confirmation := resp.GetDependencyConfirmationRequired(); confirmation != nil {
 		if jsonOut {
-			_ = writeCommandJSON(stdout, stderr, resp)
+			_ = writeCommandJSON(stdout, stderr, output)
 		} else {
-			writeTaskDependencyConfirmationRequiredForCommand(stderr, taskRef, resp.UnsatisfiedDependencyCount, recoveryCommand)
+			count := int(confirmation.UnsatisfiedDependencyCount)
+			writeTaskDependencyConfirmationRequiredForCommand(stderr, taskRef, &count, recoveryCommand)
 		}
 		return 1
 	}
-	if resp.Outcome == serverapi.WorkflowExecutionTargetActionOutcomeNoOp {
-		renderWorkflowRetainedWorktreeGuidance(stderr, resp.NoOp.RetainedPreviousWorktree)
+	if noOp := resp.GetNoOp(); noOp != nil {
+		renderRetainedWorktreeGuidance(stderr, noOp.RetainedPreviousWorktree)
 		if jsonOut {
-			return writeCommandJSON(stdout, stderr, resp)
+			return writeCommandJSON(stdout, stderr, output)
 		}
 		detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
 		if err != nil {
@@ -910,14 +931,10 @@ func writeTaskMoveOutcome(
 		writeTaskLifecycleResult(stdout, "No-op move", detail)
 		return 0
 	}
-	applied, err := requireAppliedExecutionTargetAction(resp.Outcome, resp.Applied)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	renderWorkflowRetainedWorktreeGuidance(stderr, applied.RetainedPreviousWorktree)
+	applied := resp.GetApplied()
+	renderRetainedWorktreeGuidance(stderr, applied.RetainedPreviousWorktree)
 	if jsonOut {
-		return writeCommandJSON(stdout, stderr, resp)
+		return writeCommandJSON(stdout, stderr, output)
 	}
 	detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
 	if err != nil {
@@ -929,11 +946,12 @@ func writeTaskMoveOutcome(
 }
 
 func selectTaskMoveTransition(
-	preview serverapi.WorkflowTaskMovePreviewResponse,
+	preview *taskpb.MovePreviewSuccess,
 	raw string,
 	explicit bool,
 ) (*string, error) {
-	if preview.Outcome != serverapi.WorkflowTaskMovePreviewOutcomeTransition || preview.Transition == nil {
+	transition := preview.GetTransition()
+	if transition == nil {
 		return nil, errors.New("task move transition selection requires a transition preview")
 	}
 	key := strings.TrimSpace(raw)
@@ -941,12 +959,12 @@ func selectTaskMoveTransition(
 		if explicit {
 			return nil, errors.New("task move --transition cannot be blank")
 		}
-		if len(preview.Transition.Choices) != 1 {
+		if len(transition.Choices) != 1 {
 			return nil, errors.New("task move requires --transition when multiple incoming Transitions are usable")
 		}
-		key = preview.Transition.Choices[0].TransitionKey
+		key = transition.Choices[0].TransitionKey
 	}
-	for _, choice := range preview.Transition.Choices {
+	for _, choice := range transition.Choices {
 		if choice.TransitionKey == key {
 			authoredKey := choice.TransitionKey
 			return &authoredKey, nil
@@ -955,21 +973,21 @@ func selectTaskMoveTransition(
 	return nil, fmt.Errorf("task move Transition %q is not a usable incoming Transition", key)
 }
 
-func manualMoveBlockerMessage(reason serverapi.WorkflowTaskMovePreviewBlocker) string {
+func manualMoveBlockerMessage(reason taskpb.MovePreviewBlocker) string {
 	switch reason {
-	case serverapi.WorkflowTaskMovePreviewBlockerInvalidWorkflow:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_INVALID_WORKFLOW:
 		return "the workflow is invalid; fix the workflow definition and try again"
-	case serverapi.WorkflowTaskMovePreviewBlockerNoSourcePosition:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_NO_SOURCE_POSITION:
 		return "the task has no current workflow position; start the task before moving it"
-	case serverapi.WorkflowTaskMovePreviewBlockerUnsupportedDestination:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_UNSUPPORTED_DESTINATION:
 		return "the destination cannot be entered by Manual Move; choose an executable or terminal node"
-	case serverapi.WorkflowTaskMovePreviewBlockerLifecycleConflict:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_LIFECYCLE_CONFLICT:
 		return "the task is changing state; wait for the current operation to finish and try again"
-	case serverapi.WorkflowTaskMovePreviewBlockerContextSessionUnavailable:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_CONTEXT_SESSION_UNAVAILABLE:
 		return "the selected transition needs a retained context session that is unavailable"
-	case serverapi.WorkflowTaskMovePreviewBlockerNoUsableTransition:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_NO_USABLE_TRANSITION:
 		return "the destination has no usable incoming transition from the task's current position"
-	case serverapi.WorkflowTaskMovePreviewBlockerParallelBranchRequiresFanOut:
+	case taskpb.MovePreviewBlocker_MOVE_PREVIEW_BLOCKER_PARALLEL_BRANCH_REQUIRES_FAN_OUT:
 		return "the destination is inside a parallel branch; move to the Fan-Out transition or choose another destination"
 	default:
 		return "the server could not explain why this move is blocked; try again"
@@ -1022,13 +1040,6 @@ func writeTaskDependencyConfirmationRequiredForCommand(stderr io.Writer, taskRef
 		return
 	}
 	fmt.Fprintln(stderr, "Rerun with `--ignore-dependencies` to proceed.")
-}
-
-func requireAppliedExecutionTargetAction[T any](outcome serverapi.WorkflowExecutionTargetActionOutcome, applied *T) (*T, error) {
-	if outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied || applied == nil {
-		return nil, errors.New("workflow action requires execution target selection")
-	}
-	return applied, nil
 }
 
 type worktreeSetupProgressSubscriber interface {
@@ -1469,14 +1480,6 @@ func renderRetainedWorktreeGuidance(stderr io.Writer, retained *worktreepb.Retai
 }
 
 func renderRetainedWorktreeRootGuidance(stderr io.Writer, root string) {
-	fmt.Fprintf(stderr, "Warning: previous Worktree retained at %s\n  %s\n", root, commandString([]string{config.Command, "worktree", "list"}))
-}
-
-func renderWorkflowRetainedWorktreeGuidance(stderr io.Writer, retained *serverapi.WorkflowRetainedPreviousWorktree) {
-	if retained == nil || retained.Worktree.Registered == nil {
-		return
-	}
-	root := retained.Worktree.Registered.Git.CanonicalRoot
 	fmt.Fprintf(stderr, "Warning: previous Worktree retained at %s\n  %s\n", root, commandString([]string{config.Command, "worktree", "list"}))
 }
 

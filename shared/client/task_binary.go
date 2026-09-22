@@ -37,23 +37,30 @@ func taskExecutionGeneratedError[Failure interface {
 }](failure Failure) error {
 	switch failure.GetCode() {
 	case "execution_target_resolution":
-		detail := failure.GetExecutionTargetResolution()
-		code, err := protoapi.TaskExecutionResolutionCode.Decode(detail.Code)
-		if err != nil {
-			return err
-		}
-		return &serverapi.WorkflowExecutionTargetResolutionError{
-			Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), RequestedRef: detail.RequestedRef,
-		}
+		return taskExecutionResolutionGeneratedError(failure.GetExecutionTargetResolution())
 	case "locked_execution_target":
-		cause, err := serverapi.WorkflowLockedTargetCause(failure.GetLockedExecutionTarget().Cause)
-		if err != nil {
-			return err
-		}
-		return &serverapi.WorkflowLockedExecutionTargetError{Cause: cause}
+		return taskLockedTargetGeneratedError(failure.GetLockedExecutionTarget())
 	default:
 		return taskMutationGeneratedError(failure)
 	}
+}
+
+func taskExecutionResolutionGeneratedError(detail *taskpb.ExecutionTargetResolutionDetails) error {
+	code, err := protoapi.TaskExecutionResolutionCode.Decode(detail.Code)
+	if err != nil {
+		return err
+	}
+	return &serverapi.WorkflowExecutionTargetResolutionError{
+		Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), RequestedRef: detail.RequestedRef,
+	}
+}
+
+func taskLockedTargetGeneratedError(detail *taskpb.LockedExecutionTargetDetails) error {
+	cause, err := serverapi.WorkflowLockedTargetCause(detail.Cause)
+	if err != nil {
+		return err
+	}
+	return &serverapi.WorkflowLockedExecutionTargetError{Cause: cause}
 }
 
 func taskInitialBranchGeneratedError(detail *taskpb.InitialBranchDetails) error {
