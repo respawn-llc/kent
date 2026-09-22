@@ -67,21 +67,6 @@ func NewTaskDependencies(
 	}, nil
 }
 
-func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID string) (serverapi.WorkflowTaskDependencies, error) {
-	if d == nil {
-		return serverapi.WorkflowTaskDependencies{}, errors.New("task dependencies are required")
-	}
-	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return serverapi.WorkflowTaskDependencies{}, errors.New("task id is required")
-	}
-	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
-	if err != nil {
-		return serverapi.WorkflowTaskDependencies{}, err
-	}
-	return d.projectFacts(facts)
-}
-
 func (d *TaskDependencies) CountUnsatisfiedBlockers(ctx context.Context, taskID string) (int, error) {
 	if d == nil {
 		return 0, errors.New("task dependencies are required")

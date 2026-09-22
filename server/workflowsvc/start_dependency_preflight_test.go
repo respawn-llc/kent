@@ -16,11 +16,6 @@ type countingTaskDependencyReadModel struct {
 	unsatisfiedBlocker *int
 }
 
-func (r *countingTaskDependencyReadModel) GetTaskDependencies(context.Context, string) (serverapi.WorkflowTaskDependencies, error) {
-	r.count++
-	return serverapi.WorkflowTaskDependencies{}, errors.New("unexpected dependency projection")
-}
-
 func (r *countingTaskDependencyReadModel) CountUnsatisfiedBlockers(context.Context, string) (int, error) {
 	r.count++
 	if r.unsatisfiedBlocker != nil {

@@ -16,90 +16,13 @@ func TestNewTaskDependenciesRequiresTaskStatusProjection(t *testing.T) {
 	}
 }
 
-func TestTaskDependenciesProjectsCompleteDirectionsOrderingAndAvailability(t *testing.T) {
-	fixture := newCurrentNodeViewFixture(t, false)
-	dependencies, err := NewTaskDependencies(fixture.metadata, fixture.projection, fixture.dependencyCounter)
-	if err != nil {
-		t.Fatalf("NewTaskDependencies: %v", err)
-	}
-	blocked := createViewTask(t, fixture, "Blocked")
-	doneBlocker := createViewTask(t, fixture, "Done blocker")
-	openBlocker := createViewTask(t, fixture, "Open blocker")
-	directlyBlocked := createViewTask(t, fixture, "Directly blocked")
-	if _, err := fixture.store.AddTaskDependency(fixture.ctx, workflowstore.TaskDependencyAddRequest{BlockerTaskID: doneBlocker.ID, BlockedTaskID: blocked.ID}); err != nil {
-		t.Fatalf("add done blocker dependency: %v", err)
-	}
-	if _, err := fixture.store.AddTaskDependency(fixture.ctx, workflowstore.TaskDependencyAddRequest{BlockerTaskID: openBlocker.ID, BlockedTaskID: blocked.ID}); err != nil {
-		t.Fatalf("add open blocker dependency: %v", err)
-	}
-	if _, err := fixture.store.AddTaskDependency(fixture.ctx, workflowstore.TaskDependencyAddRequest{BlockerTaskID: blocked.ID, BlockedTaskID: directlyBlocked.ID}); err != nil {
-		t.Fatalf("add blocks dependency: %v", err)
-	}
-	definition, _, err := fixture.store.GetDefinition(fixture.ctx, fixture.workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition: %v", err)
-	}
-	if _, err := workflowfixture.MoveTask(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.ManualMoveRequest{
-		TaskID:       doneBlocker.ID,
-		TargetNodeID: terminalNodeID(t, definition),
-	}); err != nil {
-		t.Fatalf("move blocker to terminal: %v", err)
-	}
-
-	projected, err := dependencies.GetTaskDependencies(fixture.ctx, string(blocked.ID))
-	if err != nil {
-		t.Fatalf("GetTaskDependencies: %v", err)
-	}
-	if projected.BlockerCount != 2 || projected.UnsatisfiedBlockerCount != 1 || projected.DirectlyBlockedTaskCount != 1 {
-		t.Fatalf("summary = %+v, want 2 blockers, 1 unsatisfied, 1 directly blocked", projected)
-	}
-	blockedBy := dependencyDirection(t, projected, serverapi.WorkflowTaskDependencyDirectionBlockedBy)
-	if len(blockedBy.Items) != 2 || blockedBy.Items[0].TaskID != string(openBlocker.ID) || blockedBy.Items[1].TaskID != string(doneBlocker.ID) {
-		t.Fatalf("blocked-by items = %+v, want unfinished first then short-id order", blockedBy.Items)
-	}
-	if blockedBy.Items[0].Satisfaction == nil || *blockedBy.Items[0].Satisfaction != serverapi.WorkflowTaskDependencyUnsatisfied {
-		t.Fatalf("open blocker satisfaction = %+v, want unsatisfied", blockedBy.Items[0].Satisfaction)
-	}
-	if blockedBy.Items[1].Satisfaction == nil || *blockedBy.Items[1].Satisfaction != serverapi.WorkflowTaskDependencySatisfied {
-		t.Fatalf("done blocker satisfaction = %+v, want satisfied", blockedBy.Items[1].Satisfaction)
-	}
-	blocks := dependencyDirection(t, projected, serverapi.WorkflowTaskDependencyDirectionBlocks)
-	if len(blocks.Items) != 1 || blocks.Items[0].TaskID != string(directlyBlocked.ID) {
-		t.Fatalf("blocks items = %+v, want directly blocked task", blocks.Items)
-	}
-	if blocks.Items[0].Satisfaction != nil {
-		t.Fatalf("blocks item satisfaction = %+v, want absent", blocks.Items[0].Satisfaction)
-	}
-	if blockedBy.AddAvailability == nil || blockedBy.AddAvailability.Available == nil || blockedBy.AddAvailability.Available.RemainingCapacity != workflow.MaxTaskDependencies-2 {
-		t.Fatalf("blocked-by availability = %+v, want remaining capacity %d", blockedBy.AddAvailability, workflow.MaxTaskDependencies-2)
-	}
-	if blocks.AddAvailability == nil || blocks.AddAvailability.Available == nil || blocks.AddAvailability.Available.RemainingCapacity != workflow.MaxTaskDependencies-1 {
-		t.Fatalf("blocks availability = %+v, want remaining capacity %d", blocks.AddAvailability, workflow.MaxTaskDependencies-1)
-	}
-}
-
-func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithoutTouchingBlockedTask(t *testing.T) {
+func TestTaskDependenciesFocusedCountFollowsSatisfactionWithoutTouchingBlockedTask(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	dependencies, err := NewTaskDependencies(fixture.metadata, fixture.projection, fixture.dependencyCounter)
 	if err != nil {
 		t.Fatalf("NewTaskDependencies: %v", err)
 	}
 	emptyTask := createViewTask(t, fixture, "Empty")
-	empty, err := dependencies.GetTaskDependencies(fixture.ctx, string(emptyTask.ID))
-	if err != nil {
-		t.Fatalf("GetTaskDependencies empty: %v", err)
-	}
-	if empty.Directions == nil || len(empty.Directions) != 2 {
-		t.Fatalf("empty directions = %+v, want both directions", empty.Directions)
-	}
-	for _, direction := range empty.Directions {
-		if direction.Items == nil || len(direction.Items) != 0 {
-			t.Fatalf("empty direction items = %+v, want non-nil empty array", direction.Items)
-		}
-		if direction.AddAvailability == nil || direction.AddAvailability.Available == nil {
-			t.Fatalf("empty direction availability = %+v, want available", direction.AddAvailability)
-		}
-	}
 	blocker := createViewTask(t, fixture, "Blocker")
 	if _, err := fixture.store.AddTaskDependency(fixture.ctx, workflowstore.TaskDependencyAddRequest{BlockerTaskID: blocker.ID, BlockedTaskID: emptyTask.ID}); err != nil {
 		t.Fatalf("add dependency: %v", err)
@@ -111,13 +34,6 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	}
 	if focused != 1 {
 		t.Fatalf("focused unsatisfied count = %d, want 1", focused)
-	}
-	projected, err := dependencies.GetTaskDependencies(fixture.ctx, string(emptyTask.ID))
-	if err != nil {
-		t.Fatalf("GetTaskDependencies after add: %v", err)
-	}
-	if projected.UnsatisfiedBlockerCount != focused {
-		t.Fatalf("summary unsatisfied count = %d, focused = %d", projected.UnsatisfiedBlockerCount, focused)
 	}
 	doneDefinition, _, err := fixture.store.GetDefinition(fixture.ctx, fixture.workflowID)
 	if err != nil {
@@ -135,13 +51,6 @@ func TestTaskDependenciesEmptyProjectionAndFocusedCountFollowSatisfactionWithout
 	}
 	if focused != 0 {
 		t.Fatalf("focused count after done = %d, want 0", focused)
-	}
-	projected, err = dependencies.GetTaskDependencies(fixture.ctx, string(emptyTask.ID))
-	if err != nil {
-		t.Fatalf("GetTaskDependencies after done: %v", err)
-	}
-	if projected.UnsatisfiedBlockerCount != 0 {
-		t.Fatalf("summary after done = %d, want 0", projected.UnsatisfiedBlockerCount)
 	}
 	if got := viewTaskUpdatedAt(t, fixture, emptyTask.ID); got != beforeUpdatedAt {
 		t.Fatalf("blocked task timestamp = %d, want unchanged %d", got, beforeUpdatedAt)
@@ -274,17 +183,6 @@ func backlogNodeID(t *testing.T, definition workflow.Definition) workflow.NodeID
 	}
 	t.Fatal("start node missing")
 	return workflow.NodeID("unreachable")
-}
-
-func dependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDependencies, direction serverapi.WorkflowTaskDependencyDirection) serverapi.WorkflowTaskDependencyDirectionProjection {
-	t.Helper()
-	for _, candidate := range dependencies.Directions {
-		if candidate.Direction == direction {
-			return candidate
-		}
-	}
-	t.Fatalf("dependency direction %q missing from %+v", direction, dependencies.Directions)
-	return serverapi.WorkflowTaskDependencyDirectionProjection{}
 }
 
 func listedDependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDependencyListResponse, direction serverapi.WorkflowTaskDependencyDirection) serverapi.WorkflowTaskDependencyListDirectionProjection {
