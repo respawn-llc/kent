@@ -429,12 +429,16 @@ func (c *Remote) StartWorkflowTask(ctx context.Context, req *taskpb.StartRequest
 			if conflict := failure.GetStartConflict(); conflict != nil {
 				return &serverapi.WorkflowTaskStartConflictError{TaskID: conflict.TaskId, Reason: serverapi.WorkflowTaskStartConflictAlreadyStarted}
 			}
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
 			return taskExecutionGeneratedError(failure)
 		})
 }
 
-func (c *Remote) InterruptWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskInterruptRequest) (serverapi.WorkflowTaskInterruptResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskInterruptRequest, serverapi.WorkflowTaskInterruptResponse](c, ctx, protocol.MethodWorkflowTaskInterrupt, req)
+func (c *Remote) InterruptWorkflowTask(ctx context.Context, req *taskpb.InterruptRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Interrupt")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.InterruptResult{}, taskMutationGeneratedError[*taskpb.InterruptError])
 }
 
 func (c *Remote) ResumeWorkflowTask(ctx context.Context, req *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error) {
@@ -444,13 +448,22 @@ func (c *Remote) ResumeWorkflowTask(ctx context.Context, req *taskpb.ResumeReque
 			if detail := failure.GetContextSelectionRequired(); detail != nil {
 				return &serverapi.WorkflowTaskContextSelectionRequiredError{TaskID: detail.TaskId}
 			}
+			if branch := failure.GetInitialBranch(); branch != nil {
+				return taskInitialBranchGeneratedError(branch)
+			}
 			return taskExecutionGeneratedError(failure)
 		})
 }
 
-func (c *Remote) ApproveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskApproveRequest) (serverapi.WorkflowTaskApproveResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskApproveRequest, serverapi.WorkflowTaskApproveResponse](c, ctx, protocol.MethodWorkflowTaskApprove, req)
-	return validateWorkflowResponse("approve workflow task", response, err)
+func (c *Remote) ApproveWorkflowTask(ctx context.Context, req *taskpb.ApproveRequest) (*taskpb.ApproveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Approve")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ApproveResult{},
+		func(failure *taskpb.ApproveError) error {
+			if detail := failure.GetContextSelectionRequired(); detail != nil {
+				return &serverapi.WorkflowTaskContextSelectionRequiredError{TaskID: detail.TaskId}
+			}
+			return taskExecutionGeneratedError(failure)
+		})
 }
 
 func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req serverapi.WorkflowTaskMovePreviewRequest) (serverapi.WorkflowTaskMovePreviewResponse, error) {

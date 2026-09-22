@@ -344,10 +344,7 @@ export class ApiClient implements ApiService {
   }
 
   async interruptTask(taskID: string, sessionID?: string): Promise<void> {
-    await this.#transport.call(
-      "workflow.task.interrupt",
-      compactJsonObject({ task_id: taskID, session_id: sessionID }),
-    );
+    await taskLifecycle.interruptTask(this.#transport, taskID, sessionID);
   }
 
   async resumeTask(input: TaskResumeInput): Promise<TaskResumeResponse> {

@@ -1290,13 +1290,13 @@ service TaskLifecycleService {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Interrupt(InterruptRequest) returns (InterruptResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.interrupt"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Resume(ResumeRequest) returns (ResumeResult) {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Approve(ApproveRequest) returns (ApproveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.approve"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc PreviewMove(MovePreviewRequest) returns (MovePreviewResult) {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.move.preview"};

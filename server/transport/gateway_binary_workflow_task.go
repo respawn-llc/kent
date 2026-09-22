@@ -53,10 +53,30 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, lifecycle, "Resume",
 			func() *taskpb.ResumeRequest { return &taskpb.ResumeRequest{} },
 			apicontract.WorkflowService.ResumeWorkflowTask, binaryTaskExecutionFailure[*taskpb.ResumeRequest]),
+		registerWorkflowUnary(bindings, lifecycle, "Interrupt",
+			func() *taskpb.InterruptRequest { return &taskpb.InterruptRequest{} },
+			apicontract.WorkflowService.InterruptWorkflowTask, binaryTaskExecutionFailure[*taskpb.InterruptRequest]),
+		registerWorkflowUnary(bindings, lifecycle, "Approve",
+			func() *taskpb.ApproveRequest { return &taskpb.ApproveRequest{} },
+			apicontract.WorkflowService.ApproveWorkflowTask, binaryTaskApproveFailure),
 	)
 }
 
 func binaryTaskExecutionFailure[Request interface{ GetTaskId() string }](request Request, err error) proto.Message {
+	if detail := binaryTaskExecutionDetail(err); detail != nil {
+		return detail
+	}
+	return binaryTaskEntityFailure(request, err)
+}
+
+func binaryTaskApproveFailure(request *taskpb.ApproveRequest, err error) proto.Message {
+	if detail := binaryTaskExecutionDetail(err); detail != nil {
+		return detail
+	}
+	return binaryWorkflowCreateFailure(request, err)
+}
+
+func binaryTaskExecutionDetail(err error) proto.Message {
 	var self *serverapi.WorkflowTaskMutationSelfTargetError
 	var conflict *serverapi.WorkflowTaskStartConflictError
 	var resolution *serverapi.WorkflowExecutionTargetResolutionError
@@ -91,7 +111,7 @@ func binaryTaskExecutionFailure[Request interface{ GetTaskId() string }](request
 	case errors.As(err, &retained):
 		return retained.Details
 	default:
-		return binaryTaskEntityFailure(request, err)
+		return nil
 	}
 }
 

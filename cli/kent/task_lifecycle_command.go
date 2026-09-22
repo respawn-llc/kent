@@ -644,11 +644,19 @@ func taskInterruptSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		if _, err := remote.InterruptWorkflowTask(ctx, serverapi.WorkflowTaskInterruptRequest{
-			TaskID:            taskID,
-			InvokingSessionID: invokingSessionID,
-			SessionID:         strings.TrimSpace(*sessionID),
-			Reason:            *reason,
+		var selectedSession *string
+		if value := strings.TrimSpace(*sessionID); value != "" {
+			selectedSession = &value
+		}
+		var interruptionReason *string
+		if *reason != "" {
+			interruptionReason = reason
+		}
+		if _, err := remote.InterruptWorkflowTask(ctx, &taskpb.InterruptRequest{
+			TaskId:            taskID,
+			InvokingSessionId: invokingSessionID,
+			SessionId:         selectedSession,
+			Reason:            interruptionReason,
 		}); err != nil {
 			if writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				return 1
@@ -685,9 +693,9 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.ApproveWorkflowTask(ctx, serverapi.WorkflowTaskApproveRequest{
-			ApprovalID:        positionals[0],
-			InvokingSessionID: invokingSessionID,
+		resp, err := remote.ApproveWorkflowTask(ctx, &taskpb.ApproveRequest{
+			ApprovalId:        positionals[0],
+			InvokingSessionId: invokingSessionID,
 		})
 		if err != nil {
 			if !writeWorkflowTaskContextSelectionError(stderr, err) && !writeWorkflowTaskMutationSelfTargetError(stderr, err) {
@@ -695,20 +703,16 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 			}
 			return 1
 		}
-		if err := resp.Validate(); err != nil {
+		if err := protoapi.Validate(resp); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		applied, err := requireAppliedExecutionTargetAction(resp.Outcome, resp.Applied)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
+		applied := resp.GetApplied()
+		if applied == nil {
+			writeWorkflowExecutionTargetSelectionRequired(stderr, resp.GetSelectionRequired())
 			return 1
 		}
-		if strings.TrimSpace(applied.TaskID) == "" {
-			fmt.Fprintf(stderr, "approved workflow change %s but response did not include task id for output\n", positionals[0])
-			return 1
-		}
-		detail, err := getWorkflowTaskByID(context.Background(), remote, applied.TaskID)
+		detail, err := getWorkflowTaskByID(context.Background(), remote, applied.TaskId)
 		if err != nil {
 			fmt.Fprintf(stderr, "approved workflow change %s but failed to load task detail for output: %v\n", positionals[0], err)
 			return 1

@@ -18,7 +18,6 @@ import type {
   WorkflowExecutionTargetSelection,
 } from "./models";
 import {
-  taskApproveResponseSchema,
   taskMoveResponseSchema,
   taskMovePreviewResponseSchema,
 } from "./schemas/workflowBoard";
@@ -42,6 +41,12 @@ export async function deleteTask(transport: DescriptorRpcTransport, taskID: stri
   const method = TaskLifecycleService.method.delete;
   const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
   requireWorktreeSuccess(method, result);
+}
+
+export async function interruptTask(transport: DescriptorRpcTransport, taskID: string, sessionID?: string): Promise<void> {
+  const method = TaskLifecycleService.method.interrupt;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID, sessionId: sessionID }));
+  requireUnarySuccess(method, result);
 }
 
 export async function startTask(transport: DescriptorRpcTransport, input: TaskStartInput): Promise<TaskStartResponse> {
@@ -106,14 +111,24 @@ export async function previewMoveTask(
 }
 
 export async function approveApproval(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   approvalID: string,
 ): Promise<TaskApproveResponse> {
-  return parseRpcResponse(
-    "workflow.task.approve",
-    taskApproveResponseSchema,
-    await transport.call("workflow.task.approve", { approval_id: approvalID }, { timeoutMs: null }),
-  );
+  const method = TaskLifecycleService.method.approve;
+  const result = await transport.callDescriptor(method, create(method.input, { approvalId: approvalID }), { timeoutMs: null });
+  throwTaskExecutionFailure(method, result.outcome);
+  const response = requireUnarySuccess(method, result);
+  switch (response.outcome.case) {
+    case "applied":
+      return {
+        outcome: "applied",
+        applied: { taskID: response.outcome.value.taskId, currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode) },
+      };
+    case "selectionRequired":
+      return { outcome: "selection_required", selectionRequired: taskTargetSelectionRequired(response.outcome.value) };
+    case undefined:
+      throw new ContractError("Task Approval outcome is required.");
+  }
 }
 
 export async function resumeTask(

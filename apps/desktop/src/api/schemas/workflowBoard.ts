@@ -10,7 +10,6 @@ import type {
   CommentPage,
   OffsetPage,
   TaskAttention,
-  TaskApproveResponse,
   TaskCurrentNode,
   TaskMoveResponse,
   TaskMovePreviewResponse,
@@ -236,28 +235,6 @@ export const taskMovePreviewResponseSchema: z.ZodType<TaskMovePreviewResponse> =
       .transform((value) => ({ outcome: value.outcome, blocked: value.blocked })),
   ],
 );
-
-export const taskApproveResponseSchema: z.ZodType<TaskApproveResponse> = z.discriminatedUnion("outcome", [
-  z
-    .object({
-      outcome: z.literal("applied"),
-      applied: z
-        .object({
-          task_id: z.string().trim().min(1),
-          current_nodes: z.array(currentNodeSchema).min(1),
-        })
-        .strict(),
-    })
-    .strict()
-    .transform(
-      (value) =>
-        ({
-          outcome: value.outcome,
-          applied: { taskID: value.applied.task_id, currentNodes: value.applied.current_nodes },
-        }) as const,
-    ),
-  selectionRequiredResponseSchema,
-]);
 
 export const attentionPageSchema: z.ZodType<AttentionPage> = z
   .object({

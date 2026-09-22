@@ -3,7 +3,6 @@ import { ApiClient } from "./client";
 import { create } from "@app/server-api-contract";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
-  taskApproveResponseSchema,
   taskMovePreviewResponseSchema,
   taskMoveResponseSchema,
 } from "./schemas/workflowBoard";
@@ -52,14 +51,12 @@ describe("task lifecycle client", () => {
         },
       },
       {
-        method: "workflow.task.approve",
-        result: {
-          outcome: "applied",
-          applied: {
-            task_id: "task-1",
-            current_nodes: [{ node_id: "node-3", transition_branch_key: "branch-a", session_id: null }],
-          },
-        },
+        descriptor: lifecycle.TaskLifecycleService.method.approve,
+        result: create(lifecycle.ApproveResultSchema, { outcome: { case: "success", value: {
+          outcome: { case: "applied", value: {
+            taskId: "task-1", currentNodes: [{ nodeId: "node-3", transitionBranchKey: "branch-a" }],
+          } },
+        } } }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -94,10 +91,10 @@ describe("task lifecycle client", () => {
       applied: { taskID: "task-1", currentNodes: [{ nodeID: "node-3" }] },
     });
 
-    expect(transport.calls).toContainEqual({
-      method: "workflow.task.approve",
+    expect(transport.descriptorCalls).toContainEqual({
+      descriptor: lifecycle.TaskLifecycleService.method.approve,
       options: { timeoutMs: null },
-      params: { approval_id: "approval-1" },
+      request: create(lifecycle.ApproveRequestSchema, { approvalId: "approval-1" }),
     });
     expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).not.toHaveProperty(
       "allow_missing_edge",
@@ -191,12 +188,13 @@ describe("task lifecycle client", () => {
       outcome: "dependency_confirmation_required",
       unsatisfiedDependencyCount: 2,
     });
-    expect(
-      taskApproveResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: { reason: "policy_requires_selection" },
-      }),
-    ).toEqual({
+    const approveClient = new ApiClient(new FakeRpcTransport([{
+      descriptor: lifecycle.TaskLifecycleService.method.approve,
+      result: create(lifecycle.ApproveResultSchema, { outcome: { case: "success", value: {
+        outcome: { case: "selectionRequired", value: { reason: { case: "policyRequiresSelection", value: {} } } },
+      } } }),
+    }]), unexpectedProjectOverflow);
+    await expect(approveClient.approveApproval("approval-1")).resolves.toEqual({
       outcome: "selection_required",
       selectionRequired: { reason: "policy_requires_selection" },
     });
@@ -257,15 +255,12 @@ describe("task lifecycle client", () => {
   });
 
   it("rejects malformed lifecycle responses and empty applied Current Nodes", () => {
-    const schemas = [taskMoveResponseSchema, taskApproveResponseSchema];
+    const schemas = [taskMoveResponseSchema];
     for (const schema of schemas) {
       expect(() =>
         schema.parse({
           outcome: "applied",
-          applied:
-            schema === taskApproveResponseSchema
-              ? { task_id: "task-1", current_nodes: [] }
-              : { current_nodes: [] },
+          applied: { current_nodes: [] },
         }),
       ).toThrow();
       expect(() =>

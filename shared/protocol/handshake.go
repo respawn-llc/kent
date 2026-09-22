@@ -6,8 +6,6 @@ import (
 )
 
 const (
-	MethodWorkflowTaskInterrupt          = "workflow.task.interrupt"
-	MethodWorkflowTaskApprove            = "workflow.task.approve"
 	MethodWorkflowTaskMovePreview        = "workflow.task.move.preview"
 	MethodWorkflowTaskMove               = "workflow.task.move"
 	MethodWorkflowTaskComplete           = "workflow.task.complete"
