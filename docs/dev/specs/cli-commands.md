@@ -259,7 +259,10 @@
 - Named roles are file-only `[subagents.<role>]` settings and inherit main settings unless overridden.
 - Headless execution runs one non-interactive prompt with ordinary Session persistence.
 - New unnamed Sessions are named `<session-id> subagent`.
-- Timeout is unlimited unless `--timeout` is given.
+- Without `--timeout`, Run must add no run-completion deadline.
+- When `--timeout` is given, the full run-completion timeout must start after launch preparation and prompt-history saving finish, immediately before prompt submission and result waiting.
+- Connection, preparation, prompt-history saving, response cleanup, and teardown must use their existing operation limits independently of `--timeout`.
+- Preparation or prompt-history saving failure must fail Run rather than report success.
 - Default progress mode is `--progress-mode=stderr`: committed assistant commentary and final text go to stdout; lifecycle notices go to stderr.
 - New Sessions announce the actual configured launch command followed by `run steer <session-id> "prompt"` only after steering is available.
 - Resumed Sessions do not announce it.
