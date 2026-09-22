@@ -326,6 +326,29 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 }
 
 func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff(t *testing.T) {
+	t.Run("reset-baseline-overrides", func(t *testing.T) {
+		facts := testOnboardingCapabilityFacts()
+		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
+			cfg.Settings.Reviewer.Model = "gpt-5.4"
+			cfg.Settings.Reviewer.ThinkingLevel = "low"
+			for _, key := range []string{"reviewer.model", "reviewer.thinking_level"} {
+				cfg.Source.Sources[key] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: key}}
+			}
+		}, facts)
+		if err := state.selections.submitReviewerModel(state.selections.model.value, facts); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.selections.chooseReviewerThinking(state.selections.thinkingValue(), facts); err != nil {
+			t.Fatal(err)
+		}
+		request, err := onboardingFinalizeRequest(state, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Supervisor == nil || request.Supervisor.Model != nil || request.Supervisor.Thinking != nil {
+			t.Fatalf("reset should project inheritance: %+v", request.Supervisor)
+		}
+	})
 	t.Run("inherited", func(t *testing.T) {
 		state := newOnboardingFinalizeProjectionState(t, nil, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)

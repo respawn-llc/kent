@@ -764,7 +764,7 @@ func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T
 }
 
 func TestFinalizerRetainsExplicitSupervisorBaselineOverride(t *testing.T) {
-	for _, replace := range []bool{false, true} {
+	for _, replace := range []string{"omit", "explicit", "inherit"} {
 		t.Run(fmt.Sprint(replace), func(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
 			if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
@@ -789,7 +789,7 @@ func TestFinalizerRetainsExplicitSupervisorBaselineOverride(t *testing.T) {
 				Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
 			}
 			expectedModel, expectedThinking := "gpt-5.4", ""
-			if replace {
+			if replace != "omit" {
 				thinking := &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")}
 				request.Thinking = thinking
 				request.Supervisor = &onboardingpb.SupervisorChoice{
@@ -797,14 +797,18 @@ func TestFinalizerRetainsExplicitSupervisorBaselineOverride(t *testing.T) {
 					Model:     request.Model, Thinking: thinking,
 				}
 				expectedModel, expectedThinking = model, "high"
+				if replace == "inherit" {
+					request.Supervisor.Model = nil
+					request.Supervisor.Thinking = nil
+				}
 			}
 			if _, err := finalizer.Finalize(t.Context(), request); err != nil {
 				t.Fatal(err)
 			}
 			actual := loadFinalizedConfig(t, root)
 			if actual.Settings.Reviewer.Model != expectedModel || actual.Settings.Reviewer.ThinkingLevel != expectedThinking ||
-				!actual.Source.Sources["reviewer.model"].Declares("reviewer.model") ||
-				!actual.Source.Sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") {
+				actual.Source.Sources["reviewer.model"].Declares("reviewer.model") != (replace != "inherit") ||
+				actual.Source.Sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") != (replace != "inherit") {
 				t.Fatalf("explicit Supervisor baseline was lost: %+v", actual.Settings.Reviewer)
 			}
 		})

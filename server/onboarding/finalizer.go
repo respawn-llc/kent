@@ -281,6 +281,14 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		return err
 	}
 	settings.Reviewer.Frequency = frequency
+	// A submitted Supervisor choice describes the whole visible selection:
+	// absent overrides mean inheritance. An absent Supervisor preserves baseline.
+	if choice.Model == nil {
+		delete(preserved, "reviewer.model")
+	}
+	if choice.Thinking == nil {
+		delete(preserved, "reviewer.thinking_level")
+	}
 	if choice.Model != nil {
 		model, err := modelChoiceValue(choice.Model)
 		if err != nil {
