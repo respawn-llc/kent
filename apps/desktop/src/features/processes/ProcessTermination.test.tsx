@@ -8,11 +8,10 @@ import { deferred } from "@/test-support/chat-runtime";
 import { createProcessTermination } from "./ProcessesViewModel";
 
 it("ends accepted request loading at settlement without a repair read and admits different processes independently", async () => {
-  const { api } = createTestServices([]);
+  const { api, transport } = createTestServices([]);
   const client = new QueryClient();
   const response = deferred<undefined>();
   const kill = vi.spyOn(api, "killProcess").mockReturnValue(response.promise);
-  const read = vi.spyOn(api, "listProcesses");
   const first = createProcessTermination({ api, client, processID: "a", onError: vi.fn() });
   const second = createProcessTermination({ api, client, processID: "b", onError: vi.fn() });
   const view = renderHook(
@@ -42,18 +41,17 @@ it("ends accepted request loading at settlement without a repair read and admits
   await waitFor(() => {
     expect(view.result.current.pending).toBe(false);
   });
-  expect(read).not.toHaveBeenCalled();
+  expect(transport.descriptorCalls).toHaveLength(0);
 });
 
 it("reports a rejected request after panel close and shares its pending state with a remounted row", async () => {
-  const { api } = createTestServices([]);
+  const { api, transport } = createTestServices([]);
   const client = new QueryClient();
   const response = deferred<undefined>();
   const kill = vi
     .spyOn(api, "killProcess")
     .mockReturnValueOnce(response.promise)
     .mockResolvedValue(undefined);
-  const read = vi.spyOn(api, "listProcesses");
   const onError = vi.fn();
   const model = () => createProcessTermination({ api, client, processID: "a", onError });
   const mount = () => {
@@ -91,5 +89,5 @@ it("reports a rejected request after panel close and shares its pending state wi
     result.current.terminate(undefined);
   });
   expect(kill).toHaveBeenCalledTimes(2);
-  expect(read).not.toHaveBeenCalled();
+  expect(transport.descriptorCalls).toHaveLength(0);
 });

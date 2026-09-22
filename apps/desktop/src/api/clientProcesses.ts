@@ -73,16 +73,6 @@ export function observeProcesses(
   );
 }
 
-export async function listProcesses(
-  transport: DescriptorRpcTransport,
-  target: ChatSessionTarget,
-): Promise<readonly DesktopProcess[]> {
-  const method = ViewService.method.list;
-  const request = create(method.input, { projectId: target.projectID, ownerSessionId: target.sessionID });
-  const success = requireUnarySuccess(method, await transport.callDescriptor(method, request));
-  return success.processes.map(processFromGenerated);
-}
-
 export async function killProcess(transport: DescriptorRpcTransport, processID: string): Promise<void> {
   const method = ControlService.method.kill;
   const request = create(method.input, { processId: processID.trim() });

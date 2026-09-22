@@ -101,7 +101,6 @@ export type ApiSubscription = Readonly<{
 export interface ApiService {
   readonly chat: ChatApi;
 
-  listProcesses(target: ChatSessionTarget): Promise<readonly DesktopProcess[]>;
   observeProcesses(
     target: ChatSessionTarget,
   ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
