@@ -119,7 +119,7 @@ it("logs check failure without offering an update", async () => {
   const view = renderHook(() => useDesktopUpdate(bridge, services.logger), { wrapper });
   await waitFor(() => {
     expect(check).toHaveBeenCalledTimes(1);
+    expect(services.logger.entries().some((entry) => entry.context.error === "check")).toBe(true);
   });
   expect(view.result.current.phase).toBe("none");
-  expect(services.logger.entries().some((entry) => entry.context.error === "check")).toBe(true);
 });

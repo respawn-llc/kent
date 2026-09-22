@@ -1,4 +1,5 @@
 import ts from "typescript";
+import { win32 } from "node:path";
 
 const rootExecutors = new Set([
   "runFork",
@@ -204,7 +205,8 @@ export const effectRules = {
           // Native adapters retain private platform callback storage (KENT-656).
           // Their exported observation contracts are still checked above.
           const nativeAdapter =
-            file.fileName.split("/").slice(-4, -1).join("/") === "packages/native-bridge/src";
+            win32.normalize(file.fileName).split(win32.sep).slice(-4, -1).join("/") ===
+            "packages/native-bridge/src";
           const exportedSymbols = new Set(
             checker
               .getExportsOfModule(module)
