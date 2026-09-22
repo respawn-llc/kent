@@ -25,9 +25,14 @@ import { type WorkflowEditorDraftState } from "./workflowEditorDraft";
 import {
   createWorkflowEditorViewModel,
   useWorkflowEditorActions,
+  useWorkflowGraphEditorActions,
   type WorkflowEditorViewModel,
 } from "./WorkflowEditorViewModel";
-import { useWorkflowEditorView, type WorkflowEditorView } from "./useWorkflowEditorView";
+import {
+  useWorkflowEditorView,
+  useWorkflowEditorDraftView,
+  type WorkflowEditorView,
+} from "./useWorkflowEditorView";
 import { type PendingGraphMutation } from "./workflowEditorGraphMutationPlanning";
 import { workflowEditorViewState } from "./workflowEditorViewState";
 import { useWorkflowGraphDeleteConfirmation } from "./useWorkflowGraphDeleteConfirmation";
@@ -96,7 +101,7 @@ function WorkflowSettingsRoute({ navigator, projectID, workflowID }: WorkflowEdi
   const { t } = useTranslation();
   const model = useWorkflowEditorModel(projectID, workflowID);
   const data = useAtomValue(model.data);
-  const controller = useWorkflowEditorView(model);
+  const controller = useWorkflowEditorDraftView(model);
   const save = useWorkflowEditorActions(model);
   const { confirmationPreview } = useAtomValue(model.saveState);
 
@@ -163,7 +168,7 @@ function WorkflowEditorRouteContent({
   const model = useWorkflowEditorModel(projectID, workflowID);
   const data = useAtomValue(model.data);
   const controller = useWorkflowEditorView(model);
-  const save = useWorkflowEditorActions(model);
+  const save = useWorkflowGraphEditorActions(model);
   const { confirmationPreview } = useAtomValue(model.saveState);
   const { draftState } = useAtomValue(model.state);
   const dispatch = save.edit;

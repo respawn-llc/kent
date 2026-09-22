@@ -213,7 +213,6 @@ export function createWorkflowEditorViewModel({
         const submitted = current.draftState;
         if (submitted === null || !current.dirtyState.dirty || saveObserver.getCurrentResult().isPending)
           return;
-        if (current.dirtyState.graphDirty && get(graph).draftValidation?.valid === false) return;
         if (confirmedPreview !== undefined && confirmedPreview !== get(saveState).confirmationPreview) return;
         get.set(dismissedConfirmation, null);
         const outcome = yield* Effect.tryPromise(async () =>
@@ -259,7 +258,6 @@ export type WorkflowEditorViewModel = ReturnType<typeof createWorkflowEditorView
 
 export function useWorkflowEditorActions(model: WorkflowEditorViewModel) {
   useAtomMount(model.lifecycle);
-  useAtomMount(model.graph);
   useAtomMount(model.saving);
   useAtomMount(model.workflowObservation);
   useAtomMount(model.projectObservation);
@@ -267,11 +265,18 @@ export function useWorkflowEditorActions(model: WorkflowEditorViewModel) {
     edit: useAtomSet(model.edit),
     discard: useAtomSet(model.discard),
     retryLoad: useAtomSet(model.retryLoad),
-    retryLayout: useAtomSet(model.retryLayout),
     retryLinks: useAtomSet(model.retryLinks),
     save: useAtomSet(model.save),
     dismissConfirmation: useAtomSet(model.dismissConfirmation),
     retryWorkflowObservation: useAtomRefresh(model.workflowObservation),
     retryProjectObservation: useAtomRefresh(model.projectObservation),
+  };
+}
+
+export function useWorkflowGraphEditorActions(model: WorkflowEditorViewModel) {
+  useAtomMount(model.graph);
+  return {
+    ...useWorkflowEditorActions(model),
+    retryLayout: useAtomSet(model.retryLayout),
   };
 }

@@ -12,7 +12,12 @@ import { queryKeys } from "@/app-facade";
 import { createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { appI18n } from "@/i18n";
-import { createWorkflowEditorViewModel, useWorkflowEditorActions } from "./WorkflowEditorViewModel";
+import {
+  createWorkflowEditorViewModel,
+  useWorkflowEditorActions,
+  useWorkflowGraphEditorActions,
+} from "./WorkflowEditorViewModel";
+import { useWorkflowEditorDraftView } from "./useWorkflowEditorView";
 
 function definition(version = 1, name = "Workflow"): WorkflowDefinition {
   return {
@@ -31,7 +36,7 @@ function definition(version = 1, name = "Workflow"): WorkflowDefinition {
   };
 }
 
-function setup(
+function fixture(
   beforeMount?: (context: {
     services: ReturnType<typeof createTestServices>;
     client: QueryClient;
@@ -62,6 +67,12 @@ function setup(
     t: appI18n.t,
     push: vi.fn(),
   });
+  return { model, services, source, load, links, client, validate, subscribe, projectSubscribe, close };
+}
+
+function setup(beforeMount?: Parameters<typeof fixture>[0]) {
+  const context = fixture(beforeMount);
+  const { model } = context;
   const view = renderHook(
     () => ({
       state: useAtomValue(model.state),
@@ -69,11 +80,11 @@ function setup(
       graph: useAtomValue(model.graph),
       saveState: useAtomValue(model.saveState),
       observation: useAtomSuspense(model.workflowObservation).value,
-      ...useWorkflowEditorActions(model),
+      ...useWorkflowGraphEditorActions(model),
     }),
     { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
   );
-  return { ...view, services, source, load, links, client, validate, subscribe, projectSubscribe, close };
+  return { ...view, ...context };
 }
 
 it("retains a loaded Draft when a refresh fails without sending global-library Project requests", async () => {
@@ -94,6 +105,41 @@ it("retains a loaded Draft when a refresh fails without sending global-library P
   expect(view.result.current.state.draftState?.draft.workflow.name).toBe("Local");
   expect(view.links).not.toHaveBeenCalled();
   expect(view.projectSubscribe).not.toHaveBeenCalled();
+});
+
+it("loads and edits settings without activating graph validation, wiring, or layout", async () => {
+  const { services, source, validate, client, model } = fixture();
+  const wiring = vi
+    .spyOn(services.api, "deriveWorkflowGraphWiring")
+    .mockResolvedValue(emptyWorkflowDerivedWiring);
+  const preview = vi
+    .spyOn(services.api, "previewWorkflowGraphSave")
+    .mockRejectedValue(new Error("Save failed"));
+  const view = renderHook(
+    () => ({
+      view: useWorkflowEditorDraftView(model),
+      ...useWorkflowEditorActions(model),
+    }),
+    { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
+  );
+  await waitFor(() => {
+    expect(view.result.current.view?.state.source).toEqual(source);
+  });
+  expect(validate).not.toHaveBeenCalled();
+  await act(async () => {
+    view.result.current.edit({ type: "editWorkflowMetadata", name: "Settings edit", description: "" });
+    view.result.current.save(undefined);
+  });
+  expect(preview).toHaveBeenCalledTimes(1);
+  expect(view.result.current.view?.draft.workflow.name).toBe("Settings edit");
+  expect(validate).not.toHaveBeenCalled();
+  expect(wiring).not.toHaveBeenCalled();
+  expect(
+    client
+      .getQueryCache()
+      .findAll({ queryKey: queryKeys.allWorkflowGraphLayouts })
+      .every((query) => query.state.fetchStatus === "idle" && query.state.data === undefined),
+  ).toBe(true);
 });
 
 it("retains edits when a newer saved Workflow arrives and acknowledges that conflict explicitly", async () => {

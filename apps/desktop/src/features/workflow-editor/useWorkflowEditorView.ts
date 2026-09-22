@@ -3,8 +3,20 @@ import { errorMessage } from "@/api";
 import type { WorkflowEditorViewModel } from "./WorkflowEditorViewModel";
 
 export function useWorkflowEditorView(model: WorkflowEditorViewModel) {
-  const { draftState, dirtyState } = useAtomValue(model.state);
+  const view = useWorkflowEditorDraftView(model);
   const graph = useAtomValue(model.graph);
+  if (view === null) return null;
+  return {
+    ...view,
+    derivedWiring: graph.draftDerivedWiring,
+    draftValidation: graph.draftValidation,
+    executionValidation: graph.executionValidation,
+  } as const;
+}
+
+export function useWorkflowEditorDraftView(model: WorkflowEditorViewModel) {
+  const { draftState, dirtyState } = useAtomValue(model.state);
+  const data = useAtomValue(model.data);
   const saving = useAtomValue(model.saveState);
   const edit = useAtomSet(model.edit);
   const save = useAtomSet(model.save);
@@ -13,9 +25,9 @@ export function useWorkflowEditorView(model: WorkflowEditorViewModel) {
     dispatch: edit,
     dirty: dirtyState,
     draft: draftState.draft,
-    derivedWiring: graph.draftDerivedWiring,
-    draftValidation: graph.draftValidation,
-    executionValidation: graph.executionValidation,
+    derivedWiring: draftState.draft.derivedWiring,
+    draftValidation: null,
+    executionValidation: data.validationQuery.data ?? null,
     saving: saving.saving,
     saveError: saving.error === null ? null : errorMessage(saving.error),
     saveBlockers: saving.blockers,
