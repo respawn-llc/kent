@@ -9,7 +9,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/subagentpolicy"
-	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -77,31 +76,26 @@ func (s *Service) SaveRunSelection(ctx context.Context, req PlanRequest) (PlanRe
 		if err != nil {
 			return input, PreparedChatSettingsOperationResult{}, err
 		}
-		selection := input
-		selection.PreparedSelection = &PreparedChatSettingsSelection{State: state, Settings: settings}
+		effective, err := session.ResolveEffectiveChatSettings(state.Settings, nil, settings.Baseline)
+		if err != nil {
+			return input, PreparedChatSettingsOperationResult{}, err
+		}
 		if !textutil.EqualOptional(state.AgentRole, input.Raw.AgentRole) ||
 			(input.Locked == nil && strings.TrimSpace(req.Overrides.Model) != "") {
 			// New selections validate against their own configured capability,
 			// independently of the old model's saved custom effort.
-			selection.Effective.Thinking = settings.Baseline.Thinking
-			selection.PersistedThinking = nil
+			effective.Thinking = settings.Baseline.Thinking
 		}
-		if role.Present {
-			agent := role.Role
-			if role.Default {
-				agent = config.DefaultSubagentRole
-			}
-			projected, err := ProjectPreparedChatSettingsOperation(selection, &chatsettingspb.MutationOperation{
-				Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: agent},
-			})
-			if err != nil || projected.Rejection != nil {
-				return input, projected, err
-			}
-			selection.Raw, selection.Effective = projected.State, projected.Effective
-			selection.PersistedQuestions = projected.Effective.Questions
-			selection.PersistedThinking = projected.State.Settings.Thinking
+		targetState, err := session.ChatSettingsStateFromRole(state.AgentRole, effective)
+		if err != nil {
+			return input, PreparedChatSettingsOperationResult{}, err
 		}
-		projected, err := ProjectPreparedChatSettingsOperation(selection, operation)
+		targetState.ConnectionID = state.ConnectionID
+		projected, err := ProjectResolvedChatSettingsOperation(ResolvedChatSettingsOperation{
+			ChatSettingsMutationContext: input.ChatSettingsMutationContext,
+			Selection:                   ResolvedChatSettingsSelection{State: targetState, Settings: settings},
+			Edit:                        operation,
+		})
 		if err != nil || projected.Rejection != nil {
 			return input, projected, err
 		}

@@ -134,14 +134,13 @@ func (s *Service) prepareSessionChatSettings(
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
 	return PreparedChatSettingsOperationInput{
-		Raw:                raw,
-		Effective:          effective,
+		ChatSettingsMutationContext: ChatSettingsMutationContext{
+			Raw: raw, Effective: effective, Locked: meta.Locked,
+			WorkflowLocked: taskIdentity != nil, CompactionMode: planner.Config.Settings.CompactionMode,
+		},
 		PersistedQuestions: persistedQuestions,
 		PersistedThinking:  persistedThinking,
 		Catalog:            catalog,
-		Locked:             meta.Locked,
-		WorkflowLocked:     taskIdentity != nil,
-		CompactionMode:     planner.Config.Settings.CompactionMode,
 	}, taskIdentity, nil
 }
 

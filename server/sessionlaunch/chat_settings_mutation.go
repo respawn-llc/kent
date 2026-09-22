@@ -28,7 +28,14 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 		if err != nil {
 			return input, PreparedChatSettingsOperationResult{}, err
 		}
-		projected, err := ProjectPreparedChatSettingsOperation(input, operation)
+		resolved, rejected, err := resolveChatSettingsSelection(input, operation)
+		if err != nil {
+			return input, PreparedChatSettingsOperationResult{}, err
+		}
+		if rejected != nil {
+			return input, rejectedChatSettingsOperation(input.ChatSettingsMutationContext, rejected.Reason), nil
+		}
+		projected, err := ProjectResolvedChatSettingsOperation(resolved)
 		return input, projected, err
 	})
 }
