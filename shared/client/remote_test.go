@@ -26,6 +26,8 @@ import (
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
@@ -37,16 +39,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-func TestNormalizeWorkflowTaskObservationRPCErrorClassifiesConnectionEOF(t *testing.T) {
-	err := normalizeWorkflowTaskObservationRPCError(io.EOF)
-	if !errors.Is(err, serverapi.ErrStreamFailed) {
-		t.Fatalf("normalized error = %v, want stream failure", err)
-	}
-	if errors.Is(err, io.EOF) {
-		t.Fatalf("normalized error = %v, must not remain raw EOF", err)
-	}
-}
 
 func TestProtocolErrorReconstructsModelStreamStalled(t *testing.T) {
 	err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeModelStreamStalled, Message: "model generation failed after retries: model stream stalled"})
@@ -398,19 +390,13 @@ func stringPointer(value string) *string {
 	return &value
 }
 
-func TestRemoteObserveWorkflowTaskRejectsMalformedResponseAsInvalidResponse(t *testing.T) {
+func TestRemoteObserveWorkflowTaskRejectsMalformedResponse(t *testing.T) {
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
-		var request protocol.Request
-		if err := websocket.JSON.Receive(ws, &request); err != nil {
-			t.Errorf("receive task observation request: %v", err)
-			return
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, serverapi.WorkflowTaskObservationResponse{
-			TaskID: "task-1",
-		})); err != nil {
-			t.Errorf("send malformed task observation response: %v", err)
-		}
+		call := receiveRemoteGeneratedCall(t, ws, "TaskObservationService", "Observe", &taskpb.ObserveRequest{})
+		sendRemoteGeneratedResult(t, ws, call, &taskpb.ObserveResult{
+			Outcome: &taskpb.ObserveResult_Success{Success: &taskpb.ObserveSuccess{TaskId: "task-1"}},
+		})
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -418,10 +404,10 @@ func TestRemoteObserveWorkflowTaskRejectsMalformedResponseAsInvalidResponse(t *t
 	}
 	defer func() { _ = remote.Close() }()
 
-	_, err = remote.ObserveWorkflowTask(context.Background(), serverapi.WorkflowTaskObservationRequest{
-		TaskID: "task-1", ProjectID: "project-1", Mode: serverapi.WorkflowTaskObservationWait,
+	_, err = remote.ObserveWorkflowTask(context.Background(), &taskpb.ObserveRequest{
+		TaskId: "task-1", ProjectId: "project-1", Mode: taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	})
-	var invalidResponse *InvalidResponseError
+	var invalidResponse *protovalidate.ValidationError
 	if err == nil || !errors.As(err, &invalidResponse) {
 		t.Fatalf("ObserveWorkflowTask error = %v, want InvalidResponseError", err)
 	}
@@ -755,38 +741,49 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 	}
 }
 
-func newRemoteWorkflowProjectSubscriptionServer(t *testing.T, event protocol.WorkflowProjectEvent) *httptest.Server {
+func newRemoteWorkflowProjectSubscriptionServer(t *testing.T, event *workflowpb.ProjectEvent) *httptest.Server {
 	t.Helper()
+	var connections atomic.Int32
 	return newRemoteTestServer(t, func(ws *websocket.Conn) {
-		req := acceptRemoteHandshake(t, ws)
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
+		connection := connections.Add(1)
+		acceptRemoteHandshake(t, ws)
+		if connection == 1 {
+			var frame []byte
+			if err := websocket.Message.Receive(ws, &frame); !errors.Is(err, io.EOF) {
+				t.Errorf("unused control connection received a frame or unexpected error: %v", err)
 			}
-			t.Fatalf("receive workflow project subscribe: %v", err)
+			return
 		}
-		if req.Method != protocol.MethodWorkflowSubscribeProject {
-			t.Fatalf("subscribe method = %q, want %q", req.Method, protocol.MethodWorkflowSubscribeProject)
+		call := receiveRemoteGeneratedCall(t, ws, "ProjectSubscriptionService", "Subscribe", &workflowpb.ProjectSubscribeRequest{})
+		sendRemoteGeneratedResult(t, ws, call, &workflowpb.ProjectSubscriptionStartResult{
+			Outcome: &workflowpb.ProjectSubscriptionStartResult_Success{Success: &emptypb.Empty{}},
+		})
+		operation, err := protoapi.OperationFromDescriptor(workflowMethod("ProjectSubscriptionService", "Event"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{})); err != nil {
-			t.Fatalf("send subscribe response: %v", err)
+		payload, err := protoapi.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
 		}
-		params := protocol.WorkflowProjectEventParams{Event: event}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodWorkflowProjectEvent, Params: mustJSON(t, params)}); err != nil {
-			t.Fatalf("send workflow project event: %v", err)
+		frame, err := protoapi.EncodeEnvelope(&sharedpb.Envelope{Frame: &sharedpb.Envelope_NotificationEvent{
+			NotificationEvent: &sharedpb.NotificationEvent{Operation: operation.Name, Payload: payload},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := websocket.Message.Send(ws, frame); err != nil {
+			t.Fatal(err)
 		}
 	})
 }
 
 func TestRemoteWorkflowProjectSubscriptionDecodesTypedEvent(t *testing.T) {
-	server := newRemoteWorkflowProjectSubscriptionServer(t, protocol.WorkflowProjectEvent{
-		ProjectID:        remoteTestStringPointer("project-1"),
-		WorkflowID:       remoteTestWorkflowIDPointer("11111111-1111-4111-8111-111111111111"),
-		Resource:         protocol.WorkflowProjectEventResourceTask,
-		Action:           protocol.WorkflowProjectEventActionQuestionWaiting,
-		PrimaryEntityID:  "task-1",
-		RelatedIDs:       []string{"run-1", "ask-1"},
-		OccurredAtUnixMs: 1,
+	server := newRemoteWorkflowProjectSubscriptionServer(t, &workflowpb.ProjectEvent{
+		ProjectId: proto.String("project-1"), WorkflowId: proto.String("11111111-1111-4111-8111-111111111111"),
+		Resource:        workflowpb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+		Action:          workflowpb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING,
+		PrimaryEntityId: "task-1", RelatedIds: []string{"run-1", "ask-1"}, OccurredAt: timestamppb.New(time.UnixMilli(1)),
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -794,7 +791,7 @@ func TestRemoteWorkflowProjectSubscriptionDecodesTypedEvent(t *testing.T) {
 		t.Fatalf("DialRemote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeWorkflowProject(context.Background(), serverapi.WorkflowProjectSubscribeRequest{ProjectID: "project-1"})
+	sub, err := remote.SubscribeWorkflowProject(context.Background(), &workflowpb.ProjectSubscribeRequest{ProjectId: proto.String("project-1")})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
@@ -804,22 +801,20 @@ func TestRemoteWorkflowProjectSubscriptionDecodesTypedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
-	if event.Resource != serverapi.WorkflowProjectEventResourceTask ||
-		event.Action != serverapi.WorkflowProjectEventActionQuestionWaiting ||
-		event.PrimaryEntityID != "task-1" ||
-		!reflect.DeepEqual(event.RelatedIDs, []string{"run-1", "ask-1"}) {
+	if event.Resource != workflowpb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK ||
+		event.Action != workflowpb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING ||
+		event.PrimaryEntityId != "task-1" ||
+		!reflect.DeepEqual(event.RelatedIds, []string{"run-1", "ask-1"}) {
 		t.Fatalf("event = %+v, want typed task question event", event)
 	}
 }
 
 func TestRemoteWorkflowProjectSubscriptionRejectsInvalidResourceActionCombination(t *testing.T) {
-	server := newRemoteWorkflowProjectSubscriptionServer(t, protocol.WorkflowProjectEvent{
-		ProjectID:        remoteTestStringPointer("project-1"),
-		WorkflowID:       remoteTestWorkflowIDPointer("11111111-1111-4111-8111-111111111111"),
-		Resource:         protocol.WorkflowProjectEventResourceTask,
-		Action:           protocol.WorkflowProjectEventActionLinked,
-		PrimaryEntityID:  "task-1",
-		OccurredAtUnixMs: 1,
+	server := newRemoteWorkflowProjectSubscriptionServer(t, &workflowpb.ProjectEvent{
+		ProjectId: proto.String("project-1"), WorkflowId: proto.String("11111111-1111-4111-8111-111111111111"),
+		Resource:        workflowpb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+		Action:          workflowpb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_LINKED,
+		PrimaryEntityId: "task-1", OccurredAt: timestamppb.New(time.UnixMilli(1)),
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -827,7 +822,7 @@ func TestRemoteWorkflowProjectSubscriptionRejectsInvalidResourceActionCombinatio
 		t.Fatalf("DialRemote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeWorkflowProject(context.Background(), serverapi.WorkflowProjectSubscribeRequest{ProjectID: "project-1"})
+	sub, err := remote.SubscribeWorkflowProject(context.Background(), &workflowpb.ProjectSubscribeRequest{ProjectId: proto.String("project-1")})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
@@ -1228,131 +1223,6 @@ func TestProtocolErrorMapsSentinelCodes(t *testing.T) {
 	}
 }
 
-func TestProtocolErrorDecodesWorkflowTaskListScopeError(t *testing.T) {
-	projectID := "project-1"
-	workflowID := runtimeids.NewWorkflowID()
-	source := &serverapi.WorkflowTaskListScopeError{
-		Reason:     serverapi.WorkflowTaskListScopeReasonWorkflowNotLinked,
-		ProjectID:  &projectID,
-		WorkflowID: &workflowID,
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskListScope,
-		Message: "scope resolution failed",
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.WorkflowTaskListScopeError
-	if !errors.As(err, &decoded) {
-		t.Fatalf("decoded error = %T %v, want WorkflowTaskListScopeError", err, err)
-	}
-	if decoded.Reason != source.Reason || decoded.ProjectID == nil || *decoded.ProjectID != "project-1" || decoded.WorkflowID == nil || *decoded.WorkflowID != workflowID {
-		t.Fatalf("decoded scope error = %+v, want %+v", decoded, source)
-	}
-}
-
-func TestProtocolErrorDecodesTaskSearchError(t *testing.T) {
-	source := &serverapi.TaskSearchError{Reason: serverapi.TaskSearchErrorReasonNormalizedTooShort}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskSearch,
-		Message: source.Error(),
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.TaskSearchError
-	if !errors.As(err, &decoded) || decoded.Reason != source.Reason {
-		t.Fatalf("decoded error = %T %v, want %+v", err, err, source)
-	}
-	malformed := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskSearch,
-		Message: "fallback",
-		Data:    json.RawMessage(`{"type":"task_search_error","reason":"other"}`),
-	})
-	if errors.As(malformed, &decoded) {
-		t.Fatalf("malformed task search error decoded as typed: %+v", decoded)
-	}
-}
-
-func TestProtocolErrorDecodesWorkflowTaskCreateSelectionError(t *testing.T) {
-	workflowID := runtimeids.NewWorkflowID()
-	source := &serverapi.WorkflowTaskCreateSelectionError{
-		Reason:     serverapi.WorkflowTaskCreateSelectionReasonWorkflowNotLinked,
-		ProjectID:  "project-1",
-		WorkflowID: &workflowID,
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskCreateSelection,
-		Message: "selection failed",
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.WorkflowTaskCreateSelectionError
-	if !errors.As(err, &decoded) {
-		t.Fatalf("decoded error = %T %v, want WorkflowTaskCreateSelectionError", err, err)
-	}
-	if decoded.Reason != source.Reason ||
-		decoded.ProjectID != source.ProjectID ||
-		decoded.WorkflowID == nil ||
-		*decoded.WorkflowID != workflowID {
-		t.Fatalf("decoded selection error = %+v, want %+v", decoded, source)
-	}
-	malformed := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskCreateSelection,
-		Message: "selection failed",
-		Data:    json.RawMessage(`{"type":"workflow_task_create_selection_error","reason":"workflow_not_linked","project_id":"project-1","workflow_id":"workflow-1"}`),
-	})
-	if errors.As(malformed, &decoded) {
-		t.Fatalf("malformed selection payload decoded as typed error: %+v", decoded)
-	}
-}
-
-func TestProtocolErrorDecodesWorkflowTaskCreateConflictError(t *testing.T) {
-	source := &serverapi.WorkflowTaskCreateConflictError{
-		Reason: serverapi.WorkflowTaskCreateConflictReasonSerialization,
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskCreateConflict,
-		Message: "task create conflicted",
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.WorkflowTaskCreateConflictError
-	if !errors.As(err, &decoded) || decoded.Reason != source.Reason {
-		t.Fatalf("decoded error = %T %v, want WorkflowTaskCreateConflictError", err, err)
-	}
-}
-
-func TestProtocolErrorDecodesWorkflowTaskMutationSelfTargetError(t *testing.T) {
-	source := &serverapi.WorkflowTaskMutationSelfTargetError{TaskID: "task-1"}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowTaskMutationSelfTarget,
-		Message: source.Error(),
-		Data:    source.RPCErrorData(),
-	})
-	var decoded *serverapi.WorkflowTaskMutationSelfTargetError
-	if !errors.As(err, &decoded) || decoded.TaskID != source.TaskID {
-		t.Fatalf("decoded error = %T %v, want self-target task %q", err, err, source.TaskID)
-	}
-}
-
-func TestProtocolErrorDecodesWorkflowLabelError(t *testing.T) {
-	projectID := "project-1"
-	labelID := "11111111-1111-4111-8111-111111111111"
-	source := &serverapi.WorkflowLabelError{
-		Reason:    serverapi.WorkflowLabelErrorReasonWrongProject,
-		ProjectID: &projectID,
-		LabelID:   &labelID,
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowLabel,
-		Message: "label does not belong to project",
-		Data:    source.RPCErrorData(),
-	})
-	var decoded *serverapi.WorkflowLabelError
-	if !errors.As(err, &decoded) {
-		t.Fatalf("decoded error = %T %v, want WorkflowLabelError", err, err)
-	}
-	if !reflect.DeepEqual(decoded, source) {
-		t.Fatalf("decoded error = %+v, want %+v", decoded, source)
-	}
-}
-
 func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	source := &serverapi.SessionRetargetError{
 		Reason:        serverapi.SessionRetargetTargetProjectRequired,
@@ -1617,43 +1487,6 @@ func remoteTestWorkflowIDPointer(value string) *runtimeids.WorkflowID {
 		panic(err)
 	}
 	return &id
-}
-
-func TestProtocolErrorDecodesWorkflowExecutionTargetResolutionError(t *testing.T) {
-	source := &serverapi.WorkflowExecutionTargetResolutionError{
-		Code:         serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision,
-		RequestedRef: "missing-ref",
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowExecutionTargetResolution,
-		Message: "execution target resolution failed",
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.WorkflowExecutionTargetResolutionError
-	if !errors.As(err, &decoded) {
-		t.Fatalf("decoded error = %T %v, want WorkflowExecutionTargetResolutionError", err, err)
-	}
-	if decoded.Code != source.Code || decoded.RequestedRef != source.RequestedRef {
-		t.Fatalf("decoded execution target error = %+v, want %+v", decoded, source)
-	}
-}
-
-func TestProtocolErrorDecodesWorkflowLockedExecutionTargetError(t *testing.T) {
-	source := &serverapi.WorkflowLockedExecutionTargetError{
-		Cause: serverapi.WorkflowLockedExecutionTargetCauseInvalidRoot,
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeWorkflowLockedExecutionTarget,
-		Message: "locked execution target is unavailable",
-		Data:    mustRPCErrorData(t, source),
-	})
-	var decoded *serverapi.WorkflowLockedExecutionTargetError
-	if !errors.As(err, &decoded) {
-		t.Fatalf("decoded error = %T %v, want WorkflowLockedExecutionTargetError", err, err)
-	}
-	if decoded.Cause != source.Cause {
-		t.Fatalf("decoded locked target error = %+v, want %+v", decoded, source)
-	}
 }
 
 func TestProtocolErrorMapsEquivalentRuntimeSentinel(t *testing.T) {

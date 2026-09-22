@@ -2,11 +2,13 @@ package workflowview
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
 
 	"core/server/metadata/sqlitegen"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
 
@@ -38,14 +40,12 @@ func TestResolveWorkflowTaskLabelFilterCanonicalizesIncludedAndExcludedPartition
 	facts, err := resolveWorkflowTaskLabelFilter(
 		t.Context(),
 		reader,
-		projectID,
-		serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-			Named: &serverapi.WorkflowTaskNamedLabelFilter{
-				Mode:             serverapi.WorkflowTaskNamedLabelFilterModeAny,
-				LabelIDs:         []string{deltaID, betaID},
-				ExcludedLabelIDs: []string{gammaID, alphaID},
-			},
+		projectID, &taskpb.
+			LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+			Mode:             taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY,
+			LabelIds:         []string{deltaID, betaID},
+			ExcludedLabelIds: []string{gammaID, alphaID},
+		}},
 		},
 	)
 	if err != nil {
@@ -53,28 +53,19 @@ func TestResolveWorkflowTaskLabelFilterCanonicalizesIncludedAndExcludedPartition
 	}
 	wantIDs := []string{betaID, deltaID}
 	wantExcludedIDs := []string{alphaID, gammaID}
-	if facts.Kind != serverapi.WorkflowTaskLabelFilterKindNamed ||
-		facts.Mode == nil ||
-		*facts.Mode != serverapi.WorkflowTaskNamedLabelFilterModeAny ||
-		!reflect.DeepEqual(facts.LabelIDs, wantIDs) ||
-		!reflect.DeepEqual(facts.ExcludedLabelIDs, wantExcludedIDs) {
+	var included, excluded []string
+	if err := json.Unmarshal([]byte(facts.labelIDsJSON), &included); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(facts.excludedLabelIDsJSON), &excluded); err != nil {
+		t.Fatal(err)
+	}
+	if facts.kind != "named" || !facts.mode.Valid || facts.mode.String != "any" ||
+		!reflect.DeepEqual(included, wantIDs) ||
+		!reflect.DeepEqual(excluded, wantExcludedIDs) {
 		t.Fatalf("resolved facts = %+v, want named any included %v excluded %v", facts, wantIDs, wantExcludedIDs)
 	}
-	namedArgs, err := facts.queryArgs()
-	if err != nil {
-		t.Fatalf("named query args: %v", err)
-	}
-	if !namedArgs.mode.Valid || namedArgs.mode.String != string(serverapi.WorkflowTaskNamedLabelFilterModeAny) {
-		t.Fatalf("named mode query arg = %+v", namedArgs.mode)
-	}
-	if namedArgs.excludedLabelIDsJSON != `["00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000003"]` {
-		t.Fatalf("excluded label IDs query arg = %q", namedArgs.excludedLabelIDsJSON)
-	}
-	noneArgs, err := (workflowTaskLabelFilterFacts{
-		Kind:             serverapi.WorkflowTaskLabelFilterKindNone,
-		LabelIDs:         []string{},
-		ExcludedLabelIDs: []string{},
-	}).queryArgs()
+	noneArgs, err := resolveWorkflowTaskLabelFilter(t.Context(), reader, projectID, noLabelFilter())
 	if err != nil {
 		t.Fatalf("none query args: %v", err)
 	}
@@ -88,12 +79,10 @@ func TestResolveWorkflowTaskLabelFilterRetainsTypedMissingAndWrongProjectErrorsA
 		projectID = "project-1"
 		labelID   = "00000000-0000-4000-8000-000000000001"
 	)
-	filter := serverapi.WorkflowTaskLabelFilter{
-		Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-		Named: &serverapi.WorkflowTaskNamedLabelFilter{
-			Mode:             serverapi.WorkflowTaskNamedLabelFilterModeAny,
-			ExcludedLabelIDs: []string{labelID},
-		},
+	filter := &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+		Mode:             taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY,
+		ExcludedLabelIds: []string{labelID},
+	}},
 	}
 	for _, tt := range []struct {
 		name   string
@@ -120,30 +109,5 @@ func TestResolveWorkflowTaskLabelFilterRetainsTypedMissingAndWrongProjectErrorsA
 				t.Fatalf("resolveWorkflowTaskLabelFilter() error = %T %+v, want %q", err, err, tt.reason)
 			}
 		})
-	}
-}
-
-func TestWorkflowTaskLabelFilterFactsEqualityIncludesExcludedPartition(t *testing.T) {
-	const (
-		alphaID = "00000000-0000-4000-8000-000000000001"
-		betaID  = "00000000-0000-4000-8000-000000000002"
-	)
-	mode := serverapi.WorkflowTaskNamedLabelFilterModeAny
-	base := workflowTaskLabelFilterFacts{
-		Kind:             serverapi.WorkflowTaskLabelFilterKindNamed,
-		Mode:             &mode,
-		LabelIDs:         []string{alphaID},
-		ExcludedLabelIDs: []string{betaID},
-	}
-	if !base.validCanonical() {
-		t.Fatalf("base canonical facts rejected: %+v", base)
-	}
-	if !base.equal(base) {
-		t.Fatal("canonical facts are not equal to themselves")
-	}
-	changedExclusion := base
-	changedExclusion.ExcludedLabelIDs = []string{alphaID}
-	if base.equal(changedExclusion) {
-		t.Fatalf("facts with different exclusions compare equal: %+v and %+v", base, changedExclusion)
 	}
 }

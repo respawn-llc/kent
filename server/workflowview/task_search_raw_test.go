@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/server/metadata"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -26,8 +27,8 @@ func TestTaskSearchRawFTS5UsesMarkerFreeKnownColumnSnippets(t *testing.T) {
 		"Different title",
 		strings.Repeat("prefix ", 40)+"needle "+strings.Repeat("suffix ", 40),
 	)
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "body:needle",
 		Context:  2,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -35,11 +36,11 @@ func TestTaskSearchRawFTS5UsesMarkerFreeKnownColumnSnippets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raw Search: %v", err)
 	}
-	if len(response.Groups) != 1 || response.Groups[0].TaskID != string(task.ID) {
+	if len(response.Groups) != 1 || response.Groups[0].TaskId != string(task.ID) {
 		t.Fatalf("raw search response = %+v", response)
 	}
 	hits := response.Groups[0].Hits
-	if len(hits) != 1 || hits[0].Source.Kind != serverapi.TaskSearchSourceKindBody || hits[0].FTS5 == nil || hits[0].FTS5.Snippet != "eedl" {
+	if len(hits) != 1 || hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY || hits[0].GetFts5() == nil || hits[0].GetFts5().Snippet != "eedl" {
 		t.Fatalf("raw search hits = %+v", hits)
 	}
 }
@@ -53,8 +54,8 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 	createTaskSearchTask(t, fixture, "alphaone", "betatwo")
 	createTaskSearchTask(t, fixture, "ab", "a")
 
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:            serverapi.TaskSearchModeFTS5,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:            taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:           "needle",
 		Context:         serverapi.TaskSearchDefaultContext,
 		IncludeComments: true,
@@ -63,19 +64,19 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 	if err != nil {
 		t.Fatalf("raw Search: %v", err)
 	}
-	if len(response.Groups) != 1 || response.Groups[0].TaskID != string(task.ID) {
+	if len(response.Groups) != 1 || response.Groups[0].TaskId != string(task.ID) {
 		t.Fatalf("raw response = %+v", response)
 	}
 	hits := response.Groups[0].Hits
 	if len(hits) != 3 ||
-		hits[0].Source.Kind != serverapi.TaskSearchSourceKindTitle ||
-		hits[1].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		hits[2].Source.Kind != serverapi.TaskSearchSourceKindComment {
+		hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE ||
+		hits[1].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		hits[2].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT {
 		t.Fatalf("raw source order = %+v, want title/body/comment", hits)
 	}
 
-	withoutComments, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	withoutComments, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "comment:needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -87,8 +88,8 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 		t.Fatalf("raw Comment-only Search without inclusion = %+v, want no matches", withoutComments)
 	}
 
-	splitTerms, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	splitTerms, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "alphaone betatwo",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -104,16 +105,16 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 		name            string
 		query           string
 		includeComments bool
-		wantKind        serverapi.TaskSearchSourceKind
+		wantKind        taskpb.SearchSourceKind
 	}{
-		{name: "title column", query: "title:needle", wantKind: serverapi.TaskSearchSourceKindTitle},
-		{name: "body column", query: "body:needle", wantKind: serverapi.TaskSearchSourceKindBody},
-		{name: "comment column", query: "comment:needle", includeComments: true, wantKind: serverapi.TaskSearchSourceKindComment},
-		{name: "body phrase", query: `body:"needle body"`, wantKind: serverapi.TaskSearchSourceKindBody},
+		{name: "title column", query: "title:needle", wantKind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE},
+		{name: "body column", query: "body:needle", wantKind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY},
+		{name: "comment column", query: "comment:needle", includeComments: true, wantKind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT},
+		{name: "body phrase", query: `body:"needle body"`, wantKind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			filtered, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-				Mode:            serverapi.TaskSearchModeFTS5,
+			filtered, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+				Mode:            taskpb.SearchMode_SEARCH_MODE_FTS5,
 				Query:           test.query,
 				Context:         serverapi.TaskSearchDefaultContext,
 				IncludeComments: test.includeComments,
@@ -123,7 +124,7 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 				t.Fatalf("raw Search: %v", err)
 			}
 			if len(filtered.Groups) != 1 ||
-				filtered.Groups[0].TaskID != string(task.ID) ||
+				filtered.Groups[0].TaskId != string(task.ID) ||
 				len(filtered.Groups[0].Hits) != 1 ||
 				filtered.Groups[0].Hits[0].Source.Kind != test.wantKind {
 				t.Fatalf("raw %s response = %+v", test.name, filtered)
@@ -131,8 +132,8 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 		})
 	}
 
-	boolean, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:            serverapi.TaskSearchModeFTS5,
+	boolean, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:            taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:           "title:needle OR comment:needle",
 		Context:         serverapi.TaskSearchDefaultContext,
 		IncludeComments: true,
@@ -143,14 +144,14 @@ func TestTaskSearchRawFTS5PreservesSourceLocalExpressionSemantics(t *testing.T) 
 	}
 	if len(boolean.Groups) != 1 ||
 		len(boolean.Groups[0].Hits) != 2 ||
-		boolean.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindTitle ||
-		boolean.Groups[0].Hits[1].Source.Kind != serverapi.TaskSearchSourceKindComment {
+		boolean.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE ||
+		boolean.Groups[0].Hits[1].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT {
 		t.Fatalf("raw boolean response = %+v, want title then Comment", boolean)
 	}
 
 	for _, rawTerm := range []string{"a", "ab"} {
-		if _, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-			Mode:     serverapi.TaskSearchModeFTS5,
+		if _, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+			Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 			Query:    rawTerm,
 			Context:  serverapi.TaskSearchDefaultContext,
 			PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -164,8 +165,8 @@ func TestTaskSearchRawFTS5ExcludesShortIDs(t *testing.T) {
 	fixture, search := newTaskSearchFixture(t, false)
 	createTaskSearchTaskAtSequence(t, fixture, 345, "Exact identifier", "ordinary body")
 
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "345",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -227,8 +228,8 @@ func TestTaskSearchRawSchemaFailuresRemainOperational(t *testing.T) {
 			if err := test.mutate(fixture.metadata); err != nil {
 				t.Fatalf("mutate schema: %v", err)
 			}
-			_, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-				Mode:     serverapi.TaskSearchModeFTS5,
+			_, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+				Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 				Query:    `"`,
 				Context:  serverapi.TaskSearchDefaultContext,
 				PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -243,8 +244,8 @@ func TestTaskSearchRawSchemaFailuresRemainOperational(t *testing.T) {
 
 func TestTaskSearchRawFTS5SQLiteErrorsRemainOperational(t *testing.T) {
 	fixture, search := newTaskSearchFixture(t, false)
-	_, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	_, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    `"`,
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -312,8 +313,8 @@ func TestTaskSearchKeepsSQLiteLockContentionOperational(t *testing.T) {
 
 	busyCtx, cancel := context.WithTimeout(fixture.ctx, 250*time.Millisecond)
 	t.Cleanup(cancel)
-	_, err = search.Search(busyCtx, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	_, err = search.Search(busyCtx, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    `"`,
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -349,7 +350,7 @@ END`); err != nil {
 	if err != nil {
 		t.Fatalf("Search across persistence drift: %v", err)
 	}
-	if len(response.Groups) != 1 || response.Groups[0].TaskID != string(healthy.ID) {
+	if len(response.Groups) != 1 || response.Groups[0].TaskId != string(healthy.ID) {
 		t.Fatalf("Search across persistence drift = %+v, want the valid indexed Task", response)
 	}
 }
@@ -361,8 +362,8 @@ func TestTaskSearchRanksEquivalentBodyBeforeComment(t *testing.T) {
 	if _, err := fixture.store.AddComment(fixture.ctx, commentTask.ID, "needle", "user", "user-1"); err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
-	response, err := search.Search(fixture.ctx, serverapi.TaskSearchRequest{
-		Mode:            serverapi.TaskSearchModeFTS5,
+	response, err := search.Search(fixture.ctx, &taskpb.SearchRequest{
+		Mode:            taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:           "needle",
 		Context:         serverapi.TaskSearchDefaultContext,
 		IncludeComments: true,
@@ -372,8 +373,8 @@ func TestTaskSearchRanksEquivalentBodyBeforeComment(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(response.Groups) != 2 ||
-		response.Groups[0].TaskID != string(bodyTask.ID) ||
-		response.Groups[1].TaskID != string(commentTask.ID) {
+		response.Groups[0].TaskId != string(bodyTask.ID) ||
+		response.Groups[1].TaskId != string(commentTask.ID) {
 		t.Fatalf("ranked groups = %+v", response.Groups)
 	}
 }
