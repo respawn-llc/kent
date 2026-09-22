@@ -82,6 +82,21 @@ var TaskSearchSourceKind = workflowValueNames(map[pb.SearchSourceKind]string{
 	pb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT:  "comment",
 })
 
+var TaskExecutionResolutionCode = workflowValueNames(map[pb.ExecutionTargetResolutionCode]string{
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION: "invalid_revision",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT:       "non_commit",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE:      "git_failure",
+})
+
+var TaskInitialBranchReason = workflowValueNames(map[pb.InitialBranchErrorReason]string{
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_INVALID_NAME:                     "invalid_name",
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_LOCAL_COLLISION:                  "local_collision",
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_REMOTE_TRACKING_COLLISION:        "remote_tracking_collision",
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_NO_MANAGED_TARGET:                "no_managed_target",
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_OPERATION_CANNOT_CREATE_WORKTREE: "operation_cannot_create_worktree",
+	pb.InitialBranchErrorReason_INITIAL_BRANCH_ERROR_REASON_POST_CREATION_MISMATCH:           "post_creation_mismatch",
+})
+
 func TaskNativeState(kind pb.TaskStatusKind) (pb.TaskNativeState, error) {
 	switch kind {
 	case pb.TaskStatusKind_TASK_STATUS_KIND_DONE:

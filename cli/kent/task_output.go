@@ -3,13 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/serverapi"
 )
 
-func writeTaskStartResult(stdout io.Writer, task *taskpb.TaskDetail, _ serverapi.WorkflowTaskStartApplied) {
+func writeTaskStartResult(stdout io.Writer, task *taskpb.TaskDetail) {
 	if len(task.LiveSessions) == 1 {
 		fmt.Fprintf(stdout, "Started task %s in session %s using workflow %q (%s).\n", taskDisplayID(task), task.LiveSessions[0].SessionId, task.Workflow.DisplayName, task.Workflow.WorkflowId)
 		return
@@ -21,14 +19,14 @@ func writeTaskStartResult(stdout io.Writer, task *taskpb.TaskDetail, _ serverapi
 	fmt.Fprintf(stdout, "Started task %s using workflow %q (%s).\n", taskDisplayID(task), task.Workflow.DisplayName, task.Workflow.WorkflowId)
 }
 
-func writeTaskResumeResult(stdout io.Writer, task *taskpb.TaskDetail, resp serverapi.WorkflowTaskResumeApplied) {
+func writeTaskResumeResult(stdout io.Writer, task *taskpb.TaskDetail, resp *taskpb.ResumeApplied) {
 	fmt.Fprintf(stdout, "Resumed task %s.\n", taskDisplayID(task))
 	for _, currentNode := range resp.CurrentNodes {
-		if currentNode.SessionID == nil || strings.TrimSpace(*currentNode.SessionID) == "" {
-			fmt.Fprintf(stdout, "Resumed node %s.\n", currentNode.NodeID)
+		if currentNode.SessionId == nil {
+			fmt.Fprintf(stdout, "Resumed node %s.\n", currentNode.NodeId)
 			continue
 		}
-		fmt.Fprintf(stdout, "Resumed node %s in session %s.\n", currentNode.NodeID, *currentNode.SessionID)
+		fmt.Fprintf(stdout, "Resumed node %s in session %s.\n", currentNode.NodeId, *currentNode.SessionId)
 	}
 }
 

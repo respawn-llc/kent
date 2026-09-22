@@ -353,10 +353,10 @@ type WorkflowTaskStartRequest struct {
 }
 
 type WorkflowTaskStartResponse struct {
-	Outcome                    WorkflowTaskActionOutcome                    `json:"outcome,omitempty"`
-	Applied                    *WorkflowTaskStartApplied                    `json:"applied,omitempty"`
-	SelectionRequired          *WorkflowExecutionTargetSelectionRequirement `json:"selection_required,omitempty"`
-	UnsatisfiedDependencyCount *int                                         `json:"unsatisfied_dependency_count,omitempty"`
+	Outcome                    WorkflowTaskActionOutcome `json:"outcome,omitempty"`
+	Applied                    *WorkflowTaskStartApplied `json:"applied,omitempty"`
+	SelectionRequired          *taskpb.SelectionRequired `json:"selection_required,omitempty"`
+	UnsatisfiedDependencyCount *int                      `json:"unsatisfied_dependency_count,omitempty"`
 }
 
 type WorkflowTaskStartApplied struct {
@@ -380,10 +380,10 @@ type WorkflowTaskResumeRequest struct {
 }
 
 type WorkflowTaskResumeResponse struct {
-	Outcome           WorkflowExecutionTargetActionOutcome         `json:"outcome,omitempty"`
-	Applied           *WorkflowTaskResumeApplied                   `json:"applied,omitempty"`
-	NoOp              *WorkflowTaskResumeNoOp                      `json:"no_op,omitempty"`
-	SelectionRequired *WorkflowExecutionTargetSelectionRequirement `json:"selection_required,omitempty"`
+	Outcome           WorkflowExecutionTargetActionOutcome `json:"outcome,omitempty"`
+	Applied           *WorkflowTaskResumeApplied           `json:"applied,omitempty"`
+	NoOp              *WorkflowTaskResumeNoOp              `json:"no_op,omitempty"`
+	SelectionRequired *taskpb.SelectionRequired            `json:"selection_required,omitempty"`
 }
 
 type WorkflowTaskResumeApplied struct {
@@ -398,9 +398,9 @@ type WorkflowTaskApproveRequest struct {
 }
 
 type WorkflowTaskApproveResponse struct {
-	Outcome           WorkflowExecutionTargetActionOutcome         `json:"outcome,omitempty"`
-	Applied           *WorkflowTaskApproveApplied                  `json:"applied,omitempty"`
-	SelectionRequired *WorkflowExecutionTargetSelectionRequirement `json:"selection_required,omitempty"`
+	Outcome           WorkflowExecutionTargetActionOutcome `json:"outcome,omitempty"`
+	Applied           *WorkflowTaskApproveApplied          `json:"applied,omitempty"`
+	SelectionRequired *taskpb.SelectionRequired            `json:"selection_required,omitempty"`
 }
 
 type WorkflowTaskApproveApplied struct {
@@ -421,11 +421,11 @@ type WorkflowTaskMoveRequest struct {
 }
 
 type WorkflowTaskMoveResponse struct {
-	Outcome                    WorkflowExecutionTargetActionOutcome         `json:"outcome,omitempty"`
-	NoOp                       *WorkflowTaskMoveNoOp                        `json:"no_op,omitempty"`
-	Applied                    *WorkflowTaskMoveApplied                     `json:"applied,omitempty"`
-	SelectionRequired          *WorkflowExecutionTargetSelectionRequirement `json:"selection_required,omitempty"`
-	UnsatisfiedDependencyCount *int                                         `json:"unsatisfied_dependency_count,omitempty"`
+	Outcome                    WorkflowExecutionTargetActionOutcome `json:"outcome,omitempty"`
+	NoOp                       *WorkflowTaskMoveNoOp                `json:"no_op,omitempty"`
+	Applied                    *WorkflowTaskMoveApplied             `json:"applied,omitempty"`
+	SelectionRequired          *taskpb.SelectionRequired            `json:"selection_required,omitempty"`
+	UnsatisfiedDependencyCount *int                                 `json:"unsatisfied_dependency_count,omitempty"`
 }
 
 type WorkflowTaskMoveNoOp struct {
@@ -1875,7 +1875,7 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 	}
 	if unavailable := detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
 		requirement := NewWorkflowConfiguredTargetSelectionRequirement(unavailable.Mode, unavailable.RequestedRef, unavailable.Cause)
-		if err := requirement.Validate(); err != nil {
+		if err := protovalidate.Validate(requirement); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" configured execution target metadata is invalid")
 		}
 	}

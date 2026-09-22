@@ -1,5 +1,6 @@
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
@@ -21,16 +22,9 @@ import {
   workflowDeleteResponse,
   workflowGraphSaveImpactResponse,
 } from "./clientWorkflowGraph.testFixtures";
-const startTaskParamsSchema = z.object({
-  task_id: z.literal("task-1"),
-  setup_operation_id: z.string(),
-});
-const appliedStartResponse = {
-  outcome: "applied",
-  applied: {
-    current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-  },
-} as const;
+const appliedStartResponse = create(taskLifecycle.StartResultSchema, { outcome: { case: "success", value: {
+  outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
+} } });
 describe("ApiClient", () => {
   it("rejects Workflow offsets above the safe-integer ceiling at the binary boundary", () => {
     const method = wf.WorkflowDefinitionService.method.list;
@@ -90,7 +84,7 @@ describe("ApiClient", () => {
           },
         }),
       },
-      { method: "workflow.task.start", result: appliedStartResponse },
+      { descriptor: taskLifecycle.TaskLifecycleService.method.start, result: appliedStartResponse },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const readiness = await client.getReadiness();
@@ -110,9 +104,9 @@ describe("ApiClient", () => {
         currentNodes: [{ nodeID: "node-1", transitionBranchKey: null, sessionID: null }],
       },
     });
-    const startCall = transport.calls.find((call) => call.method === "workflow.task.start");
+    const startCall = transport.descriptorCalls.find((call) => call.descriptor === taskLifecycle.TaskLifecycleService.method.start);
     expect(startCall?.options).toEqual({ timeoutMs: null });
-    expect(startTaskParamsSchema.parse(startCall?.params).task_id).toBe("task-1");
+    expect(startCall?.request).toMatchObject({ taskId: "task-1" });
   });
   it("preserves absent board workflow selectors and normalizes empty slices", async () => {
     const transport = new FakeRpcTransport([

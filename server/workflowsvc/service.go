@@ -58,7 +58,7 @@ type taskExecution interface {
 
 type initiatingActionTargetDecision struct {
 	prepared          *preparedInitiatingActionTarget
-	selectionRequired *serverapi.WorkflowExecutionTargetSelectionRequirement
+	selectionRequired *taskpb.SelectionRequired
 }
 
 type preparedInitiatingActionTarget struct {
@@ -88,7 +88,7 @@ type initiatingActionRequest struct {
 
 type initiatingActionResult[T any] struct {
 	applied                  *T
-	selectionRequired        *serverapi.WorkflowExecutionTargetSelectionRequirement
+	selectionRequired        *taskpb.SelectionRequired
 	retainedPreviousWorktree *worktreepb.RetainedPreviousWorktree
 }
 
@@ -870,29 +870,33 @@ func (s *Service) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequ
 	return &taskpb.UpdateSuccess{Task: detail.Summary}, nil
 }
 
-func (s *Service) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskStartResponse{}, err
+func (s *Service) StartWorkflowTask(ctx context.Context, req *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskID), req.InvokingSessionID); err != nil {
-		return serverapi.WorkflowTaskStartResponse{}, err
+	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
+		return nil, err
 	}
 	if s.currentNodeExecution == nil {
-		return serverapi.WorkflowTaskStartResponse{}, errors.New("current node workflow execution is required")
+		return nil, errors.New("current node workflow execution is required")
 	}
-	var response serverapi.WorkflowTaskStartResponse
+	var response *taskpb.StartSuccess
 	err := s.currentNodeExecution.RunTaskOperation(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = workflowexecution.RunTaskMutation(ctx, s.taskMutations, workflow.TaskID(req.TaskID), func(ctx context.Context) (serverapi.WorkflowTaskStartResponse, error) {
+		response, err = workflowexecution.RunTaskMutation(ctx, s.taskMutations, workflow.TaskID(req.TaskId), func(ctx context.Context) (*taskpb.StartSuccess, error) {
 			return s.startWorkflowTask(ctx, req)
 		})
 		return err
 	})
-	return response, workflowSetupRetainedError(err)
+	return response, err
 }
 
-func (s *Service) startWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
-	taskID := workflow.TaskID(req.TaskID)
+func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
+	taskID := workflow.TaskID(req.TaskId)
+	selection, err := workflowTaskExecutionSelection(req.ExecutionTarget)
+	if err != nil {
+		return nil, err
+	}
 	preflight, err := workflowexecution.RunTaskMutation(ctx, s.taskMutations, taskID, func(ctx context.Context) (initiatingActionPreflight, error) {
 		if err := s.currentNodeExecution.EnsureTaskQuiescent(taskID); err != nil {
 			return initiatingActionPreflight{}, err
@@ -901,41 +905,47 @@ func (s *Service) startWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 			return initiatingActionPreflight{}, err
 		}
 		if req.ProceedDespiteDependencies {
-			target, err := s.preflightInitiatingActionTarget(ctx, taskID, req.ExecutionTarget, req.BranchName)
+			target, err := s.preflightInitiatingActionTarget(ctx, taskID, selection, req.BranchName)
 			return initiatingActionPreflight{target: target}, err
 		}
-		count, err := s.readModels.TaskDependencies.CountUnsatisfiedBlockers(ctx, req.TaskID)
+		count, err := s.readModels.TaskDependencies.CountUnsatisfiedBlockers(ctx, req.TaskId)
 		if err != nil {
 			return initiatingActionPreflight{}, err
 		}
 		if count > 0 {
 			return initiatingActionPreflight{unsatisfiedDependencyCount: count}, nil
 		}
-		target, err := s.preflightInitiatingActionTarget(ctx, taskID, req.ExecutionTarget, req.BranchName)
+		target, err := s.preflightInitiatingActionTarget(ctx, taskID, selection, req.BranchName)
 		return initiatingActionPreflight{target: target}, err
 	})
 	if err != nil {
-		return serverapi.WorkflowTaskStartResponse{}, workflowTaskStartError(err)
+		return nil, workflowTaskStartError(err)
 	}
 	if preflight.unsatisfiedDependencyCount > 0 {
-		count := preflight.unsatisfiedDependencyCount
-		return serverapi.WorkflowTaskStartResponse{
-			Outcome:                    serverapi.WorkflowTaskActionOutcomeDependencyConfirmationRequired,
-			UnsatisfiedDependencyCount: &count,
+		count, err := protoapi.Int32(preflight.unsatisfiedDependencyCount, "unsatisfied_dependency_count")
+		if err != nil {
+			return nil, err
+		}
+		return &taskpb.StartSuccess{
+			Outcome: &taskpb.StartSuccess_DependencyConfirmationRequired{
+				DependencyConfirmationRequired: &taskpb.DependencyConfirmationRequired{UnsatisfiedDependencyCount: count},
+			},
 		}, nil
 	}
 	target := preflight.target
 	if target.context.Task.ExecutionTarget == nil && !target.explicit &&
 		target.context.Policy.Mode == workflow.ExecutionTargetModeAskOnFirstExecution {
-		return serverapi.WorkflowTaskStartResponse{
-			Outcome:           serverapi.WorkflowTaskActionOutcomeSelectionRequired,
-			SelectionRequired: serverapi.NewWorkflowPolicyTargetSelectionRequirement(),
+		return &taskpb.StartSuccess{
+			Outcome: &taskpb.StartSuccess_SelectionRequired{SelectionRequired: serverapi.NewWorkflowPolicyTargetSelectionRequirement()},
 		}, nil
 	}
-	setupOperationID := req.SetupOperationID.Domain()
+	setupOperationID, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	if err != nil {
+		return nil, err
+	}
 	observation, err := newTaskSetupObservation(setupOperationID, target.selection, s.setupEvents)
 	if err != nil {
-		return serverapi.WorkflowTaskStartResponse{}, err
+		return nil, err
 	}
 	decision, err := s.initiatingActionTarget(ctx, taskID, &setupOperationID, target)
 	var prepared preparedInitiatingActionTarget
@@ -944,12 +954,11 @@ func (s *Service) startWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 	}
 	if err != nil {
 		observation.finish(prepared, err)
-		return serverapi.WorkflowTaskStartResponse{}, err
+		return nil, err
 	}
 	if decision.selectionRequired != nil {
-		return serverapi.WorkflowTaskStartResponse{
-			Outcome:           serverapi.WorkflowTaskActionOutcomeSelectionRequired,
-			SelectionRequired: decision.selectionRequired,
+		return &taskpb.StartSuccess{
+			Outcome: &taskpb.StartSuccess_SelectionRequired{SelectionRequired: decision.selectionRequired},
 		}, nil
 	}
 	started, err := s.currentNodeExecution.StartTask(
@@ -959,20 +968,34 @@ func (s *Service) startWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 	)
 	observation.finish(prepared, err)
 	if err != nil {
-		return serverapi.WorkflowTaskStartResponse{}, workflowTaskStartError(err)
+		return nil, workflowTaskStartError(err)
 	}
 	if len(started.Mutation.Created) != 1 {
-		return serverapi.WorkflowTaskStartResponse{}, errors.New("task start did not create exactly one current node")
+		return nil, errors.New("task start did not create exactly one current node")
 	}
-	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskID); detailErr == nil {
-		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionStarted, req.TaskID)
+	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
+		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionStarted, req.TaskId)
 	}
-	return serverapi.WorkflowTaskStartResponse{
-		Outcome: serverapi.WorkflowTaskActionOutcomeApplied,
-		Applied: &serverapi.WorkflowTaskStartApplied{
-			CurrentNodes: workflowview.ProjectCurrentNodes(started.Mutation.Created),
+	return &taskpb.StartSuccess{
+		Outcome: &taskpb.StartSuccess_Applied{
+			Applied: &taskpb.StartApplied{CurrentNodes: workflowview.ProjectCurrentNodes(started.Mutation.Created)},
 		},
 	}, nil
+}
+
+func workflowTaskExecutionSelection(value *taskpb.ExecutionTargetSelection) (*workflow.ExecutionTargetSelection, error) {
+	if value == nil {
+		return nil, nil
+	}
+	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(value.Mode)
+	if err != nil {
+		return nil, err
+	}
+	return &workflow.ExecutionTargetSelection{Mode: workflow.ExecutionTargetMode(mode), CustomRef: value.CustomRef}, nil
 }
 
 func (s *Service) prepareInitiatingActionTarget(
@@ -982,12 +1005,12 @@ func (s *Service) prepareInitiatingActionTarget(
 	target initiatingActionTargetPreflight,
 ) (preparedInitiatingActionTarget, error) {
 	decision, preparationErr := s.initiatingActionTarget(ctx, taskID, setupOperationID, target)
-	if decision.selectionRequired != nil && decision.selectionRequired.Details.GetOriginalTargetUnavailable() != nil {
+	if decision.selectionRequired != nil && decision.selectionRequired.GetOriginalTargetUnavailable() != nil {
 		return preparedInitiatingActionTarget{}, workflowexecution.NewTaskStartPreparationError(
 			errors.New("original execution target requires selection"),
 			workflow.CurrentNodeInterruptionDetail{
 				Code:                               "workflow_original_target_unavailable",
-				OriginalExecutionTargetUnavailable: decision.selectionRequired.Details.GetOriginalTargetUnavailable(),
+				OriginalExecutionTargetUnavailable: decision.selectionRequired.GetOriginalTargetUnavailable(),
 			},
 		)
 	}
@@ -1009,7 +1032,7 @@ func coordinateInitiatingAction[T any](ctx context.Context, service *Service, re
 		if target.originalUnavailable != nil && !target.explicit {
 			return initiatingActionResult[T]{selectionRequired: serverapi.NewWorkflowOriginalTargetSelectionRequirement(target.originalUnavailable.Cause)}, nil
 		}
-		var required *serverapi.WorkflowExecutionTargetSelectionRequirement
+		var required *taskpb.SelectionRequired
 		var err error
 		_, required, err = service.resolveInitiatingActionTarget(ctx, target)
 		if err != nil || required != nil {
@@ -1027,9 +1050,9 @@ func coordinateInitiatingAction[T any](ctx context.Context, service *Service, re
 		}
 		var prepared preparedInitiatingActionTarget
 		if req.requiresExecutionTarget {
-			var explicit *serverapi.WorkflowExecutionTargetSelection
+			var explicit *workflow.ExecutionTargetSelection
 			if target.explicit {
-				explicit = &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetMode(target.selection.Mode), CustomRef: target.selection.CustomRef}
+				explicit = &target.selection
 			}
 			fresh, err := service.preflightInitiatingActionTarget(ctx, req.taskID, explicit, target.initialBranchAssertion)
 			if err != nil {
@@ -1063,22 +1086,10 @@ func workflowRetainedPreviousWorktree(retained *worktreepb.RetainedPreviousWorkt
 	return &serverapi.WorkflowRetainedPreviousWorktree{Worktree: serverapi.WorkflowRegisteredWorktreeTopology{Registered: retained.GetWorktree()}}
 }
 
-func workflowSetupRetainedError(err error) error {
-	var retained *worktreecontract.SetupRetainedError
-	if !errors.As(err, &retained) || retained == nil || retained.Details == nil {
-		return err
-	}
-	result := &serverapi.WorkflowSetupRetainedError{Details: retained.Details}
-	if validationErr := result.Validate(); validationErr != nil {
-		return errors.Join(err, validationErr)
-	}
-	return result
-}
-
 func (s *Service) preflightInitiatingActionTarget(
 	ctx context.Context,
 	taskID workflow.TaskID,
-	explicit *serverapi.WorkflowExecutionTargetSelection,
+	explicit *workflow.ExecutionTargetSelection,
 	requestedBranchName *string,
 ) (initiatingActionTargetPreflight, error) {
 	targetContext, err := s.store.GetTaskExecutionTargetContext(ctx, taskID)
@@ -1103,8 +1114,8 @@ func (s *Service) preflightInitiatingActionTarget(
 					originalUnavailable: unavailable, initialBranchAssertion: requestedBranchName,
 				}
 				if explicit != nil {
-					preflight.selection = workflow.ExecutionTargetSelection{Mode: workflow.ExecutionTargetMode(explicit.Mode), CustomRef: explicit.CustomRef}
-					if explicit.Mode == serverapi.WorkflowExecutionTargetModeNone && requestedBranchName != nil {
+					preflight.selection = *explicit
+					if explicit.Mode == workflow.ExecutionTargetModeNone && requestedBranchName != nil {
 						return initiatingActionTargetPreflight{}, &serverapi.WorkflowTaskInitialBranchError{
 							Reason: serverapi.WorkflowTaskInitialBranchErrorReasonNoManagedTarget, BranchName: *requestedBranchName,
 						}
@@ -1141,10 +1152,7 @@ func (s *Service) preflightInitiatingActionTarget(
 		}, nil
 	}
 	if explicit != nil {
-		selection = workflow.ExecutionTargetSelection{
-			Mode:      workflow.ExecutionTargetMode(explicit.Mode),
-			CustomRef: explicit.CustomRef,
-		}
+		selection = *explicit
 	}
 	if selection.Mode != workflow.ExecutionTargetModeNone || targetContext.Task.ManagedWorktreeID != nil {
 		if s.executionTargets == nil {
@@ -1271,7 +1279,7 @@ func (s *Service) resolveAndMaterializeInitiatingActionTarget(ctx context.Contex
 	return initiatingActionTargetDecision{prepared: &prepared}, err
 }
 
-func (s *Service) preflightManualMoveTarget(ctx context.Context, prepared workflowstore.ManualMovePreparation, explicit *serverapi.WorkflowExecutionTargetSelection, branch *string) (initiatingActionTargetPreflight, error) {
+func (s *Service) preflightManualMoveTarget(ctx context.Context, prepared workflowstore.ManualMovePreparation, explicit *workflow.ExecutionTargetSelection, branch *string) (initiatingActionTargetPreflight, error) {
 	preflight, err := s.preflightInitiatingActionTarget(ctx, prepared.TaskID(), explicit, branch)
 	if err == nil && prepared.ReopensCompletedTask() && preflight.context.Task.ExecutionTarget != nil &&
 		preflight.purpose != worktree.TaskExecutionRootReplacement && branch != nil {
@@ -1283,7 +1291,7 @@ func (s *Service) preflightManualMoveTarget(ctx context.Context, prepared workfl
 func (s *Service) resolveInitiatingActionTarget(
 	ctx context.Context,
 	preflight initiatingActionTargetPreflight,
-) (*workflowstore.ExecutionTargetSnapshot, *serverapi.WorkflowExecutionTargetSelectionRequirement, error) {
+) (*workflowstore.ExecutionTargetSnapshot, *taskpb.SelectionRequired, error) {
 	targetContext := preflight.context
 	if !preflight.explicit && targetContext.Policy.Mode == workflow.ExecutionTargetModeAskOnFirstExecution {
 		return nil, serverapi.NewWorkflowPolicyTargetSelectionRequirement(), nil
@@ -1412,7 +1420,7 @@ func (s *Service) materializeInitiatingActionTarget(
 	return preparedInitiatingActionTarget{candidate: candidate}, nil
 }
 
-func configuredTargetSelectionRequirement(selection workflow.ExecutionTargetSelection, err error) (*serverapi.WorkflowExecutionTargetSelectionRequirement, bool) {
+func configuredTargetSelectionRequirement(selection workflow.ExecutionTargetSelection, err error) (*taskpb.SelectionRequired, bool) {
 	unavailable, ok := configuredExecutionTargetUnavailable(selection, err)
 	if !ok {
 		return nil, false
@@ -1441,14 +1449,14 @@ func configuredExecutionTargetUnavailable(
 
 func configuredTargetSelectionRequirementFromUnavailable(
 	unavailable workflow.ConfiguredExecutionTargetUnavailable,
-) *serverapi.WorkflowExecutionTargetSelectionRequirement {
+) *taskpb.SelectionRequired {
 	return serverapi.NewWorkflowConfiguredTargetSelectionRequirement(
 		serverapi.WorkflowExecutionTargetMode(unavailable.Mode), unavailable.RequestedRef,
 		serverapi.WorkflowExecutionTargetUnavailableCause(unavailable.Cause),
 	)
 }
 
-func configuredTargetResumeSelection(nodes []workflow.CurrentNode) (*serverapi.WorkflowExecutionTargetSelectionRequirement, error) {
+func configuredTargetResumeSelection(nodes []workflow.CurrentNode) (*taskpb.SelectionRequired, error) {
 	for _, node := range nodes {
 		if node.Scheduling == nil || node.Scheduling.Interruption == nil {
 			continue
@@ -1537,69 +1545,71 @@ func (s *Service) InterruptWorkflowTask(ctx context.Context, req serverapi.Workf
 	return serverapi.WorkflowTaskInterruptResponse{}, nil
 }
 
-func (s *Service) ResumeWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+func (s *Service) ResumeWorkflowTask(ctx context.Context, req *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskID), req.InvokingSessionID); err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
+		return nil, err
 	}
 	if s.currentNodeExecution == nil {
-		return serverapi.WorkflowTaskResumeResponse{}, errors.New("current node workflow execution is required")
+		return nil, errors.New("current node workflow execution is required")
 	}
-	var response serverapi.WorkflowTaskResumeResponse
+	var response *taskpb.ResumeSuccess
 	err := s.currentNodeExecution.RunTaskOperation(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = workflowexecution.RunTaskMutation(ctx, s.taskMutations, workflow.TaskID(req.TaskID), func(ctx context.Context) (serverapi.WorkflowTaskResumeResponse, error) {
-			return s.resumeWorkflowTaskAuthorized(ctx, req, workflow.TaskID(req.TaskID))
+		response, err = workflowexecution.RunTaskMutation(ctx, s.taskMutations, workflow.TaskID(req.TaskId), func(ctx context.Context) (*taskpb.ResumeSuccess, error) {
+			return s.resumeWorkflowTaskAuthorized(ctx, req, workflow.TaskID(req.TaskId))
 		})
 		return err
 	})
-	return response, workflowContextSelectionError(workflowSetupRetainedError(err))
+	return response, workflowContextSelectionError(err)
 }
 
 func (s *Service) resumeWorkflowTaskAuthorized(
 	ctx context.Context,
-	req serverapi.WorkflowTaskResumeRequest,
+	req *taskpb.ResumeRequest,
 	taskID workflow.TaskID,
-) (serverapi.WorkflowTaskResumeResponse, error) {
+) (*taskpb.ResumeSuccess, error) {
 	promoted, handled, err := s.currentNodeExecution.PromoteConcurrencyQueuedTask(ctx, taskID)
 	if err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
 	}
 	if handled {
-		if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskID); detailErr == nil {
+		if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
+			workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+			if err != nil {
+				return nil, err
+			}
 			s.publishProjectWorkflowEvent(
 				ctx,
-				detail.Summary.ProjectID,
-				detail.Summary.WorkflowID,
+				detail.Summary.ProjectId,
+				workflowID,
 				serverapi.WorkflowProjectEventResourceTask,
 				serverapi.WorkflowProjectEventActionResumed,
-				req.TaskID,
+				req.TaskId,
 			)
 		}
-		return serverapi.WorkflowTaskResumeResponse{
-			Outcome: serverapi.WorkflowExecutionTargetActionOutcomeApplied,
-			Applied: &serverapi.WorkflowTaskResumeApplied{
-				CurrentNodes: workflowview.ProjectCurrentNodes(promoted),
+		return &taskpb.ResumeSuccess{
+			Outcome: &taskpb.ResumeSuccess_Applied{
+				Applied: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(promoted)},
 			},
 		}, nil
 	}
 	preflight, err := s.currentNodeExecution.PreflightTaskResume(ctx, taskID)
 	if err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
 	}
 	switch preflight.Outcome {
 	case workflowexecution.TaskResumePreflightNoOp:
-		return serverapi.WorkflowTaskResumeResponse{
-			Outcome: serverapi.WorkflowExecutionTargetActionOutcomeNoOp,
-			NoOp: &serverapi.WorkflowTaskResumeNoOp{
-				CurrentNodes: workflowview.ProjectCurrentNodes(preflight.CurrentNodes),
+		return &taskpb.ResumeSuccess{
+			Outcome: &taskpb.ResumeSuccess_NoOp{
+				NoOp: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(preflight.CurrentNodes)},
 			},
 		}, nil
 	case workflowexecution.TaskResumePreflightResumable:
 	default:
-		return serverapi.WorkflowTaskResumeResponse{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"task resume preflight returned invalid outcome %q",
 			preflight.Outcome,
 		)
@@ -1608,45 +1618,51 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	if req.ExecutionTarget == nil {
 		selectionRequired, err := configuredTargetResumeSelection(interrupted)
 		if err != nil {
-			return serverapi.WorkflowTaskResumeResponse{}, err
+			return nil, err
 		}
 		if selectionRequired != nil {
-			return serverapi.WorkflowTaskResumeResponse{
-				Outcome:           serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired,
-				SelectionRequired: selectionRequired,
+			return &taskpb.ResumeSuccess{
+				Outcome: &taskpb.ResumeSuccess_SelectionRequired{SelectionRequired: selectionRequired},
 			}, nil
 		}
 	}
-	target, err := s.preflightInitiatingActionTarget(ctx, taskID, req.ExecutionTarget, req.BranchName)
+	selection, err := workflowTaskExecutionSelection(req.ExecutionTarget)
 	if err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
+	}
+	target, err := s.preflightInitiatingActionTarget(ctx, taskID, selection, req.BranchName)
+	if err != nil {
+		return nil, err
 	}
 	if target.originalUnavailable != nil && !target.explicit {
-		return serverapi.WorkflowTaskResumeResponse{
-			Outcome:           serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired,
-			SelectionRequired: serverapi.NewWorkflowOriginalTargetSelectionRequirement(target.originalUnavailable.Cause),
+		return &taskpb.ResumeSuccess{
+			Outcome: &taskpb.ResumeSuccess_SelectionRequired{
+				SelectionRequired: serverapi.NewWorkflowOriginalTargetSelectionRequirement(target.originalUnavailable.Cause),
+			},
 		}, nil
 	}
 	if target.purpose == worktree.TaskExecutionRootReplacement {
 		if err := s.currentNodeExecution.EnsureTaskQuiescent(taskID); err != nil {
-			return serverapi.WorkflowTaskResumeResponse{}, err
+			return nil, err
 		}
 	}
-	setupOperationID := req.SetupOperationID.Domain()
+	setupOperationID, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	if err != nil {
+		return nil, err
+	}
 	observation, err := newTaskSetupObservation(setupOperationID, target.selection, s.setupEvents)
 	if err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
 	}
 	var prepared preparedInitiatingActionTarget
 	if target.context.Task.ExecutionTarget == nil || target.purpose == worktree.TaskExecutionRootReplacement {
 		snapshot, selectionRequired, resolutionErr := s.resolveInitiatingActionTarget(ctx, target)
 		if resolutionErr != nil {
-			return serverapi.WorkflowTaskResumeResponse{}, resolutionErr
+			return nil, resolutionErr
 		}
 		if selectionRequired != nil {
-			return serverapi.WorkflowTaskResumeResponse{
-				Outcome:           serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired,
-				SelectionRequired: selectionRequired,
+			return &taskpb.ResumeSuccess{
+				Outcome: &taskpb.ResumeSuccess_SelectionRequired{SelectionRequired: selectionRequired},
 			}, nil
 		}
 		prepared, err = s.materializeInitiatingActionTarget(ctx, taskID, &setupOperationID, target, snapshot, worktreecontract.SetupRequirementRequired)
@@ -1655,32 +1671,34 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	}
 	if err != nil {
 		observation.finish(prepared, err)
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
 	}
 	resumeResult, err := s.currentNodeExecution.ResumeTask(ctx, taskID, prepared.candidate)
 	observation.finish(prepared, err)
 	if err != nil {
-		return serverapi.WorkflowTaskResumeResponse{}, err
+		return nil, err
 	}
 	if resumeResult.Outcome == workflowexecution.TaskResumeNoOp {
-		return serverapi.WorkflowTaskResumeResponse{
-			Outcome: serverapi.WorkflowExecutionTargetActionOutcomeNoOp,
-			NoOp: &serverapi.WorkflowTaskResumeNoOp{
-				CurrentNodes: workflowview.ProjectCurrentNodes(resumeResult.CurrentNodes),
+		return &taskpb.ResumeSuccess{
+			Outcome: &taskpb.ResumeSuccess_NoOp{
+				NoOp: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(resumeResult.CurrentNodes)},
 			},
 		}, nil
 	}
 	resumed := resumeResult.CurrentNodes
 	if len(resumed) == 0 {
-		return serverapi.WorkflowTaskResumeResponse{}, &workflowexecution.TaskResumeConflictError{TaskID: taskID}
+		return nil, &workflowexecution.TaskResumeConflictError{TaskID: taskID}
 	}
-	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskID); detailErr == nil {
-		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionResumed, req.TaskID)
+	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
+		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionResumed, req.TaskId)
 	}
-	return serverapi.WorkflowTaskResumeResponse{
-		Outcome: serverapi.WorkflowExecutionTargetActionOutcomeApplied,
-		Applied: &serverapi.WorkflowTaskResumeApplied{
-			CurrentNodes: workflowview.ProjectCurrentNodes(resumed),
+	return &taskpb.ResumeSuccess{
+		Outcome: &taskpb.ResumeSuccess_Applied{
+			Applied: &taskpb.ResumeApplied{CurrentNodes: workflowview.ProjectCurrentNodes(resumed)},
 		},
 	}, nil
 }
@@ -1752,7 +1770,7 @@ func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 		response, err = s.moveWorkflowTask(ctx, req)
 		return err
 	})
-	return response, workflowSetupRetainedError(err)
+	return response, err
 }
 
 func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req serverapi.WorkflowTaskMovePreviewRequest) (serverapi.WorkflowTaskMovePreviewResponse, error) {
@@ -1987,12 +2005,16 @@ func manualMovePreviewBlocker(blocker workflowstore.ManualMoveBlocker) (serverap
 func (s *Service) authorizeWorkflowTaskMutation(
 	ctx context.Context,
 	targetTaskID workflow.TaskID,
-	invokingSessionID *runtimeids.SessionID,
+	invokingSessionID *string,
 ) error {
 	if invokingSessionID == nil {
 		return nil
 	}
-	invokingTaskID, err := s.store.TaskIDForSession(ctx, *invokingSessionID)
+	sessionID, err := runtimeids.ParseSessionID(*invokingSessionID)
+	if err != nil {
+		return err
+	}
+	invokingTaskID, err := s.store.TaskIDForSession(ctx, sessionID)
 	if err != nil {
 		return err
 	}

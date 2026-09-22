@@ -504,6 +504,7 @@
 - During Execution Target replacement, Task move and resume must accept `--branch-name <name>` for the new branch without renaming the original branch.
 - When a locked original Execution Target is reusable, an explicit replacement must be rejected. Supplying only `--branch-name` must not bypass this restriction or rename the existing branch.
 - Task start, resume, approve, and move never prompt interactively.
+- When the server reports that a Task is already resumed, `kent task resume` must report the no-op and exit successfully without retrying or changing work.
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.
 - `kent task start`, `kent task resume`, and `kent task move` must report success only after the server completes preparation and commits the action's atomic cutover. They must not wait for Agent or Script execution to finish. If a command stops waiting or loses its connection, the server operation must continue; the CLI must not replay it and must direct the operator to inspect authoritative Task state.

@@ -13,7 +13,8 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
-import { CreateSelectionReason } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import {
   TaskStatusKind,
   TaskNativeState,
@@ -131,6 +132,38 @@ export const taskCreateSelectionReason = workflowEnum([
   [CreateSelectionReason.NO_LINKED_WORKFLOWS, "no_linked_workflows"],
   [CreateSelectionReason.WORKFLOW_NOT_LINKED, "workflow_not_linked"],
   [CreateSelectionReason.AMBIGUOUS_WITHOUT_DEFAULT, "ambiguous_without_default"],
+]);
+
+export const taskOriginalTargetCause = workflowEnum([
+  [LockedExecutionTargetCause.DETACHED_HEAD, "detached_head"],
+  [LockedExecutionTargetCause.INVALID_ROOT, "invalid_root"],
+  [LockedExecutionTargetCause.ROOT_INACCESSIBLE, "root_inaccessible"],
+  [LockedExecutionTargetCause.MISSING_BRANCH, "missing_branch"],
+  [LockedExecutionTargetCause.CONFLICT, "conflict"],
+  [LockedExecutionTargetCause.GIT_FAILURE, "git_failure"],
+]);
+
+export const taskUnavailableTargetCause = workflowEnum([
+  [ExecutionTargetUnavailableCause.INVALID_REVISION, "invalid_revision"],
+  [ExecutionTargetUnavailableCause.NON_COMMIT, "non_commit"],
+  [ExecutionTargetUnavailableCause.DEFAULT_BRANCH_MISSING, "default_branch_missing"],
+  [ExecutionTargetUnavailableCause.DEFAULT_BRANCH_AMBIGUOUS, "default_branch_ambiguous"],
+  [ExecutionTargetUnavailableCause.GIT_FAILURE, "git_failure"],
+]);
+
+export const taskInitialBranchReason = workflowEnum([
+  [InitialBranchErrorReason.INVALID_NAME, "invalid_name"],
+  [InitialBranchErrorReason.LOCAL_COLLISION, "local_collision"],
+  [InitialBranchErrorReason.REMOTE_TRACKING_COLLISION, "remote_tracking_collision"],
+  [InitialBranchErrorReason.NO_MANAGED_TARGET, "no_managed_target"],
+  [InitialBranchErrorReason.OPERATION_CANNOT_CREATE_WORKTREE, "operation_cannot_create_worktree"],
+  [InitialBranchErrorReason.POST_CREATION_MISMATCH, "post_creation_mismatch"],
+]);
+
+export const taskExecutionResolutionCode = workflowEnum([
+  [ExecutionTargetResolutionCode.INVALID_REVISION, "invalid_revision"],
+  [ExecutionTargetResolutionCode.NON_COMMIT, "non_commit"],
+  [ExecutionTargetResolutionCode.GIT_FAILURE, "git_failure"],
 ]);
 
 export const workflowNodeKind = workflowEnum([

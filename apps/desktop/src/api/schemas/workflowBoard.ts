@@ -1,12 +1,8 @@
 import { z } from "zod";
 import { decodeJson } from "@app/server-api-contract";
-import {
-  LockedExecutionTargetCause,
-  SelectionRequiredSchema,
-  type SelectionRequired,
-} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
-import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
-import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import { SelectionRequiredSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { taskTargetSelectionRequired } from "../clientTaskProjection";
+import { taskOriginalTargetCause, taskUnavailableTargetCause, workflowExecutionTargetMode } from "../workflowProtoValues";
 
 import type {
   ActivityPage,
@@ -18,8 +14,6 @@ import type {
   TaskCurrentNode,
   TaskMoveResponse,
   TaskMovePreviewResponse,
-  TaskResumeResponse,
-  TaskStartResponse,
   WorkflowExecutionTargetSelectionRequirement,
 } from "../models";
 import {
@@ -37,7 +31,6 @@ export {
   taskDependencyListResponseSchema,
   taskDependencyRemoveResponseSchema,
 } from "./taskDependencies";
-export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./workflowWorktree";
 
 function offsetPageObjectSchema<T>(itemSchema: z.ZodType<T>) {
   return z.object({
@@ -54,27 +47,6 @@ function offsetPageSchema<T>(itemSchema: z.ZodType<T>): z.ZodType<OffsetPage<T>>
       nextOffset: value.next_offset ?? null,
     }));
 }
-
-const unavailableCauses = [
-  ["invalid_revision", ExecutionTargetUnavailableCause.INVALID_REVISION],
-  ["non_commit", ExecutionTargetUnavailableCause.NON_COMMIT],
-  ["default_branch_missing", ExecutionTargetUnavailableCause.DEFAULT_BRANCH_MISSING],
-  ["default_branch_ambiguous", ExecutionTargetUnavailableCause.DEFAULT_BRANCH_AMBIGUOUS],
-  ["git_failure", ExecutionTargetUnavailableCause.GIT_FAILURE],
-] as const;
-const originalTargetCauses = [
-  ["detached_head", LockedExecutionTargetCause.DETACHED_HEAD],
-  ["invalid_root", LockedExecutionTargetCause.INVALID_ROOT],
-  ["root_inaccessible", LockedExecutionTargetCause.ROOT_INACCESSIBLE],
-  ["missing_branch", LockedExecutionTargetCause.MISSING_BRANCH],
-  ["conflict", LockedExecutionTargetCause.CONFLICT],
-  ["git_failure", LockedExecutionTargetCause.GIT_FAILURE],
-] as const;
-const managedModes = [
-  ["head", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD],
-  ["default_branch", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH],
-  ["custom_ref", ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF],
-] as const;
 
 const selectionRequirementEnvelope = z.discriminatedUnion("reason", [
   z
@@ -100,23 +72,15 @@ function adaptSelectionEnvelope(value: z.output<typeof selectionRequirementEnvel
     case "original_target_unavailable":
       return {
         original_target_unavailable: {
-          cause:
-            originalTargetCauses.find(([name]) => name === value.original_target_cause)?.[1] ??
-            LockedExecutionTargetCause.UNSPECIFIED,
+          cause: taskOriginalTargetCause.encode(value.original_target_cause),
         },
       };
     case "configured_target_unavailable":
       return {
         configured_target_unavailable: {
-          mode:
-            value.configured_target.mode === "none"
-              ? ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE
-              : (managedModes.find(([name]) => name === value.configured_target.mode)?.[1] ??
-                ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_UNSPECIFIED),
+          mode: workflowExecutionTargetMode.encode(value.configured_target.mode),
           requested_ref: value.configured_target.requested_ref ?? null,
-          cause:
-            unavailableCauses.find(([name]) => name === value.unavailable_cause)?.[1] ??
-            ExecutionTargetUnavailableCause.UNSPECIFIED,
+          cause: taskUnavailableTargetCause.encode(value.unavailable_cause),
         },
       };
   }
@@ -125,41 +89,12 @@ function adaptSelectionEnvelope(value: z.output<typeof selectionRequirementEnvel
 const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequirement> =
   selectionRequirementEnvelope.transform((value, context): WorkflowExecutionTargetSelectionRequirement => {
     try {
-      return projectSelection(decodeJson(SelectionRequiredSchema, adaptSelectionEnvelope(value)));
+      return taskTargetSelectionRequired(decodeJson(SelectionRequiredSchema, adaptSelectionEnvelope(value)));
     } catch {
       context.addIssue({ code: "custom", message: "Invalid execution target selection requirement." });
       return z.NEVER;
     }
   });
-
-function projectSelection(decoded: SelectionRequired): WorkflowExecutionTargetSelectionRequirement {
-  switch (decoded.reason.case) {
-    case "policyRequiresSelection":
-      return { reason: "policy_requires_selection" };
-    case "originalTargetUnavailable": {
-      const facts = decoded.reason.value;
-      const cause = originalTargetCauses.find(([, cause]) => cause === facts.cause)?.[0];
-      if (cause === undefined) throw new Error("Unknown original target cause");
-      return { reason: "original_target_unavailable", originalTargetCause: cause };
-    }
-    case "configuredTargetUnavailable": {
-      const facts = decoded.reason.value;
-      const mode = managedModes.find(([, mode]) => mode === facts.mode)?.[0];
-      const cause = unavailableCauses.find(([, cause]) => cause === facts.cause)?.[0];
-      if (mode === undefined || cause === undefined) throw new Error("Unknown configured target");
-      return {
-        reason: "configured_target_unavailable",
-        configuredTarget: {
-          mode,
-          requestedRef: facts.requestedRef ?? null,
-        },
-        unavailableCause: cause,
-      };
-    }
-    case undefined:
-      throw new Error("Missing selection reason");
-  }
-}
 
 const selectionRequiredResponseSchema = z
   .object({
@@ -188,49 +123,6 @@ const dependencyConfirmationRequiredResponseSchema = z
         unsatisfiedDependencyCount: value.unsatisfied_dependency_count,
       }) as const,
   );
-
-const appliedCurrentNodesResponseSchema = z
-  .object({
-    outcome: z.literal("applied"),
-    applied: z
-      .object({
-        current_nodes: z.array(currentNodeSchema).min(1),
-      })
-      .strict(),
-  })
-  .strict()
-  .transform(
-    (value) =>
-      ({
-        outcome: value.outcome,
-        applied: { currentNodes: value.applied.current_nodes },
-      }) as const,
-  );
-
-export const taskStartResponseSchema: z.ZodType<TaskStartResponse> = z.discriminatedUnion("outcome", [
-  appliedCurrentNodesResponseSchema,
-  selectionRequiredResponseSchema,
-  dependencyConfirmationRequiredResponseSchema,
-]);
-
-export const taskResumeResponseSchema: z.ZodType<TaskResumeResponse> = z.discriminatedUnion("outcome", [
-  appliedCurrentNodesResponseSchema,
-  z
-    .object({
-      outcome: z.literal("no_op"),
-      no_op: z
-        .object({
-          current_nodes: z.array(currentNodeSchema).min(1),
-        })
-        .strict(),
-    })
-    .strict()
-    .transform((value) => ({
-      outcome: value.outcome,
-      noOp: { currentNodes: value.no_op.current_nodes },
-    })),
-  selectionRequiredResponseSchema,
-]);
 
 type TaskMoveMutationResult = Readonly<{
   currentNodes: readonly TaskCurrentNode[];

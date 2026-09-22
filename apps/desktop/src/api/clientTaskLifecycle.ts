@@ -1,9 +1,12 @@
 import type { TaskEditInput, TaskMoveInput, TaskResumeInput, TaskStartInput } from "./clientInputs";
 import { create } from "@app/server-api-contract";
-import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { TaskLifecycleService, ExecutionTargetSelectionSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { requireUnarySuccess } from "./protobufRpc";
 import { ContractError } from "./errors";
 import { requireWorktreeSuccess } from "./clientWorktree";
+import { taskCurrentNode, taskTargetSelectionRequired } from "./clientTaskProjection";
+import { workflowExecutionTargetMode } from "./workflowProtoValues";
+import { throwTaskExecutionFailure } from "./taskExecutionFailure";
 import { parseRpcResponse } from "./clientParse";
 import { compactJsonObject } from "./json";
 import type {
@@ -17,9 +20,7 @@ import type {
 import {
   taskApproveResponseSchema,
   taskMoveResponseSchema,
-  taskResumeResponseSchema,
   taskMovePreviewResponseSchema,
-  taskStartResponseSchema,
 } from "./schemas/workflowBoard";
 import { newSetupOperationID } from "./setupOperationID";
 import type { DescriptorRpcTransport, RpcTransport } from "./transport";
@@ -43,22 +44,27 @@ export async function deleteTask(transport: DescriptorRpcTransport, taskID: stri
   requireWorktreeSuccess(method, result);
 }
 
-export async function startTask(transport: RpcTransport, input: TaskStartInput): Promise<TaskStartResponse> {
+export async function startTask(transport: DescriptorRpcTransport, input: TaskStartInput): Promise<TaskStartResponse> {
   const setupOperationID = input.setupOperationID ?? newSetupOperationID();
-  return parseRpcResponse(
-    "workflow.task.start",
-    taskStartResponseSchema,
-    await transport.call(
-      "workflow.task.start",
-      compactJsonObject({
-        task_id: input.taskID,
-        setup_operation_id: setupOperationID.toJSONValue(),
-        execution_target: executionTargetPayload(input.executionTarget),
-        proceed_despite_dependencies: input.proceedDespiteDependencies ?? false,
-      }),
-      { timeoutMs: null },
-    ),
-  );
+  const method = TaskLifecycleService.method.start;
+  const result = await transport.callDescriptor(method, create(method.input, {
+    taskId: input.taskID,
+    setupOperationId: setupOperationID.toJSONValue(),
+    executionTarget: executionTargetPayload(input.executionTarget),
+    proceedDespiteDependencies: input.proceedDespiteDependencies ?? false,
+  }), { timeoutMs: null });
+  throwTaskExecutionFailure(method, result.outcome);
+  const response = requireWorktreeSuccess(method, result);
+  switch (response.outcome.case) {
+    case "applied":
+      return { outcome: "applied", applied: { currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode) } };
+    case "selectionRequired":
+      return { outcome: "selection_required", selectionRequired: taskTargetSelectionRequired(response.outcome.value) };
+    case "dependencyConfirmationRequired":
+      return { outcome: "dependency_confirmation_required", unsatisfiedDependencyCount: response.outcome.value.unsatisfiedDependencyCount };
+    case undefined:
+      throw new ContractError("Task Start outcome is required.");
+  }
 }
 
 export async function moveTask(transport: RpcTransport, input: TaskMoveInput): Promise<TaskMoveResponse> {
@@ -111,32 +117,37 @@ export async function approveApproval(
 }
 
 export async function resumeTask(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   input: TaskResumeInput,
 ): Promise<TaskResumeResponse> {
   const setupOperationID = input.setupOperationID ?? newSetupOperationID();
-  return parseRpcResponse(
-    "workflow.task.resume",
-    taskResumeResponseSchema,
-    await transport.call(
-      "workflow.task.resume",
-      compactJsonObject({
-        task_id: input.taskID,
-        setup_operation_id: setupOperationID.toJSONValue(),
-        branch_name: input.executionTarget?.mode === "none" ? undefined : input.branchName,
-        execution_target: executionTargetPayload(input.executionTarget),
-      }),
-      { timeoutMs: null },
-    ),
-  );
+  const method = TaskLifecycleService.method.resume;
+  const result = await transport.callDescriptor(method, create(method.input, {
+    taskId: input.taskID,
+    setupOperationId: setupOperationID.toJSONValue(),
+    branchName: input.executionTarget?.mode === "none" ? undefined : input.branchName,
+    executionTarget: executionTargetPayload(input.executionTarget),
+  }), { timeoutMs: null });
+  throwTaskExecutionFailure(method, result.outcome);
+  const response = requireWorktreeSuccess(method, result);
+  switch (response.outcome.case) {
+    case "applied":
+      return { outcome: "applied", applied: { currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode) } };
+    case "noOp":
+      return { outcome: "no_op", noOp: { currentNodes: response.outcome.value.currentNodes.map(taskCurrentNode) } };
+    case "selectionRequired":
+      return { outcome: "selection_required", selectionRequired: taskTargetSelectionRequired(response.outcome.value) };
+    case undefined:
+      throw new ContractError("Task Resume outcome is required.");
+  }
 }
 
 function executionTargetPayload(selection: WorkflowExecutionTargetSelection | undefined) {
   if (selection === undefined) {
     return undefined;
   }
-  return compactJsonObject({
-    mode: selection.mode,
-    custom_ref: selection.customRef ?? undefined,
+  return create(ExecutionTargetSelectionSchema, {
+    mode: workflowExecutionTargetMode.encode(selection.mode),
+    customRef: selection.customRef ?? undefined,
   });
 }

@@ -1,5 +1,6 @@
 import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import type { SelectionRequired } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
 import type {
@@ -30,8 +31,10 @@ import {
   taskDependencyDirection,
   taskDependencySatisfaction,
   taskExecutionProvenance,
+  taskOriginalTargetCause,
+  taskUnavailableTargetCause,
 } from "./workflowProtoValues";
-import type { WorkflowExecutionTarget } from "./workflowExecutionTarget";
+import type { WorkflowExecutionTarget, WorkflowExecutionTargetSelectionRequirement } from "./workflowExecutionTarget";
 
 export function taskStatus(value: pb.TaskStatus | undefined): TaskStatus {
   if (value === undefined) throw new ContractError("Task status is required.");
@@ -207,6 +210,27 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
     effectiveAssignee: value.effectiveAssignee ?? null,
     effectiveThinking: value.effectiveThinking ?? null,
   };
+}
+
+export function taskTargetSelectionRequired(value: SelectionRequired): WorkflowExecutionTargetSelectionRequirement {
+  switch (value.reason.case) {
+    case "policyRequiresSelection":
+      return { reason: "policy_requires_selection" };
+    case "originalTargetUnavailable":
+      return { reason: "original_target_unavailable", originalTargetCause: taskOriginalTargetCause.decode(value.reason.value.cause) };
+    case "configuredTargetUnavailable": {
+      const facts = value.reason.value;
+      const mode = workflowExecutionTargetMode.decode(facts.mode);
+      if (mode === "none" || mode === "ask_on_first_execution") throw new ContractError("Configured target must be managed.");
+      return {
+        reason: "configured_target_unavailable",
+        configuredTarget: { mode, requestedRef: facts.requestedRef ?? null },
+        unavailableCause: taskUnavailableTargetCause.decode(facts.cause),
+      };
+    }
+    case undefined:
+      throw new ContractError("Execution target selection reason is required.");
+  }
 }
 
 export function taskExecutionTarget(value: pb.ExecutionTarget | undefined): WorkflowExecutionTarget | null {

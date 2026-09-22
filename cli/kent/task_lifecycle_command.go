@@ -13,6 +13,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -330,21 +332,25 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp, terminal, err := runWorkflowMutationWithSetupProgress(context.Background(), remote, stderr, func(ctx context.Context, setupOperationID serverapi.WorkflowSetupOperationID) (serverapi.WorkflowTaskStartResponse, error) {
-			return remote.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-				SetupOperationID:           setupOperationID,
-				TaskID:                     taskID,
-				InvokingSessionID:          invokingSessionID,
+		resp, terminal, err := runWorkflowMutationWithSetupProgress(context.Background(), remote, stderr, func(ctx context.Context, setupOperationID worktreecontract.SetupOperationID) (*taskpb.StartSuccess, error) {
+			return remote.StartWorkflowTask(ctx, &taskpb.StartRequest{
+				SetupOperationId:           setupOperationID.String(),
+				TaskId:                     taskID,
+				InvokingSessionId:          invokingSessionID,
 				ExecutionTarget:            executionTarget,
 				BranchName:                 branchName,
 				ProceedDespiteDependencies: *ignoreDependencies,
 			})
-		}, func(response serverapi.WorkflowTaskStartResponse) bool {
-			return response.Outcome == serverapi.WorkflowTaskActionOutcomeApplied
+		}, func(response *taskpb.StartSuccess) bool {
+			return response.GetApplied() != nil
 		})
 		if err != nil {
-			if *jsonOut && resp.Outcome == serverapi.WorkflowTaskActionOutcomeApplied && resp.Validate() == nil {
-				_ = writeCommandJSON(stdout, stderr, resp)
+			if *jsonOut && resp.GetApplied() != nil {
+				if output, outputErr := taskStartOutput(resp); outputErr == nil {
+					_ = writeCommandJSON(stdout, stderr, output)
+				} else {
+					fmt.Fprintln(stderr, outputErr)
+				}
 			}
 			if writeTaskSetupObservationError(taskSetupObservedActionStart, stderr, positionals[0], recoveryProject, err) {
 				return 1
@@ -363,83 +369,76 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 			}
 			return 1
 		}
-		if err := resp.Validate(); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if resp.Outcome == serverapi.WorkflowTaskActionOutcomeDependencyConfirmationRequired {
-			if *jsonOut {
-				_ = writeCommandJSON(stdout, stderr, resp)
-			} else {
-				writeTaskDependencyConfirmationRequired(stderr, positionals[0], resp.UnsatisfiedDependencyCount)
-			}
-			return 1
-		}
-		if resp.Outcome == serverapi.WorkflowTaskActionOutcomeSelectionRequired {
-			if *jsonOut {
-				_ = writeCommandJSON(stdout, stderr, resp)
-			} else {
-				writeWorkflowExecutionTargetSelectionRequired(stderr, resp.SelectionRequired)
-			}
-			return 1
-		}
-		applied, err := requireAppliedWorkflowAction(resp.Outcome, resp.Applied)
+		output, err := taskStartOutput(resp)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+		if confirmation := resp.GetDependencyConfirmationRequired(); confirmation != nil {
+			if *jsonOut {
+				_ = writeCommandJSON(stdout, stderr, output)
+			} else {
+				count := int(confirmation.UnsatisfiedDependencyCount)
+				writeTaskDependencyConfirmationRequired(stderr, positionals[0], &count)
+			}
+			return 1
+		}
+		if selection := resp.GetSelectionRequired(); selection != nil {
+			if *jsonOut {
+				_ = writeCommandJSON(stdout, stderr, output)
+			} else {
+				writeWorkflowExecutionTargetSelectionRequired(stderr, selection)
+			}
+			return 1
+		}
 		if !finishObservedTaskSetup(taskSetupObservedActionStart, stderr, positionals[0], recoveryProject, terminal) {
 			if *jsonOut {
-				_ = writeCommandJSON(stdout, stderr, resp)
+				_ = writeCommandJSON(stdout, stderr, output)
 			}
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, resp)
+			return writeCommandJSON(stdout, stderr, output)
 		}
 		detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		detail, err = workflowTaskDetailForCLI(detail)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		writeTaskStartResult(stdout, detail, *applied)
+		writeTaskStartResult(stdout, detail)
 		return 0
 	})
 }
 
-func writeWorkflowExecutionTargetSelectionRequired(stderr io.Writer, requirement *serverapi.WorkflowExecutionTargetSelectionRequirement) {
+func writeWorkflowExecutionTargetSelectionRequired(stderr io.Writer, requirement *taskpb.SelectionRequired) {
 	writeWorkflowExecutionTargetSelectionRequiredForCommand(stderr, requirement, "")
 }
 
 func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	stderr io.Writer,
-	requirement *serverapi.WorkflowExecutionTargetSelectionRequirement,
+	requirement *taskpb.SelectionRequired,
 	command string,
 ) {
 	switch {
 	case requirement == nil:
 		fmt.Fprintln(stderr, "Execution target selection is required.")
-	case requirement.Details.GetPolicyRequiresSelection() != nil:
+	case requirement.GetPolicyRequiresSelection() != nil:
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
-	case requirement.Details.GetConfiguredTargetUnavailable() != nil:
-		configured, err := requirement.ConfiguredTarget()
+	case requirement.GetConfiguredTargetUnavailable() != nil:
+		configured := requirement.GetConfiguredTargetUnavailable()
+		mode, err := protoapi.WorkflowExecutionTargetMode.Decode(configured.Mode)
 		if err != nil {
 			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
 			return
 		}
-		cause, err := requirement.UnavailableCause()
+		cause, err := serverapi.WorkflowUnavailableTargetCause(configured.Cause)
 		if err != nil {
 			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
 			return
 		}
-		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(*configured), cause)
-	case requirement.Details.GetOriginalTargetUnavailable() != nil:
-		cause, err := requirement.OriginalTargetCause()
+		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(taskConfiguredTargetJSON{Mode: mode, RequestedRef: configured.RequestedRef}), cause)
+	case requirement.GetOriginalTargetUnavailable() != nil:
+		cause, err := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
 		if err != nil {
 			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
 			return
@@ -455,24 +454,24 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			prefix += " "
 		}
 		branch := ""
-		if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil && selection != "none" {
+		if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil && selection != "none" {
 			branch = " --branch-name <new-branch-name>"
 		}
 		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
 	}
-	if requirement != nil && requirement.Details.GetOriginalTargetUnavailable() != nil {
+	if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil {
 		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }
 
-func workflowConfiguredExecutionTargetSelector(target serverapi.WorkflowExecutionTargetConfiguredTarget) string {
-	if target.Mode == serverapi.WorkflowExecutionTargetModeCustomRef {
+func workflowConfiguredExecutionTargetSelector(target taskConfiguredTargetJSON) string {
+	if target.Mode == string(serverapi.WorkflowExecutionTargetModeCustomRef) {
 		if target.RequestedRef != nil {
 			return "ref:" + *target.RequestedRef
 		}
 		return "ref:<revision>"
 	}
-	return workflowExecutionTargetPolicySelector(workflowExecutionTargetPolicyJSON{Mode: target.Mode})
+	return workflowExecutionTargetPolicySelector(workflowExecutionTargetPolicyJSON{Mode: serverapi.WorkflowExecutionTargetMode(target.Mode)})
 }
 
 func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {
@@ -563,16 +562,16 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp, terminal, err := runWorkflowMutationWithSetupProgress(context.Background(), remote, stderr, func(ctx context.Context, setupOperationID serverapi.WorkflowSetupOperationID) (serverapi.WorkflowTaskResumeResponse, error) {
-			return remote.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-				TaskID:            taskID,
-				InvokingSessionID: invokingSessionID,
-				SetupOperationID:  setupOperationID,
+		resp, terminal, err := runWorkflowMutationWithSetupProgress(context.Background(), remote, stderr, func(ctx context.Context, setupOperationID worktreecontract.SetupOperationID) (*taskpb.ResumeSuccess, error) {
+			return remote.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+				TaskId:            taskID,
+				InvokingSessionId: invokingSessionID,
+				SetupOperationId:  setupOperationID.String(),
 				ExecutionTarget:   executionTarget,
 				BranchName:        branchName,
 			})
-		}, func(response serverapi.WorkflowTaskResumeResponse) bool {
-			return response.Outcome == serverapi.WorkflowExecutionTargetActionOutcomeApplied
+		}, func(response *taskpb.ResumeSuccess) bool {
+			return response.GetApplied() != nil
 		})
 		if err != nil {
 			if writeTaskSetupObservationError(taskSetupObservedActionResume, stderr, positionals[0], recoveryProject, err) {
@@ -589,18 +588,17 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := resp.Validate(); err != nil {
+		if err := protoapi.Validate(resp); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if resp.Outcome == serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired {
-			writeWorkflowExecutionTargetSelectionRequired(stderr, resp.SelectionRequired)
+		if selection := resp.GetSelectionRequired(); selection != nil {
+			writeWorkflowExecutionTargetSelectionRequired(stderr, selection)
 			return 1
 		}
-		applied, err := requireAppliedExecutionTargetAction(resp.Outcome, resp.Applied)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+		if resp.GetNoOp() != nil {
+			fmt.Fprintf(stdout, "Task %s is already resumed.\n", positionals[0])
+			return 0
 		}
 		if !finishObservedTaskSetup(taskSetupObservedActionResume, stderr, positionals[0], recoveryProject, terminal) {
 			return 1
@@ -610,7 +608,7 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintf(stderr, "resumed task %s but failed to load task detail for output: %v\n", taskID, err)
 			return 1
 		}
-		writeTaskResumeResult(stdout, detail, *applied)
+		writeTaskResumeResult(stdout, detail, resp.GetApplied())
 		return 0
 	})
 }
@@ -841,7 +839,7 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			ProceedDespiteDependencies: *ignoreDependencies,
 		})
 		if err != nil {
-			var setupErr *serverapi.WorkflowSetupRetainedError
+			var setupErr *worktreecontract.SetupRetainedError
 			if errors.As(err, &setupErr) {
 				if *jsonOut {
 					_ = writeCommandJSON(stdout, stderr, setupErr.RPCErrorData())
@@ -1020,13 +1018,6 @@ func writeTaskDependencyConfirmationRequiredForCommand(stderr io.Writer, taskRef
 		return
 	}
 	fmt.Fprintln(stderr, "Rerun with `--ignore-dependencies` to proceed.")
-}
-
-func requireAppliedWorkflowAction[T any](outcome serverapi.WorkflowTaskActionOutcome, applied *T) (*T, error) {
-	if outcome != serverapi.WorkflowTaskActionOutcomeApplied || applied == nil {
-		return nil, errors.New("workflow action requires execution target selection")
-	}
-	return applied, nil
 }
 
 func requireAppliedExecutionTargetAction[T any](outcome serverapi.WorkflowExecutionTargetActionOutcome, applied *T) (*T, error) {
@@ -1232,8 +1223,8 @@ func taskMoveRecoveryArgs(taskRef, targetNode string, project, commentary, trans
 	return args, nil
 }
 
-func projectRetainedSetupGuidance(base []string, target *serverapi.WorkflowExecutionTargetSelection, setupErr *serverapi.WorkflowSetupRetainedError) (taskSetupGuidance, error) {
-	if err := setupErr.Validate(); err != nil {
+func projectRetainedSetupGuidance(base []string, target *taskpb.ExecutionTargetSelection, setupErr *worktreecontract.SetupRetainedError) (taskSetupGuidance, error) {
+	if err := protoapi.Validate(setupErr.Details); err != nil {
 		return taskSetupGuidance{}, err
 	}
 	var selector *string
@@ -1261,8 +1252,8 @@ func projectRetainedSetupGuidance(base []string, target *serverapi.WorkflowExecu
 	return taskSetupGuidance{Outcome: outcome, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: actions}, nil
 }
 
-func writeTaskSetupFailure(stderr io.Writer, action taskSetupObservedActionKind, taskRef string, project *string, target *serverapi.WorkflowExecutionTargetSelection, err error) bool {
-	var setupErr *serverapi.WorkflowSetupRetainedError
+func writeTaskSetupFailure(stderr io.Writer, action taskSetupObservedActionKind, taskRef string, project *string, target *taskpb.ExecutionTargetSelection, err error) bool {
+	var setupErr *worktreecontract.SetupRetainedError
 	if !errors.As(err, &setupErr) {
 		return false
 	}
@@ -1292,15 +1283,15 @@ func taskSetupDiagnostic(value string) (*string, error) {
 	return &value, nil
 }
 
-func taskExecutionTargetSelector(target serverapi.WorkflowExecutionTargetSelection) (string, error) {
+func taskExecutionTargetSelector(target taskpb.ExecutionTargetSelection) (string, error) {
 	switch target.Mode {
-	case serverapi.WorkflowExecutionTargetModeNone:
+	case workflowpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE:
 		return "none", nil
-	case serverapi.WorkflowExecutionTargetModeHead:
+	case workflowpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD:
 		return "head", nil
-	case serverapi.WorkflowExecutionTargetModeDefaultBranch:
+	case workflowpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH:
 		return "default-branch", nil
-	case serverapi.WorkflowExecutionTargetModeCustomRef:
+	case workflowpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF:
 		if target.CustomRef != nil {
 			return "ref:" + *target.CustomRef, nil
 		}
@@ -1331,12 +1322,12 @@ func runWorkflowMutationWithSetupProgress[T any](
 	ctx context.Context,
 	remote apicontract.WorkflowService,
 	stderr io.Writer,
-	mutate func(context.Context, serverapi.WorkflowSetupOperationID) (T, error),
+	mutate func(context.Context, worktreecontract.SetupOperationID) (T, error),
 	shouldWait func(T) bool,
 ) (T, *worktreepb.SetupEvent, error) {
 	ctx, cancel := context.WithTimeout(ctx, workflowTaskSetupObservationTimeout)
 	defer cancel()
-	setupOperationID := serverapi.NewWorkflowSetupOperationID()
+	setupOperationID := worktreecontract.NewSetupOperationID()
 	observation, err := subscribeWorktreeSetupProgress(ctx, remote, setupOperationID, stderr)
 	if err != nil {
 		var zero T
@@ -1365,13 +1356,13 @@ func runWorkflowMutationWithSetupProgress[T any](
 	}
 }
 
-func subscribeWorktreeSetupProgress(ctx context.Context, remote apicontract.WorkflowService, setupOperationID serverapi.WorkflowSetupOperationID, stderr io.Writer) (worktreeSetupObservation, error) {
+func subscribeWorktreeSetupProgress(ctx context.Context, remote apicontract.WorkflowService, setupOperationID worktreecontract.SetupOperationID, stderr io.Writer) (worktreeSetupObservation, error) {
 	subscriber, ok := remote.(worktreeSetupProgressSubscriber)
 	if !ok {
 		return worktreeSetupObservation{}, errors.New("worktree setup progress subscription is unavailable")
 	}
 	observationCtx, cancel := context.WithCancelCause(ctx)
-	subscription, err := subscriber.SubscribeWorktreeSetup(observationCtx, &worktreepb.SetupSubscribeRequest{SetupOperationId: setupOperationID.Domain().String()})
+	subscription, err := subscriber.SubscribeWorktreeSetup(observationCtx, &worktreepb.SetupSubscribeRequest{SetupOperationId: setupOperationID.String()})
 	if err != nil {
 		cancel(context.Canceled)
 		return worktreeSetupObservation{}, err

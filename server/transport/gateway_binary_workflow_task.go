@@ -47,7 +47,52 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, lifecycle, "Delete",
 			func() *taskpb.DeleteRequest { return &taskpb.DeleteRequest{} },
 			apicontract.WorkflowService.DeleteWorkflowTask, binaryTaskDeleteFailure),
+		registerWorkflowUnary(bindings, lifecycle, "Start",
+			func() *taskpb.StartRequest { return &taskpb.StartRequest{} },
+			apicontract.WorkflowService.StartWorkflowTask, binaryTaskExecutionFailure[*taskpb.StartRequest]),
+		registerWorkflowUnary(bindings, lifecycle, "Resume",
+			func() *taskpb.ResumeRequest { return &taskpb.ResumeRequest{} },
+			apicontract.WorkflowService.ResumeWorkflowTask, binaryTaskExecutionFailure[*taskpb.ResumeRequest]),
 	)
+}
+
+func binaryTaskExecutionFailure[Request interface{ GetTaskId() string }](request Request, err error) proto.Message {
+	var self *serverapi.WorkflowTaskMutationSelfTargetError
+	var conflict *serverapi.WorkflowTaskStartConflictError
+	var resolution *serverapi.WorkflowExecutionTargetResolutionError
+	var locked *serverapi.WorkflowLockedExecutionTargetError
+	var branch *serverapi.WorkflowTaskInitialBranchError
+	var contextSelection *serverapi.WorkflowTaskContextSelectionRequiredError
+	var retained *worktreecontract.SetupRetainedError
+	switch {
+	case errors.As(err, &self):
+		return &taskpb.SelfTargetDetails{TaskId: self.TaskID}
+	case errors.As(err, &conflict) && conflict.Reason == serverapi.WorkflowTaskStartConflictAlreadyStarted:
+		return &taskpb.StartConflictDetails{TaskId: conflict.TaskID, Reason: taskpb.StartConflictReason_START_CONFLICT_REASON_ALREADY_STARTED}
+	case errors.As(err, &resolution):
+		code, conversionErr := protoapi.TaskExecutionResolutionCode.Encode(string(resolution.Code))
+		if conversionErr != nil {
+			return binaryInternalFailure(conversionErr)
+		}
+		return &taskpb.ExecutionTargetResolutionDetails{Code: code, RequestedRef: resolution.RequestedRef}
+	case errors.As(err, &locked):
+		return serverapi.WorkflowLockedTargetDetails(locked.Cause)
+	case errors.As(err, &branch):
+		reason, conversionErr := protoapi.TaskInitialBranchReason.Encode(string(branch.Reason))
+		if conversionErr != nil {
+			return binaryInternalFailure(conversionErr)
+		}
+		return &taskpb.InitialBranchDetails{
+			Reason: reason, BranchName: branch.BranchName, Ref: branch.Ref, Remote: branch.Remote,
+			ExistingBranchName: branch.ExistingBranchName,
+		}
+	case errors.As(err, &contextSelection):
+		return &taskpb.ContextSelectionRequiredDetails{TaskId: contextSelection.TaskID}
+	case errors.As(err, &retained):
+		return retained.Details
+	default:
+		return binaryTaskEntityFailure(request, err)
+	}
 }
 
 func binaryTaskDeleteFailure(request *taskpb.DeleteRequest, err error) proto.Message {

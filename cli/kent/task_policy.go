@@ -20,7 +20,7 @@ func denyAgentHumanOnlyTaskAction(stderr io.Writer) bool {
 	return true
 }
 
-func workflowTaskInvokingSessionID() (*runtimeids.SessionID, error) {
+func workflowTaskInvokingSessionID() (*string, error) {
 	raw, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok {
 		return nil, nil
@@ -29,7 +29,8 @@ func workflowTaskInvokingSessionID() (*runtimeids.SessionID, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve invoking Session: %w", err)
 	}
-	return &sessionID, nil
+	value := sessionID.String()
+	return &value, nil
 }
 
 func writeWorkflowTaskMutationSelfTargetError(stderr io.Writer, err error) bool {

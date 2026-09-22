@@ -1,11 +1,11 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { create } from "@app/server-api-contract";
+import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   taskApproveResponseSchema,
   taskMovePreviewResponseSchema,
   taskMoveResponseSchema,
-  taskResumeResponseSchema,
-  taskStartResponseSchema,
 } from "./schemas/workflowBoard";
 import { FakeRpcTransport } from "@/test-support/api";
 
@@ -13,13 +13,10 @@ describe("task lifecycle client", () => {
   it("uses Current Node responses and does not emit board-only lifecycle flags", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.start",
-        result: {
-          outcome: "applied",
-          applied: {
-            current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: "session-1" }],
-          },
-        },
+        descriptor: lifecycle.TaskLifecycleService.method.start,
+        result: create(lifecycle.StartResultSchema, { outcome: { case: "success", value: {
+          outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] } },
+        } } }),
       },
       {
         method: "workflow.task.move",
@@ -118,7 +115,7 @@ describe("task lifecycle client", () => {
     });
   });
 
-  it("maps typed execution-target selection requirements", () => {
+  it("maps typed execution-target selection requirements", async () => {
     expect(
       taskMoveResponseSchema.safeParse({
         outcome: "selection_required",
@@ -158,12 +155,13 @@ describe("task lifecycle client", () => {
         originalTargetCause: "missing_branch",
       },
     });
-    expect(
-      taskStartResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: { reason: "policy_requires_selection" },
-      }),
-    ).toEqual({
+    const startClient = new ApiClient(new FakeRpcTransport([{
+      descriptor: lifecycle.TaskLifecycleService.method.start,
+      result: create(lifecycle.StartResultSchema, { outcome: { case: "success", value: {
+        outcome: { case: "selectionRequired", value: { reason: { case: "policyRequiresSelection", value: {} } } },
+      } } }),
+    }]), unexpectedProjectOverflow);
+    await expect(startClient.startTask({ taskID: "task-1" })).resolves.toEqual({
       outcome: "selection_required",
       selectionRequired: { reason: "policy_requires_selection" },
     });
@@ -204,15 +202,14 @@ describe("task lifecycle client", () => {
     });
   });
 
-  it("maps an already-resumed Task response as a no-op", () => {
-    expect(
-      taskResumeResponseSchema.parse({
-        outcome: "no_op",
-        no_op: {
-          current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: "session-1" }],
-        },
-      }),
-    ).toMatchObject({
+  it("maps an already-resumed Task response as a no-op", async () => {
+    const client = new ApiClient(new FakeRpcTransport([{
+      descriptor: lifecycle.TaskLifecycleService.method.resume,
+      result: create(lifecycle.ResumeResultSchema, { outcome: { case: "success", value: {
+        outcome: { case: "noOp", value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] } },
+      } } }),
+    }]), unexpectedProjectOverflow);
+    await expect(client.resumeTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "no_op",
       noOp: { currentNodes: [{ nodeID: "node-1", sessionID: "session-1" }] },
     });
@@ -260,7 +257,7 @@ describe("task lifecycle client", () => {
   });
 
   it("rejects malformed lifecycle responses and empty applied Current Nodes", () => {
-    const schemas = [taskStartResponseSchema, taskMoveResponseSchema, taskApproveResponseSchema];
+    const schemas = [taskMoveResponseSchema, taskApproveResponseSchema];
     for (const schema of schemas) {
       expect(() =>
         schema.parse({

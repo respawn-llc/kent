@@ -5,6 +5,8 @@ import type { JsonValue } from "./json";
 import { workflowIDSchema } from "./schemas/workflowID";
 import { labelIDSchema } from "./schemas/workflowLabels";
 import { rpcErrorCodes } from "./rpcErrorCodes";
+import type { ExecutionDetail } from "./taskExecutionFailure";
+import { taskInitialBranchReason, taskExecutionResolutionCode } from "./workflowProtoValues";
 
 export type RpcErrorInfo = Readonly<{
   code: number;
@@ -27,65 +29,35 @@ export class RpcError extends Error {
   }
 }
 
-const executionTargetChoiceFailureSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("workflow_task_initial_branch_error"),
-      reason: z.enum([
-        "invalid_name",
-        "local_collision",
-        "remote_tracking_collision",
-        "no_managed_target",
-        "operation_cannot_create_worktree",
-        "post_creation_mismatch",
-      ]),
-      branch_name: z.string().trim().min(1),
-      ref: z.string().trim().min(1).optional(),
-      remote: z.string().trim().min(1).optional(),
-      existing_branch_name: z.string().trim().min(1).optional(),
-    })
-    .strict()
-    .transform((value) => ({ kind: "branch" as const, reason: value.reason, value: value.branch_name })),
-  z
-    .object({
-      type: z.literal("workflow_execution_target_resolution_error"),
-      code: z.enum(["invalid_revision", "non_commit", "git_failure"]),
-      requested_ref: z.string().trim().min(1),
-    })
-    .strict()
-    .transform((value) => ({ kind: "revision" as const, reason: value.code, value: value.requested_ref })),
-]);
+export class TaskExecutionError extends RpcError {
+  constructor(rpcError: RpcError, readonly detail: ExecutionDetail) {
+    super(rpcError);
+    this.name = "TaskExecutionError";
+  }
+}
 
-export type ExecutionTargetChoiceFailure = z.infer<typeof executionTargetChoiceFailureSchema>;
+export type ExecutionTargetChoiceFailure =
+  | Readonly<{ kind: "branch"; reason: ReturnType<typeof taskInitialBranchReason.decode>; value: string }>
+  | Readonly<{ kind: "revision"; reason: ReturnType<typeof taskExecutionResolutionCode.decode>; value: string }>;
 
-export function decodeExecutionTargetChoiceFailure(error: unknown): ExecutionTargetChoiceFailure | null {
-  if (
-    !(error instanceof RpcError) ||
-    (error.code !== rpcErrorCodes.workflowTaskInitialBranch &&
-      error.code !== rpcErrorCodes.workflowExecutionTargetResolution)
-  )
-    return null;
-  const parsed = executionTargetChoiceFailureSchema.safeParse(error.data);
-  return parsed.success ? parsed.data : null;
+export function executionTargetChoiceFailure(error: unknown): ExecutionTargetChoiceFailure | null {
+  if (!(error instanceof TaskExecutionError)) return null;
+  switch (error.detail.case) {
+    case "initialBranch":
+      return { kind: "branch", reason: taskInitialBranchReason.decode(error.detail.value.reason), value: error.detail.value.branchName };
+    case "executionTargetResolution":
+      return { kind: "revision", reason: taskExecutionResolutionCode.decode(error.detail.value.code), value: error.detail.value.requestedRef };
+    default:
+      return null;
+  }
 }
 
 export function isTaskMissingError(error: unknown): boolean {
   return error instanceof RpcError && error.code === rpcErrorCodes.workflowTaskNotFound;
 }
 
-const taskContextSelectionRequiredSchema = z
-  .object({
-    type: z.literal("workflow_task_context_selection_required"),
-    task_id: z.string().trim().min(1),
-  })
-  .strict();
-
 export function isTaskContextSelectionRequiredError(error: unknown): boolean {
-  return (
-    error instanceof RpcError &&
-    error.code === rpcErrorCodes.workflowTaskContextSelectionRequired &&
-    taskContextSelectionRequiredSchema.safeParse(error.data).success
-  );
+  return error instanceof TaskExecutionError && error.detail.case === "contextSelectionRequired";
 }
 
 export function isProjectMissingError(error: unknown): boolean {

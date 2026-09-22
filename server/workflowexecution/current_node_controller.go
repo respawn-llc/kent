@@ -379,7 +379,7 @@ func (c *CurrentNodeController) restoreExecutionRoot(ctx context.Context, inputs
 	if errors.As(err, &unavailable) {
 		return NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
 			Code:                               "workflow_original_target_unavailable",
-			OriginalExecutionTargetUnavailable: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause).Details.GetOriginalTargetUnavailable(),
+			OriginalExecutionTargetUnavailable: serverapi.WorkflowLockedTargetDetails(unavailable.Cause),
 		})
 	}
 	return err

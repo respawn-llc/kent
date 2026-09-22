@@ -10,10 +10,10 @@ import type {
   TaskMovePreviewResponse,
 } from "@/api";
 import {
-  decodeWorktreeSetupRetainedError,
-  decodeExecutionTargetChoiceFailure,
+  worktreeSetupRecovery,
+  executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
-  type WorktreeSetupRetainedError,
+  type WorktreeSetupRecovery,
 } from "@/api";
 import { reportNonCancelledError } from "@/app-facade";
 import {
@@ -47,7 +47,7 @@ export type PendingTaskInitiatingAction =
   | Readonly<{
       kind: "setup_recovery";
       action: TaskInitiatingAction;
-      failure: WorktreeSetupRetainedError;
+      failure: WorktreeSetupRecovery;
       choiceFailure: ExecutionTargetChoiceFailure | null;
       retrySelection?: WorkflowExecutionTargetSelection;
     }>;
@@ -117,7 +117,7 @@ function createTaskInitiatingActions(client: QueryClient) {
             }
           },
           onError(error) {
-            const failure = decodeWorktreeSetupRetainedError(error);
+            const failure = worktreeSetupRecovery(error);
             if (failure !== null) {
               input.onConfirmation({
                 kind: "setup_recovery",
@@ -192,7 +192,7 @@ export function useTaskInitiatingActionController(options: Options) {
         ...(selection === undefined ? {} : { selection }),
         onConfirmation: setPending,
         onError: (failedAction, error) => {
-          const choiceFailure = decodeExecutionTargetChoiceFailure(error);
+          const choiceFailure = executionTargetChoiceFailure(error);
           if (
             choiceFailure !== null &&
             (confirmation?.kind === "execution_target" || confirmation?.kind === "setup_recovery")
