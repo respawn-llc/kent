@@ -96,7 +96,7 @@ func TestOutsideWorkspaceApprovalFromResolutionRejectsMissingOrInvalidPayload(t 
 func TestOutsideWorkspaceApproverCachesSessionDecision(t *testing.T) {
 	broker := askquestion.NewAskQuestionBroker()
 	askCalls := 0
-	broker.SetAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		askCalls++
 		if !req.Approval {
 			t.Fatalf("expected approval=true for outside-workspace ask")
@@ -107,7 +107,8 @@ func TestOutsideWorkspaceApproverCachesSessionDecision(t *testing.T) {
 		if len(req.ApprovalOptions) != 3 {
 			t.Fatalf("expected 3 approval options, got %+v", req.ApprovalOptions)
 		}
-		return testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionAllowSession, nil), nil
+		answer := testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionAllowSession, nil)
+		return answer, req.AcceptApproval(answer)
 	})
 
 	approver := runtimewire.NewOutsideWorkspaceApprover(broker)
@@ -134,7 +135,7 @@ func TestOutsideWorkspaceApproverCachesSessionDecision(t *testing.T) {
 
 func TestOutsideWorkspaceApproverPropagatesAskError(t *testing.T) {
 	broker := askquestion.NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		return nil, errors.New("ask failed")
 	})
 
@@ -154,11 +155,11 @@ func TestOutsideWorkspaceApproverWaitsForOwnerApproval(t *testing.T) {
 	answers := make(chan askquestion.AskQuestionResolution, 1)
 	ctx, cancel := context.WithTimeout(testFileAccessApprovalContext("owner-deny"), 2*time.Second)
 	defer cancel()
-	broker.SetAskHandler(func(ctx context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(ctx context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		requests <- req
 		select {
 		case answer := <-answers:
-			return answer, nil
+			return answer, req.AcceptApproval(answer)
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}

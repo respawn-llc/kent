@@ -51,11 +51,11 @@ func TestUnboundAskFailsWithoutWaitingForCancellation(t *testing.T) {
 
 func TestDetachedAskFailsWithoutWaitingForCancellation(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		t.Fatal("detached handler called")
 		return nil, nil
 	})
-	b.SetAskHandler(nil)
+	b.SetLifecycleAskHandler(nil)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if _, err := b.Ask(ctx, AskQuestionRequest{ToolCallID: "detached", Question: "Continue?"}); !errors.Is(err, ErrAskQuestionHandlerUnavailable) {
@@ -66,7 +66,7 @@ func TestDetachedAskFailsWithoutWaitingForCancellation(t *testing.T) {
 func TestAskRunsTypedEffectBarrierAfterValidationBeforeHandlerSelection(t *testing.T) {
 	b := NewAskQuestionBroker()
 	order := make([]string, 0, 2)
-	b.SetAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
 		order = append(order, "handler")
 		return testQuestionAnswer("handled"), nil
 	})
@@ -76,7 +76,7 @@ func TestAskRunsTypedEffectBarrierAfterValidationBeforeHandlerSelection(t *testi
 		}
 		order = append(order, "barrier")
 		// This would deadlock if Ask held the broker mutex while invoking the barrier.
-		b.SetAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
+		b.SetLifecycleAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
 			order = append(order, "replacement")
 			return testQuestionAnswer("replaced"), nil
 		})
@@ -99,7 +99,7 @@ func TestAskRunsTypedEffectBarrierAfterValidationBeforeHandlerSelection(t *testi
 func TestAskUsesApprovalBarrierAndBlocksInteractionWhenItFails(t *testing.T) {
 	b := NewAskQuestionBroker()
 	handlerCalled := false
-	b.SetAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, _ AskQuestionRequest) (AskQuestionResolution, error) {
 		handlerCalled = true
 		return AskQuestionApproval{Decision: AskQuestionApprovalDecisionAllowOnce}, nil
 	})
@@ -177,7 +177,7 @@ func TestToolCallBarrierFailureRunsBatchCleanup(t *testing.T) {
 func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *testing.T) {
 	b := NewAskQuestionBroker()
 	handlerCalled := false
-	b.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		handlerCalled = true
 		return AskQuestionAnswer{}, nil
 	})
@@ -222,7 +222,7 @@ func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *test
 
 func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 	broker := NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return nil, context.Canceled
 	})
 	tool := NewAskQuestionTool(broker, func() bool { return true })
@@ -256,12 +256,12 @@ func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 	}
 }
 
-func TestAskHandlerResolvesApprovalResponse(t *testing.T) {
+func TestLifecycleHandlerResolvesApprovalResponse(t *testing.T) {
 	b := NewAskQuestionBroker()
 	ctx := testApprovalContext(context.Background(), "approval")
 	commentary := "trusted path"
 	approval := AskQuestionApproval{Decision: AskQuestionApprovalDecisionAllowSession, Commentary: &commentary}
-	b.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return approval, nil
 	})
 	resolution, err := b.Ask(ctx, testApprovalRequest("approval"))
@@ -329,7 +329,7 @@ func TestApprovalAskRequiresApprovalOptions(t *testing.T) {
 
 func TestApprovalAskIgnoresRecommendedOptionIndex(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		if req.RecommendedOptionIndex != 0 {
 			t.Fatalf("expected recommended option index ignored for approval ask, got %+v", req)
 		}
@@ -363,7 +363,7 @@ func TestApprovalAskRejectsSuggestions(t *testing.T) {
 
 func TestFreeformAskRejectsEmptyResponse(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionAnswer{}, nil
 	})
 
@@ -376,9 +376,9 @@ func TestFreeformAskRejectsEmptyResponse(t *testing.T) {
 	}
 }
 
-func TestAskHandlerRejectsPlainStringResponseForApprovalAsk(t *testing.T) {
+func TestLifecycleHandlerRejectsPlainStringResponseForApprovalAsk(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return testQuestionAnswer("allow once"), nil
 	})
 
@@ -394,9 +394,9 @@ func TestAskHandlerRejectsPlainStringResponseForApprovalAsk(t *testing.T) {
 	}
 }
 
-func TestAskHandlerResolvesQuestion(t *testing.T) {
+func TestLifecycleHandlerResolvesQuestion(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		return testQuestionAnswer("handled"), nil
 	})
 
@@ -410,7 +410,7 @@ func TestAskHandlerResolvesQuestion(t *testing.T) {
 	}
 }
 
-func TestSynchronousInternalApprovalAcceptsConsumerExactlyOnce(t *testing.T) {
+func TestLifecycleApprovalAcceptsConsumerExactlyOnce(t *testing.T) {
 	b := NewAskQuestionBroker()
 	consumerCalls := 0
 	request := testApprovalRequest("approval-sync")
@@ -431,10 +431,11 @@ func TestSynchronousInternalApprovalAcceptsConsumerExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestAskHandlerReturnsApprovalConsumerFailure(t *testing.T) {
+func TestLifecycleHandlerReturnsApprovalConsumerFailure(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
-		return AskQuestionApproval{Decision: AskQuestionApprovalDecisionAllowOnce}, nil
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+		resolution := AskQuestionApproval{Decision: AskQuestionApprovalDecisionAllowOnce}
+		return resolution, req.AcceptApproval(resolution)
 	})
 	failure := errors.New("approval consumption failed")
 	calls := 0
@@ -458,7 +459,7 @@ func TestToolCallWaitsForAttachedOwnerAnswer(t *testing.T) {
 	answers := make(chan AskQuestionResolution, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	b.SetAskHandler(func(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		requests <- req
 		select {
 		case answer := <-answers:
@@ -530,7 +531,7 @@ func TestToolCallWaitsForAttachedOwnerAnswer(t *testing.T) {
 func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 	b := NewAskQuestionBroker()
 	var got AskQuestionRequest
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		got = req
 		return testQuestionAnswer("answer"), nil
 	})
@@ -597,11 +598,11 @@ func TestToolCallReportsPreparedBatchSkippedWhenQuestionsBecomeDisabled(t *testi
 	}
 }
 
-func TestAskHandlerModePrefersContextCancellationAfterHandlerReturns(t *testing.T) {
+func TestLifecycleHandlerPrefersContextCancellationAfterHandlerReturns(t *testing.T) {
 	b := NewAskQuestionBroker()
 	release := make(chan struct{})
 	started := make(chan struct{})
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		close(started)
 		<-release
 		return testQuestionAnswer("handled"), nil
@@ -626,7 +627,7 @@ func TestAskHandlerModePrefersContextCancellationAfterHandlerReturns(t *testing.
 func TestAskPassesCancellationToAttachedOwner(t *testing.T) {
 	b := NewAskQuestionBroker()
 	started := make(chan struct{})
-	b.SetAskHandler(func(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -655,7 +656,7 @@ func TestAskPassesCancellationToAttachedOwner(t *testing.T) {
 
 func TestApprovalBrokerAdmission(t *testing.T) {
 	broker := NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionApproval{Decision: AskQuestionApprovalDecisionAllowOnce}, nil
 	})
 	for _, id := range []string{"", " call", "call "} {
@@ -707,7 +708,7 @@ func TestToolCallSerializesResponsesAsPlainText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
 			b := NewAskQuestionBroker()
-			b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+			b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 				if req.ToolCallID != tt.id {
 					t.Fatalf("request id = %q, want %q", req.ToolCallID, tt.id)
 				}
@@ -744,7 +745,7 @@ func TestToolCallNormalizesRecommendedOptionIndex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
 			b := NewAskQuestionBroker()
-			b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+			b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 				if req.ToolCallID != tt.id {
 					t.Fatalf("request id = %q, want %q", req.ToolCallID, tt.id)
 				}
@@ -765,7 +766,7 @@ func TestToolCallNormalizesRecommendedOptionIndex(t *testing.T) {
 
 func TestToolCallRejectsApprovalPayloadReturnedByHandler(t *testing.T) {
 	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
+	b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionApproval{Decision: AskQuestionApprovalDecisionDeny}, nil
 	})
 	result := callAskQuestionTool(t, b, "call-approval-payload", `{"question":"What should I do?"}`)

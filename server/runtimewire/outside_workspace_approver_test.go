@@ -10,51 +10,35 @@ import (
 )
 
 func TestOutsideWorkspaceApprovalDecisionAndCache(t *testing.T) {
-	for _, lifecycle := range []bool{false, true} {
-		name := "ordinary"
-		if lifecycle {
-			name = "lifecycle"
-		}
-		t.Run(name, func(t *testing.T) {
-			for _, decision := range []struct {
-				answer askquestion.AskQuestionApprovalDecision
-				kind   askquestion.FileAccessApprovalKind
-			}{
-				{askquestion.AskQuestionApprovalDecisionAllowOnce, askquestion.FileAccessApprovalAllowOnce},
-				{askquestion.AskQuestionApprovalDecisionAllowSession, askquestion.FileAccessApprovalAllowSession},
-				{askquestion.AskQuestionApprovalDecisionDeny, askquestion.FileAccessApprovalDeny},
-			} {
-				t.Run(string(decision.answer), func(t *testing.T) {
-					commentary := "approval commentary"
-					answer := askquestion.AskQuestionApproval{Decision: decision.answer, Commentary: &commentary}
-					calls := 0
-					broker := askquestion.NewAskQuestionBroker()
-					handler := func(_ context.Context, request askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
-						calls++
-						if lifecycle {
-							return answer, request.AcceptApproval(answer)
-						}
-						return answer, nil
-					}
-					if lifecycle {
-						broker.SetLifecycleAskHandler(handler)
-					} else {
-						broker.SetAskHandler(handler)
-					}
-					approver := NewOutsideWorkspaceApprover(broker)
-					for call := 1; call <= 2; call++ {
-						result, err := approver.Approve(outsideWorkspaceApprovalContext(), outsideWorkspaceApprovalRequest())
-						want := askquestion.FileAccessApproval{Kind: decision.kind, Commentary: &commentary}
-						wantCalls := call
-						if call == 2 && decision.kind == askquestion.FileAccessApprovalAllowSession {
-							want = askquestion.FileAccessApproval{Kind: askquestion.FileAccessApprovalSessionCached}
-							wantCalls = 1
-						}
-						if err != nil || !reflect.DeepEqual(result, want) || calls != wantCalls {
-							t.Fatalf("Approve #%d = %+v, %v; prompts = %d; want %+v, prompts = %d", call, result, err, calls, want, wantCalls)
-						}
-					}
-				})
+	for _, decision := range []struct {
+		answer askquestion.AskQuestionApprovalDecision
+		kind   askquestion.FileAccessApprovalKind
+	}{
+		{askquestion.AskQuestionApprovalDecisionAllowOnce, askquestion.FileAccessApprovalAllowOnce},
+		{askquestion.AskQuestionApprovalDecisionAllowSession, askquestion.FileAccessApprovalAllowSession},
+		{askquestion.AskQuestionApprovalDecisionDeny, askquestion.FileAccessApprovalDeny},
+	} {
+		t.Run(string(decision.answer), func(t *testing.T) {
+			commentary := "approval commentary"
+			answer := askquestion.AskQuestionApproval{Decision: decision.answer, Commentary: &commentary}
+			calls := 0
+			broker := askquestion.NewAskQuestionBroker()
+			broker.SetLifecycleAskHandler(func(_ context.Context, request askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+				calls++
+				return answer, request.AcceptApproval(answer)
+			})
+			approver := NewOutsideWorkspaceApprover(broker)
+			for call := 1; call <= 2; call++ {
+				result, err := approver.Approve(outsideWorkspaceApprovalContext(), outsideWorkspaceApprovalRequest())
+				want := askquestion.FileAccessApproval{Kind: decision.kind, Commentary: &commentary}
+				wantCalls := call
+				if call == 2 && decision.kind == askquestion.FileAccessApprovalAllowSession {
+					want = askquestion.FileAccessApproval{Kind: askquestion.FileAccessApprovalSessionCached}
+					wantCalls = 1
+				}
+				if err != nil || !reflect.DeepEqual(result, want) || calls != wantCalls {
+					t.Fatalf("Approve #%d = %+v, %v; prompts = %d; want %+v, prompts = %d", call, result, err, calls, want, wantCalls)
+				}
 			}
 		})
 	}
@@ -72,7 +56,7 @@ func TestOutsideWorkspaceApprovalFailureDoesNotCache(t *testing.T) {
 		t.Run(failure.name, func(t *testing.T) {
 			broker := askquestion.NewAskQuestionBroker()
 			calls := 0
-			broker.SetAskHandler(func(context.Context, askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+			broker.SetLifecycleAskHandler(func(context.Context, askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 				calls++
 				return askquestion.AskQuestionApproval{Decision: "invalid"}, failure.err
 			})
@@ -111,9 +95,10 @@ func outsideWorkspaceApprovalRequest() askquestion.FileAccessApprovalRequest {
 func TestOutsideWorkspaceApprovalRetainsExecutingToolIdentity(t *testing.T) {
 	broker := askquestion.NewAskQuestionBroker()
 	var received askquestion.AskQuestionRequest
-	broker.SetAskHandler(func(_ context.Context, request askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, request askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		received = request
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}
+		return resolution, request.AcceptApproval(resolution)
 	})
 	approver := NewOutsideWorkspaceApprover(broker)
 	targets := []askquestion.FileAccessTarget{{

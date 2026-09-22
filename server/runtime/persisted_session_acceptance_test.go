@@ -426,14 +426,15 @@ func runPersistedEffectRecoveryCase(
 	)
 	broker := tools.NewAskQuestionBroker()
 	brokerCalls := 0
-	broker.SetAskHandler(func(
-		context.Context,
-		tools.AskQuestionRequest,
+	broker.SetLifecycleAskHandler(func(
+		_ context.Context,
+		req tools.AskQuestionRequest,
 	) (tools.AskQuestionResolution, error) {
 		brokerCalls++
-		return tools.AskQuestionApproval{
+		resolution := tools.AskQuestionApproval{
 			Decision: tools.AskQuestionApprovalDecisionAllowOnce,
-		}, nil
+		}
+		return resolution, req.AcceptApproval(resolution)
 	})
 	fixture := newPersistedEffectFixture(t, workspace, outside, toolID, broker)
 	engine := mustNewTestEngine(

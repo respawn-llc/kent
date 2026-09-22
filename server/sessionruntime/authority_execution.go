@@ -370,7 +370,7 @@ func (e *execution) cleanup() error {
 	}
 	cleanupErr := errors.Join(promptErr, bindingErr)
 	if resource.askBroker != nil {
-		resource.askBroker.SetAskHandler(nil)
+		resource.askBroker.SetLifecycleAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
