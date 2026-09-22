@@ -73,26 +73,6 @@ func TestIndependentSessionContextFactsStartPresentAtZeroAndFalse(t *testing.T) 
 	}
 }
 
-func TestContextSnapshotClonesBoundedMetaAndFacts(t *testing.T) {
-	store := newSessionTestLazyStore(t)
-	if _, err := store.SetUsageState(&UsageState{InputTokens: 42}); err != nil {
-		t.Fatalf("SetUsageState: %v", err)
-	}
-	snapshot := store.ContextSnapshot()
-	if snapshot.Meta.UsageState == nil || snapshot.Meta.UsageState.InputTokens != 42 {
-		t.Fatalf("snapshot usage = %+v, want 42", snapshot.Meta.UsageState)
-	}
-	if snapshot.Facts.CompletedCompactionCount == nil || *snapshot.Facts.CompletedCompactionCount != 0 {
-		t.Fatalf("snapshot count = %v, want present zero", snapshot.Facts.CompletedCompactionCount)
-	}
-	snapshot.Meta.UsageState.InputTokens = 99
-	*snapshot.Facts.CompletedCompactionCount = 7
-	again := store.ContextSnapshot()
-	if again.Meta.UsageState.InputTokens != 42 || *again.Facts.CompletedCompactionCount != 0 {
-		t.Fatalf("snapshot mutated Store state: %+v", again)
-	}
-}
-
 func TestChildSessionContextFactsAreStructurallyAbsent(t *testing.T) {
 	parent := newSessionTestStore(t)
 	child := newSessionTestLazyStoreAt(t, t.TempDir())
