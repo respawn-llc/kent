@@ -9,7 +9,6 @@ it("reveals only after sustained active processes and hides at zero without poll
   vi.useFakeTimers();
   try {
     const services = createTestServices([]);
-    const list = vi.spyOn(services.api, "listProcesses");
     const open = vi.fn();
     const sidebar = createTestSidebarController(open);
     const selected = { kind: "session" as const, ...target };
@@ -39,7 +38,7 @@ it("reveals only after sustained active processes and hides at zero without poll
     view.rerender(renderChip(1));
     await act(async () => vi.advanceTimersByTimeAsync(1500));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(list).not.toHaveBeenCalled();
+    expect(services.transport.descriptorCalls).toHaveLength(0);
     view.unmount();
   } finally {
     vi.useRealTimers();

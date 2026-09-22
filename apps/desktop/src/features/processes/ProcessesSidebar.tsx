@@ -1,9 +1,11 @@
 import { Circle, Square } from "lucide-react";
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
+import { useAtomMount, useAtomValue, useAtomSet } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type ChatSessionTarget } from "@/api";
-import { useStatusController } from "@/app-facade";
+import { errorMessage, type ChatSessionTarget, type DesktopProcess } from "@/api";
+import { useAppServices, useStatusController } from "@/app-facade";
 import {
   cx,
   EmptyState,
@@ -18,28 +20,42 @@ import {
   type ProcessPresentation,
   type ProcessStateTone,
 } from "./processPresentation";
-import { useProcessesData } from "./useProcessesData";
+import { createProcessesViewModel, createProcessTermination } from "./ProcessesViewModel";
 
 const processRowEstimatedHeightPx = 80;
 const noLoad = () => undefined;
 
 export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarget }>): ReactElement {
   const { t } = useTranslation();
-  const { push } = useStatusController();
-  const data = useProcessesData(target);
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const { projectID, sessionID } = target;
+  const model = useMemo(
+    () =>
+      createProcessesViewModel({
+        api,
+        client,
+        target: { projectID, sessionID },
+      }),
+    [api, client, projectID, sessionID],
+  );
+  const data = useAtomValue(model.state);
+  const retry = useAtomSet(model.retry);
 
-  if (data.processes === undefined) {
-    if (data.isError) {
-      return (
-        <ErrorState
-          body={errorMessage(data.error)}
-          fullPage={false}
-          onRetry={data.retry}
-          retryLabel={t("app.retry")}
-          title={t("processes.loadFailed")}
-        />
-      );
-    }
+  if (data.kind === "error") {
+    return (
+      <ErrorState
+        body={errorMessage(data.error)}
+        fullPage={false}
+        onRetry={() => {
+          retry(undefined);
+        }}
+        retryLabel={t("app.retry")}
+        title={t("processes.loadFailed")}
+      />
+    );
+  }
+  if (data.kind === "loading") {
     return <LoadingState fullPage={false} title={t("processes.loading")} />;
   }
 
@@ -47,7 +63,7 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
     return <EmptyState body={t("processes.emptyBody")} fullPage={false} title={t("processes.emptyTitle")} />;
   }
 
-  const observationTime = requireObservationTime(data.observationTime);
+  const observationTime = data.observationTime;
   return (
     <VirtualizedInfiniteList
       ariaLabel={t("processes.title")}
@@ -60,45 +76,44 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
       loadingLabel={t("app.loadingMore")}
       onLoadMore={noLoad}
       rowSpacing="tight"
-      renderItem={(process) => {
-        const presentation = projectProcessPresentation(
-          process,
-          observationTime,
-          data.pendingTerminationIDs.has(process.id),
-        );
-        return (
-          <ProcessRow
-            onTerminate={() => {
-              void data.terminate(process.id).catch((error: unknown) => {
-                push({
-                  body: errorMessage(error),
-                  id: `process-terminate-error-${process.id}`,
-                  title: t("processes.terminateFailed"),
-                  tone: "danger",
-                });
-              });
-            }}
-            presentation={presentation}
-            stoppingLabel={t("processes.stopping")}
-            terminateLabel={t("processes.terminate", { id: process.id })}
-          />
-        );
-      }}
+      renderItem={(process) => <ProcessRow process={process} observationTime={observationTime} />}
     />
   );
 }
 
 function ProcessRow({
-  onTerminate,
-  presentation,
-  stoppingLabel,
-  terminateLabel,
+  process,
+  observationTime,
 }: Readonly<{
-  onTerminate: () => void;
-  presentation: ProcessPresentation;
-  stoppingLabel: string;
-  terminateLabel: string;
+  process: DesktopProcess;
+  observationTime: number;
 }>): ReactElement {
+  const { t } = useTranslation();
+  const { push } = useStatusController();
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const processID = process.id;
+  const model = useMemo(
+    () =>
+      createProcessTermination({
+        api,
+        client,
+        processID,
+        onError: (error) => {
+          push({
+            body: errorMessage(error),
+            id: `process-terminate-error-${processID}`,
+            title: t("processes.terminateFailed"),
+            tone: "danger",
+          });
+        },
+      }),
+    [api, client, processID, push, t],
+  );
+  useAtomMount(model.request);
+  const pending = useAtomValue(model.pending);
+  const terminate = useAtomSet(model.terminate);
+  const presentation = projectProcessPresentation(process, observationTime);
   return (
     <div className="grid h-[76px] min-w-0 grid-rows-[28px_22px_22px] border-b border-[var(--color-outline)] text-sm">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)]">
@@ -115,10 +130,19 @@ function ProcessRow({
             <span className="min-w-0 truncate text-[var(--color-muted)]">{presentation.workdir}</span>
           )}
         </div>
-        {presentation.stopping ? (
-          <span className="shrink-0 text-xs text-[var(--color-muted)]">{stoppingLabel}</span>
+        {pending ? (
+          <Spinner size="sm" />
+        ) : presentation.stopping ? (
+          <span className="shrink-0 text-xs text-[var(--color-muted)]">{t("processes.stopping")}</span>
         ) : presentation.terminable ? (
-          <IconTooltipButton label={terminateLabel} onClick={onTerminate} size="icon-sm" variant="danger">
+          <IconTooltipButton
+            label={t("processes.terminate", { id: processID })}
+            onClick={() => {
+              terminate(undefined);
+            }}
+            size="icon-sm"
+            variant="danger"
+          >
             <Square aria-hidden="true" fill="currentColor" size={11} strokeWidth={0} />
           </IconTooltipButton>
         ) : null}
@@ -152,10 +176,3 @@ const processStateToneClassName = {
   primary: "text-[var(--color-primary)]",
   success: "text-[var(--color-success)]",
 } satisfies Record<ProcessStateTone, string>;
-
-function requireObservationTime(observationTime: number | null): number {
-  if (observationTime === null) {
-    throw new Error("Loaded Processes require a successful observation time.");
-  }
-  return observationTime;
-}

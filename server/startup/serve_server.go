@@ -702,6 +702,12 @@ func (d *startupGatewayDependencies) ProcessViewClient() apicontract.ProcessView
 	}
 	return nil
 }
+func (d *startupGatewayDependencies) ProcessObservationClient() apicontract.ProcessObservationService {
+	if c := d.activeCore(); c != nil {
+		return c.ProcessObservationClient()
+	}
+	return nil
+}
 func (d *startupGatewayDependencies) ProcessControlClient() apicontract.ProcessControlService {
 	if c := d.activeCore(); c != nil {
 		return c.ProcessControlClient()

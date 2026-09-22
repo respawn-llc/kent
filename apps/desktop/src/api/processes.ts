@@ -8,5 +8,10 @@ export type DesktopProcess = Readonly<{
   exitCode: number | null;
   recentOutput: string;
   running: boolean;
+  backgrounded: boolean;
   killRequested: boolean;
 }>;
+
+export class ProcessObservationError extends Error {
+  readonly _tag = "ProcessObservationError";
+}

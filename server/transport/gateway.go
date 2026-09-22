@@ -128,6 +128,7 @@ type GatewayPromptCommandDependencies interface {
 
 type GatewayProcessDependencies interface {
 	ProcessViewClient() apicontract.ProcessViewService
+	ProcessObservationClient() apicontract.ProcessObservationService
 	ProcessControlClient() apicontract.ProcessControlService
 }
 
