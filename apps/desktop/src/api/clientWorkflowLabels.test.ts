@@ -9,6 +9,14 @@ import { ContractError, RpcError, WorkflowLabelError } from "./errors";
 const priorityID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const urgentID = "942495c2-5958-4959-8445-94046ad74fbd";
 const smallID = "11111111-1111-4111-8111-111111111111";
+function createdTaskResult(id: string, shortId: string, title: string) {
+  return create(taskLifecycle.CreateResultSchema, { outcome: { case: "success", value: {
+    task: {
+      id, shortId, title, projectId: "project-1", workflowId: smallID,
+      createdAt: { seconds: 0n, nanos: 1_000_000 }, updatedAt: { seconds: 0n, nanos: 1_000_000 },
+    },
+  } } });
+}
 describe("ApiClient workflow labels", () => {
   it("keeps an unknown label error generic even when it carries a known detail", async () => {
     const failure = create(wf.ProjectLabelCreateErrorSchema, {
@@ -120,15 +128,8 @@ describe("ApiClient workflow labels", () => {
   it("creates a related task through an atomic relationship-intent collection and returns its summary", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.create",
-        result: {
-          task: {
-            id: "task-new",
-            short_id: "KENT-42",
-            title: "New blocker",
-            workflow_id: smallID,
-          },
-        },
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        result: createdTaskResult("task-new", "KENT-42", "New blocker"),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -151,21 +152,21 @@ describe("ApiClient workflow labels", () => {
       title: "New blocker",
       workflowID: smallID,
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.create",
-        params: {
-          project_id: "project-1",
-          workflow_id: smallID,
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        request: create(taskLifecycle.CreateRequestSchema, {
+          projectId: "project-1",
+          workflowId: smallID,
           title: "New blocker",
           body: "",
-          source_workspace_id: "workspace-origin",
-          label_ids: [],
-          dependency_intents: [
-            { related_task_id: "task-blocked", new_task_role: "blocker" },
-            { related_task_id: "task-blocker", new_task_role: "blocked" },
+          sourceWorkspaceId: "workspace-origin",
+          labelIds: [],
+          dependencyIntents: [
+            { relatedTaskId: "task-blocked", newTaskRole: taskLifecycle.DependencyRole.BLOCKER },
+            { relatedTaskId: "task-blocker", newTaskRole: taskLifecycle.DependencyRole.BLOCKED },
           ],
-        },
+        }),
       },
     ]);
   });
@@ -358,15 +359,8 @@ describe("ApiClient workflow labels", () => {
   it("creates a task with an explicit atomic label assignment", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.create",
-        result: {
-          task: {
-            id: "task-1",
-            short_id: "KENT-1",
-            title: "Ship labels",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-          },
-        },
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        result: createdTaskResult("task-1", "KENT-1", "Ship labels"),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -386,18 +380,18 @@ describe("ApiClient workflow labels", () => {
       title: "Ship labels",
       workflowID: "11111111-1111-4111-8111-111111111111",
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.create",
-        params: {
-          project_id: "project-1",
-          workflow_id: "11111111-1111-4111-8111-111111111111",
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        request: create(taskLifecycle.CreateRequestSchema, {
+          projectId: "project-1",
+          workflowId: "11111111-1111-4111-8111-111111111111",
           title: "Ship labels",
           body: "Wire the desktop API.",
-          source_workspace_id: "workspace-1",
-          label_ids: [priorityID],
-          dependency_intents: [],
-        },
+          sourceWorkspaceId: "workspace-1",
+          labelIds: [priorityID],
+          dependencyIntents: [],
+        }),
       },
     ]);
   });

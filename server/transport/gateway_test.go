@@ -41,6 +41,7 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
@@ -1193,7 +1194,7 @@ func TestGatewayRemoteWorkflowTaskSessionsRoundsTripPage(t *testing.T) {
 	}
 }
 
-func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.WorkflowTaskSummary {
+func createGatewaySearchableTask(t *testing.T, appCore *core.Core) *taskpb.TaskSummary {
 	t.Helper()
 	ctx := context.Background()
 	workflows := appCore.WorkflowClient()
@@ -1239,10 +1240,10 @@ func createGatewaySearchableTask(t *testing.T, appCore *core.Core) serverapi.Wor
 	}); err != nil {
 		t.Fatalf("LinkWorkflowToProject: %v", err)
 	}
-	task, err := workflows.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: appCore.ProjectID(),
+	task, err := workflows.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: appCore.ProjectID(),
 		Title:     "Search Task",
-		Body:      "needle body",
+		Body:      proto.String("needle body"),
 	})
 	if err != nil {
 		t.Fatalf("CreateWorkflowTask: %v", err)

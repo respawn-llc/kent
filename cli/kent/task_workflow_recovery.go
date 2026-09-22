@@ -8,7 +8,6 @@ import (
 	"core/shared/config"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type taskListCommandContext struct {
@@ -120,7 +119,7 @@ func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, comma
 	})
 }
 
-func taskCreateRecoveryForSelectionError(createErr *serverapi.WorkflowTaskCreateSelectionError, commandContext taskCreateCommandContext) (taskWorkflowRecovery, error) {
+func taskCreateRecoveryForSelectionError(createErr *taskpb.CreateSelectionDetails, commandContext taskCreateCommandContext) (taskWorkflowRecovery, error) {
 	if createErr == nil {
 		return taskWorkflowRecovery{}, errors.New("task create selection error is required")
 	}
@@ -128,11 +127,15 @@ func taskCreateRecoveryForSelectionError(createErr *serverapi.WorkflowTaskCreate
 	if err != nil {
 		return taskWorkflowRecovery{}, err
 	}
-	failure := taskWorkflowRecoveryFailure{
-		kind:       kind,
-		projectID:  createErr.ProjectID,
-		workflowID: createErr.WorkflowID,
+	var workflowID *runtimeids.WorkflowID
+	if createErr.WorkflowId != nil {
+		value, err := runtimeids.ParseWorkflowID(*createErr.WorkflowId)
+		if err != nil {
+			return taskWorkflowRecovery{}, err
+		}
+		workflowID = &value
 	}
+	failure := taskWorkflowRecoveryFailure{kind: kind, projectID: createErr.ProjectId, workflowID: workflowID}
 	return taskWorkflowRecoveryForFailure(failure, taskWorkflowRecoveryContext{
 		projectRef:         commandContext.ProjectRef,
 		resolvedProjectID:  commandContext.ResolvedProjectID,
@@ -154,13 +157,13 @@ func taskListRecoveryKind(reason taskpb.ListScopeErrorReason) (taskWorkflowRecov
 	}
 }
 
-func taskCreateRecoveryKind(reason serverapi.WorkflowTaskCreateSelectionReason) (taskWorkflowRecoveryKind, error) {
+func taskCreateRecoveryKind(reason taskpb.CreateSelectionReason) (taskWorkflowRecoveryKind, error) {
 	switch reason {
-	case serverapi.WorkflowTaskCreateSelectionReasonNoLinkedWorkflows:
+	case taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS:
 		return taskWorkflowRecoveryNoLinkedWorkflows, nil
-	case serverapi.WorkflowTaskCreateSelectionReasonWorkflowNotLinked:
+	case taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED:
 		return taskWorkflowRecoveryWorkflowNotLinked, nil
-	case serverapi.WorkflowTaskCreateSelectionReasonAmbiguousWithoutDefault:
+	case taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT:
 		return taskWorkflowRecoveryAmbiguousWithoutDefault, nil
 	default:
 		return 0, fmt.Errorf("unsupported task-create workflow recovery reason %q", reason)

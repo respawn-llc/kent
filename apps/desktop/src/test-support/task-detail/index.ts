@@ -2,6 +2,7 @@ import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -453,11 +454,9 @@ export const secondCommentListResponse = {
   total_count: 2,
 };
 
-export const taskUpdateResponse = {
-  task: {
-    id: "task-1",
-  },
-};
+export const taskUpdateResponse = create(taskLifecycle.UpdateResultSchema, {
+  outcome: { case: "success", value: { task: taskDetailResponse.task.summary } },
+});
 
 export type TaskDetailFixtureOptions = Readonly<{
   attention?: JsonValue;

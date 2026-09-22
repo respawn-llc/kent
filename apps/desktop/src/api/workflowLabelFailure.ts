@@ -11,6 +11,7 @@ import {
   LabelErrorReason,
   type LabelErrorDetails,
   type LabelsUpdateResult,
+  type CreateResult,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { WorkflowLabelError, type WorkflowLabelErrorReason } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
@@ -26,6 +27,7 @@ type LabelOutcome = (
   | BoardGetResult
   | BoardNodeCardsListResult
   | LabelsUpdateResult
+  | CreateResult
 )["outcome"];
 type LabelDetail = Extract<LabelOutcome, { case: "error" }>["value"]["detail"];
 type LabelInfo = Readonly<{
@@ -80,6 +82,9 @@ function projectLabelInfo(
     case "wrongProject":
       return { reason: "wrong_project", projectID: detail.value.projectId, labelID: detail.value.labelId };
     case "scopeError":
+    case "createSelection":
+    case "createConflict":
+    case "dependency":
       return undefined;
     case undefined:
     case "invalidRequest":

@@ -25,6 +25,8 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type Service struct {
@@ -706,56 +708,56 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req *pb.GraphSaveReques
 	return resp, nil
 }
 
-func (s *Service) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
-	if err := req.ValidateRPC(); err != nil {
-		return serverapi.WorkflowTaskCreateResponse{}, err
+func (s *Service) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	var workflowID *runtimeids.WorkflowID
-	if req.WorkflowID != nil {
-		workflowID = req.WorkflowID
+	if req.WorkflowId != nil {
+		id, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		workflowID = &id
 	}
 	taskRequest := workflowstore.CreateTaskRequest{
-		ProjectID:         req.ProjectID,
+		ProjectID:         req.ProjectId,
 		WorkflowID:        workflowID,
 		Title:             req.Title,
-		Body:              req.Body,
-		SourceURL:         req.SourceURL,
-		SourceWorkspaceID: req.SourceWorkspaceID,
-		LabelIDs:          req.LabelIDs,
+		Body:              req.GetBody(),
+		SourceURL:         req.GetSourceUrl(),
+		SourceWorkspaceID: req.GetSourceWorkspaceId(),
+		LabelIDs:          req.LabelIds,
 	}
 	for _, requestedIntent := range req.DependencyIntents {
 		intent := workflow.TaskDependencyCreateIntent{
-			RelatedTaskID: workflow.TaskID(requestedIntent.RelatedTaskID),
+			RelatedTaskID: workflow.TaskID(requestedIntent.RelatedTaskId),
 		}
 		switch requestedIntent.NewTaskRole {
-		case serverapi.WorkflowTaskDependencyRoleBlocker:
+		case taskpb.DependencyRole_DEPENDENCY_ROLE_BLOCKER:
 			intent.NewTaskRole = workflow.TaskDependencyRoleBlocker
-		case serverapi.WorkflowTaskDependencyRoleBlocked:
+		case taskpb.DependencyRole_DEPENDENCY_ROLE_BLOCKED:
 			intent.NewTaskRole = workflow.TaskDependencyRoleBlocked
 		}
 		taskRequest.DependencyIntents = append(taskRequest.DependencyIntents, intent)
 	}
 	task, err := s.store.CreateTask(ctx, taskRequest)
 	if err != nil {
-		var policyErr workflow.TaskDependencyPolicyError
-		if errors.As(err, &policyErr) {
-			return serverapi.WorkflowTaskCreateResponse{}, workflowTaskDependencyError(err)
-		}
-		return serverapi.WorkflowTaskCreateResponse{}, workflowTaskCreateError(err, req.ProjectID)
+		return nil, err
 	}
 	s.publishProjectWorkflowEvent(ctx, task.ProjectID, task.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCreated, string(task.ID))
 	if len(req.DependencyIntents) > 0 {
 		relatedIDs := make([]string, 0, len(req.DependencyIntents))
 		for _, intent := range req.DependencyIntents {
-			relatedIDs = append(relatedIDs, intent.RelatedTaskID)
+			relatedIDs = append(relatedIDs, intent.RelatedTaskId)
 		}
 		s.publishProjectWorkflowEvent(ctx, task.ProjectID, task.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionDependenciesChanged, string(task.ID), relatedIDs...)
 	}
 	detail, err := s.readModels.TaskDetail.GetTask(ctx, string(task.ID))
 	if err != nil {
-		return serverapi.WorkflowTaskCreateResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowTaskCreateResponse{Task: detail.Summary}, nil
+	return &taskpb.CreateSuccess{Task: detail.Summary}, nil
 }
 
 func (s *Service) AddWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyAddRequest) (serverapi.WorkflowTaskDependencyAddResponse, error) {
@@ -836,36 +838,6 @@ func workflowTaskDependencyError(err error) error {
 	return apiErr
 }
 
-func workflowTaskCreateError(err error, projectID string) error {
-	var selectionErr workflowstore.TaskWorkflowSelectionError
-	if errors.As(err, &selectionErr) {
-		var reason serverapi.WorkflowTaskCreateSelectionReason
-		switch selectionErr.Reason {
-		case workflowstore.TaskWorkflowSelectionNoLinkedWorkflows:
-			reason = serverapi.WorkflowTaskCreateSelectionReasonNoLinkedWorkflows
-		case workflowstore.TaskWorkflowSelectionWorkflowNotLinked:
-			reason = serverapi.WorkflowTaskCreateSelectionReasonWorkflowNotLinked
-		case workflowstore.TaskWorkflowSelectionAmbiguousWithoutDefault:
-			reason = serverapi.WorkflowTaskCreateSelectionReasonAmbiguousWithoutDefault
-		default:
-			return err
-		}
-		workflowID := selectionErr.WorkflowID
-		return &serverapi.WorkflowTaskCreateSelectionError{
-			Reason:     reason,
-			ProjectID:  selectionErr.ProjectID,
-			WorkflowID: workflowID,
-		}
-	}
-	var conflictErr workflowstore.TaskCreateConflictError
-	if errors.As(err, &conflictErr) && conflictErr.Reason == workflowstore.TaskCreateConflictSerialization {
-		return &serverapi.WorkflowTaskCreateConflictError{
-			Reason: serverapi.WorkflowTaskCreateConflictReasonSerialization,
-		}
-	}
-	return workflowTaskLabelError(err, projectID)
-}
-
 func workflowTaskStartError(err error) error {
 	var conflict workflowstore.TaskStartConflictError
 	if !errors.As(err, &conflict) {
@@ -882,20 +854,20 @@ func workflowTaskStartError(err error) error {
 	}
 }
 
-func (s *Service) UpdateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskUpdateResponse{}, err
+func (s *Service) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	task, err := s.store.UpdateTask(ctx, workflowstore.UpdateTaskRequest{TaskID: workflow.TaskID(req.TaskID), Title: req.Title, Body: req.Body, SourceWorkspaceID: req.SourceWorkspaceID})
+	task, err := s.store.UpdateTask(ctx, workflowstore.UpdateTaskRequest{TaskID: workflow.TaskID(req.TaskId), Title: req.Title, Body: req.Body, SourceWorkspaceID: req.GetSourceWorkspaceId()})
 	if err != nil {
-		return serverapi.WorkflowTaskUpdateResponse{}, err
+		return nil, err
 	}
 	s.publishProjectWorkflowEvent(ctx, task.ProjectID, task.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionUpdated, string(task.ID))
 	detail, err := s.readModels.TaskDetail.GetTask(ctx, string(task.ID))
 	if err != nil {
-		return serverapi.WorkflowTaskUpdateResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowTaskUpdateResponse{Task: detail.Summary}, nil
+	return &taskpb.UpdateSuccess{Task: detail.Summary}, nil
 }
 
 func (s *Service) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
@@ -2211,35 +2183,39 @@ func workflowNodeByID(definition workflow.Definition, nodeID workflow.NodeID) (w
 	return nil, fmt.Errorf("workflow node %q is absent", nodeID)
 }
 
-func (s *Service) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
+func (s *Service) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	if s.taskWorktreeCleanup != nil {
-		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskID); err != nil {
-			return err
+		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskId); err != nil {
+			return nil, err
 		}
 	}
-	return s.taskMutations.Run(ctx, workflow.TaskID(req.TaskID), func(ctx context.Context) error {
+	err := s.taskMutations.Run(ctx, workflow.TaskID(req.TaskId), func(ctx context.Context) error {
 		if s.currentNodeExecution == nil {
 			return errors.New("current node workflow execution is required")
 		}
-		if err := s.currentNodeExecution.EnsureTaskQuiescent(workflow.TaskID(req.TaskID)); err != nil {
+		if err := s.currentNodeExecution.EnsureTaskQuiescent(workflow.TaskID(req.TaskId)); err != nil {
 			return err
 		}
 		if s.taskWorktreeCleanup != nil {
-			if err := s.taskWorktreeCleanup.DeleteTaskWorktree(ctx, req.TaskID); err != nil {
+			if err := s.taskWorktreeCleanup.DeleteTaskWorktree(ctx, req.TaskId); err != nil {
 				return err
 			}
 		}
-		result, err := s.store.DeleteTask(ctx, workflow.TaskID(req.TaskID))
+		result, err := s.store.DeleteTask(ctx, workflow.TaskID(req.TaskId))
 		if err != nil {
 			return err
 		}
 		s.finalizeTaskAttentionResolution(result.TaskAttentionResolution)
-		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionDeleted, req.TaskID)
+		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionDeleted, req.TaskId)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
 }
 
 func (s *Service) finalizeWorkflowAttentionResolution(ctx context.Context, result workflowstore.WorkflowDeleteResult) {

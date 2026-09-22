@@ -385,8 +385,15 @@ func (c *Remote) SaveWorkflowGraph(ctx context.Context, req *workflowpb.GraphSav
 		})
 }
 
-func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskCreateRequest, serverapi.WorkflowTaskCreateResponse](c, ctx, protocol.MethodWorkflowTaskCreate, req)
+func (c *Remote) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Create")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.CreateResult{},
+		func(failure *taskpb.CreateError) error {
+			if failure.GetLabel() != nil {
+				return &WorkflowLabelError{Detail: failure.GetLabel()}
+			}
+			return &TaskCreateError{Failure: failure}
+		})
 }
 
 func (c *Remote) AddWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyAddRequest) (serverapi.WorkflowTaskDependencyAddResponse, error) {
@@ -404,8 +411,15 @@ func (c *Remote) ListWorkflowTaskDependencies(ctx context.Context, req serverapi
 	return validateWorkflowResponse("list workflow task dependencies", response, err)
 }
 
-func (c *Remote) UpdateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error) {
-	return callUnscopedRPC[serverapi.WorkflowTaskUpdateRequest, serverapi.WorkflowTaskUpdateResponse](c, ctx, protocol.MethodWorkflowTaskUpdate, req)
+func (c *Remote) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Update")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.UpdateResult{},
+		func(failure *taskpb.UpdateError) error {
+			if failure.GetTaskNotFound() != nil {
+				return serverapi.ErrWorkflowTaskNotFound
+			}
+			return generatedOperationFailure(failure.Code)
+		})
 }
 
 func (c *Remote) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
@@ -441,8 +455,15 @@ func (c *Remote) CompleteWorkflowTask(ctx context.Context, req serverapi.Workflo
 	return callUnscopedRPC[serverapi.WorkflowTaskCompleteRequest, serverapi.WorkflowTaskCompleteResponse](c, ctx, protocol.MethodWorkflowTaskComplete, req)
 }
 
-func (c *Remote) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskDelete, req, &struct{}{})
+func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Delete")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DeleteResult{},
+		func(failure *taskpb.DeleteError) error {
+			if failure.GetTaskNotFound() != nil {
+				return serverapi.ErrWorkflowTaskNotFound
+			}
+			return worktreeError(failure)
+		})
 }
 
 func (c *Remote) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {

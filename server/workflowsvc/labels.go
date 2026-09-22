@@ -2,7 +2,6 @@ package workflowsvc
 
 import (
 	"context"
-	"errors"
 
 	"core/server/workflow"
 	"core/server/workflow/label"
@@ -165,46 +164,6 @@ func workflowProjectLabel(record workflowstore.ProjectLabelRecord) *pb.ProjectLa
 		Id:   record.ID.String(),
 		Name: record.Name.String(),
 	}
-}
-
-func workflowTaskLabelError(err error, projectID string) error {
-	var labelNotFound workflowstore.TaskLabelNotFoundError
-	if errors.As(err, &labelNotFound) {
-		labelID := labelNotFound.LabelID
-		return &serverapi.WorkflowLabelError{
-			Reason:  serverapi.WorkflowLabelErrorReasonLabelNotFound,
-			LabelID: &labelID,
-		}
-	}
-	var wrongProject workflowstore.TaskLabelWrongProjectError
-	if errors.As(err, &wrongProject) {
-		projectID := wrongProject.TaskProjectID
-		taskID := wrongProject.TaskID
-		labelID := wrongProject.LabelID
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonWrongProject,
-			ProjectID: &projectID,
-			TaskID:    &taskID,
-			LabelID:   &labelID,
-		}
-	}
-	var mutationErr workflowstore.TaskLabelMutationError
-	if errors.As(err, &mutationErr) {
-		field := mutationErr.Field
-		return &serverapi.WorkflowLabelError{
-			Reason:  serverapi.WorkflowLabelErrorReasonInvalidMutation,
-			LabelID: mutationErr.LabelID,
-			Field:   &field,
-			Limit:   mutationErr.Limit,
-		}
-	}
-	if errors.Is(err, serverapi.ErrProjectNotFound) {
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonProjectNotFound,
-			ProjectID: &projectID,
-		}
-	}
-	return err
 }
 
 func (s *Service) publishProjectEvent(ctx context.Context, projectID string, resource serverapi.WorkflowProjectEventResource, action serverapi.WorkflowProjectEventAction, primaryEntityID string, relatedIDs ...string) {

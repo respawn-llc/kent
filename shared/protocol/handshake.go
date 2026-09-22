@@ -6,8 +6,6 @@ import (
 )
 
 const (
-	MethodWorkflowTaskCreate             = "workflow.task.create"
-	MethodWorkflowTaskUpdate             = "workflow.task.update"
 	MethodWorkflowTaskStart              = "workflow.task.start"
 	MethodWorkflowTaskInterrupt          = "workflow.task.interrupt"
 	MethodWorkflowTaskResume             = "workflow.task.resume"
@@ -15,7 +13,6 @@ const (
 	MethodWorkflowTaskMovePreview        = "workflow.task.move.preview"
 	MethodWorkflowTaskMove               = "workflow.task.move"
 	MethodWorkflowTaskComplete           = "workflow.task.complete"
-	MethodWorkflowTaskDelete             = "workflow.task.delete"
 	MethodWorkflowTaskDependencyAdd      = "workflow.task.dependency.add"
 	MethodWorkflowTaskDependencyRemove   = "workflow.task.dependency.remove"
 	MethodWorkflowTaskDependencyList     = "workflow.task.dependency.list"

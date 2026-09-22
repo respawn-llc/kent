@@ -13,6 +13,7 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
+import { CreateSelectionReason } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   TaskStatusKind,
   TaskNativeState,
@@ -124,6 +125,12 @@ export const taskSearchSourceKind = workflowEnum([
   [SearchSourceKind.TITLE, "title"],
   [SearchSourceKind.BODY, "body"],
   [SearchSourceKind.COMMENT, "comment"],
+]);
+
+export const taskCreateSelectionReason = workflowEnum([
+  [CreateSelectionReason.NO_LINKED_WORKFLOWS, "no_linked_workflows"],
+  [CreateSelectionReason.WORKFLOW_NOT_LINKED, "workflow_not_linked"],
+  [CreateSelectionReason.AMBIGUOUS_WITHOUT_DEFAULT, "ambiguous_without_default"],
 ]);
 
 export const workflowNodeKind = workflowEnum([

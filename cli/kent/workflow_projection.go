@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-
 	"core/server/workflow"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
@@ -63,13 +61,6 @@ func workflowDeleteImpactForCLI(impact *pb.DeleteImpact) (workflowDeleteImpactJS
 		DefaultReplacementProjectCount: impact.DefaultReplacementProjectCount, TaskCount: impact.TaskCount,
 		CurrentNodeCount: impact.CurrentNodeCount, PendingApprovalCount: impact.PendingApprovalCount, BlockedTaskCount: impact.BlockedTaskCount,
 	}, nil
-}
-
-func workflowTaskSummaryForCLI(summary serverapi.WorkflowTaskSummary) (serverapi.WorkflowTaskSummary, error) {
-	if summary.WorkflowID.IsZero() {
-		return serverapi.WorkflowTaskSummary{}, errors.New("workflow_id is required")
-	}
-	return summary, nil
 }
 
 func workflowDefinitionForCLI(definition *pb.WorkflowDefinition) (workflowDefinitionJSON, error) {

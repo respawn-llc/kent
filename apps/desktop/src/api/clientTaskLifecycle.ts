@@ -1,4 +1,9 @@
-import type { TaskMoveInput, TaskResumeInput, TaskStartInput } from "./clientInputs";
+import type { TaskEditInput, TaskMoveInput, TaskResumeInput, TaskStartInput } from "./clientInputs";
+import { create } from "@app/server-api-contract";
+import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { requireUnarySuccess } from "./protobufRpc";
+import { ContractError } from "./errors";
+import { requireWorktreeSuccess } from "./clientWorktree";
 import { parseRpcResponse } from "./clientParse";
 import { compactJsonObject } from "./json";
 import type {
@@ -17,7 +22,26 @@ import {
   taskStartResponseSchema,
 } from "./schemas/workflowBoard";
 import { newSetupOperationID } from "./setupOperationID";
-import type { RpcTransport } from "./transport";
+import type { DescriptorRpcTransport, RpcTransport } from "./transport";
+
+export async function updateTask(transport: DescriptorRpcTransport, input: TaskEditInput): Promise<string> {
+  const method = TaskLifecycleService.method.update;
+  const result = await transport.callDescriptor(method, create(method.input, {
+    taskId: input.taskID,
+    title: input.title,
+    body: input.body,
+    sourceWorkspaceId: input.sourceWorkspaceID,
+  }));
+  const { task } = requireUnarySuccess(method, result);
+  if (task === undefined) throw new ContractError("Updated Task summary is required.");
+  return task.id;
+}
+
+export async function deleteTask(transport: DescriptorRpcTransport, taskID: string): Promise<void> {
+  const method = TaskLifecycleService.method.delete;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
+  requireWorktreeSuccess(method, result);
+}
 
 export async function startTask(transport: RpcTransport, input: TaskStartInput): Promise<TaskStartResponse> {
   const setupOperationID = input.setupOperationID ?? newSetupOperationID();

@@ -11,6 +11,14 @@ type TaskListError struct {
 	Failure *taskpb.ListError
 }
 
+type TaskCreateError struct {
+	Failure *taskpb.CreateError
+}
+
+func (e *TaskCreateError) Error() string {
+	return fmt.Sprintf("task creation failed with code %q", e.Failure.Code)
+}
+
 func (e *TaskListError) Error() string {
 	return fmt.Sprintf("task list failed with code %q", e.Failure.Code)
 }

@@ -1281,10 +1281,10 @@ message ObserveResult {
 
 service TaskLifecycleService {
   rpc Create(CreateRequest) returns (CreateResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.create"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Update(UpdateRequest) returns (UpdateResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.update"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Start(StartRequest) returns (StartResult) {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.start"};
@@ -1308,7 +1308,7 @@ service TaskLifecycleService {
     option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.complete"};
   }
   rpc Delete(DeleteRequest) returns (DeleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.delete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 

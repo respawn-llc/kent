@@ -13,9 +13,13 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
+
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -62,9 +66,9 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		var workflowID *runtimeids.WorkflowID
+		var workflowID *string
 		if selectedWorkflow != nil {
-			workflowID = selectedWorkflow
+			workflowID = proto.String(selectedWorkflow.String())
 		}
 		labelIDs := []string(nil)
 		if len(labelSelectors) > 0 {
@@ -79,24 +83,29 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 				return 1
 			}
 		}
-		sourceWorkspaceID := ""
+		var sourceWorkspaceID *string
 		if strings.TrimSpace(*sourceWorkspace) != "" {
-			sourceWorkspaceID, err = resolveWorkflowSourceWorkspaceID(context.Background(), cfg, remote, *sourceWorkspace)
+			value, err := resolveWorkflowSourceWorkspaceID(context.Background(), cfg, remote, *sourceWorkspace)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
+			sourceWorkspaceID = &value
+		}
+		var importedURL *string
+		if *sourceURL != "" {
+			importedURL = sourceURL
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		resp, err := remote.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-			ProjectID:         projectID,
-			WorkflowID:        workflowID,
+		resp, err := remote.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+			ProjectId:         projectID,
+			WorkflowId:        workflowID,
 			Title:             *title,
-			Body:              taskBody,
-			SourceURL:         *sourceURL,
-			SourceWorkspaceID: sourceWorkspaceID,
-			LabelIDs:          labelIDs,
+			Body:              &taskBody,
+			SourceUrl:         importedURL,
+			SourceWorkspaceId: sourceWorkspaceID,
+			LabelIds:          labelIDs,
 		})
 		if err != nil {
 			var selectedWorkflowID *runtimeids.WorkflowID
@@ -117,36 +126,32 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			})
 			return 1
 		}
-		if strings.TrimSpace(resp.Task.ID) == "" {
-			fmt.Fprintln(stderr, "task create response is missing task ID")
+		if resp.Task.ProjectId != projectID {
+			fmt.Fprintf(stderr, "task create response project %q does not match requested project %q\n", resp.Task.ProjectId, projectID)
 			return 1
 		}
-		if resp.Task.ProjectID != projectID {
-			fmt.Fprintf(stderr, "task create response project %q does not match requested project %q\n", resp.Task.ProjectID, projectID)
-			return 1
-		}
-		task, err := getWorkflowTaskByID(context.Background(), remote, resp.Task.ID)
+		task, err := getWorkflowTaskByID(context.Background(), remote, resp.Task.Id)
 		if err != nil {
-			fmt.Fprintf(stderr, "created task %s but failed to load task detail for output: %v\n", resp.Task.ID, err)
+			fmt.Fprintf(stderr, "created task %s but failed to load task detail for output: %v\n", resp.Task.Id, err)
 			return 1
 		}
-		if task.Summary.ID != resp.Task.ID {
-			fmt.Fprintf(stderr, "created task detail ID %q does not match create response task %q\n", task.Summary.ID, resp.Task.ID)
+		if task.Summary.Id != resp.Task.Id {
+			fmt.Fprintf(stderr, "created task detail ID %q does not match create response task %q\n", task.Summary.Id, resp.Task.Id)
 			return 1
 		}
-		if task.Summary.ProjectID != projectID {
-			fmt.Fprintf(stderr, "created task detail project %q does not match requested project %q\n", task.Summary.ProjectID, projectID)
-			return 1
-		}
-		task, err = workflowTaskDetailForCLI(task)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
+		if task.Summary.ProjectId != projectID {
+			fmt.Fprintf(stderr, "created task detail project %q does not match requested project %q\n", task.Summary.ProjectId, projectID)
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, taskShowOutputFromDetail(task))
+			output, err := taskShowOutputFromDetail(task)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return writeCommandJSON(stdout, stderr, output)
 		}
-		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectID, task.LabelIDs)
+		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectId, task.LabelIds)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -160,10 +165,14 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func writeTaskCreateError(stderr io.Writer, err error, commandContext taskCreateCommandContext) {
-	var conflictErr *serverapi.WorkflowTaskCreateConflictError
-	if errors.As(err, &conflictErr) {
-		switch conflictErr.Reason {
-		case serverapi.WorkflowTaskCreateConflictReasonSerialization:
+	var createErr *client.TaskCreateError
+	if !errors.As(err, &createErr) {
+		fmt.Fprintln(stderr, err)
+		return
+	}
+	if conflict := createErr.Failure.GetCreateConflict(); conflict != nil {
+		switch conflict.Reason {
+		case taskpb.CreateConflictReason_CREATE_CONFLICT_REASON_SERIALIZATION:
 			retryCommand := taskCreateRetryCommandArgs(commandContext, commandContext.SelectedWorkflowID)
 			fmt.Fprintln(stderr, "Task creation conflicted with a concurrent update. This failure is retryable; no task was created.")
 			fmt.Fprintf(stderr, "  %s\n", commandString(retryCommand))
@@ -172,8 +181,8 @@ func writeTaskCreateError(stderr io.Writer, err error, commandContext taskCreate
 		}
 		return
 	}
-	var selectionErr *serverapi.WorkflowTaskCreateSelectionError
-	if !errors.As(err, &selectionErr) {
+	selectionErr := createErr.Failure.GetCreateSelection()
+	if selectionErr == nil {
 		fmt.Fprintln(stderr, err)
 		return
 	}
@@ -236,7 +245,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 1
 		}
 		// Send title only when provided; omitting it leaves the persisted title unchanged.
-		req := serverapi.WorkflowTaskUpdateRequest{TaskID: taskID}
+		req := &taskpb.UpdateRequest{TaskId: taskID}
 		if titleProvided {
 			req.Title = title
 		}
@@ -254,7 +263,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			req.SourceWorkspaceID = workspaceID
+			req.SourceWorkspaceId = &workspaceID
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
@@ -264,13 +273,9 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 1
 		}
 		if *jsonOut {
-			projected, projectionErr := workflowTaskSummaryForCLI(resp.Task)
-			if projectionErr != nil {
-				fmt.Fprintln(stderr, projectionErr)
-				return 1
-			}
-			resp.Task = projected
-			return writeCommandJSON(stdout, stderr, resp)
+			return writeCommandJSON(stdout, stderr, struct {
+				Task taskSummaryJSON `json:"task"`
+			}{Task: taskSummaryOutput(resp.Task)})
 		}
 		fmt.Fprintf(stdout, "Edited task %s.\n", taskSummaryDisplayID(resp.Task))
 		return 0
@@ -513,8 +518,12 @@ func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		if err := remote.DeleteWorkflowTask(ctx, serverapi.WorkflowTaskDeleteRequest{TaskID: taskID}); err != nil {
-			fmt.Fprintln(stderr, err)
+		if _, err := remote.DeleteWorkflowTask(ctx, &taskpb.DeleteRequest{TaskId: taskID}); err != nil {
+			if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
+				fmt.Fprintln(stderr, "Task deletion is blocked by its worktree. Finish or move the other work using it, then retry.")
+			} else {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 		fmt.Fprintf(stdout, "Deleted task %s.\n", displayID)

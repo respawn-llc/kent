@@ -94,7 +94,7 @@ import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
 import { workflowIDSchema } from "./schemas/workflowID";
-import { attentionPageSchema, taskUpdateResponseSchema } from "./schemas/workflowBoard";
+import { attentionPageSchema } from "./schemas/workflowBoard";
 import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
@@ -328,20 +328,7 @@ export class ApiClient implements ApiService {
   }
 
   async updateTask(input: TaskEditInput): Promise<string> {
-    const response = parse(
-      "workflow.task.update",
-      taskUpdateResponseSchema,
-      await this.#transport.call(
-        "workflow.task.update",
-        compactJsonObject({
-          task_id: input.taskID,
-          title: input.title,
-          body: input.body,
-          source_workspace_id: input.sourceWorkspaceID,
-        }),
-      ),
-    );
-    return response.task.id;
+    return taskLifecycle.updateTask(this.#transport, input);
   }
 
   async startTask(input: TaskStartInput): Promise<TaskStartResponse> {
@@ -372,7 +359,7 @@ export class ApiClient implements ApiService {
   }
 
   async deleteTask(taskID: string): Promise<void> {
-    await this.#transport.call("workflow.task.delete", { task_id: taskID });
+    await taskLifecycle.deleteTask(this.#transport, taskID);
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {

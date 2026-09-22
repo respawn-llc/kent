@@ -128,46 +128,6 @@ export class WorkflowTaskCreateSelectionError extends RpcError {
   }
 }
 
-const workflowTaskCreateSelectionErrorDataSchema = z
-  .object({
-    type: z.literal("workflow_task_create_selection_error"),
-    reason: z.enum(workflowTaskCreateSelectionErrorReasons),
-    project_id: z.string().trim().min(1),
-    workflow_id: workflowIDSchema.optional(),
-  })
-  .strict()
-  .superRefine((data, context) => {
-    const workflowRequired = data.reason === "workflow_not_linked";
-    if (workflowRequired !== (data.workflow_id !== undefined)) {
-      context.addIssue({
-        code: "custom",
-        message: workflowRequired
-          ? "workflow_id is required for workflow_not_linked"
-          : "workflow_id is forbidden for Project-scoped selection errors",
-        path: ["workflow_id"],
-      });
-    }
-  })
-  .transform((data) => ({
-    reason: data.reason,
-    projectID: data.project_id,
-    workflowID: data.workflow_id ?? null,
-  }));
-
-export function decodeWorkflowTaskCreateSelectionError(
-  error: unknown,
-): WorkflowTaskCreateSelectionError | null {
-  if (
-    !(error instanceof RpcError) ||
-    error.code !== rpcErrorCodes.workflowTaskCreateSelection ||
-    error.method !== "workflow.task.create"
-  ) {
-    return null;
-  }
-  const parsed = workflowTaskCreateSelectionErrorDataSchema.safeParse(error.data);
-  return parsed.success ? new WorkflowTaskCreateSelectionError(error, parsed.data) : null;
-}
-
 export type TaskSearchErrorReason = "normalized_too_short";
 
 export class TaskSearchError extends RpcError {

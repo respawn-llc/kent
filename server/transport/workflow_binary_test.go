@@ -1,13 +1,17 @@
 package transport
 
 import (
+	"database/sql"
 	"errors"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"core/server/core"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -15,7 +19,58 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
+
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
+
+func TestTaskDeleteBlockedWorktreeRoundTrip(t *testing.T) {
+	app, server := newGatewayTestServer(t)
+	first := createGatewaySearchableTask(t, app)
+	second, err := app.WorkflowClient().CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Other Task managing the same Worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := app.MetadataStore()
+	workspace, err := store.ResolveProjectSourceWorkspace(t.Context(), app.ProjectID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreeID := uuid.NewString()
+	if err := store.UpsertWorktreeRecord(t.Context(), metadata.WorktreeRecord{
+		ID: worktreeID, WorkspaceID: workspace.ID, CanonicalRoot: t.TempDir(), Managed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, taskID := range []string{first.Id, second.Task.Id} {
+		updated, err := store.Queries().BindInitialTaskManagedWorktree(t.Context(), sqlitegen.BindInitialTaskManagedWorktreeParams{
+			TaskID: taskID, ManagedWorktreeID: sql.NullString{String: worktreeID, Valid: true},
+			UpdatedAtUnixMs: time.Now().UnixMilli(),
+		})
+		if err != nil || updated != 1 {
+			t.Fatalf("bind managed Worktree: rows=%d error=%v", updated, err)
+		}
+	}
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = remote.Close() })
+	_, err = remote.DeleteWorkflowTask(t.Context(), &taskpb.DeleteRequest{TaskId: first.Id})
+	var blocked *worktreecontract.BlockedError
+	if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) || !errors.As(err, &blocked) || blocked.Details == nil {
+		t.Fatalf("Task deletion lost the Worktree blocker: %T %v", err, err)
+	}
+	for _, expected := range []*taskpb.TaskSummary{first, second.Task} {
+		retained, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(expected.Id)})
+		if err != nil || retained.GetTask().GetSummary().GetTitle() != expected.Title {
+			t.Fatalf("blocked deletion changed Task %q: %v, %v", expected.Id, retained, err)
+		}
+	}
+}
 
 type workflowCoreGate struct {
 	*core.Core

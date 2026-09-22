@@ -21,6 +21,10 @@ import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/
 import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { WorktreeError } from "./clientWorktree";
+import { ApiClient } from "./client";
+import { unexpectedProjectOverflow } from "@/test-support/api";
 import { searchTasks } from "./clientTaskSearch";
 import type { RpcEventHandler } from "./transport";
 
@@ -285,6 +289,29 @@ describe("JsonRpcWebSocketTransport", () => {
     await expect(nextReadiness).resolves.toMatchObject({ outcome: { case: "success" } });
     expect(control.readyState).toBe(MockWebSocket.OPEN);
     expect(sockets).toHaveLength(2);
+  });
+
+  it("retains the typed Worktree blocker through Task deletion without closing control", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const deletion = client.deleteTask("task-1").catch((error: unknown) => error);
+    const socket = sockets[0] ?? failTest("control socket missing");
+    await socket.setup();
+    const method = TaskLifecycleService.method.delete;
+    binaryAck(socket, 1, method, {
+      result: create(method.output, { outcome: { case: "error", value: {
+        code: "worktree_blocked", detail: { case: "worktreeBlocked", value: {} },
+      } } }),
+    });
+    const error = await deletion;
+    expect(error).toBeInstanceOf(WorktreeError);
+    if (!(error instanceof WorktreeError)) throw error;
+    expect(error.detail.kind).toBe("blocked");
+    const readiness = callReadiness(transport);
+    await waitForSent(socket, 3);
+    ack(socket, 2);
+    await expect(readiness).resolves.toMatchObject({ outcome: { case: "success" } });
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
   });
 
   it("falls back to a generic RPC error when error data is not valid JSON", async () => {
@@ -942,7 +969,8 @@ function binaryAck<
     | typeof ConnectionService.method.handshake
     | typeof ConnectionService.method.attachSession
     | typeof QuestionService.method.listPending
-    | typeof StreamService.method.subscribe,
+    | typeof StreamService.method.subscribe
+    | typeof TaskLifecycleService.method.delete,
 >(
   socket: MockWebSocket,
   sentIndex: number,

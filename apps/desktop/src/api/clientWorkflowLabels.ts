@@ -1,7 +1,6 @@
 import type { ProjectTaskGroupCountsInput, TaskListInput, TaskMutationInput } from "./clientInputs";
-import { parseRpcResponse as parse } from "./clientParse";
-import { ContractError, decodeWorkflowTaskCreateSelectionError } from "./errors";
-import { create } from "@app/server-api-contract";
+import { ContractError, WorkflowTaskCreateSelectionError } from "./errors";
+import { classifyResultFailure, create } from "@app/server-api-contract";
 import {
   ProjectLabelService,
   type ProjectLabelCatalog as GeneratedCatalog,
@@ -15,15 +14,10 @@ import {
   type LabelFilter,
   type AssignedLabelIds,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
-import { TaskLabelService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
-import { requireUnarySuccess } from "./protobufRpc";
+import { TaskLabelService, TaskLifecycleService, DependencyRole } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
-import { compactJsonObject } from "./json";
-import {
-  taskCreateResponseSchema,
-} from "./schemas/workflowBoard";
-import { workflowIDSchema } from "./schemas/workflowID";
-import type { DescriptorRpcTransport, RpcTransport } from "./transport";
+import type { DescriptorRpcTransport } from "./transport";
 import { canonicalTaskLabelFilter } from "./workflowLabels";
 import { taskListPage, projectTaskGroupCounts } from "./clientTaskProjection";
 import {
@@ -32,6 +26,7 @@ import {
   taskAttentionKind,
   taskSortField,
   taskSortDirection,
+  taskCreateSelectionReason,
 } from "./workflowProtoValues";
 import type { CreatedTaskSummary } from "./models";
 import type {
@@ -177,33 +172,36 @@ function taskLabelAssignment(value: AssignedLabelIds | undefined, taskID: string
 }
 
 export async function createTask(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   input: TaskMutationInput,
 ): Promise<CreatedTaskSummary> {
-  try {
-    const response = parse(
-      "workflow.task.create",
-      taskCreateResponseSchema,
-      await transport.call(
-        "workflow.task.create",
-        compactJsonObject({
-          project_id: input.projectID,
-          workflow_id: input.workflowID === undefined ? undefined : workflowIDSchema.parse(input.workflowID),
-          title: input.title,
-          body: input.body,
-          source_workspace_id: input.sourceWorkspaceID,
-          label_ids: input.labelIDs,
-          dependency_intents: input.dependencyIntents.map((intent) => ({
-            related_task_id: intent.relatedTaskID,
-            new_task_role: intent.newTaskRole,
-          })),
-        }),
-      ),
-    );
-    return response;
-  } catch (error) {
-    throw decodeWorkflowTaskCreateSelectionError(error) ?? error;
+  const method = TaskLifecycleService.method.create;
+  const result = await transport.callDescriptor(method, create(method.input, {
+    projectId: input.projectID,
+    workflowId: input.workflowID,
+    title: input.title,
+    body: input.body,
+    sourceWorkspaceId: input.sourceWorkspaceID,
+    labelIds: [...input.labelIDs],
+    dependencyIntents: input.dependencyIntents.map((intent) => ({
+      relatedTaskId: intent.relatedTaskID,
+      newTaskRole: intent.newTaskRole === "blocker" ? DependencyRole.BLOCKER : DependencyRole.BLOCKED,
+    })),
+  }));
+  throwWorkflowLabelFailure(method, result.outcome);
+  if (result.outcome.case === "error" &&
+      classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
+      result.outcome.value.detail.case === "createSelection") {
+    const detail = result.outcome.value.detail.value;
+    throw new WorkflowTaskCreateSelectionError(protobufRpcError(method, result.outcome.value), {
+      reason: taskCreateSelectionReason.decode(detail.reason),
+      projectID: detail.projectId,
+      workflowID: detail.workflowId ?? null,
+    });
   }
+  const { task } = requireUnarySuccess(method, result);
+  if (task === undefined) throw new ContractError("Created Task summary is required.");
+  return { id: task.id, shortID: task.shortId, title: task.title, workflowID: task.workflowId };
 }
 
 export async function listTasks(transport: DescriptorRpcTransport, input: TaskListInput): Promise<TaskListPage> {
