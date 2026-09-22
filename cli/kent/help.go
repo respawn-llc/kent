@@ -185,7 +185,7 @@ var (
 	workflowUsage       = commandUsage{helpFile: "workflow.txt"}
 	workflowCreateUsage = leafCommandUsage(config.Command+" workflow create [--description <text>] [--json] <name>", "Create a workflow with `backlog` start and `done` terminal nodes.")
 	workflowDeleteUsage = leafCommandUsage(config.Command+" workflow delete <uuid> [--confirm] [--json]", "Preview or permanently delete a workflow.", "", "Without `--confirm`, the command reports the deletion impact and makes no changes.")
-	workflowListUsage   = leafCommandUsage(config.Command+" workflow list [--project <path-or-id>] [--page-size <n>] [--page-token <token>] [--json]", "List workflow definitions.")
+	workflowListUsage   = leafCommandUsage(config.Command+" workflow list [--project <path-or-id>] [--offset <n>] [--limit <n>] [--json]", "List workflow definitions.")
 	workflowGraphUsage  = leafCommandUsage(
 		config.Command+" workflow graph <inspect|apply> ...",
 		"Inspect or apply a complete Workflow graph.",
