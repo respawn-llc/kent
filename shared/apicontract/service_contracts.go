@@ -100,8 +100,13 @@ type ProjectViewService interface {
 }
 
 type AttentionNotificationService interface {
-	SubscribeAttentionNotifications(ctx context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error)
+	SubscribeAttentionNotifications(ctx context.Context, req *emptypb.Empty) (AttentionNotificationSubscription, error)
 	SubscribeSessionAttentionNotifications(ctx context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error)
+}
+
+type AttentionNotificationSubscription interface {
+	Next(context.Context) (*taskpb.AttentionNotificationEvent, error)
+	Close() error
 }
 
 type PromptControlService interface {

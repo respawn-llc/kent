@@ -6,11 +6,9 @@ import (
 	"fmt"
 
 	rpccontract "core/shared/apicontract"
-	"core/shared/clientui"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
 )
 
 type gatewaySubscription[Event any] interface {
@@ -94,10 +92,4 @@ func serveGatewaySubscription[Req interface{ Validate() error }, Event any, Wire
 			return
 		}
 	}
-}
-
-func (g *Gateway) serveAttentionNotificationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.AttentionNotificationClient().SubscribeAttentionNotifications, func(evt clientui.AttentionNotificationEvent) protocol.AttentionNotificationEventParams {
-		return protocol.AttentionNotificationEventParams{Event: evt}
-	})
 }

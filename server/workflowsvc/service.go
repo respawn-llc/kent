@@ -2,6 +2,7 @@ package workflowsvc
 
 import (
 	"context"
+	"core/shared/apicontract"
 	"database/sql"
 	"errors"
 	"fmt"

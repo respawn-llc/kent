@@ -5,12 +5,6 @@ import (
 	"core/shared/runtimeids"
 )
 
-const (
-	MethodAttentionNotificationSubscribe = "attention.notification.subscribe"
-	MethodAttentionNotificationEvent     = "attention.notification"
-	MethodAttentionNotificationComplete  = "attention.notification.complete"
-)
-
 type SubscribeResponse struct {
 	Stream string `json:"stream"`
 }

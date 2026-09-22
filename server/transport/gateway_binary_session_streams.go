@@ -65,6 +65,23 @@ func registerSessionBinarySubscription[
 	bindings map[string]gatewayBinaryBinding, service protoreflect.ServiceDescriptor, methodName protoreflect.Name,
 	newRequest func() Request, subscribe func(*Gateway, context.Context, Request) (Sub, error),
 ) error {
+	return registerGatewayBinarySubscription(bindings, service, methodName, newRequest,
+		func(request Request) (routeScopeParams, error) {
+			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+		},
+		subscribe,
+		func(_ Request, err error) proto.Message { return binaryAuthFailure(err) })
+}
+
+func registerGatewayBinarySubscription[
+	Request proto.Message,
+	Event proto.Message, Sub gatewaySubscription[Event],
+](
+	bindings map[string]gatewayBinaryBinding, service protoreflect.ServiceDescriptor, methodName protoreflect.Name,
+	newRequest func() Request, scope func(Request) (routeScopeParams, error),
+	subscribe func(*Gateway, context.Context, Request) (Sub, error),
+	failure func(Request, error) proto.Message,
+) error {
 	if service == nil {
 		return errors.New("generated subscription service is required")
 	}
@@ -85,7 +102,10 @@ func registerSessionBinarySubscription[
 			if !ok {
 				return routeScopeParams{}, fmt.Errorf("%s request type is invalid", associated.Subscribe.Name)
 			}
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			if scope == nil {
+				return routeScopeParams{}, nil
+			}
+			return scope(request)
 		},
 		subscribe: func(g *Gateway, ctx context.Context, _ *connectionState, message proto.Message) (gatewayBinarySubscriber, error) {
 			request, ok := message.(Request)
@@ -98,11 +118,11 @@ func registerSessionBinarySubscription[
 			}
 			return gatewayBinaryStreamSubscriber[Event]{sub}, nil
 		},
-		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
+		failure: func(_ *Gateway, _ *connectionState, message proto.Message, err error) proto.Message {
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}
-			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
+			return gatewayBinaryFailureResult(method, failure(message.(Request), err))
 		},
 		start: start, complete: binaryStreamCompletion,
 	}

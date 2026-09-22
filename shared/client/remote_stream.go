@@ -10,12 +10,13 @@ import (
 	"sync"
 
 	rpccontract "core/shared/apicontract"
-	"core/shared/clientui"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type remoteSubscription[Event any] struct {
@@ -24,14 +25,14 @@ type remoteSubscription[Event any] struct {
 	once sync.Once
 }
 
-func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodAttentionNotificationSubscribe, "subscribe-attention-notification", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscription(conn, route, func(params protocol.AttentionNotificationEventParams) clientui.AttentionNotificationEvent {
-		return params.Event
-	}), nil
+func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req *emptypb.Empty) (rpccontract.AttentionNotificationSubscription, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionNotificationService").Methods().ByName("Subscribe")
+	return subscribeGeneratedBinary(c, ctx, method, req, &taskpb.AttentionNotificationStartResult{},
+		func(failure *taskpb.AttentionNotificationStartError) error {
+			return generatedOperationFailure(failure.Code)
+		},
+		func() *taskpb.AttentionNotificationEvent { return &taskpb.AttentionNotificationEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
 func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req *pb.ProjectSubscribeRequest) (rpccontract.WorkflowEventSubscription, error) {

@@ -1,5 +1,5 @@
 import type { AttentionNotificationEventHandler } from "./attentionNotifications";
-import { attentionNotificationRpcHandler } from "./attentionNotificationSubscription";
+import { subscribeAttentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
@@ -44,7 +44,6 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { emptyJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
 import { subscribeWorktreeSetup, type WorktreeSetupEventHandler } from "./worktreeSetup";
@@ -392,11 +391,7 @@ export class ApiClient implements ApiService {
   }
 
   subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "attention.notification.subscribe",
-      emptyJsonObject,
-      attentionNotificationRpcHandler(handler),
-    );
+    return subscribeAttentionNotifications(this.#transport, handler);
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);

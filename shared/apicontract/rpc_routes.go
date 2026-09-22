@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"core/shared/protocol"
-	"core/shared/serverapi"
 )
 
 type Kind string
@@ -134,9 +133,6 @@ func implementsValidator(t reflect.Type) bool {
 }
 
 var routeContracts = []Route{
-	subscription[serverapi.AttentionNotificationSubscribeRequest, protocol.AttentionNotificationEventParams](protocol.MethodAttentionNotificationSubscribe, AuthServer, ScopeNone, protocol.MethodAttentionNotificationEvent, protocol.MethodAttentionNotificationComplete),
-	notification[protocol.AttentionNotificationEventParams](protocol.MethodAttentionNotificationEvent),
-	notification[protocol.StreamCompleteParams](protocol.MethodAttentionNotificationComplete),
 }
 
 func Routes() []Route {

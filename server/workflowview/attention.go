@@ -204,7 +204,7 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 			if value == "" {
 				return nil, fmt.Errorf("interrupted attention candidate %q has blank interruption detail", row.ID)
 			}
-			details, err = interruptionDetails(value)
+			details, err = InterruptionDetails(value)
 			if err != nil {
 				return nil, err
 			}
@@ -263,7 +263,7 @@ func attentionOutputValues(values map[string]string) []*taskpb.OutputValue {
 	return out
 }
 
-func interruptionDetails(raw string) (*taskpb.InterruptedCurrentNodeDetails, error) {
+func InterruptionDetails(raw string) (*taskpb.InterruptedCurrentNodeDetails, error) {
 	detail, err := workflow.DecodeCurrentNodeInterruptionDetail(raw)
 	if err != nil {
 		return nil, err

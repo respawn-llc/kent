@@ -747,7 +747,6 @@ service AttentionNotificationService {
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Event"}
       completion: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Complete"}
-      legacy_wire_name: "attention.notification.subscribe"
     };
   }
   rpc Event(AttentionNotificationEvent) returns (google.protobuf.Empty) {
@@ -756,7 +755,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -765,7 +763,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification.complete"
     };
   }
 }
