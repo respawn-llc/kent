@@ -2,8 +2,9 @@ import {
   CircleX,
   Database,
   GitBranch,
+  Hourglass,
   Info,
-  RefreshCw,
+  BroomSparkles,
   Server,
   Settings,
   Terminal,
@@ -208,6 +209,7 @@ function isEmptyUnknownContext(
 }
 
 function noticeIcon(notice: TranscriptNotice): LucideIcon {
+  if (notice.Background !== undefined && notice.Background !== null) return Hourglass;
   if (notice.Severity === "error") return CircleX;
   const typedIcon = noticeMessageTypeIcon(notice);
   if (typedIcon !== undefined) return typedIcon;
@@ -243,7 +245,7 @@ function noticeMessageTypeIcon(notice: TranscriptNotice): LucideIcon | undefined
 function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
   switch (notice.Reason) {
     case "compaction":
-      return RefreshCw;
+      return BroomSparkles;
     case "cache_warning":
       return Database;
     case "tool_output_repair":
@@ -271,6 +273,9 @@ function noticeDiagnosticIcon(notice: TranscriptNotice): LucideIcon | undefined 
 }
 
 function noticeIconTone(notice: TranscriptNotice): TranscriptFlatRowIconTone {
+  if (notice.Background != null) {
+    return notice.Background.ExitCode === 0 ? "success" : "error";
+  }
   if (
     notice.Severity === "error" ||
     notice.MessageType === "error_feedback" ||
