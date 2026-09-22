@@ -241,9 +241,9 @@ func (a *Authority) buildAgentResource(
 		ownerlessDisposition: agentResourceRemainAvailable,
 		store:                store,
 	}
-	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
+	logger, err := runlog.NewRunLogger(store.Dir(), func(message string) {
 		if plan.options.OnLoggingFailure != nil {
-			plan.options.OnLoggingFailure(diag.Message)
+			plan.options.OnLoggingFailure(message)
 		}
 	})
 	if err != nil {
