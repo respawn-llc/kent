@@ -20,6 +20,7 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 	board := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService")
 	lifecycle := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService")
 	dependencies := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService")
+	comments := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService")
 	return errors.Join(
 		registerWorkflowUnary(bindings, read, "List",
 			func() *taskpb.ListRequest { return &taskpb.ListRequest{} },
@@ -78,6 +79,18 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, dependencies, "List",
 			func() *taskpb.DependencyListRequest { return &taskpb.DependencyListRequest{} },
 			apicontract.WorkflowService.ListWorkflowTaskDependencies, binaryTaskEntityFailure[*taskpb.DependencyListRequest]),
+		registerWorkflowUnary(bindings, comments, "Add",
+			func() *taskpb.CommentAddRequest { return &taskpb.CommentAddRequest{} },
+			apicontract.WorkflowService.AddWorkflowTaskComment, binaryTaskEntityFailure[*taskpb.CommentAddRequest]),
+		registerWorkflowUnary(bindings, comments, "List",
+			func() *taskpb.TaskOffsetPageRequest { return &taskpb.TaskOffsetPageRequest{} },
+			apicontract.WorkflowService.ListWorkflowTaskComments, binaryTaskEntityFailure[*taskpb.TaskOffsetPageRequest]),
+		registerWorkflowUnary(bindings, comments, "Replace",
+			func() *taskpb.CommentReplaceRequest { return &taskpb.CommentReplaceRequest{} },
+			apicontract.WorkflowService.ReplaceWorkflowTaskComment, binaryWorkflowCreateFailure[*taskpb.CommentReplaceRequest]),
+		registerWorkflowUnary(bindings, comments, "Delete",
+			func() *taskpb.CommentDeleteRequest { return &taskpb.CommentDeleteRequest{} },
+			apicontract.WorkflowService.DeleteWorkflowTaskComment, binaryWorkflowCreateFailure[*taskpb.CommentDeleteRequest]),
 	)
 }
 

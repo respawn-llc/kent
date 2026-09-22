@@ -1,6 +1,6 @@
 import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
-import type { SelectionRequired } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import type { SelectionRequired, Comment as GeneratedComment } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
 import type {
@@ -16,6 +16,7 @@ import type {
   TaskDependencies,
   TaskDependencyItem,
   TaskDependencyAddAvailability,
+  TaskComment,
 } from "./models";
 import { projectAvailability } from "./clientProject";
 import { workflowValidationError } from "./clientWorkflowProjection";
@@ -33,6 +34,7 @@ import {
   taskExecutionProvenance,
   taskOriginalTargetCause,
   taskUnavailableTargetCause,
+  taskCommentAuthor,
 } from "./workflowProtoValues";
 import type { WorkflowExecutionTarget, WorkflowExecutionTargetSelectionRequirement } from "./workflowExecutionTarget";
 
@@ -209,6 +211,19 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
     sessionID: value.sessionId ?? null,
     effectiveAssignee: value.effectiveAssignee ?? null,
     effectiveThinking: value.effectiveThinking ?? null,
+  };
+}
+
+export function taskComment(value: GeneratedComment | undefined): TaskComment {
+  if (value?.createdAt === undefined || value.updatedAt === undefined) throw new ContractError("Comment and its times are required.");
+  return {
+    id: value.id,
+    taskID: value.taskId,
+    body: value.body,
+    authorKind: taskCommentAuthor.decode(value.author),
+    authorID: value.authorId ?? null,
+    createdAt: timestampMillis(value.createdAt),
+    updatedAt: timestampMillis(value.updatedAt),
   };
 }
 

@@ -2283,74 +2283,94 @@ func (s *Service) ListWorkflowTaskSessions(ctx context.Context, req serverapi.Wo
 	return response, nil
 }
 
-func (s *Service) AddWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskCommentAddResponse{}, err
+func (s *Service) AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	comment, err := s.store.AddComment(ctx, workflow.TaskID(req.TaskID), req.Body, req.Author, req.AuthorID)
+	author, err := protoapi.TaskCommentAuthor.Decode(req.Author)
 	if err != nil {
-		return serverapi.WorkflowTaskCommentAddResponse{}, err
+		return nil, err
 	}
-	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskID); detailErr == nil {
-		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentAdded, req.TaskID, comment.ID)
+	comment, err := s.store.AddComment(ctx, workflow.TaskID(req.TaskId), req.Body, author, req.GetAuthorId())
+	if err != nil {
+		return nil, err
 	}
-	return serverapi.WorkflowTaskCommentAddResponse{Comment: commentRecord(comment)}, nil
+	if detail, detailErr := s.readModels.TaskDetail.GetTask(ctx, req.TaskId); detailErr == nil {
+		workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		s.publishProjectWorkflowEvent(ctx, detail.Summary.ProjectId, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentAdded, req.TaskId, comment.ID)
+	}
+	projected, err := workflowview.Comment(comment)
+	if err != nil {
+		return nil, err
+	}
+	return &taskpb.CommentAddSuccess{Comment: projected}, nil
 }
 
-func (s *Service) ListWorkflowTaskComments(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskCommentListResponse{}, err
+func (s *Service) ListWorkflowTaskComments(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.CommentListSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	window, err := serverapi.ResolveWorkflowOffsetWindow(req.Offset, req.Limit)
+	window := serverapi.OffsetWindow{Offset: int(req.GetOffset()), Limit: serverapi.OffsetPaginationMaxLimit}
+	if req.Limit != nil {
+		window.Limit = int(*req.Limit)
+	}
+	totalCount, err := s.store.CountTaskComments(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
-		return serverapi.WorkflowTaskCommentListResponse{}, err
+		return nil, err
 	}
-	totalCount, err := s.store.CountTaskComments(ctx, workflow.TaskID(req.TaskID))
+	comments, err := s.store.ListCommentsPage(ctx, workflow.TaskID(req.TaskId), window.Offset, window.Limit+1)
 	if err != nil {
-		return serverapi.WorkflowTaskCommentListResponse{}, err
+		return nil, err
 	}
-	comments, err := s.store.ListCommentsPage(ctx, workflow.TaskID(req.TaskID), window.Offset, window.Limit+1)
-	if err != nil {
-		return serverapi.WorkflowTaskCommentListResponse{}, err
-	}
-	out := make([]serverapi.WorkflowTaskComment, 0, len(comments))
+	out := make([]*taskpb.Comment, 0, len(comments))
 	for _, comment := range comments {
-		out = append(out, commentRecord(comment))
+		projected, err := workflowview.Comment(comment)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, projected)
 	}
-	return serverapi.WorkflowTaskCommentListResponse{
-		WorkflowOffsetPage: serverapi.FinalizeWorkflowOffsetPage(window, out),
-		TotalCount:         totalCount,
+	page := serverapi.FinalizeWorkflowOffsetPage(window, out)
+	next, err := workflowview.TaskNextOffset(page.NextOffset)
+	if err != nil {
+		return nil, err
+	}
+	return &taskpb.CommentListSuccess{
+		Items: page.Items, NextOffset: next, TotalCount: totalCount,
 	}, nil
 }
 
-func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentReplaceRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
+func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req *taskpb.CommentReplaceRequest) (*emptypb.Empty, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentID))
+	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentId))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.store.ReplaceComment(ctx, req.CommentID, req.Body); err != nil {
-		return err
+	if err := s.store.ReplaceComment(ctx, req.CommentId, req.Body); err != nil {
+		return nil, err
 	}
-	s.publishProjectWorkflowEvent(ctx, projectID, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentUpdated, taskID, req.CommentID)
-	return nil
+	s.publishProjectWorkflowEvent(ctx, projectID, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentUpdated, taskID, req.CommentId)
+	return &emptypb.Empty{}, nil
 }
 
-func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
+func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req *taskpb.CommentDeleteRequest) (*emptypb.Empty, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentID))
+	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentId))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.store.DeleteComment(ctx, req.CommentID); err != nil {
-		return err
+	if err := s.store.DeleteComment(ctx, req.CommentId); err != nil {
+		return nil, err
 	}
-	s.publishProjectWorkflowEvent(ctx, projectID, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentDeleted, taskID, req.CommentID)
-	return nil
+	s.publishProjectWorkflowEvent(ctx, projectID, workflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionCommentDeleted, taskID, req.CommentId)
+	return &emptypb.Empty{}, nil
 }
 
 func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
@@ -2767,10 +2787,6 @@ func workflowGraphEntityReferences(references []workflowstore.WorkflowGraphEntit
 		out = append(out, &pb.GraphEntityReference{EntityType: entityType, EntityId: reference.EntityID})
 	}
 	return out, nil
-}
-
-func commentRecord(row workflowstore.CommentRecord) serverapi.WorkflowTaskComment {
-	return serverapi.WorkflowTaskComment{ID: row.ID, TaskID: string(row.TaskID), Body: row.Body, Author: row.Author, AuthorID: row.AuthorID, CreatedAtUnixMs: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 func optionalStringValue(value *string) string {

@@ -13,6 +13,16 @@ type TaskListError struct {
 	Failure *taskpb.ListError
 }
 
+func taskEntityGeneratedError[Failure interface {
+	GetCode() string
+	GetTaskNotFound() *taskpb.TaskNotFoundDetails
+}](failure Failure) error {
+	if failure.GetTaskNotFound() != nil {
+		return serverapi.ErrWorkflowTaskNotFound
+	}
+	return generatedOperationFailure(failure.GetCode())
+}
+
 type taskMutationFailure interface {
 	worktreeFailure
 	GetTaskNotFound() *taskpb.TaskNotFoundDetails

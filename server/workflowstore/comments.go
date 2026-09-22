@@ -86,7 +86,14 @@ func (s *Store) listComments(ctx context.Context, taskID workflow.TaskID, offset
 	}
 	out := make([]CommentRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, CommentRecord{ID: row.ID, TaskID: workflow.TaskID(row.TaskID), Body: row.Body, Author: row.AuthorKind, AuthorID: row.AuthorID, CreatedAt: row.CreatedAtUnixMs, UpdatedAt: row.UpdatedAtUnixMs})
+		out = append(out, CommentRecordFromRow(row))
 	}
 	return out, nil
+}
+
+func CommentRecordFromRow(row sqlitegen.TaskComment) CommentRecord {
+	return CommentRecord{
+		ID: row.ID, TaskID: workflow.TaskID(row.TaskID), Body: row.Body, Author: row.AuthorKind,
+		AuthorID: row.AuthorID, CreatedAt: row.CreatedAtUnixMs, UpdatedAt: row.UpdatedAtUnixMs,
+	}
 }

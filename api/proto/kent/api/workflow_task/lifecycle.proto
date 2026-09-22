@@ -1351,16 +1351,16 @@ service TaskDependencyService {
 
 service TaskCommentService {
   rpc Add(CommentAddRequest) returns (CommentAddResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.add"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc List(TaskOffsetPageRequest) returns (CommentListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Replace(CommentReplaceRequest) returns (CommentReplaceResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.replace"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Delete(CommentDeleteRequest) returns (CommentDeleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.delete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 

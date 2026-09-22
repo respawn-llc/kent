@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ActivityPage, AttentionPage, CommentPage, OffsetPage, TaskAttention } from "../models";
+import type { ActivityPage, AttentionPage, OffsetPage, TaskAttention } from "../models";
 import { attentionItemSchema, commentSchema, nonBlankString } from "./common";
 
 function offsetPageObjectSchema<T>(itemSchema: z.ZodType<T>) {
@@ -72,12 +72,3 @@ const activityItemSchema = z.discriminatedUnion("type", [
 ]);
 
 export const activityPageSchema: z.ZodType<ActivityPage> = offsetPageSchema(activityItemSchema);
-export const commentAddResponseSchema = z.object({ comment: commentSchema });
-export const commentPageSchema: z.ZodType<CommentPage> = offsetPageObjectSchema(commentSchema)
-  .extend({ total_count: z.number().int().nonnegative() })
-  .strict()
-  .transform((value) => ({
-    items: value.items,
-    nextOffset: value.next_offset ?? null,
-    totalCount: value.total_count,
-  }));

@@ -10,9 +10,9 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
+	"core/server/workflowstore"
 	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -94,16 +94,20 @@ func (*TaskProjector) ProjectTaskFacts(input TaskFactsInput) TaskFacts {
 	}
 }
 
-func (*TaskProjector) ProjectComment(comment sqlitegen.TaskComment) serverapi.WorkflowTaskComment {
-	return serverapi.WorkflowTaskComment{
-		ID:              comment.ID,
-		TaskID:          comment.TaskID,
-		Body:            comment.Body,
-		Author:          comment.AuthorKind,
-		AuthorID:        comment.AuthorID,
-		CreatedAtUnixMs: comment.CreatedAtUnixMs,
-		UpdatedAt:       comment.UpdatedAtUnixMs,
+func Comment(comment workflowstore.CommentRecord) (*taskpb.Comment, error) {
+	author, err := protoapi.TaskCommentAuthor.Encode(comment.Author)
+	if err != nil {
+		return nil, err
 	}
+	var authorID *string
+	if comment.AuthorID != "" {
+		authorID = &comment.AuthorID
+	}
+	return &taskpb.Comment{
+		Id: comment.ID, TaskId: string(comment.TaskID), Body: comment.Body, Author: author, AuthorId: authorID,
+		CreatedAt: timestamppb.New(time.UnixMilli(comment.CreatedAt)),
+		UpdatedAt: timestamppb.New(time.UnixMilli(comment.UpdatedAt)),
+	}, nil
 }
 
 func ProjectCurrentNodes(nodes []workflow.CurrentNode) []*taskpb.AttentionCurrentNode {

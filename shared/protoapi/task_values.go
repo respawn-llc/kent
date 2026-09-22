@@ -108,6 +108,11 @@ var TaskDependencyErrorReason = workflowValueNames(map[pb.DependencyErrorReason]
 	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_BLOCKED_LIMIT:    "blocked_limit",
 })
 
+var TaskCommentAuthor = workflowValueNames(map[pb.CommentAuthorKind]string{
+	pb.CommentAuthorKind_COMMENT_AUTHOR_KIND_USER:  "user",
+	pb.CommentAuthorKind_COMMENT_AUTHOR_KIND_AGENT: "agent",
+})
+
 var TaskExecutionResolutionCode = workflowValueNames(map[pb.ExecutionTargetResolutionCode]string{
 	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION: "invalid_revision",
 	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT:       "non_commit",

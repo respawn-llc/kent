@@ -376,11 +376,11 @@ export class ApiClient implements ApiService {
   }
 
   async replaceComment(commentID: string, body: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.replace", { comment_id: commentID, body });
+    await taskDetail.replaceComment(this.#transport, commentID, body);
   }
 
   async deleteComment(commentID: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.delete", { comment_id: commentID });
+    await taskDetail.deleteComment(this.#transport, commentID);
   }
 
   async answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse> {

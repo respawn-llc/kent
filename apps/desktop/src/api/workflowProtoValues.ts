@@ -13,7 +13,7 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
-import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker, DependencyMutationOutcome, DependencyErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker, DependencyMutationOutcome, DependencyErrorReason, CommentAuthorKind } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import {
   TaskStatusKind,
@@ -125,6 +125,11 @@ export const taskDependencyErrorReason = workflowEnum([
   [DependencyErrorReason.RECIPROCAL, "reciprocal_dependency"],
   [DependencyErrorReason.BLOCKER_LIMIT, "blocker_limit"],
   [DependencyErrorReason.BLOCKED_LIMIT, "blocked_limit"],
+]);
+
+export const taskCommentAuthor = workflowEnum([
+  [CommentAuthorKind.USER, "user"],
+  [CommentAuthorKind.AGENT, "agent"],
 ]);
 
 export const taskExecutionProvenance = workflowEnum([
