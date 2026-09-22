@@ -1206,23 +1206,27 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
 
-	oldWorkspace, err := singleWorkspaceByCanonicalRoot(ctx, q, oldCanonicalRoot)
+	bindingRows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, oldCanonicalRoot)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Binding{}, serverapi.ErrWorkspaceNotRegistered
-		}
 		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
 	}
-	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.ID != trimmedExpectedWorkspaceID {
+	oldWorkspace, err := bindingFromCanonicalRootRows(oldCanonicalRoot, bindingRows)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Binding{}, serverapi.ErrWorkspaceNotRegistered
+	}
+	if err != nil {
+		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
+	}
+	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.WorkspaceID != trimmedExpectedWorkspaceID {
 		return Binding{}, fmt.Errorf(
 			"workspace rebind preparation was invalidated: expected_project_id=%q expected_workspace_id=%q current_project_id=%q current_workspace_id=%q",
 			trimmedExpectedProjectID,
 			trimmedExpectedWorkspaceID,
 			oldWorkspace.ProjectID,
-			oldWorkspace.ID,
+			oldWorkspace.WorkspaceID,
 		)
 	}
-	if newCanonicalRoot == oldWorkspace.CanonicalRootPath {
+	if newCanonicalRoot == oldWorkspace.CanonicalRoot {
 		if err := tx.Commit(); err != nil {
 			return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 		}
@@ -1232,7 +1236,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		ProjectID:         oldWorkspace.ProjectID,
 		CanonicalRootPath: newCanonicalRoot,
 	}); err == nil {
-		if existing.WorkspaceID == oldWorkspace.ID {
+		if existing.WorkspaceID == oldWorkspace.WorkspaceID {
 			if err := tx.Commit(); err != nil {
 				return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 			}
@@ -1242,7 +1246,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Binding{}, fmt.Errorf("get new workspace binding: %w", err)
 	}
-	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.ID)
+	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.WorkspaceID)
 	if err != nil {
 		return Binding{}, fmt.Errorf("list workspace worktrees: %w", err)
 	}
@@ -1250,8 +1254,8 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		rebindWorkspaceBeforeUpdateHook()
 	}
 	now := time.Now().UTC().UnixMilli()
-	rows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
-		ID:                oldWorkspace.ID,
+	updatedRows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
+		ID:                oldWorkspace.WorkspaceID,
 		CanonicalRootPath: newCanonicalRoot,
 		UpdatedAtUnixMs:   now,
 	})
@@ -1259,7 +1263,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return Binding{}, fmt.Errorf("rollback workspace rebind tx: %w", rollbackErr)
 		}
-		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
+		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.WorkspaceID {
 			return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 		}
 		if IsSQLiteUniqueConstraint(err) {
@@ -1267,7 +1271,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		}
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: %w", err)
 	}
-	if rows == 0 {
+	if updatedRows == 0 {
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: workspace %q was not updated", oldCanonicalRoot)
 	}
 	for _, worktree := range worktrees {
@@ -1294,25 +1298,6 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		return Binding{}, fmt.Errorf("commit workspace rebind tx: %w", err)
 	}
 	return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
-}
-
-func singleWorkspaceByCanonicalRoot(ctx context.Context, q *sqlitegen.Queries, canonicalRoot string) (sqlitegen.Workspace, error) {
-	rows, err := q.ListWorkspacesByCanonicalRoot(ctx, canonicalRoot)
-	if err != nil {
-		return sqlitegen.Workspace{}, err
-	}
-	switch len(rows) {
-	case 0:
-		return sqlitegen.Workspace{}, sql.ErrNoRows
-	case 1:
-		return rows[0], nil
-	default:
-		projectIDs := make([]string, 0, len(rows))
-		for _, row := range rows {
-			projectIDs = append(projectIDs, row.ProjectID)
-		}
-		return sqlitegen.Workspace{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
-	}
 }
 
 func (s *Store) lookupProjectWorkspaceBinding(ctx context.Context, projectID string, canonicalRoot string) (Binding, error) {

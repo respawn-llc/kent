@@ -7887,50 +7887,6 @@ func (q *Queries) ListWorkspaceSessionIDs(ctx context.Context, workspaceID sql.N
 	return items, nil
 }
 
-const listWorkspacesByCanonicalRoot = `-- name: ListWorkspacesByCanonicalRoot :many
-SELECT
-    id,
-    project_id,
-    canonical_root_path,
-    git_metadata_json,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM workspaces
-WHERE canonical_root_path = ?1
-ORDER BY created_at_unix_ms ASC, rowid ASC
-`
-
-func (q *Queries) ListWorkspacesByCanonicalRoot(ctx context.Context, canonicalRootPath string) ([]Workspace, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspacesByCanonicalRoot, canonicalRootPath)
-	err = recordQueryError(ctx, err, listWorkspacesByCanonicalRoot, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Workspace
-	for rows.Next() {
-		var i Workspace
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.CanonicalRootPath,
-			&i.GitMetadataJson,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-		), listWorkspacesByCanonicalRoot, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listWorkspacesByCanonicalRoot, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listWorkspacesByCanonicalRoot, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listWorktreesByWorkspaceID = `-- name: ListWorktreesByWorkspaceID :many
 SELECT
     wt.id,
