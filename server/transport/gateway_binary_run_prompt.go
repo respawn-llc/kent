@@ -9,6 +9,7 @@ import (
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBinding) error {
@@ -26,7 +27,7 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 		request: func() proto.Message { return &runpromptpb.Request{} },
 		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return gatewayBinaryFailureResult(method, &runpromptpb.Error{Code: serverapi.TimeoutErrorCode})
+				return gatewayBinaryFailureResult(method, &emptypb.Empty{})
 			}
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)

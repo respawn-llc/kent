@@ -298,7 +298,7 @@ func projectObservationError(operation observationOperation, target observationJ
 			}},
 		}, 130
 	case errors.Is(err, context.DeadlineExceeded):
-		code = serverapi.TimeoutErrorCode
+		code = "timeout"
 	case errors.Is(err, serverapi.ErrWorkflowTaskNotFound), errors.Is(err, serverapi.ErrProjectNotFound), errors.Is(err, sql.ErrNoRows):
 		code = "target_not_found"
 	case errors.Is(err, serverapi.ErrRuntimeNoActiveRun):

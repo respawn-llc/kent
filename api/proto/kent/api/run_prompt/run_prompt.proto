@@ -60,6 +60,10 @@ message Error {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
     }];
+    google.protobuf.Empty timeout = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "timeout"
+    }];
   }
 }
 

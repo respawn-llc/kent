@@ -93,7 +93,7 @@ func runErrorCode(err error) string {
 		return ""
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return serverapi.TimeoutErrorCode
+		return "timeout"
 	}
 	if errors.Is(err, context.Canceled) {
 		return "interrupted"
