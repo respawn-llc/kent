@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -41,6 +42,9 @@ func authGeneratedError(code string, internal *sharedpb.InternalFailureDetails) 
 func generatedOperationFailure(code string) error {
 	if code == "" {
 		return errors.New("server operation failed")
+	}
+	if code == serverapi.TimeoutErrorCode {
+		return context.DeadlineExceeded
 	}
 	return fmt.Errorf("server operation failed with code %q", code)
 }

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -20,6 +21,12 @@ import (
 type controlledRunPrompt struct {
 	release   <-chan struct{}
 	sessionID string
+}
+
+type timeoutRunPrompt struct{}
+
+func (timeoutRunPrompt) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	return nil, context.DeadlineExceeded
 }
 
 func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromptRequest, sink serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
@@ -179,5 +186,36 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	}
 	if finalResult.GetSuccess().GetResult() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
+	}
+}
+
+func TestRunPromptBinaryPreservesTimeoutClassification(t *testing.T) {
+	core, _ := newGatewayTestCore(t, true, true)
+	defer core.Close()
+	gateway, err := NewGateway(runPromptTestDependencies{
+		GatewayDependencies: core,
+		run:                 timeoutRunPrompt{},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		gateway.handleConn(ctx, conn)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	client, err := remoteclient.DialRemoteURLForProject(ctx, "ws"+server.URL[len("http"):], core.ProjectID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.RunPrompt(ctx, serverapi.RunPromptRequest{
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Prompt: "continue",
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunPrompt error = %v, want context deadline exceeded", err)
 	}
 }

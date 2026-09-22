@@ -53,6 +53,9 @@ func parseRunOutputMode(raw string) (runOutputMode, error) {
 }
 
 func runErrorMessage(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "run timed out"
+	}
 	var policy *protocol.SubagentLaunchPolicyError
 	if errors.As(err, &policy) {
 		return policy.Error()
@@ -90,7 +93,7 @@ func runErrorCode(err error) string {
 		return ""
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
+		return serverapi.TimeoutErrorCode
 	}
 	if errors.Is(err, context.Canceled) {
 		return "interrupted"
