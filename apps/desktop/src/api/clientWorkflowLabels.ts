@@ -17,6 +17,7 @@ import {
 import { TaskLabelService, TaskLifecycleService, DependencyRole } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
+import { throwTaskDependencyFailure } from "./taskDependencyFailure";
 import type { DescriptorRpcTransport } from "./transport";
 import { canonicalTaskLabelFilter } from "./workflowLabels";
 import { taskListPage, projectTaskGroupCounts } from "./clientTaskProjection";
@@ -189,6 +190,7 @@ export async function createTask(
     })),
   }));
   throwWorkflowLabelFailure(method, result.outcome);
+  throwTaskDependencyFailure(method, result.outcome);
   if (result.outcome.case === "error" &&
       classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
       result.outcome.value.detail.case === "createSelection") {

@@ -6,9 +6,6 @@ import (
 )
 
 const (
-	MethodWorkflowTaskDependencyAdd      = "workflow.task.dependency.add"
-	MethodWorkflowTaskDependencyRemove   = "workflow.task.dependency.remove"
-	MethodWorkflowTaskDependencyList     = "workflow.task.dependency.list"
 	MethodWorkflowAttentionList          = "workflow.attention.list"
 	MethodWorkflowTaskAttentionList      = "workflow.task.attention.list"
 	MethodWorkflowTaskCommentAdd         = "workflow.task.comment.add"

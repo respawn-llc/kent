@@ -550,7 +550,13 @@ message DependencyListDirection {
 message DependencyListSuccess {
   string task_id = 1 [(buf.validate.field).string.min_len = 1];
   string short_id = 2 [(buf.validate.field).string.min_len = 1];
-  repeated DependencyListDirection directions = 3;
+  repeated DependencyListDirection directions = 3 [(buf.validate.field).repeated.max_items = 2];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_list_directions_unique"
+    message: "dependency directions must be unique"
+    expression: "this.directions.map(direction, direction.direction).unique()"
+  };
 }
 
 message Comment {
@@ -1216,6 +1222,11 @@ message DependencyAddResult {
     DependencyMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     DependencyAddError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_add_outcome"
+    message: "dependency Add requires an added or already-present outcome"
+    expression: "!has(this.success) || this.success.outcome in [1, 2]"
+  };
 }
 message DependencyRemoveResult {
   oneof outcome {
@@ -1223,6 +1234,11 @@ message DependencyRemoveResult {
     DependencyMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     DependencyRemoveError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_remove_outcome"
+    message: "dependency Remove requires a removed or already-absent outcome"
+    expression: "!has(this.success) || this.success.outcome in [3, 4]"
+  };
 }
 message DependencyListResult {
   oneof outcome {
@@ -1323,13 +1339,13 @@ service TaskLifecycleService {
 
 service TaskDependencyService {
   rpc Add(DependencyAddRequest) returns (DependencyAddResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.add"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Remove(DependencyRemoveRequest) returns (DependencyRemoveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.remove"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc List(DependencyListRequest) returns (DependencyListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 

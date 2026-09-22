@@ -760,82 +760,60 @@ func (s *Service) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequ
 	return &taskpb.CreateSuccess{Task: detail.Summary}, nil
 }
 
-func (s *Service) AddWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyAddRequest) (serverapi.WorkflowTaskDependencyAddResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskDependencyAddResponse{}, err
+func (s *Service) AddWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyAddRequest) (*taskpb.DependencyMutationSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	result, err := s.store.AddTaskDependency(ctx, workflowstore.TaskDependencyAddRequest{
-		BlockerTaskID: workflow.TaskID(req.BlockerTaskID),
-		BlockedTaskID: workflow.TaskID(req.BlockedTaskID),
+		BlockerTaskID: workflow.TaskID(req.BlockerTaskId),
+		BlockedTaskID: workflow.TaskID(req.BlockedTaskId),
 	})
 	if err != nil {
-		return serverapi.WorkflowTaskDependencyAddResponse{}, workflowTaskDependencyError(err)
+		return nil, err
 	}
 	if result.Outcome == workflowstore.TaskDependencyAdded {
 		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionDependenciesChanged, string(result.BlockerTaskID), string(result.BlockedTaskID))
 	}
-	return serverapi.WorkflowTaskDependencyAddResponse{
-		Outcome:        serverapi.WorkflowTaskDependencyOutcome(result.Outcome),
-		BlockerTaskID:  string(result.BlockerTaskID),
-		BlockerShortID: result.BlockerShortID,
-		BlockedTaskID:  string(result.BlockedTaskID),
-		BlockedShortID: result.BlockedShortID,
-	}, nil
+	return workflowDependencyMutationSuccess(result.Outcome, result.BlockerTaskID, result.BlockerShortID, result.BlockedTaskID, result.BlockedShortID)
 }
 
-func (s *Service) RemoveWorkflowTaskDependency(ctx context.Context, req serverapi.WorkflowTaskDependencyRemoveRequest) (serverapi.WorkflowTaskDependencyRemoveResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskDependencyRemoveResponse{}, err
+func (s *Service) RemoveWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyRemoveRequest) (*taskpb.DependencyMutationSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	result, err := s.store.RemoveTaskDependency(ctx, workflowstore.TaskDependencyRemoveRequest{
-		BlockerTaskID: workflow.TaskID(req.BlockerTaskID),
-		BlockedTaskID: workflow.TaskID(req.BlockedTaskID),
+		BlockerTaskID: workflow.TaskID(req.BlockerTaskId),
+		BlockedTaskID: workflow.TaskID(req.BlockedTaskId),
 	})
 	if err != nil {
-		return serverapi.WorkflowTaskDependencyRemoveResponse{}, workflowTaskDependencyError(err)
+		return nil, err
 	}
 	if result.Outcome == workflowstore.TaskDependencyRemoved {
 		s.publishProjectWorkflowEvent(ctx, result.ProjectID, result.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionDependenciesChanged, string(result.BlockerTaskID), string(result.BlockedTaskID))
 	}
-	return serverapi.WorkflowTaskDependencyRemoveResponse{
-		Outcome:        serverapi.WorkflowTaskDependencyOutcome(result.Outcome),
-		BlockerTaskID:  string(result.BlockerTaskID),
-		BlockerShortID: result.BlockerShortID,
-		BlockedTaskID:  string(result.BlockedTaskID),
-		BlockedShortID: result.BlockedShortID,
+	return workflowDependencyMutationSuccess(result.Outcome, result.BlockerTaskID, result.BlockerShortID, result.BlockedTaskID, result.BlockedShortID)
+}
+
+func workflowDependencyMutationSuccess(
+	outcome workflowstore.TaskDependencyMutationOutcome,
+	blockerID workflow.TaskID, blockerShortID string,
+	blockedID workflow.TaskID, blockedShortID string,
+) (*taskpb.DependencyMutationSuccess, error) {
+	code, err := protoapi.TaskDependencyMutationOutcome.Encode(string(outcome))
+	if err != nil {
+		return nil, err
+	}
+	return &taskpb.DependencyMutationSuccess{
+		Outcome: code, BlockerTaskId: string(blockerID), BlockerShortId: blockerShortID,
+		BlockedTaskId: string(blockedID), BlockedShortId: blockedShortID,
 	}, nil
 }
 
-func (s *Service) ListWorkflowTaskDependencies(ctx context.Context, req serverapi.WorkflowTaskDependencyListRequest) (serverapi.WorkflowTaskDependencyListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskDependencyListResponse{}, err
+func (s *Service) ListWorkflowTaskDependencies(ctx context.Context, req *taskpb.DependencyListRequest) (*taskpb.DependencyListSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	return s.readModels.TaskDependencies.ListTaskDependencies(ctx, req.TaskID, req.Direction)
-}
-
-func workflowTaskDependencyError(err error) error {
-	var policyErr workflow.TaskDependencyPolicyError
-	if !errors.As(err, &policyErr) {
-		return err
-	}
-	apiErr := &serverapi.WorkflowTaskDependencyError{
-		Reason:        serverapi.WorkflowTaskDependencyErrorReason(policyErr.Reason),
-		BlockerTaskID: string(policyErr.BlockerTaskID),
-		BlockedTaskID: string(policyErr.BlockedTaskID),
-	}
-	if policyErr.MissingTaskID != nil {
-		value := string(*policyErr.MissingTaskID)
-		apiErr.MissingTaskID = &value
-	}
-	if policyErr.CurrentCount != nil {
-		value := int(*policyErr.CurrentCount)
-		apiErr.CurrentCount = &value
-	}
-	if policyErr.Limit != nil {
-		value := int(*policyErr.Limit)
-		apiErr.Limit = &value
-	}
-	return apiErr
+	return s.readModels.TaskDependencies.ListTaskDependencies(ctx, req.TaskId, req.Direction)
 }
 
 func workflowTaskStartError(err error) error {

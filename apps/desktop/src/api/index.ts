@@ -121,7 +121,6 @@ export {
   TaskSearchError,
   decodeWorkflowLabelError,
   isTaskContextSelectionRequiredError,
-  decodeWorkflowTaskDependencyError,
   isProjectMissingError,
   isTaskMissingError,
   ServerRootMismatchError,

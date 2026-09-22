@@ -2,13 +2,6 @@ import { z } from "zod";
 import type { ActivityPage, AttentionPage, CommentPage, OffsetPage, TaskAttention } from "../models";
 import { attentionItemSchema, commentSchema, nonBlankString } from "./common";
 
-export {
-  taskDependenciesSchema,
-  taskDependencyAddResponseSchema,
-  taskDependencyListResponseSchema,
-  taskDependencyRemoveResponseSchema,
-} from "./taskDependencies";
-
 function offsetPageObjectSchema<T>(itemSchema: z.ZodType<T>) {
   return z.object({
     items: z.array(itemSchema),

@@ -19,6 +19,7 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 	read := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService")
 	board := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("BoardReadService")
 	lifecycle := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService")
+	dependencies := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService")
 	return errors.Join(
 		registerWorkflowUnary(bindings, read, "List",
 			func() *taskpb.ListRequest { return &taskpb.ListRequest{} },
@@ -68,7 +69,24 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 		registerWorkflowUnary(bindings, lifecycle, "Complete",
 			func() *taskpb.CompleteRequest { return &taskpb.CompleteRequest{} },
 			apicontract.WorkflowService.CompleteWorkflowTask, binaryTaskCompleteFailure),
+		registerWorkflowUnary(bindings, dependencies, "Add",
+			func() *taskpb.DependencyAddRequest { return &taskpb.DependencyAddRequest{} },
+			apicontract.WorkflowService.AddWorkflowTaskDependency, binaryTaskDependencyMutationFailure[*taskpb.DependencyAddRequest]),
+		registerWorkflowUnary(bindings, dependencies, "Remove",
+			func() *taskpb.DependencyRemoveRequest { return &taskpb.DependencyRemoveRequest{} },
+			apicontract.WorkflowService.RemoveWorkflowTaskDependency, binaryTaskDependencyMutationFailure[*taskpb.DependencyRemoveRequest]),
+		registerWorkflowUnary(bindings, dependencies, "List",
+			func() *taskpb.DependencyListRequest { return &taskpb.DependencyListRequest{} },
+			apicontract.WorkflowService.ListWorkflowTaskDependencies, binaryTaskEntityFailure[*taskpb.DependencyListRequest]),
 	)
+}
+
+func binaryTaskDependencyMutationFailure[Request proto.Message](request Request, err error) proto.Message {
+	var failure workflow.TaskDependencyPolicyError
+	if errors.As(err, &failure) {
+		return binaryTaskDependencyFailure(failure)
+	}
+	return binaryWorkflowCreateFailure(request, err)
 }
 
 func binaryTaskCompleteFailure(request *taskpb.CompleteRequest, err error) proto.Message {

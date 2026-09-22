@@ -13,7 +13,7 @@ import {
   ValidationErrorCode,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
-import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { CreateSelectionReason, LockedExecutionTargetCause, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker, DependencyMutationOutcome, DependencyErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import {
   TaskStatusKind,
@@ -109,6 +109,22 @@ export const taskDependencyDirection = workflowEnum([
 export const taskDependencySatisfaction = workflowEnum([
   [DependencySatisfaction.SATISFIED, "satisfied"],
   [DependencySatisfaction.UNSATISFIED, "unsatisfied"],
+]);
+
+export const taskDependencyMutationOutcome = workflowEnum([
+  [DependencyMutationOutcome.ADDED, "added"],
+  [DependencyMutationOutcome.ALREADY_PRESENT, "already_present"],
+  [DependencyMutationOutcome.REMOVED, "removed"],
+  [DependencyMutationOutcome.ALREADY_ABSENT, "already_absent"],
+]);
+
+export const taskDependencyErrorReason = workflowEnum([
+  [DependencyErrorReason.MISSING_TASK, "missing_task"],
+  [DependencyErrorReason.SELF, "self_dependency"],
+  [DependencyErrorReason.PROJECT_MISMATCH, "project_mismatch"],
+  [DependencyErrorReason.RECIPROCAL, "reciprocal_dependency"],
+  [DependencyErrorReason.BLOCKER_LIMIT, "blocker_limit"],
+  [DependencyErrorReason.BLOCKED_LIMIT, "blocked_limit"],
 ]);
 
 export const taskExecutionProvenance = workflowEnum([

@@ -82,6 +82,32 @@ var TaskSearchSourceKind = workflowValueNames(map[pb.SearchSourceKind]string{
 	pb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT:  "comment",
 })
 
+var TaskDependencyDirection = workflowValueNames(map[pb.DependencyDirection]string{
+	pb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY: "blocked-by",
+	pb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS:     "blocks",
+})
+
+var TaskDependencySatisfaction = workflowValueNames(map[pb.DependencySatisfaction]string{
+	pb.DependencySatisfaction_DEPENDENCY_SATISFACTION_SATISFIED:   "satisfied",
+	pb.DependencySatisfaction_DEPENDENCY_SATISFACTION_UNSATISFIED: "unsatisfied",
+})
+
+var TaskDependencyMutationOutcome = workflowValueNames(map[pb.DependencyMutationOutcome]string{
+	pb.DependencyMutationOutcome_DEPENDENCY_MUTATION_OUTCOME_ADDED:           "added",
+	pb.DependencyMutationOutcome_DEPENDENCY_MUTATION_OUTCOME_ALREADY_PRESENT: "already_present",
+	pb.DependencyMutationOutcome_DEPENDENCY_MUTATION_OUTCOME_REMOVED:         "removed",
+	pb.DependencyMutationOutcome_DEPENDENCY_MUTATION_OUTCOME_ALREADY_ABSENT:  "already_absent",
+})
+
+var TaskDependencyErrorReason = workflowValueNames(map[pb.DependencyErrorReason]string{
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_MISSING_TASK:     "missing_task",
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_SELF:             "self_dependency",
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_PROJECT_MISMATCH: "project_mismatch",
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_RECIPROCAL:       "reciprocal_dependency",
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_BLOCKER_LIMIT:    "blocker_limit",
+	pb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_BLOCKED_LIMIT:    "blocked_limit",
+})
+
 var TaskExecutionResolutionCode = workflowValueNames(map[pb.ExecutionTargetResolutionCode]string{
 	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION: "invalid_revision",
 	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT:       "non_commit",

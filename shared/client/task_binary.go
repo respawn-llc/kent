@@ -78,6 +78,31 @@ type TaskCreateError struct {
 	Failure *taskpb.CreateError
 }
 
+type TaskDependencyError struct {
+	Detail *taskpb.DependencyErrorDetails
+}
+
+func (e *TaskDependencyError) Error() string {
+	reason, err := protoapi.TaskDependencyErrorReason.Decode(e.Detail.Reason)
+	if err != nil {
+		return err.Error()
+	}
+	if e.Detail.MissingTaskId != nil {
+		return fmt.Sprintf("workflow task dependency error: %s (%s)", reason, *e.Detail.MissingTaskId)
+	}
+	return "workflow task dependency error: " + reason
+}
+
+func taskDependencyGeneratedError[Failure interface {
+	GetCode() string
+	GetDependency() *taskpb.DependencyErrorDetails
+}](failure Failure) error {
+	if failure.GetDependency() != nil {
+		return &TaskDependencyError{Detail: failure.GetDependency()}
+	}
+	return generatedOperationFailure(failure.GetCode())
+}
+
 func (e *TaskCreateError) Error() string {
 	return fmt.Sprintf("task creation failed with code %q", e.Failure.Code)
 }

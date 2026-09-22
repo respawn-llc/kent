@@ -1,177 +1,122 @@
-import { unexpectedProjectOverflow } from "@/test-support/api";
+import { create } from "@app/server-api-contract";
+import * as read from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { taskDetailResponse } from "@/test-support/task-detail";
 import { ApiClient } from "./client";
-import { taskDependenciesSchema, taskDependencyListResponseSchema } from "./schemas/workflowBoard";
-import { FakeRpcTransport } from "@/test-support/api";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 
-const status = {
-  kind: "backlog",
-  native_state: "active",
-  node_ids: [],
-  attention_types: [],
-};
+const item = create(read.DependencyItemSchema, {
+  taskId: "task-2", shortId: "KENT-2", title: "Prepare release",
+  workflowId: "11111111-1111-4111-8111-111111111111",
+  status: { kind: read.TaskStatusKind.BACKLOG, nativeState: read.TaskNativeState.ACTIVE },
+  satisfaction: read.DependencySatisfaction.UNSATISFIED,
+});
 
-const dependencyItem = {
-  task_id: "task-2",
-  short_id: "KENT-2",
-  title: "Prepare release",
-  workflow_id: "workflow-2",
-  status,
-};
+function detailClient(dependencies: read.TaskDependencies) {
+  return new ApiClient(new FakeRpcTransport([{
+    descriptor: read.TaskReadService.method.get,
+    result: create(read.GetResultSchema, { outcome: { case: "success", value: {
+      task: create(read.TaskDetailSchema, { ...taskDetailResponse.task, dependencies }),
+    } } }),
+  }]), unexpectedProjectOverflow);
+}
 
 describe("task dependency client contract", () => {
-  it("parses strict detail availability and server-owned blocker satisfaction", () => {
-    const parsed = taskDependenciesSchema.parse({
-      blocker_count: 1,
-      unsatisfied_blocker_count: 1,
-      directly_blocked_task_count: 0,
-      directions: [
-        {
-          direction: "blocked-by",
-          total_count: 1,
-          unsatisfied_count: 1,
-          items: [{ ...dependencyItem, satisfaction: "unsatisfied" }],
-          add_availability: { available: { remaining_capacity: 49 } },
-        },
-        {
-          direction: "blocks",
-          total_count: 0,
-          items: [],
-          add_availability: { limit_reached: {} },
-        },
-      ],
-    });
-
-    expect(parsed).toMatchObject({
-      blockerCount: 1,
-      unsatisfiedBlockerCount: 1,
-      directlyBlockedTaskCount: 0,
-      directions: [
-        {
-          direction: "blocked-by",
-          items: [{ satisfaction: "unsatisfied", status: { kind: "backlog" } }],
-          addAvailability: { kind: "available", remainingCapacity: 49 },
-        },
-        {
-          direction: "blocks",
-          addAvailability: { kind: "limit_reached" },
-        },
-      ],
-    });
+  it("rejects outcomes belonging to the opposite dependency mutation", async () => {
+    for (const add of [true, false]) {
+      const value = create(lifecycle.DependencyMutationSuccessSchema, {
+        outcome: add ? lifecycle.DependencyMutationOutcome.REMOVED : lifecycle.DependencyMutationOutcome.ADDED,
+        blockerTaskId: "task-1", blockerShortId: "KENT-1", blockedTaskId: "task-2", blockedShortId: "KENT-2",
+      });
+      const transport = new FakeRpcTransport(add ? [{
+        descriptor: lifecycle.TaskDependencyService.method.add,
+        result: create(lifecycle.DependencyAddResultSchema, { outcome: { case: "success", value } }),
+      }] : [{
+        descriptor: lifecycle.TaskDependencyService.method.remove,
+        result: create(lifecycle.DependencyRemoveResultSchema, { outcome: { case: "success", value } }),
+      }]);
+      const client = new ApiClient(transport, unexpectedProjectOverflow);
+      await expect(add ? client.addTaskDependency("task-1", "task-2") : client.removeTaskDependency("task-1", "task-2")).rejects.toThrow();
+    }
   });
 
-  it("rejects malformed direction fields, legacy availability, and inconsistent counts", () => {
-    const base = {
-      blocker_count: 0,
-      unsatisfied_blocker_count: 0,
-      directly_blocked_task_count: 0,
+  it("projects detail availability and server-owned satisfaction", async () => {
+    const client = detailClient(create(read.TaskDependenciesSchema, {
+      blockerCount: 1, unsatisfiedBlockerCount: 1,
       directions: [
         {
-          direction: "blocked-by",
-          total_count: 0,
-          unsatisfied_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 1 } },
+          direction: read.DependencyDirection.BLOCKED_BY, totalCount: 1, unsatisfiedCount: 1,
+          items: [item], addAvailability: { availability: { case: "available", value: { remainingCapacity: 49 } } },
         },
-        {
-          direction: "blocks",
-          total_count: 0,
-          items: [],
-          add_availability: { available: { remaining_capacity: 1 } },
-        },
+        { direction: read.DependencyDirection.BLOCKS, addAvailability: { availability: { case: "limitReached", value: {} } } },
       ],
-    };
-    expect(() =>
-      taskDependenciesSchema.parse({
-        ...base,
-        directions: [{ ...base.directions[0], unsatisfied_count: 1 }, base.directions[1]],
-      }),
-    ).toThrow();
-    expect(() =>
-      taskDependenciesSchema.parse({
-        ...base,
-        directions: [base.directions[0], { ...base.directions[1], unsatisfied_count: 0 }],
-      }),
-    ).toThrow();
-    expect(() =>
-      taskDependenciesSchema.parse({
-        ...base,
+    }));
+    await expect(client.getTask("task-1")).resolves.toMatchObject({
+      dependencies: {
+        blockerCount: 1, unsatisfiedBlockerCount: 1, directlyBlockedTaskCount: 0,
         directions: [
-          { ...base.directions[0], add_availability: { remaining_capacity: 1 } },
-          base.directions[1],
+          { direction: "blocked-by", items: [{ satisfaction: "unsatisfied" }], addAvailability: { kind: "available", remainingCapacity: 49 } },
+          { direction: "blocks", addAvailability: { kind: "limit_reached" } },
         ],
-      }),
-    ).toThrow();
+      },
+    });
   });
 
-  it("calls add, remove, and focused list using the locked methods and fields", async () => {
-    const mutation = {
-      outcome: "added",
-      blocker_task_id: "task-1",
-      blocker_short_id: "KENT-1",
-      blocked_task_id: "task-2",
-      blocked_short_id: "KENT-2",
-    };
+  it("rejects inconsistent counts and missing availability", async () => {
+    for (const directions of [
+      [
+        create(read.DependencyDirectionProjectionSchema, { direction: read.DependencyDirection.BLOCKED_BY, unsatisfiedCount: 1,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 1 } } } }),
+        create(read.DependencyDirectionProjectionSchema, { direction: read.DependencyDirection.BLOCKS,
+          addAvailability: { availability: { case: "available", value: { remainingCapacity: 1 } } } }),
+      ],
+      [
+        create(read.DependencyDirectionProjectionSchema, { direction: read.DependencyDirection.BLOCKED_BY, unsatisfiedCount: 0 }),
+        create(read.DependencyDirectionProjectionSchema, { direction: read.DependencyDirection.BLOCKS }),
+      ],
+    ]) {
+      await expect(detailClient(create(read.TaskDependenciesSchema, { directions })).getTask("task-1")).rejects.toThrow();
+    }
+  });
+
+  it("sends relationship identities and keeps list output free of mutation availability", async () => {
+    const mutation = create(lifecycle.DependencyMutationSuccessSchema, {
+      outcome: lifecycle.DependencyMutationOutcome.ADDED, blockerTaskId: "task-1", blockerShortId: "KENT-1",
+      blockedTaskId: "task-2", blockedShortId: "KENT-2",
+    });
     const transport = new FakeRpcTransport([
-      { method: "workflow.task.dependency.add", result: mutation },
-      { method: "workflow.task.dependency.remove", result: { ...mutation, outcome: "removed" } },
       {
-        method: "workflow.task.dependency.list",
-        result: {
-          task_id: "task-2",
-          short_id: "KENT-2",
-          directions: [
-            {
-              direction: "blocked-by",
-              total_count: 1,
-              unsatisfied_count: 1,
-              items: [
-                { ...dependencyItem, task_id: "task-1", short_id: "KENT-1", satisfaction: "unsatisfied" },
-              ],
-            },
-          ],
-        },
+        descriptor: lifecycle.TaskDependencyService.method.add,
+        result: create(lifecycle.DependencyAddResultSchema, { outcome: { case: "success", value: mutation } }),
+      },
+      {
+        descriptor: lifecycle.TaskDependencyService.method.remove,
+        result: create(lifecycle.DependencyRemoveResultSchema, { outcome: { case: "success", value: {
+          ...mutation, outcome: lifecycle.DependencyMutationOutcome.REMOVED,
+        } } }),
+      },
+      {
+        descriptor: lifecycle.TaskDependencyService.method.list,
+        result: create(lifecycle.DependencyListResultSchema, { outcome: { case: "success", value: {
+          taskId: "task-2", shortId: "KENT-2", directions: [{
+            direction: read.DependencyDirection.BLOCKED_BY, totalCount: 1, unsatisfiedCount: 1, items: [item],
+          }],
+        } } }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.addTaskDependency("task-1", "task-2")).resolves.toMatchObject({
-      outcome: "added",
-      blockerTaskID: "task-1",
-      blockedTaskID: "task-2",
+      outcome: "added", blockerTaskID: "task-1", blockedTaskID: "task-2",
     });
-    await expect(client.removeTaskDependency("task-1", "task-2")).resolves.toMatchObject({
-      outcome: "removed",
+    await expect(client.removeTaskDependency("task-1", "task-2")).resolves.toMatchObject({ outcome: "removed" });
+    await expect(client.listTaskDependencies("task-2", "blocked-by")).resolves.toMatchObject({
+      taskID: "task-2", shortID: "KENT-2",
+      directions: [{ direction: "blocked-by", totalCount: 1, unsatisfiedCount: 1, items: [{ satisfaction: "unsatisfied" }] }],
     });
-    await expect(client.listTaskDependencies("task-2", "blocked-by")).resolves.toEqual(
-      taskDependencyListResponseSchema.parse({
-        task_id: "task-2",
-        short_id: "KENT-2",
-        directions: [
-          {
-            direction: "blocked-by",
-            total_count: 1,
-            unsatisfied_count: 1,
-            items: [
-              { ...dependencyItem, task_id: "task-1", short_id: "KENT-1", satisfaction: "unsatisfied" },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(transport.calls).toEqual([
-      {
-        method: "workflow.task.dependency.add",
-        params: { blocker_task_id: "task-1", blocked_task_id: "task-2" },
-      },
-      {
-        method: "workflow.task.dependency.remove",
-        params: { blocker_task_id: "task-1", blocked_task_id: "task-2" },
-      },
-      {
-        method: "workflow.task.dependency.list",
-        params: { task_id: "task-2", direction: "blocked-by" },
-      },
+    expect(transport.descriptorCalls.map(({ request }) => request)).toEqual([
+      create(lifecycle.DependencyAddRequestSchema, { blockerTaskId: "task-1", blockedTaskId: "task-2" }),
+      create(lifecycle.DependencyRemoveRequestSchema, { blockerTaskId: "task-1", blockedTaskId: "task-2" }),
+      create(lifecycle.DependencyListRequestSchema, { taskId: "task-2", direction: read.DependencyDirection.BLOCKED_BY }),
     ]);
   });
 });
