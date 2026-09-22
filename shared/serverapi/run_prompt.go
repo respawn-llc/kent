@@ -19,49 +19,6 @@ type RunPromptRequest struct {
 	Overrides       RunPromptOverrides  `json:"overrides,omitempty"`
 }
 
-type OptionalStringKey struct {
-	Present bool
-	Value   string
-}
-
-type RunPromptOverridesKey struct {
-	AgentRole           OptionalStringKey
-	Model               string
-	ThinkingLevel       string
-	Theme               string
-	ModelTimeoutSeconds int
-	Tools               string
-}
-
-func (o RunPromptOverrides) CanonicalKey() (RunPromptOverridesKey, error) {
-	role, err := o.AgentRoleOverride()
-	if err != nil {
-		return RunPromptOverridesKey{}, err
-	}
-	key := RunPromptOverridesKey{
-		Model:               strings.TrimSpace(o.Model),
-		ThinkingLevel:       strings.TrimSpace(o.ThinkingLevel),
-		Theme:               strings.TrimSpace(o.Theme),
-		ModelTimeoutSeconds: o.ModelTimeoutSeconds,
-		Tools:               strings.TrimSpace(o.Tools),
-	}
-	if role.Present {
-		value := role.Role
-		if role.Default {
-			value = config.DefaultSubagentRole
-		}
-		key.AgentRole = OptionalStringKey{Present: true, Value: value}
-	}
-	return key, nil
-}
-
-func CanonicalOptionalString(value *string) OptionalStringKey {
-	if value == nil {
-		return OptionalStringKey{}
-	}
-	return OptionalStringKey{Present: true, Value: strings.TrimSpace(*value)}
-}
-
 func ValidateOptionalIdentifier(field string, value *string) error {
 	if value == nil {
 		return nil
@@ -127,10 +84,6 @@ func (o RunPromptOverrides) AgentRoleOverride() (RunPromptAgentRoleOverride, err
 func (o RunPromptOverrides) ValidateAgentRoleOverride() error {
 	_, err := o.AgentRoleOverride()
 	return err
-}
-
-func (o RunPromptOverrides) HasAgentRoleOverride() bool {
-	return o.AgentRole != nil
 }
 
 func (o RunPromptOverrides) HasAny() bool {
