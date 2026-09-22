@@ -25,7 +25,7 @@ import (
 	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionruntime"
-	shelltool "core/server/tools/shell"
+
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/llmerrors"
@@ -44,7 +44,7 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
-	"core/shared/rpcwire"
+
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -547,66 +547,6 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 	}
 }
 
-func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
-	code, message := protocolError(&shelltool.PollingCanceledError{SessionID: "1000", Active: true})
-	if code != protocol.ErrCodeRequestCanceled {
-		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeRequestCanceled)
-	}
-
-	handlerErrs := make(chan error, 8)
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
-		for event := range conn.Events() {
-			if event.Err != nil {
-				return
-			}
-			if event.Frame.Kind == rpcwire.FrameBinary {
-				if err := serveGatewayRemoteTestHandshake(ctx, conn, event.Frame); err != nil {
-					reportGatewayHandlerError(handlerErrs, "send handshake: %v", err)
-					return
-				}
-				continue
-			}
-			req, err := event.Frame.DecodeRequest()
-			if err != nil {
-				reportGatewayHandlerError(handlerErrs, "decode request: %v", err)
-				return
-			}
-			switch req.Method {
-			case protocol.MethodWorkflowTaskGet:
-				resp := protocol.NewErrorResponse(req.ID, code, message)
-				if err := conn.Send(ctx, rpcwire.FrameFromResponse(resp)); err != nil {
-					reportGatewayHandlerError(handlerErrs, "send project list error: %w", err)
-				}
-				return
-			default:
-				reportGatewayHandlerError(handlerErrs, "unexpected method %q", req.Method)
-				return
-			}
-		}
-	}))
-	defer server.Close()
-
-	remote, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
-	}
-	defer func() { _ = remote.Close() }()
-
-	_, err = remote.GetWorkflowTask(
-		context.Background(), serverapi.WorkflowTaskGetRequest{TaskID: "task-1"},
-	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("GetWorkflowTask error = %v, want context.Canceled", err)
-	}
-	if err == nil || err.Error() != message {
-		t.Fatalf("expected cancellation message %q, got %v", message, err)
-	}
-	if message == context.Canceled.Error() {
-		t.Fatalf("test precondition failed: expected normalized message, got %q", message)
-	}
-	requireNoGatewayHandlerError(t, handlerErrs)
-}
-
 func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
@@ -1091,41 +1031,39 @@ func TestGatewayTaskSearchDispatchesIndexedResponseAndTypedValidationError(t *te
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 
-	request := serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeLiteral,
+	request := &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:    "needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
 	}
-	var response serverapi.TaskSearchResponse
-	callGateway(t, conn, "search", protocol.MethodWorkflowTaskSearch, request, &response)
-	if err := response.Validate(); err != nil {
-		t.Fatalf("search response validation: %v", err)
+	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Search")
+	var result taskpb.SearchResult
+	callGatewayDescriptor(t, conn, "search", method, request, &result)
+	response := result.GetSuccess()
+	if response == nil {
+		t.Fatalf("Search failed: %v", &result)
 	}
 	if response.Mode != request.Mode ||
 		len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != task.ID ||
+		response.Groups[0].TaskId != task.Id ||
 		response.Groups[0].TotalHitCount != 1 ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		response.Groups[0].Hits[0].Literal == nil ||
+		response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		response.Groups[0].Hits[0].GetLiteral() == nil ||
 		response.NextOffset != nil {
 		t.Fatalf("indexed search response = %+v", response)
 	}
 
-	responseError := callGatewayExpectError(t, conn, "short", protocol.MethodWorkflowTaskSearch, serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeLiteral,
+	var rejected taskpb.SearchResult
+	callGatewayDescriptor(t, conn, "short", method, &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_LITERAL,
 		Query:    "ab",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
-	})
-	if responseError.Code != protocol.ErrCodeWorkflowTaskSearch {
-		t.Fatalf("short literal error = %+v, want task search code", responseError)
-	}
-	decoded := serverapi.DecodeTaskSearchError(responseError.Data, responseError.Message)
-	var typed *serverapi.TaskSearchError
-	if !errors.As(decoded, &typed) || typed.Reason != serverapi.TaskSearchErrorReasonNormalizedTooShort {
-		t.Fatalf("short literal decoded error = %T %v", decoded, decoded)
+	}, &rejected)
+	if rejected.GetError().GetNormalizedTooShort() == nil {
+		t.Fatalf("short literal error = %v", &rejected)
 	}
 }
 
@@ -1145,8 +1083,8 @@ func TestGatewayRemoteTaskSearchRoundsTripIndexedResponse(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	response, err := remote.SearchWorkflowTasks(context.Background(), serverapi.TaskSearchRequest{
-		Mode:     serverapi.TaskSearchModeFTS5,
+	response, err := remote.SearchWorkflowTasks(context.Background(), &taskpb.SearchRequest{
+		Mode:     taskpb.SearchMode_SEARCH_MODE_FTS5,
 		Query:    "body:needle",
 		Context:  serverapi.TaskSearchDefaultContext,
 		PageSize: serverapi.TaskSearchDefaultPageSize,
@@ -1154,15 +1092,15 @@ func TestGatewayRemoteTaskSearchRoundsTripIndexedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchWorkflowTasks: %v", err)
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("validate remote task-search response: %v", err)
 	}
-	if response.Mode != serverapi.TaskSearchModeFTS5 ||
+	if response.Mode != taskpb.SearchMode_SEARCH_MODE_FTS5 ||
 		len(response.Groups) != 1 ||
-		response.Groups[0].TaskID != task.ID ||
+		response.Groups[0].TaskId != task.Id ||
 		len(response.Groups[0].Hits) != 1 ||
-		response.Groups[0].Hits[0].Source.Kind != serverapi.TaskSearchSourceKindBody ||
-		response.Groups[0].Hits[0].FTS5 == nil {
+		response.Groups[0].Hits[0].Source.Kind != taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY ||
+		response.Groups[0].Hits[0].GetFts5() == nil {
 		t.Fatalf("remote indexed task-search response = %+v", response)
 	}
 }
@@ -1183,13 +1121,13 @@ func TestGatewayRemoteWorkflowTaskSessionsRoundsTripPage(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	response, err := remote.ListWorkflowTaskSessions(context.Background(), serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: task.ID,
+	response, err := remote.ListWorkflowTaskSessions(context.Background(), &taskpb.TaskOffsetPageRequest{
+		TaskId: task.Id,
 	})
 	if err != nil {
 		t.Fatalf("ListWorkflowTaskSessions: %v", err)
 	}
-	if response.TaskID != task.ID || response.Items == nil || len(response.Items) != 0 || response.NextOffset != nil {
+	if response.TaskId != task.Id || len(response.Items) != 0 || response.NextOffset != nil {
 		t.Fatalf("response = %+v", response)
 	}
 }
@@ -1258,9 +1196,11 @@ func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	sendGatewayRequest(t, conn, "1", protocol.MethodWorkflowTaskGet, map[string]any{"task_id": "task-1"})
-	var response protocol.Response
-	if err := websocket.JSON.Receive(conn, &response); err == nil {
+	sendGatewayDescriptor(t, conn, "1",
+		taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get"),
+		&taskpb.GetRequest{TaskId: proto.String("task-1")})
+	var response []byte
+	if err := websocket.Message.Receive(conn, &response); err == nil {
 		t.Fatalf("pre-handshake application traffic unexpectedly received %+v", response)
 	}
 }

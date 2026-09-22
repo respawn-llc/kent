@@ -146,7 +146,7 @@ func requireMissingCustomRefDiagnostic(t *testing.T, results []*pb.ModeValidatio
 	t.Fatalf("missing custom-ref diagnostic: %v", results)
 }
 
-func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
+func TestWorkflowBinaryLabelsInteroperateWithTaskDetails(t *testing.T) {
 	app, server := newGatewayTestServer(t)
 	defer server.Close()
 	defer func() { _ = app.Close() }()
@@ -169,23 +169,23 @@ func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
 		t.Fatalf("duplicate label detail = %v", failure.Detail)
 	}
 	updated, err := remote.UpdateWorkflowTaskLabels(t.Context(), &taskpb.LabelsUpdateRequest{
-		TaskId: task.ID, AddLabelIds: []string{created.Label.Id},
+		TaskId: task.Id, AddLabelIds: []string{created.Label.Id},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.ID})
+	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.Id})
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := remote.GetWorkflowTask(t.Context(), serverapi.WorkflowTaskGetRequest{TaskID: task.ID})
+	detail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(task.Id)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(updated.Assignment.LabelIds, []string{created.Label.Id}) ||
 		!slices.Equal(assignment.Assignment.LabelIds, updated.Assignment.LabelIds) ||
-		!slices.Equal(detail.Task.LabelIDs, updated.Assignment.LabelIds) {
-		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIDs)
+		!slices.Equal(detail.Task.LabelIds, updated.Assignment.LabelIds) {
+		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIds)
 	}
 	normalized, err := remote.CreateWorkflowProjectLabel(t.Context(), &pb.ProjectLabelCreateRequest{
 		ProjectId: app.ProjectID(), Name: " " + strings.Repeat("e\u0301", 64) + " ",
