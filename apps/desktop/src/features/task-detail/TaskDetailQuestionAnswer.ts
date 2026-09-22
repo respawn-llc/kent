@@ -2,15 +2,14 @@ import type { PromptAnswerBatchInput, QuestionAnswerInput, QuestionAttentionItem
 import { promptAnswerEntry } from "@/api";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 
-export type QuestionAnswerMutation = Readonly<{
-  isPending: boolean;
-  mutateAsync(
+export type QuestionAnswerAction = Readonly<{
+  submit(
     input: QuestionAnswerInput,
     attempt: Readonly<{
       attention: QuestionAttentionItem;
       selection: QuestionSelectionState;
     }>,
-  ): Promise<unknown>;
+  ): void;
 }>;
 
 export function questionAnswerBatchInput(input: QuestionAnswerInput): PromptAnswerBatchInput {

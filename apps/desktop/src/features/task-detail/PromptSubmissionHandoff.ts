@@ -8,11 +8,9 @@ export type PromptSubmissionHandoff = Readonly<{
 
 export function promptSubmissionHandoff({
   attentionItems,
-  requestID,
   submittedKey,
 }: Readonly<{
   attentionItems: readonly AttentionItem[];
-  requestID: number;
   submittedKey: PromptAnswerKey;
 }>): PromptSubmissionHandoff {
   const submittedIndex = attentionItems.findIndex(
@@ -30,7 +28,6 @@ export function promptSubmissionHandoff({
         ? undefined
         : {
             key: promptAnswerKey(nextQuestion),
-            requestID,
           },
   };
 }

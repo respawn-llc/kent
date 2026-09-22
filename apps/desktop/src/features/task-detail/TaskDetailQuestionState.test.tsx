@@ -111,8 +111,7 @@ describe("questionPresentation", () => {
     const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
     const answerQuestion = {
-      isPending: false,
-      async mutateAsync(input: QuestionAnswerInput): Promise<void> {
+      submit(input: QuestionAnswerInput): void {
         inputs.push(input);
       },
     } satisfies QuestionAnswerMutation;
@@ -292,12 +291,12 @@ describe("questionPresentation", () => {
     );
   });
 
-  it("retains an ordinary anchored choice across refresh, failure, and retry", async () => {
+  it("retains an ordinary anchored choice across refresh and repeated submissions", async () => {
     const initialAttention = ordinaryAttention(["one", "two", "three"], 2);
     const initialPresentation = questionPresentation(initialAttention);
     const selection = anchorQuestionSelection(emptyQuestionSelection(), initialPresentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
-    const answerQuestion = failingQuestionAnswerMutation(inputs);
+    const answerQuestion = recordingQuestionAnswerMutation(inputs);
     const user = userEvent.setup();
     const view = renderQuestionForm(initialAttention, initialPresentation, selection, answerQuestion);
 
@@ -344,12 +343,12 @@ describe("questionPresentation", () => {
     ]);
   });
 
-  it("preserves an Approval draft through two failures until a deliberate third submission", async () => {
+  it("preserves an Approval selection while updating commentary between deliberate submissions", async () => {
     const initialAttention = approvalAttention(["deny", "allow_session", "allow_once"]);
     const initialPresentation = questionPresentation(initialAttention);
     const selection = anchorQuestionSelection(emptyQuestionSelection(), initialPresentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
-    const answerQuestion = failingQuestionAnswerMutation(inputs, 2);
+    const answerQuestion = recordingQuestionAnswerMutation(inputs);
     const user = userEvent.setup();
     const view = renderQuestionForm(initialAttention, initialPresentation, selection, answerQuestion);
 
@@ -536,24 +535,8 @@ function QuestionFormHarness({
 
 function recordingQuestionAnswerMutation(inputs: QuestionAnswerInput[]): QuestionAnswerMutation {
   return {
-    isPending: false,
-    async mutateAsync(input: QuestionAnswerInput): Promise<void> {
+    submit(input: QuestionAnswerInput): void {
       inputs.push(input);
-    },
-  };
-}
-
-function failingQuestionAnswerMutation(
-  inputs: QuestionAnswerInput[],
-  failureCount = 1,
-): QuestionAnswerMutation {
-  return {
-    isPending: false,
-    async mutateAsync(input: QuestionAnswerInput): Promise<void> {
-      inputs.push(input);
-      if (inputs.length <= failureCount) {
-        throw new Error("delivery failed");
-      }
     },
   };
 }

@@ -1,13 +1,13 @@
 import type { DetailTab } from "./TaskDetailTabs";
-import type { useTaskActivity, useTaskComments } from "./useTaskDetailData";
+import type { TaskDetailReads } from "./TaskDetailViewModel";
 export const selectedFeed = <Comments, Activity>(
   tab: DetailTab,
   comments: Comments,
   activity: Activity,
 ): Comments | Activity => (tab === "comments" ? comments : activity);
 type TaskDetailPagingInput = Readonly<{
-  activity: ReturnType<typeof useTaskActivity>;
-  comments: ReturnType<typeof useTaskComments>;
+  activity: TaskDetailReads["activity"];
+  comments: TaskDetailReads["comments"];
   detailID: string;
   selectedTab: DetailTab;
 }>;
@@ -25,11 +25,15 @@ export function taskDetailPaging({ activity, comments, detailID, selectedTab }: 
     isFetchingPreviousPage: data.isFetchingPreviousPage,
     isFetchPreviousPageError: data.isFetchPreviousPageError,
     previousLoadKey: loadKey("previous", firstOffset),
-    loadPrevious: () => void data.fetchPreviousPage(),
+    loadPrevious: () => {
+      data.fetchPreviousPage();
+    },
     hasNextPage: data.hasNextPage,
     isFetchingNextPage: data.isFetchingNextPage,
     isFetchNextPageError: data.isFetchNextPageError,
     nextLoadKey: loadKey("next", nextOffset),
-    loadNext: () => void data.fetchNextPage(),
+    loadNext: () => {
+      data.fetchNextPage();
+    },
   };
 }

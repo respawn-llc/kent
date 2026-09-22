@@ -30,6 +30,14 @@ export type QuestionPresentation = Readonly<{
 
 const emptySuggestions: readonly string[] = [];
 
+export function canSubmitOrdinaryAnswer(selectedOption: number | null, answer: string): boolean {
+  return (selectedOption !== null && selectedOption > 0) || answer.trim().length > 0;
+}
+
+export function canSubmitApprovalAnswer(decision: ApprovalDecision | null, answer: string): boolean {
+  return decision !== null && (decision !== "deny" || answer.trim().length > 0);
+}
+
 export function emptyQuestionSelection(): QuestionSelectionState {
   return {
     answer: "",

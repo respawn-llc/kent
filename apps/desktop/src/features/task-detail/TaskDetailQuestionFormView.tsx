@@ -1,28 +1,23 @@
 import { type ReactNode, type RefCallback, useCallback, useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  errorMessage,
-  type ApprovalDecision,
-  type FileAccessTarget,
-  type QuestionAttentionItem,
-} from "@/api";
-import type { QuestionAnswerInput } from "@/api";
+import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
 import {
   Button,
   RadioGroup,
   PromptOptionRow as QuestionOption,
   PromptAccessTargets,
-  showStatusToast,
   StaticMarkdown,
 } from "@/ui";
 import { cx, fieldInputClassNameForRadius } from "@/ui";
 import { approvalDecisionLabel } from "@/shared/prompt-presentation";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import type { PromptPrimaryControl } from "./PromptPrimaryControlRegistry";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 import {
+  canSubmitApprovalAnswer,
+  canSubmitOrdinaryAnswer,
   withApprovalQuestionDecision,
   withOrdinaryQuestionOption,
   withQuestionCommentary,
@@ -40,7 +35,7 @@ export function QuestionFormView({
   registerPrimaryControl,
   selectionState,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attention: QuestionAttentionItem;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   presentation: QuestionPresentation;
@@ -85,7 +80,7 @@ function OrdinaryQuestionForm({
   selectionState,
   suggestions,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attention: QuestionAttentionItem;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   question: string | undefined;
@@ -102,8 +97,7 @@ function OrdinaryQuestionForm({
   const primaryControlRef = usePrimaryControlRef(registerPrimaryControl);
   // A real option can submit on its own; otherwise any typed freeform answer is
   // submittable, including freeform-only asks where no option is selected.
-  const canSubmit = (selectedOption !== null && selectedOption > 0) || answer.trim().length > 0;
-  const interactionDisabled = answerQuestion.isPending;
+  const canSubmit = canSubmitOrdinaryAnswer(selectedOption, answer);
   const selectedNeither = selection.provenance === "explicit" && selectedOption === null;
   const radioValue = selectedNeither
     ? neitherRadioValue
@@ -111,21 +105,18 @@ function OrdinaryQuestionForm({
       ? ""
       : suggestionRadioValue(selectedOption);
 
-  async function submit(): Promise<void> {
-    await submitQuestionAnswer({
-      answerQuestion,
-      attention,
-      failureTitle: t("states.error"),
-      input: () => ({
+  function submit(): void {
+    answerQuestion.submit(
+      {
         kind: "ordinary",
         toolCallID: attention.question.toolCallID,
         sessionID: attention.question.sessionID,
         stepID: attention.question.stepID,
         selectedOptionNumber: selectedOption,
         freeformAnswer: answer,
-      }),
-      selection,
-    });
+      },
+      { attention, selection },
+    );
   }
 
   return (
@@ -134,7 +125,6 @@ function OrdinaryQuestionForm({
       answerID={answerID}
       answerRef={suggestions.length === 0 ? primaryControlRef : undefined}
       canSubmit={canSubmit}
-      interactionDisabled={interactionDisabled}
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -149,7 +139,7 @@ function OrdinaryQuestionForm({
           <>
             {suggestions.map((suggestion, optionIndex) => (
               <QuestionOption
-                disabled={interactionDisabled}
+                disabled={false}
                 key={`${optionIndex.toString()}:${suggestion}`}
                 primaryControlRef={optionIndex === 0 ? primaryControlRef : undefined}
                 recommended={recommendedOption === optionIndex + 1}
@@ -158,7 +148,7 @@ function OrdinaryQuestionForm({
               />
             ))}
             <QuestionOption
-              disabled={interactionDisabled}
+              disabled={false}
               recommended={false}
               text={t("task.neitherOption")}
               value={neitherRadioValue}
@@ -168,7 +158,6 @@ function OrdinaryQuestionForm({
       }
       question={question}
       radioValue={radioValue}
-      submitting={answerQuestion.isPending}
     />
   );
 }
@@ -201,7 +190,7 @@ function ApprovalQuestionForm({
   selectionState,
 }: Readonly<{
   accessTargets: readonly FileAccessTarget[];
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   approvalDecisions: readonly ApprovalDecision[];
   attention: QuestionAttentionItem;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
@@ -215,27 +204,23 @@ function ApprovalQuestionForm({
   const answer = selection.answer;
   const answerID = useId();
   const primaryControlRef = usePrimaryControlRef(registerPrimaryControl);
-  const canSubmit = selectedDecision !== null && (selectedDecision !== "deny" || answer.trim().length > 0);
-  const interactionDisabled = answerQuestion.isPending;
+  const canSubmit = canSubmitApprovalAnswer(selectedDecision, answer);
 
-  async function submit(): Promise<void> {
+  function submit(): void {
     if (selectedDecision === null) {
       return;
     }
-    await submitQuestionAnswer({
-      answerQuestion,
-      attention,
-      failureTitle: t("states.error"),
-      input: () => ({
+    answerQuestion.submit(
+      {
         kind: "approval",
         toolCallID: attention.question.toolCallID,
         sessionID: attention.question.sessionID,
         stepID: attention.question.stepID,
         decision: selectedDecision,
         commentary: answer,
-      }),
-      selection,
-    });
+      },
+      { attention, selection },
+    );
   }
 
   return (
@@ -244,7 +229,6 @@ function ApprovalQuestionForm({
       answer={answer}
       answerID={answerID}
       canSubmit={canSubmit}
-      interactionDisabled={interactionDisabled}
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -256,7 +240,7 @@ function ApprovalQuestionForm({
       onSubmit={submit}
       optionGroup={approvalDecisions.map((decision, decisionIndex) => (
         <QuestionOption
-          disabled={interactionDisabled}
+          disabled={false}
           key={decision}
           primaryControlRef={decisionIndex === 0 ? primaryControlRef : undefined}
           recommended={false}
@@ -266,7 +250,6 @@ function ApprovalQuestionForm({
       ))}
       question={question}
       radioValue={selectedDecision ?? ""}
-      submitting={answerQuestion.isPending}
     />
   );
 }
@@ -277,34 +260,29 @@ function QuestionFormFrame({
   answerID,
   answerRef,
   canSubmit,
-  interactionDisabled,
   onAnswerChange,
   onRadioValueChange,
   onSubmit,
   optionGroup,
   question,
   radioValue,
-  submitting,
 }: Readonly<{
   accessTargets?: readonly FileAccessTarget[] | undefined;
   answer: string;
   answerID: string;
   answerRef?: RefCallback<HTMLTextAreaElement> | undefined;
   canSubmit: boolean;
-  interactionDisabled: boolean;
   onAnswerChange: (answer: string) => void;
   onRadioValueChange: (value: string) => void;
-  onSubmit: () => Promise<void>;
+  onSubmit: () => void;
   optionGroup?: ReactNode;
   question: string | undefined;
   radioValue: string;
-  submitting: boolean;
 }>) {
   const { t } = useTranslation();
-  const submitDisabled = interactionDisabled || !canSubmit;
   const hasAccessTargets = accessTargets !== undefined && accessTargets.length > 0;
   const formShortcut = useTextFieldSubmitShortcut({
-    available: !submitDisabled,
+    available: canSubmit,
     kind: "form",
   });
   return (
@@ -313,9 +291,7 @@ function QuestionFormFrame({
       onKeyDown={formShortcut}
       onSubmit={(event) => {
         event.preventDefault();
-        if (canSubmit && !interactionDisabled) {
-          void onSubmit();
-        }
+        if (canSubmit) onSubmit();
       }}
     >
       {accessTargets === undefined ? null : <PromptAccessTargets targets={accessTargets} />}
@@ -329,7 +305,6 @@ function QuestionFormFrame({
           <legend className="sr-only">{t("task.optionNumber")}</legend>
           <RadioGroup
             aria-label={t("task.optionNumber")}
-            disabled={interactionDisabled}
             onValueChange={onRadioValueChange}
             value={radioValue}
           >
@@ -340,7 +315,6 @@ function QuestionFormFrame({
       <textarea
         aria-label={t("task.commentary")}
         className={cx(fieldInputClassNameForRadius(taskDetailIslandRadius), "min-h-24")}
-        disabled={interactionDisabled}
         id={answerID}
         onChange={(event) => {
           onAnswerChange(event.target.value);
@@ -350,8 +324,8 @@ function QuestionFormFrame({
         rows={3}
         value={answer}
       />
-      <Button aria-busy={submitting} disabled={submitDisabled} type="submit" variant="primary">
-        {submitting ? t("task.submittingAnswer") : t("task.submitAnswer")}
+      <Button disabled={!canSubmit} type="submit" variant="primary">
+        {t("task.submitAnswer")}
       </Button>
     </form>
   );
@@ -382,31 +356,6 @@ function usePrimaryControlRef(
     },
     [register],
   );
-}
-
-async function submitQuestionAnswer({
-  answerQuestion,
-  attention,
-  failureTitle,
-  input,
-  selection,
-}: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
-  attention: QuestionAttentionItem;
-  failureTitle: string;
-  input: () => QuestionAnswerInput;
-  selection: QuestionSelectionState;
-}>): Promise<void> {
-  try {
-    await answerQuestion.mutateAsync(input(), { attention, selection });
-  } catch (error: unknown) {
-    showStatusToast({
-      body: errorMessage(error),
-      id: `task-question-answer-failed:${attention.question.toolCallID}`,
-      title: failureTitle,
-      tone: "danger",
-    });
-  }
 }
 
 function selectedApprovalDecisionFor(
