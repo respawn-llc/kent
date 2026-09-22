@@ -135,7 +135,7 @@ func runSecondClientLiveControlsActiveRun(
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false }, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

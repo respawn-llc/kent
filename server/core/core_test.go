@@ -313,7 +313,7 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 		t.Fatal("expected first core to seed at least one generated skill")
 	}
 
-	authSupportB, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false }, nil)
+	authSupportB, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport B: %v", err)
 	}
@@ -746,7 +746,7 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

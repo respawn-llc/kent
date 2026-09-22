@@ -26,7 +26,7 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 	}
 	cfg := resolved.Config
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment)
 	if err != nil {
 		return nil, err
 	}

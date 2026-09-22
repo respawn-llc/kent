@@ -20,7 +20,6 @@ type Request struct {
 	SessionID             string
 	LoadOptions           config.LoadOptions
 	Environment           func(string) (string, bool)
-	Now                   func() time.Time
 }
 
 type ConfigPlan struct {
@@ -68,15 +67,12 @@ func resolveConfig(req Request, load func(config.LoadOptions, string, launch.Boo
 	return load(opts, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
+func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool)) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
 	if lookupEnv == nil {
 		lookupEnv = os.LookupEnv
-	}
-	if now == nil {
-		now = time.Now
 	}
 	clientID, _ := lookupEnv("KENT_OAUTH_CLIENT_ID")
 	oauthOpts := auth.OpenAIOAuthOptions{
@@ -88,7 +84,7 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool), n
 		Environment:  lookupEnv,
 		AuthManager: auth.NewManager(
 			store,
-			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
+			auth.NewOpenAIOAuthRefresher(oauthOpts, time.Now, 5*time.Minute),
 		),
 	}, nil
 }

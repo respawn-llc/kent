@@ -109,7 +109,7 @@ func buildStartupControlSurface(ctx context.Context, bootstrapReq serverbootstra
 		return config.App{}, nil, errStartupControlSurfaceNotRequired
 	}
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment)
 	if err != nil {
 		_ = rootLease.Close()
 		return config.App{}, nil, err

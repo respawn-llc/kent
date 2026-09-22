@@ -609,7 +609,7 @@ func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 func newGatewayTestAuthSupport(t *testing.T, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, func(string) (string, bool) { return "", false }, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(store, func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
