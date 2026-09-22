@@ -1,20 +1,27 @@
 import type { ProjectTaskGroupCountsInput, TaskListInput, TaskMutationInput } from "./clientInputs";
 import { parseRpcResponse as parse } from "./clientParse";
-import { decodeWorkflowTaskCreateSelectionError } from "./errors";
-import { compactJsonObject, type JsonObject } from "./json";
+import { ContractError, decodeWorkflowTaskCreateSelectionError } from "./errors";
+import { create } from "@app/server-api-contract";
 import {
-  projectLabelCatalogSchema,
-  projectLabelDeleteSchema,
-  projectLabelMutationSchema,
-  taskLabelAssignmentSchema,
-} from "./schemas/workflowLabels";
+  ProjectLabelService,
+  type ProjectLabelCatalog as GeneratedCatalog,
+  type ProjectLabel as GeneratedLabel,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import {
+  TaskLabelReadService,
+  type AssignedLabelIds,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { TaskLabelService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { requireUnarySuccess } from "./protobufRpc";
+import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
+import { compactJsonObject, type JsonObject } from "./json";
 import {
   projectTaskGroupCountsSchema,
   taskCreateResponseSchema,
   taskListPageSchema,
 } from "./schemas/workflowBoard";
 import { workflowIDSchema } from "./schemas/workflowID";
-import type { RpcTransport } from "./transport";
+import type { DescriptorRpcTransport, RpcTransport } from "./transport";
 import { canonicalTaskLabelFilter } from "./workflowLabels";
 import type { CreatedTaskSummary } from "./models";
 import type {
@@ -46,98 +53,116 @@ export function taskLabelFilterPayload(filter: TaskLabelFilter): JsonObject {
 }
 
 export async function listProjectLabels(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   projectID: string,
 ): Promise<ProjectLabelCatalog> {
-  return parse(
-    "workflow.project.label.list",
-    projectLabelCatalogSchema,
-    await transport.call("workflow.project.label.list", { project_id: projectID }),
-  );
+  const method = ProjectLabelService.method.list;
+  const result = await transport.callDescriptor(method, create(method.input, { projectId: projectID }));
+  throwWorkflowLabelFailure(method, result.outcome);
+  return projectLabelCatalog(requireUnarySuccess(method, result).catalog, projectID);
 }
 
 export async function createProjectLabel(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   projectID: string,
   name: string,
 ): Promise<ProjectLabel> {
-  return parse(
-    "workflow.project.label.create",
-    projectLabelMutationSchema,
-    await transport.call("workflow.project.label.create", { project_id: projectID, name }),
-  );
+  const method = ProjectLabelService.method.create;
+  const result = await transport.callDescriptor(method, create(method.input, { projectId: projectID, name }));
+  throwWorkflowLabelFailure(method, result.outcome);
+  return projectLabel(requireUnarySuccess(method, result).label);
 }
 
 export async function reorderProjectLabels(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   projectID: string,
   labelIDs: readonly string[],
 ): Promise<ProjectLabelCatalog> {
-  return parse(
-    "workflow.project.label.reorder",
-    projectLabelCatalogSchema,
-    await transport.call("workflow.project.label.reorder", {
-      project_id: projectID,
-      label_ids: labelIDs,
-    }),
+  const method = ProjectLabelService.method.reorder;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { projectId: projectID, labelIds: [...labelIDs] }),
   );
+  throwWorkflowLabelFailure(method, result.outcome);
+  return projectLabelCatalog(requireUnarySuccess(method, result).catalog, projectID);
 }
 
 export async function renameProjectLabel(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   projectID: string,
   labelID: string,
   name: string,
 ): Promise<ProjectLabel> {
-  return parse(
-    "workflow.project.label.rename",
-    projectLabelMutationSchema,
-    await transport.call("workflow.project.label.rename", {
-      project_id: projectID,
-      label_id: labelID,
-      name,
-    }),
+  const method = ProjectLabelService.method.rename;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { projectId: projectID, labelId: labelID, name }),
   );
+  throwWorkflowLabelFailure(method, result.outcome);
+  const label = projectLabel(requireUnarySuccess(method, result).label);
+  if (label.id !== labelID) throw new ContractError("Renamed label does not match the request.");
+  return label;
 }
 
 export async function deleteProjectLabel(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   projectID: string,
   labelID: string,
 ): Promise<string> {
-  return parse(
-    "workflow.project.label.delete",
-    projectLabelDeleteSchema,
-    await transport.call("workflow.project.label.delete", {
-      project_id: projectID,
-      label_id: labelID,
-    }),
+  const method = ProjectLabelService.method.delete;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { projectId: projectID, labelId: labelID }),
   );
+  throwWorkflowLabelFailure(method, result.outcome);
+  const success = requireUnarySuccess(method, result);
+  if (success.labelId !== labelID) throw new ContractError("Deleted label does not match the request.");
+  return success.labelId;
 }
 
-export async function getTaskLabels(transport: RpcTransport, taskID: string): Promise<TaskLabelAssignment> {
-  return parse(
-    "workflow.task.labels.get",
-    taskLabelAssignmentSchema,
-    await transport.call("workflow.task.labels.get", { task_id: taskID }),
-  );
+export async function getTaskLabels(
+  transport: DescriptorRpcTransport,
+  taskID: string,
+): Promise<TaskLabelAssignment> {
+  const method = TaskLabelReadService.method.get;
+  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
+  throwWorkflowLabelFailure(method, result.outcome);
+  return taskLabelAssignment(requireUnarySuccess(method, result).assignment, taskID);
 }
 
 export async function updateTaskLabels(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   taskID: string,
   addLabelIDs: readonly string[],
   removeLabelIDs: readonly string[],
 ): Promise<TaskLabelAssignment> {
-  return parse(
-    "workflow.task.labels.update",
-    taskLabelAssignmentSchema,
-    await transport.call("workflow.task.labels.update", {
-      task_id: taskID,
-      add_label_ids: addLabelIDs,
-      remove_label_ids: removeLabelIDs,
+  const method = TaskLabelService.method.update;
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      taskId: taskID,
+      addLabelIds: [...addLabelIDs],
+      removeLabelIds: [...removeLabelIDs],
     }),
   );
+  throwWorkflowLabelFailure(method, result.outcome);
+  return taskLabelAssignment(requireUnarySuccess(method, result).assignment, taskID);
+}
+
+function projectLabel(value: GeneratedLabel | undefined): ProjectLabel {
+  if (value === undefined) throw new ContractError("Project label is required.");
+  return { id: value.id, name: value.name };
+}
+
+function projectLabelCatalog(value: GeneratedCatalog | undefined, projectID: string): ProjectLabelCatalog {
+  if (value?.projectId !== projectID)
+    throw new ContractError("Project label catalog does not match the request.");
+  return { projectID: value.projectId, labels: value.labels.map(projectLabel) };
+}
+
+function taskLabelAssignment(value: AssignedLabelIds | undefined, taskID: string): TaskLabelAssignment {
+  if (value?.taskId !== taskID) throw new ContractError("Task label assignment does not match the request.");
+  return { taskID: value.taskId, labelIDs: value.labelIds };
 }
 
 export async function createTask(

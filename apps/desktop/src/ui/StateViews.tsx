@@ -60,20 +60,24 @@ export function LoadingState({
 function useOneShotDelayedAppearance(delayMs: number, key: string): boolean {
   const normalizedDelayMs = Math.max(0, delayMs);
   const [shouldDelay] = useState(() => normalizedDelayMs > 0 && !delayedLoadingAppearanceKeys.has(key));
-  const [visible, setVisible] = useState(!shouldDelay);
-
   useEffect(() => {
-    if (!shouldDelay || visible) {
-      return undefined;
-    }
-    delayedLoadingAppearanceKeys.add(key);
+    if (shouldDelay) delayedLoadingAppearanceKeys.add(key);
+  }, [key, shouldDelay]);
+  return useDelayedAppearance(shouldDelay ? normalizedDelayMs : 0);
+}
+
+export function useDelayedAppearance(delayMs = defaultLoadingAppearanceDelayMs): boolean {
+  const normalizedDelayMs = Math.max(0, delayMs);
+  const [visible, setVisible] = useState(normalizedDelayMs === 0);
+  useEffect(() => {
+    if (visible) return;
     const timer = window.setTimeout(() => {
       setVisible(true);
     }, normalizedDelayMs);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [key, normalizedDelayMs, shouldDelay, visible]);
+  }, [normalizedDelayMs, visible]);
 
   return visible;
 }

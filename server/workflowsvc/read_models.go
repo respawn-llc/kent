@@ -6,12 +6,13 @@ import (
 
 	"core/server/promptcontrol"
 	"core/server/workflow"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 type WorkflowDefinitionReadModel interface {
-	GetDefinition(context.Context, runtimeids.WorkflowID) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error)
+	GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error)
 }
 
 type WorkflowBoardReadModel interface {

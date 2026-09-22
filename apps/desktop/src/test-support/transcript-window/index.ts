@@ -61,6 +61,7 @@ export function hydration(
   compaction: ChatTranscriptPayloadByKind["compaction_status"] | null = null,
 ): ChatTranscriptPayloadByKind["hydration"] {
   return {
+    ConnectionReplacement: null,
     SessionIdentity: {
       SessionID: "session",
       SessionName: null,

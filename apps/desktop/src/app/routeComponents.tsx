@@ -206,12 +206,18 @@ export function TaskRoute() {
 
 export function ChatRoute() {
   const params = chatRouteApi.useParams();
-  return <ChatRouteOpening projectID={params.projectId} sessionID={params.sessionId} />;
+  return (
+    <ChatRouteOpening
+      key={`${params.projectId}:${params.sessionId}`}
+      projectID={params.projectId}
+      sessionID={params.sessionId}
+    />
+  );
 }
 
 export function NewChatRoute() {
   const params = newChatRouteApi.useParams();
-  return <ChatRouteOpening projectID={params.projectId} sessionID={null} />;
+  return <ChatRouteOpening key={params.projectId} projectID={params.projectId} sessionID={null} />;
 }
 
 function ChatRouteOpening({
@@ -224,8 +230,8 @@ function ChatRouteOpening({
     openTask: (taskID: string) => {
       void appNavigation.openTask(taskID);
     },
-    openParentSession: (previousSessionID: string) => {
-      void appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
+    openParentSession: async (previousSessionID: string) => {
+      return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
     },
   };
   return (

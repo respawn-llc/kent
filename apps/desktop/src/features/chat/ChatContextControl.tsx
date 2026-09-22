@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   Button,
@@ -123,6 +123,9 @@ function ContextMeter({
   presentation: ReturnType<typeof contextPresentation>;
 }>) {
   const { t } = useTranslation();
+  const ringStyle: CSSProperties & Record<"--chat-context-angle", string> = {
+    "--chat-context-angle": `${((presentation?.extent ?? 0) * 360).toString()}deg`,
+  };
   if (compacting)
     return (
       <>
@@ -133,20 +136,9 @@ function ContextMeter({
   return (
     <>
       <span>{presentation?.usedPercent ?? 0}%</span>
-      <svg className="chat-context-circle" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="8" stroke="var(--color-outline)" strokeWidth="2" />
-        <circle
-          className="chat-context-ring"
-          cx="10"
-          cy="10"
-          r="8"
-          pathLength="1"
-          stroke="var(--color-secondary)"
-          strokeWidth="2"
-          strokeDasharray={`${(presentation?.extent ?? 0).toString()} 1`}
-          transform="rotate(-90 10 10)"
-        />
-      </svg>
+      <span className="chat-context-circle chat-context-ring-track">
+        <span className="chat-context-ring" style={ringStyle} />
+      </span>
     </>
   );
 }

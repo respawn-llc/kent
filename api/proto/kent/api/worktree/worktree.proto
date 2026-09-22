@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
+import "kent/api/session_retarget/session_retarget.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -925,6 +926,10 @@ message EnterError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_retarget.SessionRetargetWorkspaceError session_retarget = 10 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "session_retarget"
+    }];
     kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 9 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "workspace_not_registered"

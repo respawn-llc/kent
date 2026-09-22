@@ -12,6 +12,171 @@ import (
 	"testing"
 )
 
+func TestProviderConnectionDefinitions(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, `
+connection = "chatgpt-1"
+model = "gpt-5"
+[connections.chatgpt-1]
+protocol = "chatgpt-codex"
+[connections.local_1]
+protocol = "responses"
+endpoint = "http://localhost:1234/v1"
+environment_variable = "LOCAL_API_KEY"
+[connections.local_1.provider_capabilities]
+provider_id = "openai-compatible"
+supports_responses_api = true
+[subagents.local]
+connection = "local_1"
+model = "local-model"
+`, LoadOptions{})
+	if app.Settings.Connection == nil || *app.Settings.Connection != "chatgpt-1" {
+		t.Fatalf("default connection = %v", app.Settings.Connection)
+	}
+	local := app.Settings.Connections["local_1"]
+	if local.Endpoint == nil || *local.Endpoint != "http://localhost:1234/v1" ||
+		local.EnvironmentVariable == nil || *local.EnvironmentVariable != "LOCAL_API_KEY" {
+		t.Fatalf("local connection = %+v", local)
+	}
+	if !local.Capabilities.SupportsResponsesAPI || local.Capabilities.ProviderID != "openai-compatible" {
+		t.Fatal("connection capabilities must not become agent capability overrides")
+	}
+	role := app.Settings.Subagents["local"]
+	if role.Settings.Connection == nil || *role.Settings.Connection != "local_1" || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-5" {
+		t.Fatalf("independent role declaration = %+v", role.Settings)
+	}
+}
+
+func TestProviderConnectionInvalidDeclarations(t *testing.T) {
+	for _, body := range []string{
+		`[connections.""]`,
+		`[connections."Upper"]`,
+		`[connections."1number"]`,
+		`[connections."with space"]`,
+		`[connections."with.dot"]`,
+		`connection = ""`,
+		`connection = " upper"`,
+		`[subagents.local]
+connection = ""`,
+		`[reviewer]
+connection = ""`,
+		`[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+[connections.local]
+protocol = "responses"`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, workspace, path := newConfigTestFile(t)
+			writeConfigTestFile(t, path, body)
+			if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
+				t.Fatal("invalid declaration accepted")
+			}
+		})
+	}
+}
+
+func TestProviderConnectionDefinitionScope(t *testing.T) {
+	_, workspace, globalPath := newConfigTestFile(t)
+	body := "[connections.local]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234/v1\"\n"
+	writeConfigTestFile(t, globalPath, body)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	if app.Settings.Connection != nil || app.Settings.Reviewer.Connection != nil {
+		t.Fatal("absence of a reference must remain explicit")
+	}
+	for _, filename := range []string{"config.toml", "config.local.toml"} {
+		t.Run(filename, func(t *testing.T) {
+			path := filepath.Join(workspace, ConfigDirName, filename)
+			writeConfigTestFile(t, path, body)
+			_, err := Load(workspace, workspace, LoadOptions{})
+			var layer *SettingsFileLayerError
+			if !errors.As(err, &layer) || layer.Key != "connections" || layer.SettingsPath != path {
+				t.Fatalf("global-only definitions: %v", err)
+			}
+			writeConfigTestFile(t, path, "")
+		})
+	}
+}
+
+func TestProviderConnectionAccessValidation(t *testing.T) {
+	for _, body := range []string{
+		`protocol = "unknown"`,
+		`protocol = "responses"`,
+		`protocol = "responses"
+endpoint = ""`,
+		`protocol = "responses"
+endpoint = "ftp://localhost"`,
+		`protocol = "responses"
+endpoint = "http://localhost"
+environment_variable = ""`,
+		`protocol = "chatgpt-codex"
+environment_variable = "API_KEY"`,
+		`protocol = "chatgpt-codex"
+endpoint = "http://localhost"`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, workspace, path := newConfigTestFile(t)
+			writeConfigTestFile(t, path, "[connections.local]\n"+body)
+			if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
+				t.Fatal("invalid access configuration accepted")
+			}
+		})
+	}
+}
+
+func TestProviderConnectionSelectionInheritance(t *testing.T) {
+	_, workspace, path := newConfigTestFile(t)
+	writeConfigTestFile(t, path, `
+connection = "chatgpt-1"
+model = "gpt-5"
+[connections.chatgpt-1]
+protocol = "chatgpt-codex"
+[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+[subagents.child]
+connection = "local"
+model = "local-model"
+[subagents.inherited]
+thinking_level = "low"
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	child, sources, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["child"], true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Connection == nil || *child.Connection != "local" || child.Model != "local-model" {
+		t.Fatalf("child selection = %+v", child)
+	}
+	InheritReviewerSettings(&child, sources)
+	if child.Reviewer.Connection == nil || *child.Reviewer.Connection != "local" ||
+		!reflect.DeepEqual(sources["reviewer.connection"], sources["connection"]) {
+		t.Fatal("Supervisor must inherit the effective agent connection and its declaration")
+	}
+	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
+	if err != nil || inherited.Connection == nil || *inherited.Connection != "chatgpt-1" || inherited.Model != "gpt-5" {
+		t.Fatalf("default inheritance = %+v, %v", inherited, err)
+	}
+	private := filepath.Join(workspace, ConfigDirName, "config.local.toml")
+	writeConfigTestFile(t, private, `
+connection = "local"
+[reviewer]
+connection = "chatgpt-1"
+[subagents.child]
+connection = "chatgpt-1"
+`)
+	app = loadConfigTestApp(t, workspace, LoadOptions{})
+	child, sources, err = OverlaySubagentRoleSettings(app, app.Settings.Subagents["child"], true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *app.Settings.Connection != "local" || *child.Connection != "chatgpt-1" || *app.Settings.Reviewer.Connection != "chatgpt-1" || child.Model != "local-model" {
+		t.Fatal("private selections must overlay without changing agent model settings")
+	}
+	if origin := sources["connection"]; origin.File == nil || origin.File.Path != private || origin.Property.Role == nil || *origin.Property.Role != "child" {
+		t.Fatalf("winning private role reference = %+v", origin)
+	}
+}
+
 func TestConfigurationOriginsDistinguishEqualFileValues(t *testing.T) {
 	_, workspace, globalPath := newConfigTestFile(t)
 	writeConfigTestFile(t, globalPath, "model = \"gpt-5\"\n")
@@ -239,12 +404,14 @@ func TestRoleFragmentsValidateAfterMergeAndInheritance(t *testing.T) {
 model_context_window = 100000
 context_compaction_threshold_tokens = 80000
 pre_submit_compaction_lead_tokens = 10000
-[provider_capabilities]
-provider_id = "openai"
+[connections.primary]
+protocol = "chatgpt-codex"
+[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234"
 [subagents.worker]
 context_compaction_threshold_tokens = 90000
-[subagents.worker.provider_capabilities]
-supports_responses_api = true
+connection = "primary"
 `)
 	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), `
 [subagents.worker]
@@ -252,9 +419,8 @@ model_context_window = 110000
 `)
 	privatePath := filepath.Join(workspace, ConfigDirName, "config.local.toml")
 	writeConfigTestFile(t, privatePath, `
-[subagents.worker.provider_capabilities]
-supports_responses_api = false
-supports_prompt_cache_key = true
+[subagents.worker]
+connection = "local"
 `)
 	app := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := app.Settings.Subagents["worker"]
@@ -263,7 +429,7 @@ supports_prompt_cache_key = true
 		t.Fatal(overlayErr)
 	}
 	if effective.ModelContextWindow != 110000 || effective.ContextCompactionThresholdTokens != 90000 ||
-		effective.ProviderCapabilities.ProviderID != "openai" || effective.ProviderCapabilities.SupportsResponsesAPI || !effective.ProviderCapabilities.SupportsPromptCacheKey {
+		effective.Connection == nil || *effective.Connection != "local" {
 		t.Fatalf("assembled role = %+v", effective)
 	}
 	writeConfigTestFile(t, privatePath, "[subagents.worker]\nmodel_context_window = 85000\n")
@@ -1019,7 +1185,7 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 			"model = \"gpt-5.6-sol\"",
 			"",
 			"[subagents.fast]",
-			"provider_override = \"bogus\"",
+			"connection = \"\"",
 		}, "\n"), want: configErrorChainExpectation{errSubagentRole}},
 		{name: "model context window below minimum", body: strings.Join([]string{
 			"[subagents.fast]",
@@ -1308,13 +1474,6 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
 	settings := configRegistry.defaultState().Settings
 	settings.ModelCapabilities.SupportsReasoningEffort = true
-	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
-		ProviderID:                    "openai-compatible",
-		SupportsResponsesAPI:          true,
-		SupportsPromptCacheKey:        true,
-		SupportsServerSideContextEdit: true,
-		SupportsProviderVerbosity:     true,
-	}
 	toml := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
 
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -1332,18 +1491,6 @@ func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
 	}
 	if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
 		t.Fatal("expected model capability override to round-trip")
-	}
-	if state.Settings.ProviderCapabilities.ProviderID != "openai-compatible" {
-		t.Fatalf("expected provider_id to round-trip, got %q", state.Settings.ProviderCapabilities.ProviderID)
-	}
-	if !state.Settings.ProviderCapabilities.SupportsResponsesAPI {
-		t.Fatal("expected supports_responses_api to round-trip")
-	}
-	if !state.Settings.ProviderCapabilities.SupportsServerSideContextEdit {
-		t.Fatal("expected supports_server_side_context_edit to round-trip")
-	}
-	if !state.Settings.ProviderCapabilities.SupportsProviderVerbosity {
-		t.Fatal("expected supports_provider_verbosity to round-trip")
 	}
 }
 

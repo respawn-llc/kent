@@ -32,6 +32,64 @@ import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
 describe("Chat Main View admission", () => {
+  it("counts active Session processes from hydration and lifecycle events without page reads", () => {
+    const fixture = runtimeApi();
+    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
+    owner.start();
+    const process = {
+      ActivityID: "activity-1",
+      ProcessID: "process-1",
+      OwnerRunID: "run-1",
+      OwnerStepID: "step-1",
+      Lifecycle: "backgrounded" as const,
+      Command: "sleep 10",
+      Workdir: "/workspace",
+      UserRequestedKill: false,
+      NoticeSuppressed: false,
+    };
+    fixture.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        BackgroundActivities: [process],
+      },
+    });
+    expect(owner.snapshot.activeProcessCount).toBe(1);
+    fixture.handlers[0]?.onEvent({ sequence: 2, kind: "background_activity", payload: process });
+    expect(owner.snapshot.activeProcessCount).toBe(1);
+    fixture.handlers[0]?.onEvent({
+      sequence: 3,
+      kind: "background_activity",
+      payload: {
+        ...process,
+        ActivityID: "activity-2",
+        ProcessID: "process-2",
+      },
+    });
+    expect(owner.snapshot.activeProcessCount).toBe(2);
+    fixture.handlers[0]?.onEvent({
+      sequence: 4,
+      kind: "background_activity",
+      payload: {
+        ...process,
+        Lifecycle: "completed",
+      },
+    });
+    expect(owner.snapshot.activeProcessCount).toBe(1);
+    fixture.handlers[0]?.onEvent({
+      sequence: 5,
+      kind: "background_activity",
+      payload: {
+        ...process,
+        ActivityID: "activity-2",
+        ProcessID: "process-2",
+        Lifecycle: "killed",
+      },
+    });
+    expect(owner.snapshot.activeProcessCount).toBe(0);
+    void owner.dispose();
+  });
   it("publishes pending prompt hydration through the mounted owner", async () => {
     const fixture = runtimeApi();
     const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());

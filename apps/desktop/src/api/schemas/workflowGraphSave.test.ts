@@ -1,56 +1,33 @@
 import { expect, it } from "vitest";
-
-import { workflowGraphSavePreviewSchema } from "./workflow";
+import { create, validate } from "@app/server-api-contract";
+import {
+  GraphEntityType,
+  GraphSavePreviewSuccessSchema,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import { workflowSavePreview } from "../clientWorkflowProjection";
 
 const edgeID = "40000000-0000-4000-8000-000000000001";
 
-const impact = {
-  active_current_node_count: 0,
-  edge_task_reference_count: 0,
-  last_terminal_change_count: 0,
-  node_task_reference_count: 0,
-  pending_approval_count: 0,
-  removed_edge_count: 1,
-  removed_entities: [{ entity_id: edgeID, entity_type: "edge" }],
-  removed_node_count: 0,
-  removed_node_group_count: 0,
-  removed_transition_group_count: 0,
-  start_node_change_count: 0,
-  task_referenced_node_kind_change_count: 0,
-};
-
-it("hard-cuts over graph impact and blocker identities", () => {
-  const preview = {
+it("preserves graph impact and blocker identities through generated validation", () => {
+  const reference = { entityType: GraphEntityType.WORKFLOW_GRAPH_ENTITY_TYPE_EDGE, entityId: edgeID };
+  const preview = create(GraphSavePreviewSuccessSchema, {
+    changed: true,
+    currentVersion: 12n,
+    confirmationRequired: true,
+    impact: { removedEdgeCount: 1n, removedEntities: [reference] },
     blockers: [
       {
-        affected_entities: [{ entity_id: edgeID, entity_type: "edge" }],
         code: "confirmation_required",
-        count: 1,
+        count: 1n,
         message: "Confirm removal.",
+        affectedEntities: [reference],
       },
     ],
-    can_save: false,
-    changed: true,
-    confirmation_required: true,
-    current_version: 12,
-    impact,
-    validation_results: {},
-  };
-  expect(workflowGraphSavePreviewSchema.parse(preview)).toMatchObject({
+  });
+  validate(GraphSavePreviewSuccessSchema, preview);
+  expect(workflowSavePreview(preview)).toMatchObject({
     changed: true,
     impact: { removedEntities: [{ entityID: edgeID, entityType: "edge" }] },
     blockers: [{ affectedEntities: [{ entityID: edgeID, entityType: "edge" }] }],
   });
-  expect(
-    workflowGraphSavePreviewSchema.safeParse({
-      ...preview,
-      blockers: [{ code: "confirmation_required", count: 1, message: "Confirm removal." }],
-    }).success,
-  ).toBe(false);
-  expect(
-    workflowGraphSavePreviewSchema.safeParse({
-      ...preview,
-      impact: { ...impact, removed_entities: undefined },
-    }).success,
-  ).toBe(false);
 });

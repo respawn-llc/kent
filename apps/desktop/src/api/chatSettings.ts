@@ -107,7 +107,7 @@ export function createChatSettingsApi(
         initialSettings: initialSettings(required(response.target.value.initialSettings)),
         catalog: {
           choices: response.target.value.choices.map((choice) => ({
-            agent: agentChoice(required(choice.agent)),
+            agent: completeAgentChoice(required(choice.agent)),
             baseline: initialSettings(required(choice.baseline)),
             ...controls(choice),
           })),
@@ -233,12 +233,20 @@ function initialSettings(value: WireInitialChatSettings): InitialChatSettings {
 function agentChoice(value: AgentChoice) {
   return {
     role: value.role,
-    model: value.model,
-    thinking: value.thinking,
+    model: value.model ?? null,
+    thinking: value.thinking ?? null,
     tools: value.tools,
     customSystemPrompt: value.customSystemPrompt,
     customCapabilities: value.customCapabilities,
     agentCallable: value.agentCallable,
+  };
+}
+
+function completeAgentChoice(value: AgentChoice) {
+  return {
+    ...agentChoice(value),
+    model: required(value.model),
+    thinking: required(value.thinking),
   };
 }
 

@@ -21,15 +21,17 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 	case config.SubagentRoleLookupMissing:
 		return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]", *lookup.NormalizedSelector, strings.Join(config.AvailableSubagentRoleNames(base, false), ", "))
 	}
-	return resolveSubagentSettingsFromRole(
+	providerID = strings.TrimSpace(providerID)
+	prepared, err := prepareSubagentSettingsFromRole(
 		base,
 		baseSource,
 		*lookup.NormalizedSelector,
 		lookup.Role,
-		strings.TrimSpace(providerID),
+		&providerID,
 		allowModelOverride,
 		validate,
 	)
+	return prepared.Settings, prepared.Source, prepared.Warning, err
 }
 
 // ResolveConfiguredSubagentSettings resolves one configured role against the
@@ -42,13 +44,23 @@ func ResolveConfiguredSubagentSettings(base config.App, roleName string) (config
 	return resolved, nil
 }
 
-func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.SourceReport, selector string, role config.SubagentRole, providerID string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, *string, error) {
+type preparedRoleSettings struct {
+	Settings config.Settings
+	Source   config.SourceReport
+	Warning  *string
+	Model    *string
+	Thinking *string
+}
+
+func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.SourceReport, selector string, role config.SubagentRole, providerID *string, allowModelOverride bool, validate bool) (preparedRoleSettings, error) {
 	resolved := cloneSettings(base)
-	_ = applyBuiltInRoleHeuristics(&resolved, selector, providerID, allowModelOverride)
+	if providerID != nil {
+		_ = applyBuiltInRoleHeuristics(&resolved, selector, *providerID, allowModelOverride)
+	}
 	originalModel := strings.TrimSpace(resolved.Model)
 	resolved, effectiveSources, err := config.OverlaySubagentRoleSettings(config.App{Settings: resolved, Source: baseSource}, role, allowModelOverride)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, nil, err
+		return preparedRoleSettings{}, err
 	}
 	resolved, effectiveSources = config.OverlayAgentOverrides(resolved, effectiveSources, base, baseSource.Sources, allowModelOverride)
 	explicitSources := make(map[string]config.Origin, len(role.Sources))
@@ -67,7 +79,7 @@ func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	effectiveSource.Sources = effectiveSources
 	if validate {
 		if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
-			return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("invalid subagent role %q: %w", selector, err)
+			return preparedRoleSettings{}, fmt.Errorf("invalid subagent role %q: %w", selector, err)
 		}
 	}
 	var warning *string
@@ -75,7 +87,18 @@ func resolveSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 		warningValue := fastRoleSameAsMainWarning
 		warning = &warningValue
 	}
-	return resolved, effectiveSource, warning, nil
+	model, thinking := textutil.OptionalTrimmedString(resolved.Model), textutil.OptionalTrimmedString(resolved.ThinkingLevel)
+	if providerID == nil && selector == config.BuiltInSubagentRoleFast && allowModelOverride {
+		// These defaults require provider facts; only authored winners can make
+		// them known while the role's connection is unresolved.
+		if _, explicit := explicitSources["model"]; !explicit {
+			model = nil
+		}
+		if _, explicit := explicitSources["thinking_level"]; !explicit {
+			thinking = nil
+		}
+	}
+	return preparedRoleSettings{Settings: resolved, Source: effectiveSource, Warning: warning, Model: model, Thinking: thinking}, nil
 }
 
 func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) bool {

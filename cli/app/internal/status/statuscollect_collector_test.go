@@ -7,11 +7,12 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type statusSessionViewStub struct {
@@ -100,8 +101,8 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 						Kind:       authpb.ProviderKind_PROVIDER_KIND_OPENAI,
 						Identifier: "openai",
 					},
-					EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_SAVED_AUTH,
-					MethodFacts:   &authpb.StatusFacts_Oauth{Oauth: &authpb.OAuthFacts{Email: &email}},
+					ConnectionId: "work",
+					MethodFacts:  &authpb.StatusFacts_Oauth{Oauth: &authpb.OAuthFacts{Email: &email}},
 				}},
 			},
 			Subscription: &authpb.SubscriptionFacts{Applicable: true, Plan: &plan},
@@ -113,8 +114,8 @@ func TestCollectorUsesTypedAuthStatusService(t *testing.T) {
 	if result.Auth.Summary != email {
 		t.Fatalf("auth summary = %q", result.Auth.Summary)
 	}
-	if result.Subscription.Summary != "Pro subscription" {
-		t.Fatalf("subscription summary = %q", result.Subscription.Summary)
+	if !result.Subscription.Applicable {
+		t.Fatalf("subscription = %+v", result.Subscription)
 	}
 }
 
@@ -131,17 +132,16 @@ func TestCollectorRequestsEffectiveSessionAuthProvider(t *testing.T) {
 		response: &authpb.Status{
 			Resolution: &authpb.StatusResolution{
 				Resolution: &authpb.StatusResolution_Known{Known: &authpb.StatusFacts{
-					Method:        authpb.AuthMethod_AUTH_METHOD_NONE,
-					Provider:      provider,
-					EnvPreference: authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_UNSPECIFIED,
-					MethodFacts:   &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
+					Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+					Provider:     provider,
+					ConnectionId: "local",
+					MethodFacts:  &authpb.StatusFacts_NoAuth{NoAuth: &emptypb.Empty{}},
 				}},
 			},
 			Subscription: &authpb.SubscriptionFacts{},
 		},
 	}
-	baseURL := "https://session.example/v1"
-	selection := authpb.ProviderSelection{OpenaiBaseUrl: &baseURL}
+	selection := authpb.ProviderSelection{ConnectionId: "local"}
 
 	result := (Collector{}).CollectAuth(context.Background(), Request{
 		AuthStatus:    authStatus,

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/session"
 	"core/shared/config"
@@ -18,7 +17,7 @@ import (
 
 func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	prepared, err := launch.PrepareChatAgentCatalog(app, auth.EmptyState(), false)
+	prepared, err := launch.PrepareChatAgentCatalog(app, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +175,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 
 func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 	t.Helper()
-	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), auth.EmptyState(), true)
+	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), true)
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
@@ -187,7 +186,6 @@ func testChatSettingsApp(t *testing.T) config.App {
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-5"
 	settings.ThinkingLevel = "medium"
-	settings.ProviderCapabilities.ProviderID = "anthropic"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolAskQuestion: true,
 		toolspec.ToolExecCommand: true,

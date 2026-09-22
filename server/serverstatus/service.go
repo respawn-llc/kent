@@ -3,10 +3,11 @@ package serverstatus
 import (
 	"context"
 
-	"core/server/auth"
 	"core/server/authservice"
 	"core/server/workflow"
+	"core/shared/apicontract"
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
 
@@ -14,14 +15,14 @@ import (
 )
 
 type ServerStatusService struct {
-	authManager *auth.Manager
-	endpoint    string
-	settings    config.Settings
-	updates     *UpdateStatusService
+	authBootstrap apicontract.AuthBootstrapService
+	endpoint      string
+	settings      config.Settings
+	updates       *UpdateStatusService
 }
 
-func NewServerStatusService(authManager *auth.Manager, cfg config.App, updates *UpdateStatusService) *ServerStatusService {
-	return &ServerStatusService{authManager: authManager, endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings, updates: updates}
+func NewServerStatusService(authBootstrap apicontract.AuthBootstrapService, cfg config.App, updates *UpdateStatusService) *ServerStatusService {
+	return &ServerStatusService{authBootstrap: authBootstrap, endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings, updates: updates}
 }
 
 func (s *ServerStatusService) GetReadiness(ctx context.Context, _ *emptypb.Empty) (*serverpb.GetReadinessSuccess, error) {
@@ -31,12 +32,12 @@ func (s *ServerStatusService) GetReadiness(ctx context.Context, _ *emptypb.Empty
 		settings = s.settings
 	}
 	authRequired := authservice.StartupAuthRequired(settings)
-	if authRequired && s != nil && s.authManager != nil {
-		state, err := s.authManager.Load(ctx)
+	if authRequired && s != nil && s.authBootstrap != nil {
+		status, err := s.authBootstrap.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{ConnectionId: (*string)(settings.Connection)})
 		if err != nil {
 			return nil, err
 		}
-		authReady = auth.EvaluateStartupGate(state).Ready
+		authReady = status.AuthReady
 	}
 	ready := authReady || !authRequired
 	readiness := &serverpb.Readiness{

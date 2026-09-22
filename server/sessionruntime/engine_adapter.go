@@ -117,14 +117,16 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
-	debug             bool
-	persistenceRoot   string
-	authManager       *auth.Manager
-	background        *shelltool.Manager
-	storeOptions      []session.StoreOption
-	eventFeed         AgentResourceEventFeed
-	resourceLifecycle AgentResourceLifecycle
-	stepLifecycle     AgentResourceStepLifecycle
+	environment         func(string) (string, bool)
+	workspaceMembership runtimewire.WorkspaceMembership
+	debug               bool
+	persistenceRoot     string
+	authManager         *auth.Manager
+	background          *shelltool.Manager
+	storeOptions        []session.StoreOption
+	eventFeed           AgentResourceEventFeed
+	resourceLifecycle   AgentResourceLifecycle
+	stepLifecycle       AgentResourceStepLifecycle
 }
 
 type runtimeStoreAdmission struct {
@@ -134,14 +136,16 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
-		debug:             options.Debug,
-		persistenceRoot:   options.PersistenceRoot,
-		authManager:       options.AuthManager,
-		background:        options.Background,
-		storeOptions:      append([]session.StoreOption(nil), options.StoreOptions...),
-		eventFeed:         options.EventFeed,
-		resourceLifecycle: options.ResourceLifecycle,
-		stepLifecycle:     options.StepLifecycle,
+		environment:         options.Environment,
+		workspaceMembership: options.WorkspaceMembership,
+		debug:               options.Debug,
+		persistenceRoot:     options.PersistenceRoot,
+		authManager:         options.AuthManager,
+		background:          options.Background,
+		storeOptions:        append([]session.StoreOption(nil), options.StoreOptions...),
+		eventFeed:           options.EventFeed,
+		resourceLifecycle:   options.ResourceLifecycle,
+		stepLifecycle:       options.StepLifecycle,
 	}
 }
 
@@ -283,7 +287,18 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	options := plan.options
+	catalog, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.options.persistenceRoot})
+	if err != nil {
+		return nil, err
+	}
+	options.Settings.Connections = catalog.Settings.Connections
+	replacement, err := launch.BindSessionConnection(store, &options.Settings, options.Sources)
+	if err != nil {
+		return nil, err
+	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		Environment:                         a.options.environment,
+		WorkspaceMembership:                 a.options.workspaceMembership,
 		MainWorkspaceRoot:                   options.MainWorkspaceRoot,
 		RequiredTools:                       options.RequiredTools,
 		Context:                             resource.ctx,
@@ -333,7 +348,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			}
 		},
 	}
-	return runtimewire.NewRuntimeWiringWithBackground(
+	wiring, err := runtimewire.NewRuntimeWiringWithBackground(
 		store,
 		eventLog,
 		options.Settings,
@@ -343,4 +358,14 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		a.options.background,
 		wiringOptions,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if replacement != nil {
+		if err := wiring.Engine.PrepareConnectionReplacement(*replacement); err != nil {
+			_ = wiring.Close()
+			return nil, err
+		}
+	}
+	return wiring, nil
 }

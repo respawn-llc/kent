@@ -7,7 +7,7 @@ import { projectTaskWorkflowItems, useProjectTaskWorkflowPages } from "./project
 
 const projectID = "project-1";
 interface ProjectTaskWorkflowFixture {
-  requests: number[];
+  requests: bigint[];
   workflows: WorkflowRecord[];
 }
 
@@ -28,12 +28,12 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   useAppServices: () => ({
     api: {
       listWorkflows: async (input: WorkflowListInput) => {
-        const offset = input.offset ?? 0;
-        const limit = input.limit ?? 40;
+        const offset = input.offset ?? 0n;
+        const limit = BigInt(input.limit ?? 40);
         fixture.requests.push(offset);
         return {
-          nextOffset: offset + limit < fixture.workflows.length ? offset + limit : null,
-          workflows: fixture.workflows.slice(offset, offset + limit),
+          nextOffset: offset + limit < BigInt(fixture.workflows.length) ? offset + limit : null,
+          workflows: fixture.workflows.slice(Number(offset), Number(offset + limit)),
         };
       },
     },
@@ -59,16 +59,16 @@ it("keeps a bounded bidirectional window of Project Workflow pages", async () =>
     });
   }
 
-  expect(query.data?.pageParams).toEqual([40, 80, 120]);
+  expect(query.data?.pageParams).toEqual([40n, 80n, 120n]);
   expect(projectTaskWorkflowItems(query.data)).toHaveLength(90);
 
   await act(async () => {
     query = await query.fetchPreviousPage();
   });
 
-  expect(query.data?.pageParams).toEqual([0, 40, 80]);
+  expect(query.data?.pageParams).toEqual([0n, 40n, 80n]);
   expect(projectTaskWorkflowItems(query.data)).toHaveLength(120);
-  expect(fixture.requests).toEqual([0, 40, 80, 120, 0]);
+  expect(fixture.requests).toEqual([0n, 40n, 80n, 120n, 0n]);
 });
 
 function queryWrapper() {

@@ -9,13 +9,10 @@ import (
 )
 
 func InheritReviewerSettings(settings *Settings, sources map[string]Origin) {
-	if sources["reviewer.provider_override"].Inherited("reviewer.provider_override") {
-		settings.Reviewer.ProviderOverride = ""
+	if settings.Reviewer.Connection == nil || sources["reviewer.connection"].Inherited("reviewer.connection") {
+		settings.Reviewer.Connection = settings.Connection
+		inheritSource(sources, "reviewer.connection", "connection")
 	}
-	if sources["reviewer.openai_base_url"].Inherited("reviewer.openai_base_url") {
-		settings.Reviewer.OpenAIBaseURL = ""
-	}
-	reviewerProviderSelectionExplicit := ReviewerUsesIndependentProviderSelection(*settings)
 	if sources["reviewer.model"].Inherited("reviewer.model") || strings.TrimSpace(settings.Reviewer.Model) == "" {
 		settings.Reviewer.Model = settings.Model
 		inheritSource(sources, "reviewer.model", "model")
@@ -29,57 +26,11 @@ func InheritReviewerSettings(settings *Settings, sources map[string]Origin) {
 		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
 		inheritSource(sources, "reviewer.model_verbosity", "model_verbosity")
 	}
-	reviewerProvider := ResolveReviewerProviderSettings(*settings)
-	if settings.Reviewer.ProviderOverride == "" {
-		inheritSource(sources, "reviewer.provider_override", "provider_override")
-	}
-	if settings.Reviewer.OpenAIBaseURL == "" && shouldInheritMainOpenAIBaseURL(reviewerProvider.ProviderOverride) {
-		inheritSource(sources, "reviewer.openai_base_url", "openai_base_url")
-	}
-	settings.Reviewer.ProviderOverride = reviewerProvider.ProviderOverride
-	settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
 	inheritReviewerModelCapabilities(settings, sources)
-	inheritReviewerProviderCapabilities(settings, sources, reviewerProviderSelectionExplicit)
 	if sources["reviewer.model_context_window"].Inherited("reviewer.model_context_window") ||
 		(settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window")) {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 		inheritSource(sources, "reviewer.model_context_window", "model_context_window")
-	}
-}
-
-func ReviewerUsesIndependentProviderSelection(settings Settings) bool {
-	if strings.TrimSpace(settings.Reviewer.OpenAIBaseURL) != "" {
-		return true
-	}
-	reviewerProvider := strings.ToLower(strings.TrimSpace(settings.Reviewer.ProviderOverride))
-	if reviewerProvider == "" {
-		return false
-	}
-	mainProvider := strings.ToLower(strings.TrimSpace(settings.ProviderOverride))
-	if mainProvider == "" && reviewerProvider == "openai" {
-		return false
-	}
-	return reviewerProvider != mainProvider
-}
-
-func ResolveReviewerProviderSettings(settings Settings) ReviewerProviderSettings {
-	provider := strings.TrimSpace(settings.Reviewer.ProviderOverride)
-	if provider == "" {
-		provider = strings.TrimSpace(settings.ProviderOverride)
-	}
-	baseURL := strings.TrimSpace(settings.Reviewer.OpenAIBaseURL)
-	if baseURL == "" && shouldInheritMainOpenAIBaseURL(provider) {
-		baseURL = strings.TrimSpace(settings.OpenAIBaseURL)
-	}
-	return ReviewerProviderSettings{ProviderOverride: provider, OpenAIBaseURL: baseURL}
-}
-
-func shouldInheritMainOpenAIBaseURL(reviewerProvider string) bool {
-	switch strings.ToLower(strings.TrimSpace(reviewerProvider)) {
-	case "", "openai":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -100,108 +51,12 @@ func inheritReviewerModelCapabilities(settings *Settings, sources map[string]Ori
 	}
 }
 
-func hasProviderCapabilitiesOverride(override ProviderCapabilitiesOverride) bool {
-	return strings.TrimSpace(override.ProviderID) != "" ||
-		override.SupportsResponsesAPI ||
-		override.SupportsResponsesCompact ||
-		override.SupportsPromptCacheKey ||
-		override.SupportsNativeWebSearch ||
-		override.SupportsReasoningEncrypted ||
-		override.SupportsServerSideContextEdit ||
-		override.SupportsProviderVerbosity ||
-		override.IsOpenAIFirstParty
-}
-
-func inheritReviewerProviderCapabilities(settings *Settings, sources map[string]Origin, reviewerProviderSelectionExplicit bool) {
-	if sources == nil {
-		if !hasProviderCapabilitiesOverride(settings.Reviewer.ProviderCapabilities) && !reviewerProviderSelectionExplicit {
-			settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-		}
-		return
-	}
-	if reviewerProviderSelectionExplicit {
-		defaults := configRegistry.defaultState()
-		target := settingsState{Settings: *settings}
-		for _, key := range reviewerProviderCapabilityKeys {
-			if sources[key].Inherited(key) {
-				configRegistry.subagentRoleValues[key].applySubagentRoleValue(&target, defaults)
-				sources[key] = defaultOrigin(key)
-			}
-		}
-		*settings = target.Settings
-		return
-	}
-	if !hasAnyConfiguredSource(sources, reviewerProviderCapabilityKeys...) {
-		settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
-		for _, key := range providerCapabilityKeys {
-			inheritSource(sources, "reviewer."+key, key)
-		}
-		return
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.provider_id") {
-		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
-		inheritSource(sources, "reviewer.provider_capabilities.provider_id", "provider_capabilities.provider_id")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_responses_api") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
-		inheritSource(sources, "reviewer.provider_capabilities.supports_responses_api", "provider_capabilities.supports_responses_api")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_responses_compact") {
-		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
-		inheritSource(sources, "reviewer.provider_capabilities.supports_responses_compact", "provider_capabilities.supports_responses_compact")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_prompt_cache_key") {
-		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
-		inheritSource(sources, "reviewer.provider_capabilities.supports_prompt_cache_key", "provider_capabilities.supports_prompt_cache_key")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_native_web_search") {
-		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
-		inheritSource(sources, "reviewer.provider_capabilities.supports_native_web_search", "provider_capabilities.supports_native_web_search")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_reasoning_encrypted") {
-		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
-		inheritSource(sources, "reviewer.provider_capabilities.supports_reasoning_encrypted", "provider_capabilities.supports_reasoning_encrypted")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_server_side_context_edit") {
-		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
-		inheritSource(sources, "reviewer.provider_capabilities.supports_server_side_context_edit", "provider_capabilities.supports_server_side_context_edit")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.supports_provider_verbosity") {
-		settings.Reviewer.ProviderCapabilities.SupportsProviderVerbosity = settings.ProviderCapabilities.SupportsProviderVerbosity
-		inheritSource(sources, "reviewer.provider_capabilities.supports_provider_verbosity", "provider_capabilities.supports_provider_verbosity")
-	}
-	if !hasConfiguredSource(sources, "reviewer.provider_capabilities.is_openai_first_party") {
-		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
-		inheritSource(sources, "reviewer.provider_capabilities.is_openai_first_party", "provider_capabilities.is_openai_first_party")
-	}
-}
-
 var modelCapabilityKeys = []string{
 	"model_capabilities.supports_reasoning_effort",
 	"model_capabilities.supports_vision_inputs",
 }
 
-var reviewerModelCapabilityKeys = []string{
-	"reviewer.model_capabilities.supports_reasoning_effort",
-	"reviewer.model_capabilities.supports_vision_inputs",
-}
-
-type providerCapabilitySourceKeys struct {
-	all    []string
-	values []string
-}
-
-func newProviderCapabilitySourceKeys(providerID string, values ...string) providerCapabilitySourceKeys {
-	all := make([]string, 0, len(values)+1)
-	all = append(all, providerID)
-	all = append(all, values...)
-	return providerCapabilitySourceKeys{
-		all:    all,
-		values: values,
-	}
-}
-
-var mainProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
+var providerCapabilityKeys = []string{
 	"provider_capabilities.provider_id",
 	"provider_capabilities.supports_responses_api",
 	"provider_capabilities.supports_responses_compact",
@@ -211,23 +66,7 @@ var mainProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
 	"provider_capabilities.supports_server_side_context_edit",
 	"provider_capabilities.supports_provider_verbosity",
 	"provider_capabilities.is_openai_first_party",
-)
-
-var reviewerProviderCapabilitySourceKeys = newProviderCapabilitySourceKeys(
-	"reviewer.provider_capabilities.provider_id",
-	"reviewer.provider_capabilities.supports_responses_api",
-	"reviewer.provider_capabilities.supports_responses_compact",
-	"reviewer.provider_capabilities.supports_prompt_cache_key",
-	"reviewer.provider_capabilities.supports_native_web_search",
-	"reviewer.provider_capabilities.supports_reasoning_encrypted",
-	"reviewer.provider_capabilities.supports_server_side_context_edit",
-	"reviewer.provider_capabilities.supports_provider_verbosity",
-	"reviewer.provider_capabilities.is_openai_first_party",
-)
-
-var providerCapabilityKeys = mainProviderCapabilitySourceKeys.all
-
-var reviewerProviderCapabilityKeys = reviewerProviderCapabilitySourceKeys.all
+}
 
 func hasAnyConfiguredSource(sources map[string]Origin, keys ...string) bool {
 	for _, key := range keys {

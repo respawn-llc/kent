@@ -46,9 +46,14 @@ type OutsideWorkspaceAudit struct {
 type OutsideWorkspaceAuditLogger func(OutsideWorkspaceAudit)
 
 type options struct {
+	permissions              *tools.WorkspacePermissions
 	allowOutsideWorkspace    bool
 	outsideWorkspaceApprover tools.FileAccessApprover
 	outsideWorkspaceAudit    OutsideWorkspaceAuditLogger
+}
+
+func WithWorkspacePermissions(permissions *tools.WorkspacePermissions) Option {
+	return func(options *options) { options.permissions = permissions }
 }
 
 type Option func(*options)
@@ -98,6 +103,7 @@ func New(filesystemContext tools.FilesystemContext, supported func() bool, opts 
 		}
 	}
 	fileAccess, err := tools.NewFileAccessPolicy(tools.FileAccessPolicyConfig{
+		Permissions:           settings.permissions,
 		Context:               filesystemContext,
 		Mode:                  tools.FileAccessRead,
 		AllowOutsideWorkspace: settings.allowOutsideWorkspace,

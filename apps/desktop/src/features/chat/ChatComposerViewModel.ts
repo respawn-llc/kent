@@ -12,8 +12,8 @@ export function createChatComposerViewModel(
   options: Readonly<{
     services: AppServices;
     client: QueryClient;
-    target: Atom.Atom<ChatSettingsTarget>;
-    opening: ChatSettingsTarget;
+    target: Atom.Atom<ChatSettingsTarget | null>;
+    opening: Parameters<typeof createComposerDraftViewModel>[0]["opening"];
     submission: Atom.Atom<ComposerSubmission>;
     t: TFunction;
   }>,

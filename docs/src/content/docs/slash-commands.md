@@ -3,14 +3,6 @@ title: Slash Commands
 description: Available slash commands, how their input is parsed, and how file-backed custom commands are discovered.
 ---
 
-## Desktop Chat
-
-`/prompt:review` and `/prompt:init` also accept `/review` and `/init`. They reuse an idle, empty Session; otherwise they open a fresh child in the same Chat and leave the previous Session's work running. Ctrl+Enter executes these commands immediately rather than placing them in the previous Session's Queue. In New Chat, invoking either command creates its Session.
-
-File-backed commands use ordinary Send/Steer or Ctrl+Enter Queue behavior. Chat reads their catalog when opened or when its workspace or Session changes. A missing-command response refreshes the catalog without replaying the command. Catalog failures offer Retry while the built-in commands remain available.
-
-If a command creates a child and submission then fails, Chat stays on that child and restores the submitted command after any newer typing. Commands from an existing Session preserve independently saved New Chat text.
-
 ## Terminal Commands
 
 Press Tab to autocomplete a command, and Enter to autocomplete and send. Press Tab again when command matches fully to **queue** the command. This allows chains like `"commit" -> [Tab] -> "/compact" -> [Tab] -> "/prompts:open_pr" -> [Tab]`.
@@ -41,13 +33,9 @@ Press Tab to autocomplete a command, and Enter to autocomplete and send. Press T
 | `/init <instructions>`                                                                  | optional free-form text      | Run repository initialization. It reuses an empty session; otherwise it starts a fresh child session.                                                              |
 | `/prompt:<name>`                                                                        | optional trailing arguments  | Run a server-owned custom prompt command.                                                                                                                          |
 
-Goal-started work uses ordinary chat's Question and Interrupt controls. Interrupt suspends automatic Goal continuation; `/goal resume` resumes it.
-
-Goal changes are saved immediately, including during model work. Confirmation means the goal is saved; Kent schedules the model reminder for the next step boundary.
 
 ## File-backed Prompt Commands
-
-Kent discovers Markdown prompt commands on the server that owns the attached Project Workspace. Remote clients do not read server paths or receive prompt bodies in the command catalog.
+Kent discovers Markdown prompt commands on the server that owns the attached Project Workspace.
 
 The effective roots, in descending precedence, are:
 
@@ -58,12 +46,4 @@ The effective roots, in descending precedence, are:
 - `<persistence-root>/.generated/prompts`
 - `<persistence-root>/.generated/commands`
 
-Discovery is non-recursive and includes non-blank `.md` files. The first valid file for each normalized basename wins. IDs lowercase letters, preserve digits, convert whitespace and underscores to one underscore, and discard other characters.
-
-The picker shows a one-line preview made from the first 256 Unicode characters after collapsing whitespace. Markdown punctuation remains unchanged. Prompt bodies are resolved by the server when the command is invoked.
-
 If the exact `$ARGUMENTS` token appears in the body, Kent replaces every occurrence with trimmed trailing arguments. Otherwise, Kent appends non-empty trailing arguments after one blank line.
-
-First-time setup can import slash-command directories from supported providers. An unavailable or unknown `/prompt:` command reports an error and is never sent to the model as plain text. Other unknown slash commands retain their normal behavior.
-
-During an active turn, an available `/prompt:<name>` command steers its server-expanded prompt into the current session. `/review` and `/init` retain their fresh-session behavior.

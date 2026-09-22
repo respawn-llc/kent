@@ -14,12 +14,13 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	textutil "core/shared/textutil"
-	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 type backParentPrefillScenarioServer interface {
@@ -34,11 +35,12 @@ func appStringPointer(value string) *string {
 
 func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
-	srv, err := startAppTestServer(t, serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
-	}, apiKeyAuthState("test-key"))
+	})
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}
@@ -77,7 +79,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	if err := os.WriteFile(
 		filepath.Join(workspaceB, config.ConfigDirName, "config.toml"),
-		[]byte("model = \"target-project-model\"\nprovider_override = \"openai\"\nthinking_level = \"high\"\n"),
+		[]byte("model = \"target-project-model\"\nthinking_level = \"high\"\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write target workspace config: %v", err)
@@ -88,11 +90,12 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	bindingB := mustRegisterAppBinding(t, sourceConfig.PersistenceRoot, workspaceB)
 
-	srv, err := startAppTestServer(t, serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		LoadOptions:           config.LoadOptions{Model: "source-project-model"},
-	}, apiKeyAuthState("test-key"))
+	})
+
 	if err != nil {
 		t.Fatalf("start served app server: %v", err)
 	}

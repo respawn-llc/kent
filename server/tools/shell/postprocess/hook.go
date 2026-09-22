@@ -40,7 +40,8 @@ type hookResponse struct {
 }
 
 type userHookProcessor struct {
-	hookPath *string
+	persistenceRoot string
+	hookPath        *string
 }
 
 func (p userHookProcessor) ID() string {
@@ -77,6 +78,10 @@ func (p userHookProcessor) Process(ctx context.Context, envelope Envelope) (Deci
 
 	cmd := exec.CommandContext(timeoutCtx, hookPath)
 	cmd.Env = tools.EnrichShellEnvForSession(os.Environ(), req.OwnerSessionID)
+	cmd.Env, err = tools.FilterCredentialEnvironment(p.persistenceRoot, cmd.Env)
+	if err != nil {
+		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "prepare command postprocess environment", Err: err}
+	}
 	cmd.Stdin = bytes.NewReader(payload)
 	stdout, err := boundedio.NewWriter(maxHookOutputBytes)
 	if err != nil {

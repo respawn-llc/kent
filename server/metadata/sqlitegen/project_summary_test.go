@@ -47,21 +47,11 @@ INSERT INTO sessions VALUES ('hidden', 'project-1', 'workspace-1', 0, 400, 'wide
 	}
 
 	queries := New(db)
-	summary, err := queries.GetProjectSummary(context.Background(), "project-1")
+	summaries, err := queries.ListProjects(context.Background())
 	if err != nil {
 		t.Fatalf("get project summary: %v", err)
 	}
-	if summary.SessionCount != 2 || summary.LatestActivityUnixMs != 300 {
-		t.Fatalf("project summary = %+v, want two visible sessions and latest activity 300", summary)
-	}
-	workspaces, err := queries.ListProjectWorkspaces(context.Background(), ListProjectWorkspacesParams{
-		ProjectID:                "project-1",
-		WorkspaceCollectionLimit: 10,
-	})
-	if err != nil {
-		t.Fatalf("list project workspaces: %v", err)
-	}
-	if len(workspaces) != 2 || workspaces[0].ID != "workspace-1" || workspaces[0].SessionCount != 2 {
-		t.Fatalf("workspace summaries = %+v, want primary workspace with two visible sessions first", workspaces)
+	if len(summaries) != 1 || summaries[0].SessionCount != 2 || summaries[0].LatestActivityUnixMs != 300 {
+		t.Fatalf("project summaries = %+v, want two visible sessions and latest activity 300", summaries)
 	}
 }

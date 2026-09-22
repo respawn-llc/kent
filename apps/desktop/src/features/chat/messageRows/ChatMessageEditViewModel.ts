@@ -13,7 +13,7 @@ export type ChatMessageEditHandoff = Readonly<{ sessionID: string; draft: string
 export type ChatMessageEditActivation = Readonly<{
   item: ChatUserMessageItem;
   draft: string;
-  onSuccess(handoff: ChatMessageEditHandoff): void;
+  onSuccess(handoff: ChatMessageEditHandoff): void | Promise<void>;
 }>;
 
 export function createChatMessageEditViewModel({
@@ -25,7 +25,7 @@ export function createChatMessageEditViewModel({
 }: Readonly<{
   api: ChatApi;
   client: QueryClient;
-  target: ChatSessionTarget;
+  target: ChatSessionTarget | null;
   t: TFunction;
   push: StatusController["push"];
 }>) {
@@ -36,11 +36,15 @@ export function createChatMessageEditViewModel({
         fork: ChatForkEditInput;
         onSuccess: ChatMessageEditActivation["onSuccess"];
       }>,
-    ) => api.forkEdit(input.target, input.fork),
+    ) => {
+      const sessionID = await api.forkEdit(input.target, input.fork);
+      await api.persistDraft({ projectID: input.target.projectID, sessionID }, input.fork.initialInput, null);
+      return sessionID;
+    },
     retry: false,
     networkMode: "always",
-    onSuccess: (sessionID, input) => {
-      input.onSuccess({ sessionID, draft: input.fork.initialInput });
+    onSuccess: async (sessionID, input) => {
+      await input.onSuccess({ sessionID, draft: input.fork.initialInput });
     },
     onError: (error) => {
       push({
@@ -58,7 +62,7 @@ export function createChatMessageEditViewModel({
     (input) =>
       Effect.gen(function* () {
         const rollbackTargetID = input.item.value.RollbackTargetID;
-        if (rollbackTargetID == null || observer.getCurrentResult().isPending) return;
+        if (target === null || rollbackTargetID == null || observer.getCurrentResult().isPending) return;
         yield* Effect.tryPromise(async () =>
           observer.mutate({
             target,

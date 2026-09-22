@@ -43,6 +43,9 @@ INSERT INTO workspaces (
     ?,
     ?
 )`, now, now)
+	execLegacyMigrationSeed(t, db, "default workspace", `
+UPDATE projects SET primary_workspace_id = 'workspace-migrated-approval-fanout'
+WHERE id = 'project-migrated-approval-fanout'`)
 	execLegacyMigrationSeed(t, db, "session", `
 INSERT INTO sessions (
     id, project_id, workspace_id, artifact_relpath, created_at_unix_ms, updated_at_unix_ms

@@ -44,13 +44,13 @@ type scheduledSessionRetargeterStub struct {
 
 func (s *scheduledSessionRetargeterStub) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	_ context.Context,
-	sessionID string,
+	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operation worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
 ) (*worktreepb.ScheduledAcknowledgement, error) {
-	s.request.SessionID = sessionID
+	s.request = request
 	s.resolve = resolve
 	s.origin = origin
 	s.operation = operation

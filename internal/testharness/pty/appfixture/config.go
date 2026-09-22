@@ -51,7 +51,7 @@ func WriteConfigWithOptions(ctx context.Context, persistenceRoot string, options
 	}
 	fmt.Fprintf(
 		&config,
-		"model = \"gpt-5\"\nprovider_override = \"openai\"\nopenai_base_url = %s\nserver_port = %d\ntheme = \"dark\"\n",
+		"model = \"gpt-5\"\nconnection = \"local\"\nconnections.local = { protocol = \"responses\", endpoint = %s }\nserver_port = %d\ntheme = \"dark\"\n",
 		strconv.Quote(baseURL),
 		port,
 	)

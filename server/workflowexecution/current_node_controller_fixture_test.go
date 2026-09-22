@@ -776,6 +776,7 @@ func newCurrentNodeQuestionFixtureWithPromptFeed(
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	appCfg.Settings = testsetup.WriteProviderSettings(t, appCfg.PersistenceRoot, appCfg.Settings)
 	metadataStore := testsetup.OpenStore(t, appCfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(context.Background(), appCfg.WorkspaceRoot)
 	if err != nil {
@@ -881,7 +882,7 @@ func (f currentNodeQuestionFixture) startAgentExecutionForSession(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() askquestion.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(f.cfg.WorkspaceRoot, f.cfg.WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}

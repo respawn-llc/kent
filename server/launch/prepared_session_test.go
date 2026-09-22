@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/metadata"
 	"core/server/session"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -23,9 +22,7 @@ func TestPrepareSessionDoesNotPublishIdentityOrArtifacts(t *testing.T) {
 	prepared, err := planner.PrepareSession(t.Context(), SessionPreparationRequest{
 		Request:   SessionRequest{Mode: ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())},
 		SessionID: id, ExecutionTarget: target,
-		ProjectWorkspaceBoundary: metadata.ProjectWorkspaceBoundary{
-			ProjectID: testProjectID, Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: planner.Config.WorkspaceRoot}},
-		},
+		ProjectID: testProjectID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -55,9 +52,7 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 	_, err = planner.PlanPreparedSession(t.Context(), SessionRequest{
 		Mode: ModeHeadless, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
 	}, meta, PreparedExecutionContext{
-		ProjectWorkspaceBoundary: metadata.ProjectWorkspaceBoundary{
-			ProjectID: testProjectID, Workspaces: []metadata.ProjectWorkspace{{CanonicalRoot: planner.Config.WorkspaceRoot}},
-		},
+		ProjectID: testProjectID,
 	})
 	if err != nil {
 		t.Fatal(err)

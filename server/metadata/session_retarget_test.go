@@ -106,6 +106,29 @@ func TestPlanSessionWorkspaceRetargetSelectsSoleForeignBindingByDefault(t *testi
 	}
 }
 
+func TestWorkflowSessionCannotMoveAcrossProjects(t *testing.T) {
+	f := newSessionRetargetFixture(t)
+	if err := f.session.EnsureDurable(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	seedWorkflowGraph(t, f.store.db, f.source.ProjectID, now)
+	execSeed(t, f.store.db, "Workflow Task", `INSERT INTO tasks
+		(id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id, title, body, created_at_unix_ms, updated_at_unix_ms, metadata_json)
+		VALUES ('task-move', 'link-1', 1, 1, 'BLD-1', 'Move', '', ?, ?, '{}')`, now, now)
+	execSeed(t, f.store.db, "Workflow Session", "UPDATE sessions SET task_id = ? WHERE id = ?", "task-move", f.session.Meta().SessionID)
+	_, err := f.store.PlanSessionWorkspaceRetarget(t.Context(), SessionWorkspaceRetargetRequest{
+		SessionID: f.session.Meta().SessionID, WorkspaceRoot: f.targetProject.CanonicalRoot, ProjectID: &f.targetProject.ProjectID,
+	})
+	var rejected *serverapi.SessionRetargetError
+	if !errors.As(err, &rejected) || rejected.Reason != serverapi.SessionRetargetWorkflowOwned {
+		t.Fatalf("Workflow move error = %v", err)
+	}
+	if projectID, err := f.store.ResolveSessionProjectID(t.Context(), f.session.Meta().SessionID); err != nil || projectID != f.source.ProjectID {
+		t.Fatalf("Workflow Session moved: %q, %v", projectID, err)
+	}
+}
+
 func TestCommitSessionWorkspaceRetargetUsesSourceBindingWhenPathIsShared(t *testing.T) {
 	t.Parallel()
 	fixture := newSessionRetargetFixture(t)
@@ -225,7 +248,7 @@ func TestPlanSessionWorkspaceRetargetRejectsExplicitForeignBindingWithoutMutatio
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace requested: %v", err)
 	}
-	before, err := fixture.store.ListProjectWorkspaces(context.Background(), requestedProject.ProjectID)
+	before, err := fixture.store.Queries().CountProjectWorkspaces(context.Background(), requestedProject.ProjectID)
 	if err != nil {
 		t.Fatalf("ListProjectWorkspaces before: %v", err)
 	}
@@ -240,12 +263,12 @@ func TestPlanSessionWorkspaceRetargetRejectsExplicitForeignBindingWithoutMutatio
 	if !errors.As(err, &retargetErr) || retargetErr.Reason != serverapi.SessionRetargetTargetProjectConflict {
 		t.Fatalf("PlanSessionWorkspaceRetarget error = %v, want target-project-conflict", err)
 	}
-	after, err := fixture.store.ListProjectWorkspaces(context.Background(), requestedProject.ProjectID)
+	after, err := fixture.store.Queries().CountProjectWorkspaces(context.Background(), requestedProject.ProjectID)
 	if err != nil {
 		t.Fatalf("ListProjectWorkspaces after: %v", err)
 	}
-	if len(after) != len(before) {
-		t.Fatalf("requested project workspace count = %d, want unchanged %d", len(after), len(before))
+	if after != before {
+		t.Fatalf("requested project workspace count = %d, want unchanged %d", after, before)
 	}
 	belongs, err := fixture.store.SessionBelongsToProject(context.Background(), fixture.session.Meta().SessionID, fixture.source.ProjectID)
 	if err != nil {

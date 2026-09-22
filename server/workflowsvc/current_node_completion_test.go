@@ -2,6 +2,7 @@ package workflowsvc
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"reflect"
 	"sync"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"core/internal/testharness/scriptedllm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"
@@ -138,12 +138,13 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		binding.CanonicalRoot,
 		binding.CanonicalRoot,
-		metadata.ProjectWorkspaceBoundary{ProjectID: binding.ProjectID},
+		binding.ProjectID,
 	)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
 	settings := appCfg.Settings
+	settings = testsetup.WriteProviderSettings(t, metadataStore.PersistenceRoot(), settings)
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"

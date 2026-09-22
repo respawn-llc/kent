@@ -4,7 +4,6 @@ import (
 	"context"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/registry"
 	"core/server/runtime"
 	"core/server/runtimecontrol"
@@ -24,11 +23,12 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
+	"testing"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"testing"
-	"time"
 )
 
 func transcriptTestMessage(sequence uint64, payload proto.Message) *transcriptpb.Message {
@@ -234,7 +234,8 @@ func newProjectedAuthorityRuntime(
 		t.Fatalf("parse session id: %v", err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
+	root := t.TempDir()
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
 	if cfg.Model == "" {
 		settings.Model = "gpt-5"
@@ -250,7 +251,7 @@ func newProjectedAuthorityRuntime(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -263,7 +264,7 @@ func newProjectedAuthorityRuntime(
 	}
 	activity := registry.NewRuntimeRegistry()
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   t.TempDir(),
+		PersistenceRoot:   root,
 		StoreOptions:      persistence.Options(),
 		ResourceLifecycle: activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {

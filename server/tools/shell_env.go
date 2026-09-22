@@ -3,9 +3,36 @@ package tools
 import (
 	"core/shared/config"
 	"core/shared/sessionenv"
+	"errors"
 	"os"
 	"strings"
 )
+
+// FilterCredentialEnvironment runs after each subprocess's normal environment
+// composition and rereads definitions so reference edits affect future children.
+func FilterCredentialEnvironment(root string, environment []string) ([]string, error) {
+	if root == "" {
+		return nil, errors.New("server persistence root is required for subprocess credential exclusion")
+	}
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]struct{})
+	for _, connection := range app.Settings.Connections {
+		if connection.EnvironmentVariable != nil {
+			names[*connection.EnvironmentVariable] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, excluded := names[key]; !excluded {
+			result = append(result, entry)
+		}
+	}
+	return result, nil
+}
 
 var overrides = []string{
 	"AGENT=" + config.Command,

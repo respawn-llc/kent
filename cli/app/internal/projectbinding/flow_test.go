@@ -32,14 +32,12 @@ func (s *testServer) BindProjectWorkspace(_ context.Context, projectID string, w
 }
 
 type testProjectViewClient struct {
-	plan          projectpb.PlanWorkspaceBindingSuccess
-	create        projectpb.CreateProjectSuccess
-	attach        projectpb.AttachWorkspaceSuccess
-	overview      projectpb.GetOverviewSuccess
-	createReq     *projectpb.CreateProjectRequest
-	attachReq     *projectpb.AttachWorkspaceRequest
-	planCalled    bool
-	overviewCalls int
+	plan       projectpb.PlanWorkspaceBindingSuccess
+	create     projectpb.CreateProjectSuccess
+	attach     projectpb.AttachWorkspaceSuccess
+	createReq  *projectpb.CreateProjectRequest
+	attachReq  *projectpb.AttachWorkspaceRequest
+	planCalled bool
 }
 
 func (c *testProjectViewClient) ListProjects(context.Context, *emptypb.Empty) (*projectpb.ProjectListSuccess, error) {
@@ -68,10 +66,6 @@ func (c *testProjectViewClient) ListProjectWorkspaces(context.Context, *projectp
 }
 func (c *testProjectViewClient) RebindWorkspace(context.Context, *projectpb.RebindWorkspaceRequest) (*projectpb.RebindWorkspaceSuccess, error) {
 	return &projectpb.RebindWorkspaceSuccess{}, nil
-}
-func (c *testProjectViewClient) GetProjectOverview(context.Context, *projectpb.GetOverviewRequest) (*projectpb.GetOverviewSuccess, error) {
-	c.overviewCalls++
-	return &c.overview, nil
 }
 func (c *testProjectViewClient) ListSessionPage(context.Context, *projectpb.SessionPageRequest) (*projectpb.SessionPageSuccess, error) {
 	return &projectpb.SessionPageSuccess{}, nil
@@ -172,8 +166,8 @@ func TestSelectWorkspaceForStartupUsesCatalogLoader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("select workspace: %v", err)
 	}
-	if !seen || projectClient.overviewCalls != 0 {
-		t.Fatalf("catalog selection used stale overview path: loader=%t overview_calls=%d", seen, projectClient.overviewCalls)
+	if !seen {
+		t.Fatal("catalog selection did not use the catalog loader")
 	}
 	if selected, ok := result.(WorkspacePickerSelected); !ok || selected.Workspace.WorkspaceId != "workspace-1" {
 		t.Fatalf("selection result = %#v", result)

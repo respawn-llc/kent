@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -694,7 +695,8 @@ func newRuntimeControlTestServiceWithFeeds(
 		client = &runtimeControlFakeClient{}
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.ProviderOverride = "openai"
+	root := t.TempDir()
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
 	settings.CompactionMode = config.CompactionModeNative
 	if cfg.Model != "" {
@@ -725,7 +727,7 @@ func newRuntimeControlTestServiceWithFeeds(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
-			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, metadata.ProjectWorkspaceBoundary{ProjectID: "test"})
+			context, err := runtimewire.NewFilesystemContext(store.Meta().WorkspaceRoot, store.Meta().WorkspaceRoot, "test")
 			if err != nil {
 				t.Fatalf("NewFilesystemContext: %v", err)
 			}
@@ -740,7 +742,7 @@ func newRuntimeControlTestServiceWithFeeds(
 		t.Fatalf("new authority runtime plan: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: t.TempDir(),
+		PersistenceRoot: root,
 		StoreOptions:    append(runtimeControlTestSessionPersistence.Options(), opts...),
 		EventFeed:       eventFeed,
 		PromptFeed:      promptFeed,

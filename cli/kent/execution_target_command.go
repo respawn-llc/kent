@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 )
 
@@ -43,22 +45,26 @@ func parseOptionalTaskExecutionTarget(raw string, provided bool) (*serverapi.Wor
 	return &selection, nil
 }
 
-func parseWorkflowExecutionTargetPolicySelector(raw string) (serverapi.WorkflowExecutionTargetConfiguration, error) {
+func parseWorkflowExecutionTargetPolicySelector(raw string) (*pb.ExecutionTargetConfiguration, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "ask-on-first-execution" {
-		return serverapi.WorkflowExecutionTargetConfiguration{Mode: serverapi.WorkflowExecutionTargetModeAskOnFirstExecution}, nil
+		return &pb.ExecutionTargetConfiguration{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_ASK_ON_FIRST_EXECUTION}, nil
 	}
 	selection, err := parseTaskExecutionTargetSelector(trimmed)
 	if err != nil {
-		return serverapi.WorkflowExecutionTargetConfiguration{}, errors.New("workflow execution target must be ask-on-first-execution, " + executionTargetSelectorHelp)
+		return nil, errors.New("workflow execution target must be ask-on-first-execution, " + executionTargetSelectorHelp)
 	}
-	return serverapi.WorkflowExecutionTargetConfiguration{
-		Mode:      selection.Mode,
+	mode, err := protoapi.WorkflowExecutionTargetMode.Encode(string(selection.Mode))
+	if err != nil {
+		return nil, err
+	}
+	return &pb.ExecutionTargetConfiguration{
+		Mode:      mode,
 		CustomRef: selection.CustomRef,
 	}, nil
 }
 
-func workflowExecutionTargetPolicySelector(policy serverapi.WorkflowExecutionTargetConfiguration) string {
+func workflowExecutionTargetPolicySelector(policy workflowExecutionTargetPolicyJSON) string {
 	switch policy.Mode {
 	case serverapi.WorkflowExecutionTargetModeAskOnFirstExecution:
 		return "ask-on-first-execution"

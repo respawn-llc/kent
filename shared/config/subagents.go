@@ -145,8 +145,7 @@ func LookupSubagentRole(settings Settings, rawSelector string) SubagentRoleLooku
 }
 
 func SubagentRoleHasCapabilityOverrides(role SubagentRole) bool {
-	return hasAnyConfiguredSource(role.Sources, modelCapabilityKeys...) ||
-		hasAnyConfiguredSource(role.Sources, providerCapabilityKeys...)
+	return hasAnyConfiguredSource(role.Sources, modelCapabilityKeys...)
 }
 
 // MaterializeSubagentRoleDeclaration fills the transport's required settings
@@ -179,9 +178,7 @@ func OverlaySubagentRoleProviderSettings(base App, role SubagentRole) (Settings,
 		return Settings{}, err
 	}
 	settings, _ := overlaySubagentRoleSettings(base.Settings, base.Source.Sources, role, func(key string) bool {
-		return key == "provider_override" ||
-			key == "openai_base_url" ||
-			strings.HasPrefix(key, "provider_capabilities.")
+		return key == "connection"
 	}, false)
 	return settings, nil
 }

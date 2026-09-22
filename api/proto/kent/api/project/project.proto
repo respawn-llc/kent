@@ -82,34 +82,6 @@ message ProjectSummary {
   ];
 }
 
-message ProjectWorkspaceSummary {
-  string workspace_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "project_workspace_summary.workspace_id.trimmed"
-      message: "workspace_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-  string display_name = 2;
-  string root_path = 3 [(buf.validate.field).string.min_len = 1];
-  ProjectAvailability availability = 4 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  bool is_primary = 5;
-  int32 session_count = 6 [(buf.validate.field).int32.gte = 0];
-  google.protobuf.Timestamp updated_at = 7 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
-}
-
-message ProjectOverview {
-  ProjectSummary project = 1 [(buf.validate.field).required = true];
-  repeated ProjectWorkspaceSummary workspaces = 2 [(buf.validate.field).repeated.max_items = 500];
-}
-
 message ProjectBinding {
   string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string project_key = 2 [
@@ -1318,55 +1290,6 @@ message RebindWorkspaceResult {
   }
 }
 
-message GetOverviewRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
-}
-
-message GetOverviewSuccess {
-  ProjectOverview overview = 1 [(buf.validate.field).required = true];
-}
-
-message GetOverviewError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    ProjectNotFoundDetails project_not_found = 2 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "project_not_found"
-      }
-    ];
-    ProjectUnavailableDetails project_unavailable = 3 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "project_unavailable"
-      }
-    ];
-    kent.api.shared.InternalFailureDetails internal_failure = 4 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "internal_failure"
-      }
-    ];
-    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "server_not_ready"
-      }
-    ];
-  }
-}
-
-message GetOverviewResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-    GetOverviewSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    GetOverviewError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
 service ProjectCatalogService {
   rpc List(google.protobuf.Empty) returns (ProjectListResult) {
     option (kent.api.shared.kent_method) = {
@@ -1508,13 +1431,4 @@ service ProjectCatalogService {
     };
   }
 
-  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
-      scope_policy: SCOPE_POLICY_PROJECT_VIEW
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-    };
-  }
 }

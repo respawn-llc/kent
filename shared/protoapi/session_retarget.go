@@ -3,43 +3,43 @@ package protoapi
 import (
 	"fmt"
 
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
 	"core/shared/serverapi"
 )
 
-func SessionRetargetErrorToProto(failure *serverapi.SessionRetargetError) (*sessionlaunchpb.SessionRetargetWorkspaceError, error) {
-	facts := &sessionlaunchpb.SessionRetargetFacts{
+func SessionRetargetErrorToProto(failure *serverapi.SessionRetargetError) (*sessionretargetpb.SessionRetargetWorkspaceError, error) {
+	facts := &sessionretargetpb.SessionRetargetFacts{
 		SessionId: failure.SessionID,
-		SourceProject: &sessionlaunchpb.ProjectReference{
+		SourceProject: &sessionretargetpb.ProjectReference{
 			Id: failure.SourceProject.ID, Name: failure.SourceProject.Name,
 		},
 		TargetRoot:      failure.TargetRoot,
 		WorkflowTaskIds: failure.WorkflowTaskIDs,
 	}
 	for _, project := range failure.CandidateProjects {
-		facts.CandidateProjects = append(facts.CandidateProjects, &sessionlaunchpb.ProjectReference{Id: project.ID, Name: project.Name})
+		facts.CandidateProjects = append(facts.CandidateProjects, &sessionretargetpb.ProjectReference{Id: project.ID, Name: project.Name})
 	}
-	result := &sessionlaunchpb.SessionRetargetWorkspaceError{Code: string(failure.Reason)}
+	result := &sessionretargetpb.SessionRetargetWorkspaceError{Code: string(failure.Reason)}
 	switch failure.Reason {
 	case serverapi.SessionRetargetTargetProjectRequired:
-		result.Detail = &sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectRequired{
-			TargetProjectRequired: &sessionlaunchpb.SessionRetargetTargetProjectRequiredDetails{Facts: facts},
+		result.Detail = &sessionretargetpb.SessionRetargetWorkspaceError_TargetProjectRequired{
+			TargetProjectRequired: &sessionretargetpb.SessionRetargetTargetProjectRequiredDetails{Facts: facts},
 		}
 	case serverapi.SessionRetargetTargetProjectConflict:
-		result.Detail = &sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectConflict{
-			TargetProjectConflict: &sessionlaunchpb.SessionRetargetTargetProjectConflictDetails{Facts: facts},
+		result.Detail = &sessionretargetpb.SessionRetargetWorkspaceError_TargetProjectConflict{
+			TargetProjectConflict: &sessionretargetpb.SessionRetargetTargetProjectConflictDetails{Facts: facts},
 		}
 	case serverapi.SessionRetargetWorkflowOwned:
-		result.Detail = &sessionlaunchpb.SessionRetargetWorkspaceError_WorkflowOwned{
-			WorkflowOwned: &sessionlaunchpb.SessionRetargetWorkflowOwnedDetails{Facts: facts},
+		result.Detail = &sessionretargetpb.SessionRetargetWorkspaceError_WorkflowOwned{
+			WorkflowOwned: &sessionretargetpb.SessionRetargetWorkflowOwnedDetails{Facts: facts},
 		}
 	case serverapi.SessionRetargetBackgroundProcess:
-		result.Detail = &sessionlaunchpb.SessionRetargetWorkspaceError_BackgroundProcessActive{
-			BackgroundProcessActive: &sessionlaunchpb.SessionRetargetBackgroundProcessActiveDetails{Facts: facts},
+		result.Detail = &sessionretargetpb.SessionRetargetWorkspaceError_BackgroundProcessActive{
+			BackgroundProcessActive: &sessionretargetpb.SessionRetargetBackgroundProcessActiveDetails{Facts: facts},
 		}
 	case serverapi.SessionRetargetRuntimeActive:
-		result.Detail = &sessionlaunchpb.SessionRetargetWorkspaceError_RuntimeActive{
-			RuntimeActive: &sessionlaunchpb.SessionRetargetRuntimeActiveDetails{Facts: facts},
+		result.Detail = &sessionretargetpb.SessionRetargetWorkspaceError_RuntimeActive{
+			RuntimeActive: &sessionretargetpb.SessionRetargetRuntimeActiveDetails{Facts: facts},
 		}
 	default:
 		return nil, fmt.Errorf("invalid Session retarget reason %q", failure.Reason)
@@ -47,19 +47,19 @@ func SessionRetargetErrorToProto(failure *serverapi.SessionRetargetError) (*sess
 	return result, nil
 }
 
-func SessionRetargetErrorFromProto(failure *sessionlaunchpb.SessionRetargetWorkspaceError) error {
-	var facts *sessionlaunchpb.SessionRetargetFacts
+func SessionRetargetErrorFromProto(failure *sessionretargetpb.SessionRetargetWorkspaceError) error {
+	var facts *sessionretargetpb.SessionRetargetFacts
 	var reason serverapi.SessionRetargetErrorReason
 	switch detail := failure.Detail.(type) {
-	case *sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectRequired:
+	case *sessionretargetpb.SessionRetargetWorkspaceError_TargetProjectRequired:
 		facts, reason = detail.TargetProjectRequired.Facts, serverapi.SessionRetargetTargetProjectRequired
-	case *sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectConflict:
+	case *sessionretargetpb.SessionRetargetWorkspaceError_TargetProjectConflict:
 		facts, reason = detail.TargetProjectConflict.Facts, serverapi.SessionRetargetTargetProjectConflict
-	case *sessionlaunchpb.SessionRetargetWorkspaceError_WorkflowOwned:
+	case *sessionretargetpb.SessionRetargetWorkspaceError_WorkflowOwned:
 		facts, reason = detail.WorkflowOwned.Facts, serverapi.SessionRetargetWorkflowOwned
-	case *sessionlaunchpb.SessionRetargetWorkspaceError_BackgroundProcessActive:
+	case *sessionretargetpb.SessionRetargetWorkspaceError_BackgroundProcessActive:
 		facts, reason = detail.BackgroundProcessActive.Facts, serverapi.SessionRetargetBackgroundProcess
-	case *sessionlaunchpb.SessionRetargetWorkspaceError_RuntimeActive:
+	case *sessionretargetpb.SessionRetargetWorkspaceError_RuntimeActive:
 		facts, reason = detail.RuntimeActive.Facts, serverapi.SessionRetargetRuntimeActive
 	default:
 		return fmt.Errorf("Session retarget failed with code %q", failure.Code)

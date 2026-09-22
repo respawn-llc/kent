@@ -16,17 +16,18 @@ type countingAuth struct {
 	calls atomic.Int32
 }
 
-func (a *countingAuth) AuthorizationHeader(context.Context) (string, error) {
+func (a *countingAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
 	a.calls.Add(1)
-	return "Bearer token", nil
+	return &DispatchAuth{Header: "Bearer token"}, nil
 }
 
 type countingOAuthAuth struct {
 	countingAuth
 }
 
-func (*countingOAuthAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "account-1", nil
+func (a *countingOAuthAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	a.calls.Add(1)
+	return &DispatchAuth{Header: "Bearer token", Mode: OpenAIAuthMode{IsOAuth: true, AccountID: "account-1"}}, nil
 }
 
 func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {

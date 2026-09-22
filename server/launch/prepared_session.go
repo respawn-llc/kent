@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 
-	"core/server/metadata"
 	"core/server/session"
 	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -15,17 +14,17 @@ import (
 )
 
 type PreparedExecutionContext struct {
-	ExecutionTarget          *worktreepb.SessionExecutionTarget
-	ProjectWorkspaceBoundary metadata.ProjectWorkspaceBoundary
-	ManagedWorktreeRoots     []string
+	ExecutionTarget      *worktreepb.SessionExecutionTarget
+	ProjectID            string
+	ManagedWorktreeRoots []string
 }
 
 type SessionPreparationRequest struct {
-	Request                  SessionRequest
-	SessionID                runtimeids.SessionID
-	ExecutionTarget          *worktreepb.SessionExecutionTarget
-	ProjectWorkspaceBoundary metadata.ProjectWorkspaceBoundary
-	ManagedWorktreeRoots     []string
+	Request              SessionRequest
+	SessionID            runtimeids.SessionID
+	ExecutionTarget      *worktreepb.SessionExecutionTarget
+	ProjectID            string
+	ManagedWorktreeRoots []string
 }
 
 type PreparedSession struct {
@@ -46,9 +45,9 @@ func (p Planner) PrepareSession(ctx context.Context, request SessionPreparationR
 		return PreparedSession{}, err
 	}
 	plan, err := p.PlanPreparedSession(ctx, request.Request, creation.Snapshot().Meta, PreparedExecutionContext{
-		ExecutionTarget:          request.ExecutionTarget,
-		ProjectWorkspaceBoundary: request.ProjectWorkspaceBoundary,
-		ManagedWorktreeRoots:     request.ManagedWorktreeRoots,
+		ExecutionTarget:      request.ExecutionTarget,
+		ProjectID:            request.ProjectID,
+		ManagedWorktreeRoots: request.ManagedWorktreeRoots,
 	})
 	if err != nil {
 		return PreparedSession{}, err
@@ -73,8 +72,8 @@ func (p Planner) PlanPreparedSession(ctx context.Context, request SessionRequest
 	if id, present := request.Intent.SessionID(); present && id.String() != meta.SessionID {
 		return SessionPlan{}, errors.New("Session preparation identity does not match")
 	}
-	if err := executionContext.ProjectWorkspaceBoundary.Validate(); err != nil {
-		return SessionPlan{}, err
+	if executionContext.ProjectID == "" {
+		return SessionPlan{}, errors.New("Session Project identity is required")
 	}
 	return p.planSessionWithExecutionContext(ctx, request, meta, nil, &executionContext)
 }
@@ -98,15 +97,18 @@ func (p Planner) resolveSessionPlanExecutionContext(ctx context.Context, session
 	if err != nil {
 		return PreparedExecutionContext{}, err
 	}
-	if p.ProjectWorkspaceBoundary == nil {
-		return PreparedExecutionContext{}, errors.New("project workspace boundary resolver is required")
+	if p.SessionProjects == nil {
+		return PreparedExecutionContext{}, errors.New("Session Project resolver is required")
 	}
-	boundary, err := p.ProjectWorkspaceBoundary.ResolveSessionProjectWorkspaceBoundary(ctx, sessionID)
+	projectID, err := p.SessionProjects.ResolveSessionProjectID(ctx, sessionID)
 	if err != nil {
 		return PreparedExecutionContext{}, err
 	}
-	roots, err := p.ProjectWorkspaceBoundary.ListManagedWorktreeRoots(ctx)
-	return PreparedExecutionContext{ExecutionTarget: target, ProjectWorkspaceBoundary: boundary, ManagedWorktreeRoots: roots}, err
+	if p.ManagedWorktreeRoots == nil {
+		return PreparedExecutionContext{}, errors.New("project managed worktree roots resolver is required")
+	}
+	roots, err := p.ManagedWorktreeRoots.ListManagedWorktreeRoots(ctx)
+	return PreparedExecutionContext{ExecutionTarget: target, ProjectID: projectID, ManagedWorktreeRoots: roots}, err
 }
 
 func (p Planner) prepareCreation(ctx context.Context, origin serverapi.SessionCreateOrigin, mode Mode, id runtimeids.SessionID, initialChat *session.ChatDraftState) (session.CreationPlan, error) {

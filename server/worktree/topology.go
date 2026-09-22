@@ -18,7 +18,10 @@ func (s *Service) projectTopology(ctx context.Context, workspaceID string, works
 	}
 	gitEntries, err := s.git.List(ctx, workspaceRoot)
 	if err != nil {
-		return nil, err
+		var listError *GitWorktreeListError
+		if !errors.As(err, &listError) || listError.Kind != GitWorktreeListErrorNotRepository {
+			return nil, err
+		}
 	}
 	records, err := s.metadata.ListWorktreeRecordsByWorkspaceID(ctx, workspaceID)
 	if err != nil {

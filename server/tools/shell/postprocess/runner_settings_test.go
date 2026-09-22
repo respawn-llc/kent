@@ -55,8 +55,9 @@ func TestNewRunnerCopiesPresentHook(t *testing.T) {
 	originalPath := writeHookScript(t, "#!/bin/sh\nprintf '{\"processed\":true,\"replaced_output\":\"ORIGINAL\"}'\n")
 	hookPath := originalPath
 	runner, err := NewRunner(Settings{
-		Mode:     config.ShellPostprocessingModeUser,
-		HookPath: &hookPath,
+		PersistenceRoot: t.TempDir(),
+		Mode:            config.ShellPostprocessingModeUser,
+		HookPath:        &hookPath,
 	})
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)

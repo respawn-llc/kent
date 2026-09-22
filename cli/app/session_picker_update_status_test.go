@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -98,19 +99,22 @@ func TestSessionPickerUpdateStatusRunsIndependentlyOfInitialPageLoads(t *testing
 			t.Fatal("session pages did not load while the update request remained blocked")
 		}
 	}
-	headerHeight := lipgloss.Height(model.renderHeader())
-
-	updates.completion <- updateStatusCompletion{
-		response: availableUpdateStatusSuccess("1.0.0", "1.1.0"),
-	}
-	select {
-	case message := <-completed:
-		model.Update(message)
-	case <-time.After(time.Second):
-		t.Fatal("update request did not complete")
-	}
-	if height := lipgloss.Height(model.renderHeader()); height != headerHeight+1 {
-		t.Fatalf("header height after update = %d, want %d", height, headerHeight+1)
+	response := availableUpdateStatusSuccess("1.0.0", "1.1.0")
+	updates.completion <- updateStatusCompletion{response: response}
+	deadline = time.After(time.Second)
+	for {
+		select {
+		case message := <-completed:
+			model.Update(message)
+			if _, ok := message.(sessionPickerUpdateStatusMsg); ok {
+				if !proto.Equal(model.updateStatus, response.Status) {
+					t.Fatalf("update state = %+v, want %+v", model.updateStatus, response.Status)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("update request did not complete")
+		}
 	}
 }
 

@@ -22,6 +22,7 @@ function setup() {
   const services = createTestServices([]);
   const response = deferred<string>();
   const fork = vi.spyOn(services.api.chat, "forkEdit").mockReturnValue(response.promise);
+  const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   const client = new QueryClient();
   const push = vi.fn();
   const onSuccess = vi.fn();
@@ -39,8 +40,42 @@ function setup() {
     }),
     { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
   );
-  return { ...view, model, fork, response, push, onSuccess };
+  return { ...view, model, fork, persist, response, push, onSuccess };
 }
+
+it("keeps the parent pending until the captured child draft is saved before navigation", async () => {
+  const view = setup();
+  const saved = deferred<undefined>();
+  view.persist.mockReturnValue(saved.promise);
+  await act(async () => {
+    view.result.current.activate({ item: userItem(), draft: "parent draft", onSuccess: view.onSuccess });
+    view.response.resolve("child");
+  });
+  expect(view.persist).toHaveBeenCalledExactlyOnceWith(
+    { projectID: target.projectID, sessionID: "child" },
+    "**Original**\n\n\nparent draft",
+    null,
+  );
+  expect(view.onSuccess).not.toHaveBeenCalled();
+  expect(view.result.current.request.isPending).toBe(true);
+  await act(async () => {
+    saved.resolve(undefined);
+  });
+  expect(view.onSuccess).toHaveBeenCalledOnce();
+});
+
+it("keeps the parent and reports failure when the child draft cannot be saved", async () => {
+  const view = setup();
+  view.persist.mockRejectedValue(new Error("draft save failed"));
+  await act(async () => {
+    view.result.current.activate({ item: userItem(), draft: "retained", onSuccess: view.onSuccess });
+    view.response.resolve("child");
+  });
+  expect(view.onSuccess).not.toHaveBeenCalled();
+  expect(view.push).toHaveBeenCalledOnce();
+  expect(view.result.current.request.isPending).toBe(false);
+  expect(view.fork).toHaveBeenCalledOnce();
+});
 
 it("does not activate Edit without a server rollback target", async () => {
   const view = setup();

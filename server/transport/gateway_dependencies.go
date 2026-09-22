@@ -19,18 +19,25 @@ import (
 func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, request *connectionpb.AttachProjectRequest) (string, string, error) {
 	switch workspace := request.GetWorkspace().(type) {
 	case nil:
-		overview, err := g.deps.ProjectViewClient().GetProjectOverview(ctx, &projectpb.GetOverviewRequest{ProjectId: request.ProjectId})
+		store := g.deps.MetadataStore()
+		if _, err := store.GetProjectEditMetadata(ctx, request.ProjectId); err != nil {
+			return "", "", err
+		}
+		count, err := store.Queries().CountProjectWorkspaces(ctx, request.ProjectId)
 		if err != nil {
 			return "", "", err
 		}
-		if len(overview.GetOverview().GetWorkspaces()) == 0 {
+		if count == 0 {
 			return "", "", fmt.Errorf("project %q has no attached workspaces", request.ProjectId)
 		}
-		if len(overview.GetOverview().GetWorkspaces()) > 1 {
+		if count > 1 {
 			return "", "", fmt.Errorf("project %q requires explicit workspace selection", request.ProjectId)
 		}
-		summary := overview.GetOverview().GetWorkspaces()[0]
-		return strings.TrimSpace(summary.WorkspaceId), strings.TrimSpace(summary.RootPath), nil
+		selected, err := store.ResolveProjectSourceWorkspace(ctx, request.ProjectId)
+		if err != nil {
+			return "", "", err
+		}
+		return selected.ID, selected.CanonicalRootPath, nil
 	case *connectionpb.AttachProjectRequest_WorkspaceId:
 		binding, err := g.deps.MetadataStore().LookupWorkspaceBindingByID(ctx, workspace.WorkspaceId)
 		if err != nil {

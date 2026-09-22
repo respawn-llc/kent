@@ -46,7 +46,10 @@ type FileAccessApproval struct {
 	Commentary *string
 }
 
-type FileAccessApprover func(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error)
+type FileAccessApprover interface {
+	SessionAllowed() bool
+	Approve(context.Context, FileAccessApprovalRequest) (FileAccessApproval, error)
+}
 
 type FileAccessOutcomeKind uint8
 
@@ -92,25 +95,10 @@ type FilesystemRoot struct {
 	Info        os.FileInfo
 }
 
-type ProjectWorkspaceRoot struct {
-	WorkspaceID *string
-	FilesystemRoot
-}
-
-type ProjectWorkspaceScope struct {
-	ProjectID string
-	Roots     []ProjectWorkspaceRoot
-}
-
-func (b ProjectWorkspaceScope) Clone() ProjectWorkspaceScope {
-	b.Roots = append([]ProjectWorkspaceRoot(nil), b.Roots...)
-	return b
-}
-
 type FileAccessScope struct {
 	WorkingDirectory    FilesystemRoot
 	ExecutionTargetRoot FilesystemRoot
-	ProjectWorkspace    ProjectWorkspaceScope
+	ProjectID           string
 }
 
 func ValidateFileAccessScope(scope FileAccessScope) error {
@@ -124,7 +112,6 @@ func ValidateFileAccessScope(scope FileAccessScope) error {
 }
 
 func (s FileAccessScope) Clone() FileAccessScope {
-	s.ProjectWorkspace = s.ProjectWorkspace.Clone()
 	return s
 }
 
@@ -140,17 +127,9 @@ func (c FilesystemContext) Clone() FilesystemContext {
 func (c FilesystemContext) Equal(other FilesystemContext) bool {
 	if !sameFilesystemRoot(c.Access.WorkingDirectory, other.Access.WorkingDirectory) ||
 		!sameFilesystemRoot(c.Access.ExecutionTargetRoot, other.Access.ExecutionTargetRoot) ||
-		c.Access.ProjectWorkspace.ProjectID != other.Access.ProjectWorkspace.ProjectID ||
-		len(c.Access.ProjectWorkspace.Roots) != len(other.Access.ProjectWorkspace.Roots) ||
+		c.Access.ProjectID != other.Access.ProjectID ||
 		!c.ManagedWorktree.Equal(other.ManagedWorktree) {
 		return false
-	}
-	for i, left := range c.Access.ProjectWorkspace.Roots {
-		right := other.Access.ProjectWorkspace.Roots[i]
-		if !sameWorkspaceID(left.WorkspaceID, right.WorkspaceID) ||
-			!sameFilesystemRoot(left.FilesystemRoot, right.FilesystemRoot) {
-			return false
-		}
 	}
 	return true
 }
@@ -165,14 +144,8 @@ func sameFilesystemRoot(left, right FilesystemRoot) bool {
 	return os.SameFile(left.Info, right.Info)
 }
 
-func sameWorkspaceID(left, right *string) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
-}
-
 type FileAccessPolicy struct {
+	permissions           *WorkspacePermissions
 	context               FilesystemContext
 	mode                  FileAccessMode
 	allowOutsideWorkspace bool
@@ -181,6 +154,7 @@ type FileAccessPolicy struct {
 }
 
 type FileAccessPolicyConfig struct {
+	Permissions           *WorkspacePermissions
 	Context               FilesystemContext
 	Mode                  FileAccessMode
 	AllowOutsideWorkspace bool
@@ -199,6 +173,7 @@ func NewFileAccessPolicy(config FileAccessPolicyConfig) (*FileAccessPolicy, erro
 		return nil, errors.New("read file access policy cannot contain mutation path-deny rules")
 	}
 	return &FileAccessPolicy{
+		permissions:           config.Permissions,
 		context:               config.Context.Clone(),
 		mode:                  config.Mode,
 		allowOutsideWorkspace: config.AllowOutsideWorkspace,
@@ -356,6 +331,16 @@ func (c *FileAccessCall) Prepare(ctx context.Context, targets []FileAccessTarget
 			return FileAccessOutcome{Kind: FileAccessPolicyFailed, Request: p.request(target.RequestedPath, target.ResolvedPath), Cause: err}
 		}
 		if reason == nil {
+			if p.permissions != nil {
+				learned, err := p.permissions.Learn(ctx, p.context.Access.ProjectID, target.ResolvedPath)
+				if err != nil {
+					return FileAccessOutcome{Kind: FileAccessPolicyFailed, Request: req, Cause: err}
+				}
+				if learned {
+					authorized[identity] = struct{}{}
+					continue
+				}
+			}
 			outside = append(outside, prepared.target)
 			continue
 		}
@@ -376,7 +361,7 @@ func (c *FileAccessCall) Prepare(ctx context.Context, targets []FileAccessTarget
 			Request: p.request(outside[0].RequestedPath, outside[0].ResolvedPath),
 		}
 	}
-	approval, err := p.approver(ctx, req)
+	approval, err := p.approver.Approve(ctx, req)
 	if err != nil {
 		return FileAccessOutcome{
 			Kind:    FileAccessApprovalFailed,
@@ -475,6 +460,18 @@ func (p *FileAccessPolicy) authorizationReason(resolvedPath string) (*FileAccess
 	if p.allowOutsideWorkspace {
 		return fileAccessReason(FileAccessReasonConfiguredAllow), nil
 	}
+	if p.permissions != nil {
+		inside, err := p.permissions.Contains(resolvedPath)
+		if err != nil {
+			return nil, err
+		}
+		if inside {
+			return fileAccessReason(FileAccessReasonTrustedRoot), nil
+		}
+	}
+	if p.approver != nil && p.approver.SessionAllowed() {
+		return fileAccessReason(FileAccessReasonSessionAllow), nil
+	}
 	return nil, nil
 }
 
@@ -519,21 +516,7 @@ func LexicalPathForDenyPolicy(workspaceRootReal string, requestedPath string) (s
 }
 
 func (p *FileAccessPolicy) isWithinTrustedRoot(real string) (bool, error) {
-	roots := make([]FilesystemRoot, 0, len(p.context.Access.ProjectWorkspace.Roots)+1)
-	roots = append(roots, p.context.Access.ExecutionTargetRoot)
-	for _, root := range p.context.Access.ProjectWorkspace.Roots {
-		roots = append(roots, root.FilesystemRoot)
-	}
-	for _, root := range roots {
-		inside, err := filesystemRootContains(root, real)
-		if err != nil {
-			return false, err
-		}
-		if inside {
-			return true, nil
-		}
-	}
-	return false, nil
+	return filesystemRootContains(p.context.Access.ExecutionTargetRoot, real)
 }
 
 // FilesystemRootContains reports whether real is inside root using the same

@@ -52,8 +52,7 @@ func TestMutateChatSettingsSelectsDifferentAgentWithCompleteBaselineAtomically(t
 		Settings: completeChatSettingsOverrides("edits", "medium", false, true, true),
 	})
 	if err := store.SetContinuationContext(ContinuationContext{
-		AgentRole:     textutil.Value("worker"),
-		OpenAIBaseURL: textutil.Value("https://old-agent.example/v1"),
+		AgentRole: textutil.Value("worker"),
 	}); err != nil {
 		t.Fatalf("seed continuation: %v", err)
 	}
@@ -72,8 +71,8 @@ func TestMutateChatSettingsSelectsDifferentAgentWithCompleteBaselineAtomically(t
 		"store":    store.Meta(),
 		"observer": observer.snapshot.Meta,
 	} {
-		if meta.Continuation == nil || meta.Continuation.OpenAIBaseURL != nil {
-			t.Fatalf("%s continuation = %+v, want selected Agent with no previous base URL", name, meta.Continuation)
+		if meta.Continuation == nil || *meta.Continuation.AgentRole != "reviewer" {
+			t.Fatalf("%s continuation = %+v, want selected Agent", name, meta.Continuation)
 		}
 	}
 }

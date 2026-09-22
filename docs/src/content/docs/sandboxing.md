@@ -13,25 +13,11 @@ However, Kent's [client-server](../server/) architecture makes it easy to run Ke
 
 ## Outside-Workspace Edits
 
-By default, native edit tools prompt before modifying files outside the Session's Execution Target Root and the bounded collection of up to 500 most recently attached Workspaces in the Session's current Project. `view_image` uses the same trusted boundary for local image reads. Targets under the operating system's temporary roots and their canonical platform aliases, such as `/tmp` and `/private/tmp` on macOS, are allowed without approval. The temporary-root allowance does not override path-deny rules or the prohibition on directly editing another Kent-managed Worktree. Kent prepares this boundary once for the runtime; native file operations do not query Project metadata for each target.
-
-**This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. Edits to another Kent-managed Worktree remain forbidden even when that Worktree belongs to the same Project.
-
-To disable, set config:
+Kent will ask for your approval for manual edits happening outside its **main workspace** or worktree. **This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. To allow all edits, set config:
 
 ```toml
 allow_non_cwd_edits = true
 ```
-
-## Server Boundary
-
-Kent separates frontend clients from the server that owns all of the work. That split makes the server environment the useful security boundary:
-
-- Run `kent serve` on a VM and connect from your laptop.
-- Run `kent serve` in Docker and expose only the Kent port.
-- Run several isolated servers on different ports for different trust zones.
-
-Consequently, when you create or attach a project against a remote/container server, the workspace path must exist inside that server environment, **not on the client machine**.
 
 ## Container Image Shape
 
@@ -119,8 +105,10 @@ docker run --name kent-sandbox --rm -it \
 In another terminal, point the local client at that server:
 
 ```bash
-KENT_SERVER_HOST=127.0.0.1 KENT_SERVER_PORT=53082 kent project create --path /workspace --name sandbox
-KENT_SERVER_HOST=127.0.0.1 KENT_SERVER_PORT=53082 kent
+export KENT_SERVER_HOST=127.0.0.1
+export KENT_SERVER_PORT=53082
+kent project create --path /workspace --name sandbox
+kent
 ```
 
 The project path is `/workspace` because that is the path visible to the server.

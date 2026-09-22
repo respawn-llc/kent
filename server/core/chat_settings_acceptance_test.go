@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"sync"
 	"testing"
 	"time"
@@ -83,10 +84,11 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) string { return "" }, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false }, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
+	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, resolved.Config.Settings)
 	background, err := serverbootstrap.BuildShellManager(resolved.Config)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)

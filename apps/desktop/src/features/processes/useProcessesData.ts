@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DesktopProcess } from "@/api";
+import type { ChatSessionTarget, DesktopProcess } from "@/api";
 import { queryKeys, useAppServices, useWindowFocus } from "@/app-facade";
 
 const processRefreshIntervalMs = 1_500;
@@ -20,7 +20,7 @@ export type ProcessesData = Readonly<{
   terminate(processID: string): Promise<void>;
 }>;
 
-export function useProcessesData(projectID: string): ProcessesData {
+export function useProcessesData(target: ChatSessionTarget): ProcessesData {
   const { api } = useAppServices();
   const windowFocused = useWindowFocus();
   const issuedReadSequenceRef = useRef(0);
@@ -43,10 +43,10 @@ export function useProcessesData(projectID: string): ProcessesData {
   }, []);
 
   const query = useQuery({
-    queryKey: queryKeys.processes(projectID),
+    queryKey: queryKeys.processes(target.projectID, target.sessionID),
     queryFn: async () => {
       const sequence = ++issuedReadSequenceRef.current;
-      const processes = await api.listProcesses(projectID);
+      const processes = await api.listProcesses(target);
       let changed = false;
       for (const [processID, pending] of pendingRef.current) {
         if (pending.phase === "awaiting_read" && sequence > pending.afterSequence) {

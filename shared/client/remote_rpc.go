@@ -254,7 +254,6 @@ func (c *Remote) openSetupRPCConnForAttachment(
 			rootID:     c.rootID(),
 			attachment: attachment,
 		},
-		acknowledgeNoAuth: c.acknowledgeNoAuthOnConn,
 	}
 	state, err := setup.run(ctx, conn)
 	if err != nil {
@@ -324,7 +323,6 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 		attachment:   state.attachment,
 	}
 	handoffRemote.expectedRootID.Store(c.rootID())
-	handoffRemote.noAuthAck.Store(c.noAuthAck.Load())
 	return &remoteSessionControl{
 		sessionID:      sessionID,
 		remote:         handoffRemote,

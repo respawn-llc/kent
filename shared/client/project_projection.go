@@ -37,34 +37,6 @@ func ProjectSummariesFromProto(projects []*projectpb.ProjectSummary) ([]clientui
 	return result, nil
 }
 
-func ProjectWorkspaceSummaryFromProto(workspace *projectpb.ProjectWorkspaceSummary) (clientui.ProjectWorkspaceSummary, error) {
-	availability, err := protoapi.ProjectAvailabilityFromProto(workspace.Availability)
-	if err != nil {
-		return clientui.ProjectWorkspaceSummary{}, err
-	}
-	return clientui.ProjectWorkspaceSummary{
-		WorkspaceID:  workspace.WorkspaceId,
-		DisplayName:  workspace.DisplayName,
-		RootPath:     workspace.RootPath,
-		Availability: availability,
-		IsPrimary:    workspace.IsPrimary,
-		SessionCount: int(workspace.SessionCount),
-		UpdatedAt:    workspace.UpdatedAt.AsTime(),
-	}, nil
-}
-
-func ProjectWorkspaceSummariesFromProto(workspaces []*projectpb.ProjectWorkspaceSummary) ([]clientui.ProjectWorkspaceSummary, error) {
-	result := make([]clientui.ProjectWorkspaceSummary, 0, len(workspaces))
-	for _, workspace := range workspaces {
-		summary, err := ProjectWorkspaceSummaryFromProto(workspace)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, summary)
-	}
-	return result, nil
-}
-
 func ProjectBindingFromProto(binding *projectpb.ProjectBinding) (serverapi.ProjectBinding, error) {
 	availability, err := protoapi.ProjectAvailabilityFromProto(binding.WorkspaceStatus)
 	if err != nil {

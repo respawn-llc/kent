@@ -92,16 +92,16 @@ func BeginOpenAIBrowserFlow(opts OpenAIOAuthOptions, redirectURI string) (Browse
 	}, nil
 }
 
-func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, session BrowserAuthSession, callbackInput string) (Method, error) {
+func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, session BrowserAuthSession, callbackInput string) (OAuthMethod, error) {
 	parsed, err := ParseOAuthCallbackInput(callbackInput)
 	if err != nil {
-		return Method{}, err
+		return OAuthMethod{}, err
 	}
 	if strings.TrimSpace(session.State) != "" && strings.TrimSpace(parsed.State) != "" && parsed.State != session.State {
-		return Method{}, errors.New("oauth state mismatch")
+		return OAuthMethod{}, errors.New("oauth state mismatch")
 	}
 	if strings.TrimSpace(parsed.Code) == "" {
-		return Method{}, errors.New("oauth callback is missing code")
+		return OAuthMethod{}, errors.New("oauth callback is missing code")
 	}
 	return exchangeOpenAIAuthorizationCode(ctx, opts, parsed.Code, session.CodeVerifier, session.RedirectURI)
 }

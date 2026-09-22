@@ -7,7 +7,6 @@ import (
 
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
-	"core/shared/textutil"
 	"core/shared/theme"
 	"core/shared/toolspec"
 )
@@ -122,8 +121,6 @@ func onboardingSelectionsFromConfig(cfg config.App, facts *capabilitypb.Facts) (
 		pendingPrimaryThinking:  onboardingThinkingEdit{kind: onboardingThinkingEditNone},
 		pendingReviewerThinking: onboardingThinkingEdit{kind: onboardingThinkingEditNone},
 		preserved: onboardingPreservedInputs{
-			providerOverride:           textutil.OptionalTrimmedString(settings.ProviderOverride),
-			openAIBaseURL:              textutil.OptionalTrimmedString(settings.OpenAIBaseURL),
 			modelTimeoutSeconds:        modelTimeoutSeconds,
 			enabledTools:               enabledTools,
 			baselineModelContextWindow: baselineModelContextWindow,

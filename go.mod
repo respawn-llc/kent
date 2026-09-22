@@ -18,6 +18,7 @@ require (
 	github.com/gofrs/flock v0.13.0
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.14.0
+	github.com/joho/godotenv v1.6.0-pre.4
 	github.com/klauspost/compress v1.19.1
 	github.com/lxzan/gws v1.10.1
 	github.com/mattn/go-runewidth v0.0.27

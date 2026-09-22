@@ -39,6 +39,8 @@
 - The exact Project-scoped Workspace API returns a typed `not_attached` outcome when the selected Workspace is not attached to the selected Project.
 - The workspace-attach API returns the authoritative Project-workspace binding with a typed `attached` or `already_attached` outcome.
 - Project overview and board reads obtain bounded Project, default-Workspace, Workspace-count, and exact source-Workspace facts without loading the Project Workspace catalog.
+- Project overview and board Workspace facts must come from stored metadata without inspecting the filesystem or traversing Sessions. They must preserve Workspace identity, names, source facts, ordering, default selection, and the total attached Workspace count.
+- A Task's source Workspace must use its attached Workspace facts when available, or its saved source facts when detached. A Task without an explicit source must use the Project default. An unresolvable explicit source without valid saved facts, or a broken Project default, must surface as a developer error rather than substituting another Workspace.
 - The workspace-detach API requires a Project ID and exactly one workspace selector: workspace ID or workspace path.
 - The default-workspace API requires a Project ID and exactly one workspace selector: workspace ID or workspace path.
 - Workspace-ID requests remain supported.

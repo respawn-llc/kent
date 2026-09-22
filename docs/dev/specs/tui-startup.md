@@ -15,10 +15,10 @@
 Ordered gates; each gate is skipped when its condition does not apply, never bypassed by flags:
 
 1. **Server attach.** The TUI is a client and contains no server. It attaches to the configured endpoint. Explicit `server_host` and `server_port` values are authoritative. A connection failure exits with the endpoint and reason. Kent provides no embedded-server fallback or retry screen.
-2. **Authentication.** This gate blocks only when the selected provider requires Kent-managed authentication.
-3. **First-time setup.** After the first successful authentication, a missing `config.toml` opens setup before Session selection.
-4. **Workspace resolution.** Startup begins from the current workspace. An unregistered current directory opens Project binding and is not registered automatically.
-5. **Session selection.** If no Sessions exist, startup opens new-Session setup directly.
+2. **First-time setup.** A missing `config.toml` must open setup, including first sign-in, before Session selection.
+3. **Workspace resolution.** Startup begins from the current workspace. An unregistered current directory opens Project binding and is not registered automatically.
+4. **Session selection.** If no Sessions exist, startup opens new-Session setup directly.
+5. **Authentication.** Authentication must use the selected Session/role's Provider Connection; auth-less connections require no sign-in. A broken default connection must not prevent Session selection or use of another working connection.
 6. **Workspace-change prompt.** This prompt appears when the selected Session's available workspace root differs from the current root.
 7. **Lazy open and handoff.** Kent creates and initializes the Session only when the first user message or another Agent Turn trigger requires it.
 
@@ -26,12 +26,7 @@ Ordered gates; each gate is skipped when its condition does not apply, never byp
 
 ## Auth Gate
 
-- The picker offers browser OAuth, device-code OAuth, `No auth`, and environment-key adoption when available.
-- Browser OAuth accepts a local callback or pasted callback URL or code.
-- Environment keys are used only after the user selects them.
-- OAuth failure does not fall back to an API key.
-- `/login` and `/logout` reopen authentication selection without clearing credentials first.
-- There is no env-vs-saved conflict prompt at startup: the last saved auth choice wins, including an explicit `No auth` choice. Env keys enter only through the chooser-backed adoption path.
+- The picker and credential selection must follow [Provider Connections](provider-connections.md). First-run sign-in must remain within onboarding, and slash commands must be unavailable before onboarding completes.
 - Successful auth shows a brief confirmation state on the auth surface before advancing to the next gate.
 - Authentication failures and 401 responses appear on the authentication surface with retry or method-selection actions. They never cause a silent exit.
 

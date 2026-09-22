@@ -39,6 +39,7 @@ export type {
 export type ChatRuntimeApi = Pick<ChatApi, "getMainView" | "getTranscriptPage" | "subscribeTranscript">;
 export type ChatRuntimeHost = Readonly<{
   logger: AppLogger;
+  onConnectionReplaced?(replacement: ChatTranscriptPayloadByKind["connection_replaced"]): void;
   onHumanInputInterrupted?(items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"]): void;
   onPendingWorkHydrated?(sessionID: string): void;
   onPendingWorkChanged?(): void;
@@ -49,6 +50,7 @@ export type ChatRuntimeHost = Readonly<{
   onManualCompactionFailed?(diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"]): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
+  activeProcessCount: number;
   pendingPrompts: readonly PendingPrompt[];
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
@@ -278,7 +280,11 @@ export class ChatRuntimeOwner {
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
-    if (admitted.state.pendingPrompts !== current.pendingPrompts) this.#notify();
+    if (
+      admitted.state.pendingPrompts !== current.pendingPrompts ||
+      admitted.state.activeProcesses !== current.activeProcesses
+    )
+      this.#notify();
   }
 
   #currentProjection(): ChatProjectionState {
@@ -294,25 +300,39 @@ export class ChatRuntimeOwner {
       metadataRevision: state.metadataRevision,
       pendingMetadata: state.pendingMetadata,
       pendingPrompts: state.pendingPrompts,
+      activeProcesses: state.activeProcesses,
     };
   }
 
   #applyHostEffects(effects: readonly ChatProjectionHostEffect[]): void {
     for (const effect of effects) {
-      if (effect.kind === "compaction") {
+      if (
+        effect.kind === "pending-work-hydrated" ||
+        effect.kind === "pending-work-changed" ||
+        effect.kind === "pending-work-restored"
+      ) {
+        this.#applyPendingWorkEffect(effect);
+      } else if (effect.kind === "compaction") {
         this.#applyCompactionFeedback(effect.feedback);
       } else if (effect.kind === "human-input-interrupted") {
         this.#host.onHumanInputInterrupted?.(effect.items);
       } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
-      } else if (effect.kind === "pending-work-hydrated") {
-        this.#host.onPendingWorkHydrated?.(effect.sessionID);
-      } else if (effect.kind === "pending-work-changed") {
-        this.#host.onPendingWorkChanged?.();
       } else {
-        this.#host.onPendingWorkRestored?.(effect.restoration);
+        this.#host.onConnectionReplaced?.(effect.replacement);
       }
     }
+  }
+
+  #applyPendingWorkEffect(
+    effect: Extract<
+      ChatProjectionHostEffect,
+      { kind: "pending-work-hydrated" | "pending-work-changed" | "pending-work-restored" }
+    >,
+  ): void {
+    if (effect.kind === "pending-work-hydrated") this.#host.onPendingWorkHydrated?.(effect.sessionID);
+    else if (effect.kind === "pending-work-changed") this.#host.onPendingWorkChanged?.();
+    else this.#host.onPendingWorkRestored?.(effect.restoration);
   }
 
   #applyCompactionFeedback(
@@ -333,6 +353,7 @@ export class ChatRuntimeOwner {
 
   #projectSnapshot(): ChatRuntimeOwnerSnapshot {
     return {
+      activeProcessCount: this.#projection.activeProcesses.size,
       pendingPrompts: this.#projection.pendingPrompts,
       goal: this.#goal,
       observation: this.#observation?.state ?? { kind: "loading" },

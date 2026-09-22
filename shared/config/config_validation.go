@@ -23,22 +23,6 @@ func validateModelNotEmpty(state settingsState, _ map[string]Origin) error {
 	return nil
 }
 
-func validateProviderOverrideRequiresModel(state settingsState, sources map[string]Origin) error {
-	if strings.TrimSpace(state.Settings.ProviderOverride) != "" && sources["model"].Kind == SourceDefault {
-		return fmt.Errorf("%w; set model alongside provider_override", errProviderOverrideRequiresModel)
-	}
-	return nil
-}
-
-func validateProviderOverrideValue(state settingsState, _ map[string]Origin) error {
-	switch strings.ToLower(strings.TrimSpace(state.Settings.ProviderOverride)) {
-	case "", "openai", "anthropic":
-		return nil
-	default:
-		return fmt.Errorf("%w %q (expected openai|anthropic)", errInvalidProviderOverride, state.Settings.ProviderOverride)
-	}
-}
-
 func validateProviderIdentifier(state settingsState, _ map[string]Origin) error {
 	identifier := state.Settings.ProviderIdentifier
 	if identifier == "" {
@@ -67,25 +51,6 @@ func isHTTPProductTokenByte(value byte) bool {
 	default:
 		return false
 	}
-}
-
-func validateOpenAIBaseURL(state settingsState, _ map[string]Origin) error {
-	provider := strings.ToLower(strings.TrimSpace(state.Settings.ProviderOverride))
-	if strings.TrimSpace(state.Settings.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
-		return fmt.Errorf("%w: provider_override %q; openai_base_url requires provider_override=openai or unset", errOpenAIBaseURLConflict, state.Settings.ProviderOverride)
-	}
-	return nil
-}
-
-func validateProviderCapabilitiesProviderID(state settingsState, sources map[string]Origin) error {
-	capabilities := state.Settings.ProviderCapabilities
-	if strings.TrimSpace(capabilities.ProviderID) != "" {
-		return nil
-	}
-	if hasAnyConfiguredSource(sources, mainProviderCapabilitySourceKeys.values...) || hasProviderCapabilitiesOverride(capabilities) {
-		return errProviderCapabilitiesNeedID
-	}
-	return nil
 }
 
 func validateModelVerbosity(state settingsState, _ map[string]Origin) error {
@@ -337,29 +302,11 @@ func validateReviewer(state settingsState, sources map[string]Origin) error {
 	default:
 		return configurationValidationError(fmt.Errorf("invalid reviewer.model_verbosity %q (expected low|medium|high)", reviewer.ModelVerbosity), sources, "reviewer.model_verbosity")
 	}
-	provider := strings.ToLower(strings.TrimSpace(reviewer.ProviderOverride))
-	switch provider {
-	case "", "openai", "anthropic":
-	default:
-		return configurationValidationError(fmt.Errorf("%w %q (expected openai|anthropic)", errInvalidReviewerProvider, reviewer.ProviderOverride), sources, "reviewer.provider_override")
-	}
-	if strings.TrimSpace(reviewer.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
-		return configurationValidationError(fmt.Errorf("reviewer.provider_override %q conflicts with reviewer.openai_base_url; reviewer.openai_base_url requires reviewer.provider_override=openai or unset", reviewer.ProviderOverride), sources, "reviewer.provider_override", "reviewer.openai_base_url")
-	}
-	if err := validateReviewerProviderCapabilities(reviewer.ProviderCapabilities, sources); err != nil {
-		return configurationValidationError(err, sources, reviewerProviderCapabilityKeys...)
-	}
 	if reviewer.ModelContextWindow < 0 {
 		return configurationValidationError(errReviewerContextWindowNegative, sources, "reviewer.model_context_window")
 	}
 	if err := validateModelContextWindowMinimum("reviewer.model_context_window", reviewer.ModelContextWindow); err != nil {
 		return configurationValidationError(err, sources, "reviewer.model_context_window")
-	}
-	switch normalizeReviewerAuth(reviewer.Auth) {
-	case "inherit":
-	case "none":
-	default:
-		return configurationValidationError(fmt.Errorf("invalid reviewer.auth %q (expected inherit|none)", reviewer.Auth), sources, "reviewer.auth")
 	}
 	if reviewer.TimeoutSeconds <= 0 {
 		return configurationValidationError(fmt.Errorf("reviewer.timeout_seconds must be > 0"), sources, "reviewer.timeout_seconds")
@@ -377,16 +324,6 @@ func validateModelContextWindowMinimum(field string, window int) error {
 		field,
 		minimumModelContextWindow,
 	)
-}
-
-func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride, sources map[string]Origin) error {
-	if strings.TrimSpace(capabilities.ProviderID) != "" {
-		return nil
-	}
-	if hasAnyConfiguredSource(sources, reviewerProviderCapabilitySourceKeys.values...) || hasProviderCapabilitiesOverride(capabilities) {
-		return errReviewerProviderCapabilitiesNeedID
-	}
-	return nil
 }
 
 func hasConfiguredSource(sources map[string]Origin, key string) bool {
@@ -453,16 +390,5 @@ func normalizeModelVerbosity(raw string) ModelVerbosity {
 		return ModelVerbosityHigh
 	default:
 		return ModelVerbosity(strings.TrimSpace(raw))
-	}
-}
-
-func normalizeReviewerAuth(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "inherit":
-		return "inherit"
-	case "none":
-		return "none"
-	default:
-		return strings.TrimSpace(raw)
 	}
 }

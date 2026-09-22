@@ -162,6 +162,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("load config: %v", err)
 	}
 	cfg.Settings.Model = "workflow-base"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeStructuredOutput
 	cfg.Settings.Reviewer.Frequency = "off"
 	cfg.Settings.Subagents["coder"] = config.SubagentRole{
@@ -214,9 +215,10 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	fixture.runtimes = registry.NewRuntimeRegistry()
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      fixture.runtimes,
+		WorkspaceMembership: fixture.metadata,
+		PersistenceRoot:     cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -416,9 +418,10 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.runtimes = registry.NewRuntimeRegistry()
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: f.cfg.PersistenceRoot,
-		StoreOptions:    storeOptions,
-		PromptFeed:      f.runtimes,
+		WorkspaceMembership: f.metadata,
+		PersistenceRoot:     f.cfg.PersistenceRoot,
+		StoreOptions:        storeOptions,
+		PromptFeed:          f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 		},
@@ -636,11 +639,7 @@ func (f *currentNodeRunnerFixture) openRetainedRuntime(
 	if prepared == nil {
 		t.Fatalf("runtime client was never prepared for Session %s", sessionID)
 	}
-	boundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
-	if err != nil {
-		t.Fatalf("resolve Project Workspace boundary: %v", err)
-	}
-	filesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, boundary)
+	filesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
 	if err != nil {
 		t.Fatalf("create retained runtime filesystem context: %v", err)
 	}
@@ -921,15 +920,18 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 		t.Fatalf("start scripted Responses provider: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Stop() })
-	f.cfg.Settings.OpenAIBaseURL = provider.URL()
+	definition := f.cfg.Settings.Connections[*f.cfg.Settings.Connection]
+	definition.Endpoint = textutil.Value(provider.URL())
+	f.cfg.Settings.Connections[*f.cfg.Settings.Connection] = definition
+	f.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.cfg.Settings)
 	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
-			Config:                   f.cfg,
-			ContainerDir:             filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
-			StoreOptions:             f.metadata.AuthoritativeSessionStoreOptions(),
-			PersistedSessions:        f.metadata,
-			ExecutionTargets:         f.metadata,
-			ProjectWorkspaceBoundary: f.metadata,
+			Config:            f.cfg,
+			ContainerDir:      filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+			StoreOptions:      f.metadata.AuthoritativeSessionStoreOptions(),
+			PersistedSessions: f.metadata,
+			ExecutionTargets:  f.metadata,
+			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
 		}),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
@@ -1382,6 +1384,10 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 		}),
 		ScriptedFinalAnswer("done"),
 	)
+	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
@@ -2076,7 +2082,7 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
-	configureCompactionThinking(f)
+	configureCompactionThinking(t, f)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
 		f.store,
@@ -2101,7 +2107,13 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("runtime role models = %+v, want coder then reviewer", requests)
 	}
+	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "reviewer" {
+		t.Fatalf("compact-and-continue connection selection = %v then %v", requests[0].Connection.ID, requests[1].Connection.ID)
+	}
 	meta := f.onlyProjectSessionMeta(t)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "reviewer" {
+		t.Fatalf("target connection was not persisted: %v", meta.ConnectionID)
+	}
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
 		t.Fatalf("compacted workflow Session continuation = %+v, want persisted reviewer identity", meta.Continuation)
 	}
@@ -2459,11 +2471,7 @@ func TestCompletedReplacementSynchronizesRetainedResidentSessionTools(t *testing
 			if _, err := f.commitCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
 				t.Fatal(err)
 			}
-			projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(ctx, f.projectID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, projectBoundary)
+			filesystem, err := runtimewire.NewFilesystemContext(original.Root, original.Root, f.projectID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2605,26 +2613,9 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, canonicalSiblingWorkspace); err != nil {
 		t.Fatalf("AttachWorkspaceToProject sibling: %v", err)
 	}
-	projectBoundary, err := f.metadata.ResolveProjectWorkspaceBoundary(context.Background(), f.projectID)
-	if err != nil {
-		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
-	}
-	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, projectBoundary)
+	interactiveFilesystemContext, err := runtimewire.NewFilesystemContext(f.workspace, f.workspace, f.projectID)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
-	}
-	if len(interactiveFilesystemContext.Access.ProjectWorkspace.Roots) != 2 {
-		t.Fatalf("workflow runtime Project Workspace roots = %+v, want source and sibling", interactiveFilesystemContext.Access.ProjectWorkspace.Roots)
-	}
-	foundSibling := false
-	for _, root := range interactiveFilesystemContext.Access.ProjectWorkspace.Roots {
-		if root.RealPath == canonicalSiblingWorkspace {
-			foundSibling = true
-			break
-		}
-	}
-	if !foundSibling {
-		t.Fatalf("workflow runtime roots = %+v, want sibling %q", interactiveFilesystemContext.Access.ProjectWorkspace.Roots, canonicalSiblingWorkspace)
 	}
 	interactivePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     f.workspace,
@@ -3443,10 +3434,13 @@ func TestCurrentNodeRuntimePreparationFailureLeavesTaskUnstarted(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
-	f.starter.cfg.Settings.ProviderCapabilities = config.ProviderCapabilitiesOverride{
+	definition := f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection]
+	definition.Capabilities = config.ProviderCapabilitiesOverride{
 		ProviderID:           "test",
 		SupportsResponsesAPI: true,
 	}
+	f.starter.cfg.Settings.Connections[*f.starter.cfg.Settings.Connection] = definition
+	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
 	f.mu.Lock()
 	f.clientErr = errors.New("provider unavailable")
 	f.mu.Unlock()
@@ -3682,6 +3676,7 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 			if err := os.WriteFile(filepath.Join(incoming.PersistenceRoot, "config.toml"), []byte(file.String()), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			testsetup.WriteProviderSettings(t, incoming.PersistenceRoot, incoming.Settings)
 			var err error
 			incoming, err = config.Load(f.workspace, f.workspace, config.LoadOptions{ConfigRoot: incoming.PersistenceRoot})
 			if err != nil {

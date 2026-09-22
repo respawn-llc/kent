@@ -10,11 +10,9 @@ Models will follow the instructions by role: `system -> developer -> user`, from
 ## Instruction Files
 
 - `~/.kent/AGENTS.md` is a global instructions file injected into every session automatically.
-- `<workspace>/AGENTS.md` adds developer instructions that are specific to the current project.
+- `<workspace>/AGENTS.md` adds instructions that are specific to the current project.
 
-These files are `developer`-level instructions. Kent includes their full Markdown content beneath an H1 identifying the source file, without wrapping the content in a code block.
-
-Instruction and skill reference paths use CWD-relative paths inside the Working Directory, `~/` paths elsewhere under home, and absolute paths otherwise. CWD itself remains absolute. Skill paths refer to the Working Directory when the Skills list was injected; worktree moves provide a separate CWD-change reminder.
+These files are `developer`-level instructions.
 
 ## System Prompt
 
@@ -29,16 +27,11 @@ The selected file keeps its scope in this priority order, lowest to highest. Onl
 - Shared workspace or Main Workspace private `system_prompt_file`
 - Selected `[subagents.<role>]` `system_prompt_file`
 
-Paths are resolved relative to the configuration file that supplies them unless absolute. Automatic global and workspace `SYSTEM.md` discovery is independent of the configured selection.
+Paths are resolved relative to the configuration file that supplies them unless absolute.
 
-Kent snapshots the rendered system prompt when it creates the session contract. Edits take effect after successful compaction and the next model request, without rewriting locked history.
-
-## Goal Continuation
-
-After successful automatic, manual, or handoff compaction, a non-workflow session with an active goal resumes with the exact goal text and Kent's goal work and completion guidance. Paused, completed, cleared, and absent goals add no continuation guidance, and reopening a session without compaction does not add it.
+Kent snapshots the rendered system prompt when it creates the session contract. Edits take effect after successful compaction and the next model request.
 
 ## Placeholders
-
 You can assemble your own system prompt from building blocks provided by Kent. It's highly recommended to leave the instructions about the harness (`HarnessWorkflowAutonomy`) intact.
 
 System prompt files use Go template syntax with these fields:
@@ -74,4 +67,4 @@ Additionally, if `tool_preambles = true` in the [config](../config/), another bl
 - `<workspace-root>/.kent/config.toml`
 - `<main-workspace-root>/.kent/config.local.toml`
 
-The same property precedence selects one file, including any explicit nested Supervisor selection in the active role. Paths are relative to their supplying configuration file; omission inherits and an explicitly empty path is invalid. Kent snapshots the rendered Supervisor prompt independently when a Supervisor request is built; edits take effect for Supervisor requests after successful compaction.
+Edits take effect for Supervisor requests after compaction.

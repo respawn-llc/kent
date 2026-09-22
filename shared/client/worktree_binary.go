@@ -8,6 +8,7 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/protoapi"
+	sessionretargetpb "core/shared/protoapi/gen/kent/api/session_retarget"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -161,6 +162,12 @@ type worktreeFailure interface {
 
 func worktreeError[Failure worktreeFailure](failure Failure) error {
 	switch failure.GetCode() {
+	case "session_retarget":
+		if typed, ok := any(failure).(interface {
+			GetSessionRetarget() *sessionretargetpb.SessionRetargetWorkspaceError
+		}); ok && typed.GetSessionRetarget() != nil {
+			return protoapi.SessionRetargetErrorFromProto(typed.GetSessionRetarget())
+		}
 	case "delete_partial":
 		if typed, ok := any(failure).(interface {
 			GetDeletePartial() *worktreepb.DeletePartialDetails

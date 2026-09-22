@@ -12,6 +12,7 @@ import "kent/api/shared/validation.proto";
 import "kent/api/session_launch/validation.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/worktree/worktree.proto";
+import "kent/api/session_retarget/session_retarget.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
@@ -145,110 +146,12 @@ message SessionRetargetWorkspaceSuccess {
   };
 }
 
-message ProjectReference {
-  string id = 1 [(buf.validate.field).string.min_len = 1];
-  string name = 2 [(buf.validate.field).string.min_len = 1];
-}
-
-message SessionRetargetFacts {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  ProjectReference source_project = 2 [(buf.validate.field).required = true];
-  string target_root = 3 [(buf.validate.field).string.min_len = 1];
-  repeated ProjectReference candidate_projects = 4;
-  repeated string workflow_task_ids = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
-}
-
-message SessionRetargetTargetProjectRequiredDetails {
-  SessionRetargetFacts facts = 1 [(buf.validate.field).required = true];
-
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.retarget_project_required_candidates"
-    message: "candidate_projects must not be empty"
-    expression: "size(this.facts.candidate_projects) > 0"
-  };
-}
-
-message SessionRetargetTargetProjectConflictDetails {
-  SessionRetargetFacts facts = 1 [(buf.validate.field).required = true];
-
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.retarget_project_conflict_candidates"
-    message: "candidate_projects must not be empty"
-    expression: "size(this.facts.candidate_projects) > 0"
-  };
-}
-
-message SessionRetargetWorkflowOwnedDetails {
-  SessionRetargetFacts facts = 1 [(buf.validate.field).required = true];
-}
-
-message SessionRetargetBackgroundProcessActiveDetails {
-  SessionRetargetFacts facts = 1 [(buf.validate.field).required = true];
-}
-
-message SessionRetargetRuntimeActiveDetails {
-  SessionRetargetFacts facts = 1 [(buf.validate.field).required = true];
-}
-
-message SessionRetargetWorkspaceError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "auth_required"
-    }];
-    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "server_not_ready"
-    }];
-    SessionRetargetTargetProjectRequiredDetails target_project_required = 2 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "target_project_required"
-      }
-    ];
-    SessionRetargetTargetProjectConflictDetails target_project_conflict = 3 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "target_project_conflict"
-      }
-    ];
-    SessionRetargetWorkflowOwnedDetails workflow_owned = 4 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "workflow_owned"
-      }
-    ];
-    SessionRetargetBackgroundProcessActiveDetails background_process_active = 5 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "background_process_active"
-      }
-    ];
-    kent.api.shared.InternalFailureDetails internal_failure = 6 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "internal_failure"
-      }
-    ];
-    SessionRetargetRuntimeActiveDetails runtime_active = 7 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "runtime_active"
-      }
-    ];
-  }
-}
-
 message SessionRetargetWorkspaceResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
 
     SessionRetargetWorkspaceSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    SessionRetargetWorkspaceError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+    kent.api.session_retarget.SessionRetargetWorkspaceError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
 

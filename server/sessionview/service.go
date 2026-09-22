@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/auth"
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
@@ -40,10 +39,6 @@ type chatContextWorkspaceResolver interface {
 	Resolve(workspaceRoot string) (config.App, error)
 }
 
-type chatContextAuthReader interface {
-	Load(context.Context) (auth.State, error)
-}
-
 type workflowSessionStatusResolver interface {
 	SessionWorkflowStatus(context.Context, string) (*runtimepb.WorkflowSessionStatus, error)
 }
@@ -65,7 +60,6 @@ type Service struct {
 	targets           ExecutionTargetResolver
 	cacheWarningMode  config.CacheWarningMode
 	contextWorkspaces chatContextWorkspaceResolver
-	contextAuth       chatContextAuthReader
 	workflowSessions  workflowSessionStatusResolver
 }
 
@@ -136,13 +130,6 @@ func (s *Service) WithChatContextWorkspaceResolver(resolver chatContextWorkspace
 	return s
 }
 
-func (s *Service) WithChatContextAuthReader(reader chatContextAuthReader) *Service {
-	if s != nil {
-		s.contextAuth = reader
-	}
-	return s
-}
-
 func (s *Service) ReadSessionChatContext(ctx context.Context, sessionID runtimeids.SessionID) (*contextpb.Context, error) {
 	if s == nil || s.persisted == nil {
 		return nil, errors.New("persisted Session resolver is required")
@@ -189,10 +176,8 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 		return dormantChatProjection{}, err
 	}
 	capabilities, err := llm.ResolveEffectiveProviderCapabilities(
-		ctx,
 		snapshot.Meta.Locked,
 		current.Settings,
-		s.contextAuth,
 	)
 	if err != nil {
 		return dormantChatProjection{}, err

@@ -2,36 +2,34 @@ package workflowsvc
 
 import (
 	"context"
-	"core/internal/testharness/workflowfixture"
-	"encoding/json"
-	"reflect"
 	"slices"
 	"testing"
 
+	"core/internal/testharness/workflowfixture"
 	"core/server/workflow"
 	"core/server/workflowstore"
+	protoapi "core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	proto "google.golang.org/protobuf/proto"
 )
 
 func TestServiceWorkflowGraphSaveAtomicallyRepairsSavedInvalidWorkflow(t *testing.T) {
 	ctx, service, _ := newWorkflowServiceTestContext(t)
-	created, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Invalid Workflow"})
+	created, err := service.CreateWorkflow(ctx, &pb.CreateRequest{Name: "Invalid Workflow"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	before := getWorkflowGraphAtomicDefinition(t, ctx, service, created.Workflow.ID)
+	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowServiceID(t, created.Workflow.Id))
 	startID := workflowServiceNodeIDByKind(t, before, "start")
 	terminalID := workflowServiceNodeIDByKind(t, before, "terminal")
-	agentID := workflowServiceGraphEntityID("node-agent-" + created.Workflow.ID.String())
-	graph := serverapi.WorkflowGraphDraftFromDefinition(before)
-	graph.Nodes = append(graph.Nodes, serverapi.WorkflowGraphDraftNode{
-		ID: agentID, Key: "agent", Kind: "agent", DisplayName: "Agent", SubagentRole: "coder",
+	agentID := workflowServiceGraphEntityID("node-agent-" + workflowServiceID(t, created.Workflow.Id).String())
+	graph := protoapi.WorkflowGraphDraftFromDefinition(before)
+	graph.Nodes = append(graph.Nodes, &pb.GraphDraftNode{
+		Id: agentID, Key: "agent", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Agent", SubagentRole: proto.String("coder"),
 	})
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: workflowServiceGraphEntityID("group-start"), SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: workflowServiceGraphEntityID("group-done"), SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"},
-	)
+	graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{Id: workflowServiceGraphEntityID("group-start"), SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"}, &pb.GraphDraftTransitionGroup{Id: workflowServiceGraphEntityID("group-done"), SourceNodeId: agentID, TransitionId: "done", DisplayName: "Done"})
 	graph.Edges = append(graph.Edges,
 		workflowGraphAtomicEdge(workflowServiceGraphEntityID("edge-start"), workflowServiceGraphEntityID("group-start"), "start", agentID, "Do work."),
 		workflowGraphAtomicEdge(workflowServiceGraphEntityID("edge-done"), workflowServiceGraphEntityID("group-done"), "done", terminalID, ""),
@@ -42,9 +40,9 @@ func TestServiceWorkflowGraphSaveAtomicallyRepairsSavedInvalidWorkflow(t *testin
 func TestServiceWorkflowGraphSaveAtomicallyDeletesFanOutTransitionBranch(t *testing.T) {
 	ctx, service, workflowID := newWorkflowGraphAtomicFanOutFixture(t)
 	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	graph := serverapi.WorkflowGraphDraftFromDefinition(before)
-	graph.Edges = slices.DeleteFunc(graph.Edges, func(edge serverapi.WorkflowGraphDraftEdge) bool {
-		return edge.ID == workflowServiceGraphEntityID("edge-split-b-"+workflowID.String())
+	graph := protoapi.WorkflowGraphDraftFromDefinition(before)
+	graph.Edges = slices.DeleteFunc(graph.Edges, func(edge *pb.GraphDraftEdge) bool {
+		return edge.Id == workflowServiceGraphEntityID("edge-split-b-"+workflowID.String())
 	})
 	assertWorkflowGraphAtomicChangedSave(t, ctx, service, before, graph)
 }
@@ -64,10 +62,10 @@ func TestServiceWorkflowGraphSaveAtomicallyDeletesNodeAndTransitionGroup(t *test
 func TestServiceWorkflowGraphSaveAtomicallyChangesFanOutSource(t *testing.T) {
 	ctx, service, workflowID := newWorkflowGraphAtomicFanOutFixture(t)
 	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	graph := serverapi.WorkflowGraphDraftFromDefinition(before)
+	graph := protoapi.WorkflowGraphDraftFromDefinition(before)
 	for index := range graph.TransitionGroups {
-		if graph.TransitionGroups[index].ID == workflowServiceGraphEntityID("group-split-"+workflowID.String()) {
-			graph.TransitionGroups[index].SourceNodeID = workflowServiceGraphEntityID("node-prep-" + workflowID.String())
+		if graph.TransitionGroups[index].Id == workflowServiceGraphEntityID("group-split-"+workflowID.String()) {
+			graph.TransitionGroups[index].SourceNodeId = workflowServiceGraphEntityID("node-prep-" + workflowID.String())
 		}
 	}
 	assertWorkflowGraphAtomicChangedSave(t, ctx, service, before, graph)
@@ -77,22 +75,22 @@ func TestServiceWorkflowGraphSaveRejectsInvalidAndStaleWithoutMutation(t *testin
 	ctx, service, _ := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	invalid := serverapi.WorkflowGraphDraftFromDefinition(before)
+	invalid := protoapi.WorkflowGraphDraftFromDefinition(before)
 	invalid.Nodes = append(invalid.Nodes, invalid.Nodes[0])
-	rejected, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: workflowID, ExpectedVersion: before.Workflow.Version, Graph: invalid,
+	rejected, err := service.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: workflowID.String(), ExpectedVersion: before.Workflow.Version, Graph: invalid,
 	})
 	if err != nil || rejected.Saved || !workflowGraphSaveResponseHasBlocker(rejected, "validation_failed") {
 		t.Fatalf("invalid save = %+v, err = %v", rejected, err)
 	}
 	assertWorkflowGraphAtomicUnchanged(t, ctx, service, before)
 
-	changed := serverapi.WorkflowGraphDraftFromDefinition(before)
+	changed := protoapi.WorkflowGraphDraftFromDefinition(before)
 	changed.Nodes[0].DisplayName += " edited"
 	assertWorkflowGraphAtomicChangedSave(t, ctx, service, before, changed)
 	current := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	rejected, err = service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: workflowID, ExpectedVersion: before.Workflow.Version, Graph: serverapi.WorkflowGraphDraftFromDefinition(before),
+	rejected, err = service.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: workflowID.String(), ExpectedVersion: before.Workflow.Version, Graph: protoapi.WorkflowGraphDraftFromDefinition(before),
 	})
 	if err != nil || rejected.Saved || !workflowGraphSaveResponseHasBlocker(rejected, "version_changed") {
 		t.Fatalf("stale save = %+v, err = %v", rejected, err)
@@ -113,9 +111,9 @@ func TestServiceWorkflowGraphSaveCurrentNodeDeletionIsBlocked(t *testing.T) {
 	graph := workflowGraphDraftWithoutNode(before, removedNodeID, workflowServiceNodeIDByKind(t, before, "terminal"))
 
 	preview := previewWorkflowGraphAtomicDraft(t, ctx, service, before, graph)
-	nodeReference := serverapi.WorkflowGraphEntityReference{EntityType: serverapi.WorkflowGraphEntityTypeNode, EntityID: removedNodeID}
-	if preview.Impact.ActiveCurrentNodeCount != 1 || !slices.Contains(preview.Impact.RemovedEntities, nodeReference) ||
-		!slices.Equal(workflowServiceGraphSaveBlockerEntities(preview.Blockers, "node_task_references"), []serverapi.WorkflowGraphEntityReference{nodeReference}) {
+	nodeReference := &pb.GraphEntityReference{EntityType: pb.GraphEntityType_WORKFLOW_GRAPH_ENTITY_TYPE_NODE, EntityId: removedNodeID}
+	if preview.Impact.ActiveCurrentNodeCount != 1 || !slices.ContainsFunc(preview.Impact.RemovedEntities, func(value *pb.GraphEntityReference) bool { return proto.Equal(value, nodeReference) }) ||
+		!slices.EqualFunc(workflowServiceGraphSaveBlockerEntities(preview.Blockers, "node_task_references"), []*pb.GraphEntityReference{nodeReference}, workflowGraphReferenceEqual) {
 		t.Fatalf("active Current Node preview = %+v", preview)
 	}
 	blocked := saveWorkflowGraphAtomicPreview(t, ctx, service, before, graph, preview)
@@ -146,9 +144,9 @@ func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) 
 	graph := workflowGraphDraftWithoutNode(before, removedNodeID, workflowServiceNodeIDByKind(t, before, "terminal"))
 
 	preview := previewWorkflowGraphAtomicDraft(t, ctx, service, before, graph)
-	nodeReference := serverapi.WorkflowGraphEntityReference{EntityType: serverapi.WorkflowGraphEntityTypeNode, EntityID: removedNodeID}
-	if preview.Impact.PendingApprovalCount != 1 || !slices.Contains(preview.Impact.RemovedEntities, nodeReference) ||
-		!slices.Equal(workflowServiceGraphSaveBlockerEntities(preview.Blockers, "node_task_references"), []serverapi.WorkflowGraphEntityReference{nodeReference}) {
+	nodeReference := &pb.GraphEntityReference{EntityType: pb.GraphEntityType_WORKFLOW_GRAPH_ENTITY_TYPE_NODE, EntityId: removedNodeID}
+	if preview.Impact.PendingApprovalCount != 1 || !slices.ContainsFunc(preview.Impact.RemovedEntities, func(value *pb.GraphEntityReference) bool { return proto.Equal(value, nodeReference) }) ||
+		!slices.EqualFunc(workflowServiceGraphSaveBlockerEntities(preview.Blockers, "node_task_references"), []*pb.GraphEntityReference{nodeReference}, workflowGraphReferenceEqual) {
 		t.Fatalf("Pending Approval preview = %+v", preview)
 	}
 	blocked := saveWorkflowGraphAtomicPreview(t, ctx, service, before, graph, preview)
@@ -207,32 +205,32 @@ func TestServiceWorkflowGraphSaveAllowsCompletedSessionProvenanceDeletion(t *tes
 }
 
 func workflowGraphDraftWithoutNode(
-	definition serverapi.WorkflowDefinition,
+	definition *pb.WorkflowDefinition,
 	nodeID string,
 	replacementTargetID string,
-) serverapi.WorkflowGraphDraft {
-	graph := serverapi.WorkflowGraphDraftFromDefinition(definition)
-	graph.Nodes = slices.DeleteFunc(graph.Nodes, func(node serverapi.WorkflowGraphDraftNode) bool {
-		return node.ID == nodeID
+) *pb.GraphDraft {
+	graph := protoapi.WorkflowGraphDraftFromDefinition(definition)
+	graph.Nodes = slices.DeleteFunc(graph.Nodes, func(node *pb.GraphDraftNode) bool {
+		return node.Id == nodeID
 	})
 	removedGroups := map[string]struct{}{}
-	graph.TransitionGroups = slices.DeleteFunc(graph.TransitionGroups, func(group serverapi.WorkflowGraphDraftTransitionGroup) bool {
-		if group.SourceNodeID != nodeID {
+	graph.TransitionGroups = slices.DeleteFunc(graph.TransitionGroups, func(group *pb.GraphDraftTransitionGroup) bool {
+		if group.SourceNodeId != nodeID {
 			return false
 		}
-		removedGroups[group.ID] = struct{}{}
+		removedGroups[group.Id] = struct{}{}
 		return true
 	})
-	graph.Edges = slices.DeleteFunc(graph.Edges, func(edge serverapi.WorkflowGraphDraftEdge) bool {
-		if _, removed := removedGroups[edge.TransitionGroupID]; removed {
+	graph.Edges = slices.DeleteFunc(graph.Edges, func(edge *pb.GraphDraftEdge) bool {
+		if _, removed := removedGroups[edge.TransitionGroupId]; removed {
 			return true
 		}
 		return false
 	})
 	for index := range graph.Edges {
-		if graph.Edges[index].TargetNodeID == nodeID {
-			graph.Edges[index].TargetNodeID = replacementTargetID
-			if workflowServiceNodeByIDForGraphTest(definition, replacementTargetID).Kind == "terminal" {
+		if graph.Edges[index].TargetNodeId == nodeID {
+			graph.Edges[index].TargetNodeId = replacementTargetID
+			if workflowServiceNodeByIDForGraphTest(definition, replacementTargetID).Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL {
 				graph.Edges[index].PromptTemplate = ""
 			}
 		}
@@ -240,9 +238,9 @@ func workflowGraphDraftWithoutNode(
 	return graph
 }
 
-func workflowServiceNodeByIDForGraphTest(definition serverapi.WorkflowDefinition, nodeID string) serverapi.WorkflowNode {
+func workflowServiceNodeByIDForGraphTest(definition *pb.WorkflowDefinition, nodeID string) *pb.WorkflowNode {
 	for _, node := range definition.Nodes {
-		if node.ID == nodeID {
+		if node.Id == nodeID {
 			return node
 		}
 	}
@@ -252,11 +250,11 @@ func workflowServiceNodeByIDForGraphTest(definition serverapi.WorkflowDefinition
 func newWorkflowGraphAtomicFanOutFixture(t *testing.T) (context.Context, *Service, runtimeids.WorkflowID) {
 	t.Helper()
 	ctx, service, _ := newWorkflowServiceTestContext(t)
-	created, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Fan-Out Workflow"})
+	created, err := service.CreateWorkflow(ctx, &pb.CreateRequest{Name: "Fan-Out Workflow"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	workflowID := created.Workflow.ID
+	workflowID := workflowServiceID(t, created.Workflow.Id)
 	current := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
 	startID := workflowServiceNodeIDByKind(t, current, "start")
 	terminalID := workflowServiceNodeIDByKind(t, current, "terminal")
@@ -265,14 +263,8 @@ func newWorkflowGraphAtomicFanOutFixture(t *testing.T) (context.Context, *Servic
 	branchAID := workflowServiceGraphEntityID("node-a-" + workflowID.String())
 	branchBID := workflowServiceGraphEntityID("node-b-" + workflowID.String())
 	joinID := workflowServiceGraphEntityID("node-join-" + workflowID.String())
-	graph := serverapi.WorkflowGraphDraftFromDefinition(current)
-	graph.Nodes = append(graph.Nodes,
-		serverapi.WorkflowGraphDraftNode{ID: planID, Key: "plan", Kind: "agent", DisplayName: "Plan", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: prepID, Key: "prep", Kind: "agent", DisplayName: "Prep", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: branchAID, Key: "a", Kind: "agent", DisplayName: "A", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: branchBID, Key: "b", Kind: "agent", DisplayName: "B", SubagentRole: "coder"},
-		serverapi.WorkflowGraphDraftNode{ID: joinID, Key: "join", Kind: "join", DisplayName: "Join"},
-	)
+	graph := protoapi.WorkflowGraphDraftFromDefinition(current)
+	graph.Nodes = append(graph.Nodes, &pb.GraphDraftNode{Id: planID, Key: "plan", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Plan", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: prepID, Key: "prep", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Prep", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: branchAID, Key: "a", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "A", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: branchBID, Key: "b", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "B", SubagentRole: proto.String("coder")}, &pb.GraphDraftNode{Id: joinID, Key: "join", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_JOIN, DisplayName: "Join"})
 	startGroup := workflowServiceGraphEntityID("group-start-" + workflowID.String())
 	prepGroup := workflowServiceGraphEntityID("group-prep-" + workflowID.String())
 	splitGroup := workflowServiceGraphEntityID("group-split-" + workflowID.String())
@@ -281,16 +273,7 @@ func newWorkflowGraphAtomicFanOutFixture(t *testing.T) (context.Context, *Servic
 	joinAGroup := workflowServiceGraphEntityID("group-join-a-" + workflowID.String())
 	joinBGroup := workflowServiceGraphEntityID("group-join-b-" + workflowID.String())
 	joinDoneGroup := workflowServiceGraphEntityID("group-join-done-" + workflowID.String())
-	graph.TransitionGroups = append(graph.TransitionGroups,
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: startGroup, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: prepGroup, SourceNodeID: planID, TransitionID: "prepare", DisplayName: "Prepare"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: splitGroup, SourceNodeID: planID, TransitionID: "split", DisplayName: "Split"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: alternateGroup, SourceNodeID: planID, TransitionID: "alternate", DisplayName: "Alternate"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: prepDoneGroup, SourceNodeID: prepID, TransitionID: "prep_done", DisplayName: "Done"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: joinAGroup, SourceNodeID: branchAID, TransitionID: "join_a", DisplayName: "Join"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: joinBGroup, SourceNodeID: branchBID, TransitionID: "join_b", DisplayName: "Join"},
-		serverapi.WorkflowGraphDraftTransitionGroup{ID: joinDoneGroup, SourceNodeID: joinID, TransitionID: "join_done", DisplayName: "Done"},
-	)
+	graph.TransitionGroups = append(graph.TransitionGroups, &pb.GraphDraftTransitionGroup{Id: startGroup, SourceNodeId: startID, TransitionId: "start", DisplayName: "Start"}, &pb.GraphDraftTransitionGroup{Id: prepGroup, SourceNodeId: planID, TransitionId: "prepare", DisplayName: "Prepare"}, &pb.GraphDraftTransitionGroup{Id: splitGroup, SourceNodeId: planID, TransitionId: "split", DisplayName: "Split"}, &pb.GraphDraftTransitionGroup{Id: alternateGroup, SourceNodeId: planID, TransitionId: "alternate", DisplayName: "Alternate"}, &pb.GraphDraftTransitionGroup{Id: prepDoneGroup, SourceNodeId: prepID, TransitionId: "prep_done", DisplayName: "Done"}, &pb.GraphDraftTransitionGroup{Id: joinAGroup, SourceNodeId: branchAID, TransitionId: "join_a", DisplayName: "Join"}, &pb.GraphDraftTransitionGroup{Id: joinBGroup, SourceNodeId: branchBID, TransitionId: "join_b", DisplayName: "Join"}, &pb.GraphDraftTransitionGroup{Id: joinDoneGroup, SourceNodeId: joinID, TransitionId: "join_done", DisplayName: "Done"})
 	graph.Edges = append(graph.Edges,
 		workflowGraphAtomicEdge(workflowServiceGraphEntityID("edge-start-"+workflowID.String()), startGroup, "start", planID, "Plan."),
 		workflowGraphAtomicEdge(workflowServiceGraphEntityID("edge-prep-"+workflowID.String()), prepGroup, "prepare", prepID, "Prepare."),
@@ -310,18 +293,18 @@ func newWorkflowGraphAtomicFanOutFixture(t *testing.T) (context.Context, *Servic
 	return ctx, service, workflowID
 }
 
-func workflowGraphAtomicEdge(id, groupID, key, targetID, prompt string) serverapi.WorkflowGraphDraftEdge {
-	return serverapi.WorkflowGraphDraftEdge{
-		ID: id, TransitionGroupID: groupID, Key: key, TargetNodeID: targetID,
-		AssigneeSelection: "configured", ThinkingSelection: "configured",
-		ContextMode: "new_session", ContextSource: serverapi.WorkflowContextSource{Kind: "immediate_source"},
+func workflowGraphAtomicEdge(id, groupID, key, targetID, prompt string) *pb.GraphDraftEdge {
+	return &pb.GraphDraftEdge{
+		Id: id, TransitionGroupId: groupID, Key: key, TargetNodeId: targetID,
+		AssigneeSelection: pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_CONFIGURED, ThinkingSelection: pb.ThinkingSelection_WORKFLOW_THINKING_SELECTION_CONFIGURED,
+		ContextMode: pb.ContextMode_WORKFLOW_CONTEXT_MODE_NEW_SESSION, ContextSource: &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_IMMEDIATE_SOURCE},
 		PromptTemplate: prompt,
 	}
 }
 
-func getWorkflowGraphAtomicDefinition(t *testing.T, ctx context.Context, service *Service, workflowID runtimeids.WorkflowID) serverapi.WorkflowDefinition {
+func getWorkflowGraphAtomicDefinition(t *testing.T, ctx context.Context, service *Service, workflowID runtimeids.WorkflowID) *pb.WorkflowDefinition {
 	t.Helper()
-	response, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	response, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
@@ -332,12 +315,12 @@ func previewWorkflowGraphAtomicDraft(
 	t *testing.T,
 	ctx context.Context,
 	service *Service,
-	before serverapi.WorkflowDefinition,
-	graph serverapi.WorkflowGraphDraft,
-) serverapi.WorkflowGraphSavePreviewResponse {
+	before *pb.WorkflowDefinition,
+	graph *pb.GraphDraft,
+) *pb.GraphSavePreviewSuccess {
 	t.Helper()
-	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
-		WorkflowID: before.Workflow.ID, ExpectedVersion: before.Workflow.Version, Graph: graph,
+	preview, err := service.PreviewWorkflowGraphSave(ctx, &pb.GraphSavePreviewRequest{
+		WorkflowId: before.Workflow.Id, ExpectedVersion: before.Workflow.Version, Graph: graph,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowGraphSave: %v", err)
@@ -349,14 +332,14 @@ func saveWorkflowGraphAtomicPreview(
 	t *testing.T,
 	ctx context.Context,
 	service *Service,
-	before serverapi.WorkflowDefinition,
-	graph serverapi.WorkflowGraphDraft,
-	preview serverapi.WorkflowGraphSavePreviewResponse,
-) serverapi.WorkflowGraphSaveResponse {
+	before *pb.WorkflowDefinition,
+	graph *pb.GraphDraft,
+	preview *pb.GraphSavePreviewSuccess,
+) *pb.GraphSaveSuccess {
 	t.Helper()
-	var confirmation *serverapi.WorkflowGraphSaveConfirmation
+	var confirmation *pb.GraphSaveConfirmation
 	if preview.ConfirmationRequired {
-		confirmation = &serverapi.WorkflowGraphSaveConfirmation{
+		confirmation = &pb.GraphSaveConfirmation{
 			ExpectedRemovedNodeGroupCount:       preview.Impact.RemovedNodeGroupCount,
 			ExpectedRemovedNodeCount:            preview.Impact.RemovedNodeCount,
 			ExpectedRemovedTransitionGroupCount: preview.Impact.RemovedTransitionGroupCount,
@@ -365,8 +348,8 @@ func saveWorkflowGraphAtomicPreview(
 			ExpectedEdgeTaskReferenceCount:      preview.Impact.EdgeTaskReferenceCount,
 		}
 	}
-	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID: before.Workflow.ID, ExpectedVersion: before.Workflow.Version, Graph: graph, Confirmation: confirmation,
+	saved, err := service.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
+		WorkflowId: before.Workflow.Id, ExpectedVersion: before.Workflow.Version, Graph: graph, Confirmation: confirmation,
 	})
 	if err != nil {
 		t.Fatalf("SaveWorkflowGraph: %v", err)
@@ -378,31 +361,24 @@ func assertWorkflowGraphAtomicChangedSave(
 	t *testing.T,
 	ctx context.Context,
 	service *Service,
-	before serverapi.WorkflowDefinition,
-	graph serverapi.WorkflowGraphDraft,
+	before *pb.WorkflowDefinition,
+	graph *pb.GraphDraft,
 ) {
 	t.Helper()
 	saved := saveWorkflowGraphAtomicPreview(t, ctx, service, before, graph, previewWorkflowGraphAtomicDraft(t, ctx, service, before, graph))
 	if !saved.Saved || !saved.Changed {
 		t.Fatalf("save = %+v", saved)
 	}
-	after := getWorkflowGraphAtomicDefinition(t, ctx, service, before.Workflow.ID)
+	after := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowServiceID(t, before.Workflow.Id))
 	if after.Workflow.Version != before.Workflow.Version+1 {
 		t.Fatalf("Workflow Version = %d, want %d", after.Workflow.Version, before.Workflow.Version+1)
 	}
-	reloadedJSON, err := json.Marshal(serverapi.WorkflowGraphDraftFromDefinition(after))
-	if err != nil {
-		t.Fatalf("marshal reloaded authored graph: %v", err)
+	reloaded := protoapi.WorkflowGraphDraftFromDefinition(after)
+	if !proto.Equal(reloaded, graph) {
+		t.Fatalf("reloaded authored graph = %v, want %v", reloaded, graph)
 	}
-	requestedJSON, err := json.Marshal(graph)
-	if err != nil {
-		t.Fatalf("marshal requested authored graph: %v", err)
-	}
-	if string(reloadedJSON) != string(requestedJSON) {
-		t.Fatalf("reloaded authored graph = %s, want %s", reloadedJSON, requestedJSON)
-	}
-	validated, err := service.ValidateWorkflow(ctx, serverapi.WorkflowValidateRequest{
-		WorkflowID: before.Workflow.ID, Mode: serverapi.WorkflowValidationModeExecution,
+	validated, err := service.ValidateWorkflow(ctx, &pb.ValidateRequest{
+		WorkflowId: before.Workflow.Id, Mode: pb.ValidationMode_WORKFLOW_VALIDATION_MODE_EXECUTION.Enum(),
 	})
 	if err != nil {
 		t.Fatalf("ValidateWorkflow execution: %v", err)
@@ -412,10 +388,10 @@ func assertWorkflowGraphAtomicChangedSave(
 	}
 }
 
-func assertWorkflowGraphAtomicUnchanged(t *testing.T, ctx context.Context, service *Service, before serverapi.WorkflowDefinition) {
+func assertWorkflowGraphAtomicUnchanged(t *testing.T, ctx context.Context, service *Service, before *pb.WorkflowDefinition) {
 	t.Helper()
-	after := getWorkflowGraphAtomicDefinition(t, ctx, service, before.Workflow.ID)
-	if !reflect.DeepEqual(after, before) {
+	after := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowServiceID(t, before.Workflow.Id))
+	if !proto.Equal(after, before) {
 		t.Fatalf("Workflow changed after rejected save")
 	}
 }

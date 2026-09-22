@@ -13,14 +13,14 @@ import (
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
-	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
+	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
 		switch key {
 		case "KENT_OAUTH_CLIENT_ID":
-			return "client-test"
+			return "client-test", true
 		case "KENT_OAUTH_ISSUER":
-			return "https://attacker.example"
+			return "https://attacker.example", true
 		default:
-			return ""
+			return "", false
 		}
 	}, func() time.Time {
 		return time.Unix(123, 0)
@@ -39,48 +39,8 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 	}
 }
 
-func TestBuildAuthSupportEffectiveAndPersistedCredentials(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		env        string
-		preference auth.EnvAPIKeyPreference
-		wantKey    string
-	}{
-		{name: "environment", env: " env-key ", wantKey: "env-key"},
-		{name: "blank environment", env: " \t ", wantKey: "saved-key"},
-		{name: "saved preference", env: "env-key", preference: auth.EnvAPIKeyPreferencePreferSaved, wantKey: "saved-key"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("OPENAI_API_KEY", tc.env)
-			state := auth.State{
-				Scope:               auth.ScopeGlobal,
-				Method:              auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "saved-key"}},
-				EnvAPIKeyPreference: tc.preference,
-			}
-			support, err := BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			effective, err := support.AuthManager.Load(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if effective.Method.APIKey == nil || effective.Method.APIKey.Key != tc.wantKey {
-				t.Fatalf("effective method = %+v", effective.Method)
-			}
-			stored, err := support.AuthManager.StoredState(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stored.Method.APIKey == nil || stored.Method.APIKey.Key != "saved-key" {
-				t.Fatalf("persisted method = %+v", stored.Method)
-			}
-		})
-	}
-}
-
 func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
-	background, err := BuildShellManager(config.App{Settings: config.Settings{
+	background, err := BuildShellManager(config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{
 		ShellOutputMaxChars:    321,
 		BGShellsOutput:         config.BGShellsOutputVerbose,
 		MinimumExecToBgSeconds: 1,

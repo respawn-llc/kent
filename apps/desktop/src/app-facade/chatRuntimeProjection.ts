@@ -15,6 +15,7 @@ type CompactionFeedback =
   | Readonly<{ kind: "failed"; diagnostic: ChatTranscriptPayloadByKind["compaction_status"]["Diagnostic"] }>;
 export type ChatProjectionHostEffect =
   | Readonly<{ kind: "compaction"; feedback: CompactionFeedback }>
+  | Readonly<{ kind: "connection-replaced"; replacement: ChatTranscriptPayloadByKind["connection_replaced"] }>
   | Readonly<{ kind: "pending-work-hydrated"; sessionID: string }>
   | Readonly<{ kind: "pending-work-changed" }>
   | Readonly<{
@@ -37,6 +38,7 @@ type PendingMetadata = Readonly<{
   runtime?: Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }>;
 }>;
 export type ChatProjectionState = Readonly<{
+  activeProcesses: ReadonlySet<string>;
   pendingPrompts: readonly PendingPrompt[];
   view: ChatMainView | null;
   metadataRevision: number;
@@ -61,7 +63,13 @@ export type ChatProjectionResult = Readonly<{
 }>;
 
 export function emptyChatProjectionState(): ChatProjectionState {
-  return { view: null, metadataRevision: 0, pendingMetadata: null, pendingPrompts: [] };
+  return {
+    view: null,
+    metadataRevision: 0,
+    pendingMetadata: null,
+    pendingPrompts: [],
+    activeProcesses: new Set(),
+  };
 }
 
 export function reduceChatProjection(
@@ -81,8 +89,23 @@ export function reduceChatProjection(
     case "hydration":
       return admitHydration(state, input.hydration);
     case "event":
-      return admitEvent(state, input.event);
+      return input.event.kind === "background_activity"
+        ? result({
+            ...state,
+            activeProcesses: activeProcessUpdate(state.activeProcesses, input.event.payload),
+          })
+        : admitEvent(state, input.event);
   }
+}
+
+function activeProcessUpdate(
+  previous: ReadonlySet<string>,
+  process: ChatTranscriptPayloadByKind["background_activity"],
+): ReadonlySet<string> {
+  const active = new Set(previous);
+  if (process.Lifecycle === "backgrounded") active.add(process.ProcessID);
+  else active.delete(process.ProcessID);
+  return active;
 }
 
 function admitRead(
@@ -110,6 +133,12 @@ function admitHydration(
   state: ChatProjectionState,
   hydration: ChatTranscriptPayloadByKind["hydration"],
 ): ChatProjectionResult {
+  const effects: ChatProjectionHostEffect[] = [
+    { kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID },
+  ];
+  if (hydration.ConnectionReplacement !== null) {
+    effects.push({ kind: "connection-replaced", replacement: hydration.ConnectionReplacement });
+  }
   const metadata: PendingMetadata = {
     sessionIdentity: hydration.SessionIdentity,
     ...statusMetadata(hydration.SessionStatus),
@@ -121,6 +150,11 @@ function admitHydration(
   };
   const next = {
     ...admitMetadata(state, metadata),
+    activeProcesses: new Set(
+      hydration.BackgroundActivities.filter((process) => process.Lifecycle === "backgrounded").map(
+        (process) => process.ProcessID,
+      ),
+    ),
     pendingPrompts: orderPendingPrompts(
       hydration.PendingPrompts.flatMap((update) => (update.state === "pending" ? [update.prompt] : [])),
     ),
@@ -128,10 +162,7 @@ function admitHydration(
   return {
     state: next,
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
-    effects: [
-      { kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID },
-      ...idleEffects(next),
-    ],
+    effects: [...effects, ...idleEffects(next)],
   };
 }
 
@@ -142,9 +173,6 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
     return result(state, { effects: [{ kind: "pending-work-restored", restoration: event.payload }] });
   if (event.kind === "prompt") return admitPrompt(state, event.payload);
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
-  if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
-  if (event.kind === "session_status") return metadataResult(state, statusMetadata(event.payload));
-  if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
   if (event.kind === "compaction_status") return admitCompaction(state, event.payload);
   if (event.kind === "goal_status") return result(state, { goalFact: goalFactFromTranscript(event.payload) });
   if (event.kind === "human_input_interrupted") {
@@ -157,6 +185,16 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
       effects: [{ kind: "worktree-transition-outcome", outcome: event.payload }],
     });
   }
+  if (event.kind === "connection_replaced") {
+    return result(state, { effects: [{ kind: "connection-replaced", replacement: event.payload }] });
+  }
+  return admitMetadataEvent(state, event);
+}
+
+function admitMetadataEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
+  if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
+  if (event.kind === "session_status") return metadataResult(state, statusMetadata(event.payload));
+  if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
   return result(state);
 }
 

@@ -2,12 +2,12 @@ package sessionlaunch
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"testing"
 	"time"
 
 	"core/server/launch"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -60,21 +60,21 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspace,
 		workspace,
-		metadata.ProjectWorkspaceBoundary{ProjectID: "test"},
+		"test",
 	)
 	if err != nil {
 		t.Fatalf("NewFilesystemContext: %v", err)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: workspace,
-		Settings: config.Settings{
+		Settings: testsetup.WriteProviderSettings(t, root, config.Settings{
 			Model:              "gpt-5",
 			ModelContextWindow: 200_000,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Shell: config.ShellSettings{
 				PostprocessingMode: config.ShellPostprocessingModeNone,
 			},
-		},
+		}),
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext:     filesystemContext,

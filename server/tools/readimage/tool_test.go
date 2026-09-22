@@ -277,9 +277,9 @@ func TestCall_OutsideWorkspaceApprovalProjectsRequestedAndResolvedPathsToAudit(t
 		t,
 		workspace,
 		true,
-		WithOutsideWorkspaceApprover(func(_ context.Context, _ tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(_ context.Context, _ tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalAllowOnce}, nil
-		}),
+		})),
 		WithOutsideWorkspaceAuditLogger(func(entry OutsideWorkspaceAudit) {
 			audits = append(audits, entry)
 		}),
@@ -316,9 +316,9 @@ func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.
 		t,
 		workspace,
 		true,
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			return tools.FileAccessApproval{}, errors.New("ask failed")
-		}),
+		})),
 	)
 
 	result := callReadImageTool(t, tool, "call-approval-error", readImagePathInput(outside))
@@ -344,9 +344,9 @@ func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T
 		t,
 		workspace,
 		true,
-		WithOutsideWorkspaceApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
+		WithOutsideWorkspaceApprover(runtimewirefixture.FileAccessApprover(func(context.Context, tools.FileAccessApprovalRequest) (tools.FileAccessApproval, error) {
 			return tools.FileAccessApproval{Kind: tools.FileAccessApprovalDeny, Commentary: &commentary}, nil
-		}),
+		})),
 	)
 
 	result := callReadImageTool(t, tool, "call-deny-guidance", readImagePathInput(outside))

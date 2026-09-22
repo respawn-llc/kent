@@ -61,14 +61,11 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 		}
 	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
 		info.Summary = "API Key"
-		if facts.GetApiKey() != nil && facts.GetApiKey().Suffix != nil {
-			info.Summary += " ..." + facts.GetApiKey().GetSuffix()
+		if facts.GetApiKey() != nil {
+			info.Summary += " (" + facts.GetApiKey().EnvironmentVariable + ")"
 		}
 		if provider != "" {
 			details = append(details, authProviderDetailLabel(facts.GetProvider()))
-		}
-		if preference := authEnvPreferenceLabel(facts.GetEnvPreference()); preference != "" {
-			details = append(details, preference)
 		}
 	default:
 		info.Summary = "No Auth"
@@ -252,17 +249,6 @@ func authProviderDisplayOrigin(origin *authpb.ProviderDisplayOrigin) string {
 		host = "[" + host + "]"
 	}
 	return (&url.URL{Scheme: origin.Scheme, Host: host}).String()
-}
-
-func authEnvPreferenceLabel(preference authpb.EnvironmentPreference) string {
-	switch preference {
-	case authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_SAVED_AUTH:
-		return "saved auth preferred"
-	case authpb.EnvironmentPreference_ENVIRONMENT_PREFERENCE_PREFER_ENV_API_KEY:
-		return "OPENAI_API_KEY preferred"
-	default:
-		return ""
-	}
 }
 
 func optionalAuthFactValue(value *string) string {

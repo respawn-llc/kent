@@ -12,7 +12,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/session"
@@ -119,7 +118,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filesystem, err := runtimewire.NewFilesystemContext(workspace, workspace, metadata.ProjectWorkspaceBoundary{ProjectID: binding.ProjectID})
+	filesystem, err := runtimewire.NewFilesystemContext(workspace, workspace, binding.ProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +126,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	settings.Model = "gpt-5"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	settings.ProviderOverride = "openai"
-	settings.OpenAIBaseURL = "http://127.0.0.1:1/v1"
+	settings = testsetup.WriteProviderSettings(t, root, settings)
 	questionCall := int32(1)
 	releaseReviewer := make(chan struct{})
 	release := sync.OnceFunc(func() { close(releaseReviewer) })

@@ -495,6 +495,7 @@ func providerClientWithWindow(t *testing.T, stub *blackbox.ResponsesStub, window
 	t.Helper()
 	client, err := llm.NewProviderClient(llm.ProviderClientOptions{
 		Provider: llm.ProviderOpenAI, Model: "gpt-5", OpenAIBaseURL: stub.URL(), ContextWindowTokens: window,
+		Auth: staticTransportAuth{},
 	})
 	if err != nil {
 		t.Fatalf("NewProviderClient: %v", err)

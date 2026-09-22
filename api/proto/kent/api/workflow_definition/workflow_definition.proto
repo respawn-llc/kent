@@ -6,6 +6,8 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/project/project.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -268,29 +270,6 @@ message ExecutionTargetConfiguration {
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_definition.execution_target_configuration"
-    message: "custom_ref is required only for custom_ref mode"
-    expression:
-      "(this.mode == 4 && has(this.custom_ref)) || "
-      "(this.mode != 4 && !has(this.custom_ref))"
-  };
-}
-
-message DraftExecutionTargetConfiguration {
-  ExecutionTargetMode mode = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  optional string custom_ref = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_definition.draft_execution_target_custom_ref_trimmed"
-      message: "custom_ref must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_definition.draft_execution_target_configuration"
     message: "custom_ref is allowed only for custom_ref mode"
     expression: "this.mode == 4 || !has(this.custom_ref)"
   };
@@ -536,18 +515,19 @@ message SelectorApplicability {
 }
 
 message DerivedNodeWiring {
-  string node_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Draft validation also projects authored identities that are not valid yet.
+  string node_id = 1;
   repeated OutputField possible_provision_fields = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField join_output_fields = 3 [(buf.validate.field).repeated.max_items = 200];
 }
 
 message DerivedTransitionGroupWiring {
-  string transition_group_id = 1 [(buf.validate.field).string.min_len = 1];
+  string transition_group_id = 1;
   repeated OutputField required_provision_fields = 2 [(buf.validate.field).repeated.max_items = 200];
 }
 
 message DerivedEdgeWiring {
-  string edge_id = 1 [(buf.validate.field).string.min_len = 1];
+  string edge_id = 1;
   repeated InputBinding input_bindings = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField required_provision_fields = 3 [(buf.validate.field).repeated.max_items = 200];
   repeated OutputField required_provider_fields = 4 [(buf.validate.field).repeated.max_items = 200];
@@ -677,7 +657,7 @@ message GraphMetadata {
       expression: "this == this.trim()"
     }
   ];
-  optional DraftExecutionTargetConfiguration execution_target_policy = 3;
+  optional ExecutionTargetConfiguration execution_target_policy = 3;
 }
 
 message GraphSaveConfirmation {
@@ -900,7 +880,10 @@ message GetSuccess {
 }
 
 message ListRequest {
-  optional int32 offset = 1 [(buf.validate.field).int32.gte = 0];
+  optional int64 offset = 1 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 9007199254740991
+  }];
   optional int32 limit = 2 [(buf.validate.field).int32 = {
     gte: 1
     lte: 100
@@ -916,7 +899,10 @@ message ListRequest {
 message ListSuccess {
   repeated WorkflowRecord workflows = 1 [(buf.validate.field).repeated.max_items = 100];
   optional string project_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional int32 next_offset = 3 [(buf.validate.field).int32.gte = 0];
+  optional int64 next_offset = 3 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 9007199254740991
+  }];
 }
 
 message GetRequest {
@@ -1261,10 +1247,7 @@ message ProjectLabelCatalogSuccess {
 message ProjectLabelCreateRequest {
   string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string name = 2 [
-    (buf.validate.field).string = {
-      min_len: 1
-      max_len: 64
-    },
+    (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_definition.project_label_create_name_nonblank"
       message: "name must not be blank"
@@ -1284,10 +1267,7 @@ message ProjectLabelRenameRequest {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string name = 3 [
-    (buf.validate.field).string = {
-      min_len: 1
-      max_len: 64
-    },
+    (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_definition.project_label_rename_name_nonblank"
       message: "name must not be blank"
@@ -1380,6 +1360,14 @@ message CreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1397,6 +1385,14 @@ message CreateAndLinkProjectError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1418,6 +1414,14 @@ message UpdateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1439,6 +1443,10 @@ message ListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1456,6 +1464,10 @@ message GetError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1477,6 +1489,14 @@ message ProjectLinkError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1502,6 +1522,10 @@ message ProjectLinksListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1523,6 +1547,14 @@ message SetDefaultProjectLinkError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1548,6 +1580,14 @@ message UnlinkProjectError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1569,6 +1609,10 @@ message DeletePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1590,6 +1634,14 @@ message DeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1611,6 +1663,10 @@ message ValidateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1632,6 +1688,14 @@ message ValidateScriptPathError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1653,6 +1717,10 @@ message GraphValidateDraftError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1674,6 +1742,10 @@ message GraphDeriveWiringError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1695,6 +1767,10 @@ message GraphSavePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1716,6 +1792,14 @@ message GraphSaveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1737,6 +1821,10 @@ message ProjectLabelCatalogError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -1758,6 +1846,14 @@ message ProjectLabelCreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidNameDetails invalid_name = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_name"
@@ -1791,6 +1887,14 @@ message ProjectLabelRenameError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidNameDetails invalid_name = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_name"
@@ -1824,6 +1928,14 @@ message ProjectLabelDeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelNotFoundDetails label_not_found = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "label_not_found"
@@ -1849,6 +1961,14 @@ message ProjectLabelReorderError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
     LabelInvalidMutationDetails invalid_mutation = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_mutation"
@@ -2188,7 +2308,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.create"
     };
   }
   rpc CreateAndLinkProject(CreateAndLinkProjectRequest) returns (CreateAndLinkProjectResult) {
@@ -2198,7 +2317,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.createAndLinkProject"
     };
   }
   rpc Update(UpdateRequest) returns (UpdateResult) {
@@ -2208,7 +2326,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.update"
     };
   }
   rpc List(ListRequest) returns (ListResult) {
@@ -2218,7 +2335,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.list"
     };
   }
   rpc Get(GetRequest) returns (GetResult) {
@@ -2228,7 +2344,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.get"
     };
   }
   rpc DeletePreview(DeletePreviewRequest) returns (DeletePreviewResult) {
@@ -2238,7 +2353,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.deletePreview"
     };
   }
   rpc Delete(DeleteRequest) returns (DeleteResult) {
@@ -2248,7 +2362,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.delete"
     };
   }
   rpc Validate(ValidateRequest) returns (ValidateResult) {
@@ -2258,7 +2371,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.validate"
     };
   }
   rpc ValidateScriptPath(ScriptPathValidateRequest) returns (ValidateScriptPathResult) {
@@ -2268,7 +2380,6 @@ service WorkflowDefinitionService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.scriptPath.validate"
     };
   }
 }
@@ -2281,7 +2392,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.validateDraft"
     };
   }
   rpc DeriveWiring(GraphDeriveWiringRequest) returns (GraphDeriveWiringResult) {
@@ -2291,7 +2401,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.deriveWiring"
     };
   }
   rpc SavePreview(GraphSavePreviewRequest) returns (GraphSavePreviewResult) {
@@ -2301,7 +2410,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.savePreview"
     };
   }
   rpc Save(GraphSaveRequest) returns (GraphSaveResult) {
@@ -2311,7 +2419,6 @@ service WorkflowGraphService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.graph.save"
     };
   }
 }
@@ -2324,7 +2431,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.linkProject"
     };
   }
   rpc List(ListProjectLinksRequest) returns (ListProjectLinksResult) {
@@ -2334,7 +2440,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.listProjectLinks"
     };
   }
   rpc SetDefault(SetDefaultProjectLinkRequest) returns (SetDefaultProjectLinkResult) {
@@ -2344,7 +2449,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.setDefaultProjectLink"
     };
   }
   rpc Unlink(UnlinkProjectRequest) returns (UnlinkProjectResult) {
@@ -2354,7 +2458,6 @@ service ProjectLinkService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.unlinkProject"
     };
   }
 }
@@ -2367,7 +2470,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.create"
     };
   }
   rpc List(ProjectLabelCatalogRequest) returns (ProjectLabelCatalogResult) {
@@ -2377,7 +2479,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.list"
     };
   }
   rpc Rename(ProjectLabelRenameRequest) returns (ProjectLabelRenameResult) {
@@ -2387,7 +2488,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.rename"
     };
   }
   rpc Delete(ProjectLabelDeleteRequest) returns (ProjectLabelDeleteResult) {
@@ -2397,7 +2497,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.delete"
     };
   }
   rpc Reorder(ProjectLabelReorderRequest) returns (ProjectLabelReorderResult) {
@@ -2407,7 +2506,6 @@ service ProjectLabelService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.project.label.reorder"
     };
   }
 }

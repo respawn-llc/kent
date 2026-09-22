@@ -14,8 +14,9 @@ import (
 )
 
 type Settings struct {
-	Mode     config.ShellPostprocessingMode
-	HookPath *string
+	PersistenceRoot string
+	Mode            config.ShellPostprocessingMode
+	HookPath        *string
 }
 
 type Request struct {
@@ -181,6 +182,7 @@ func containsString(values []string, target string) bool {
 }
 
 type Runner struct {
+	persistenceRoot  string
 	mode             config.ShellPostprocessingMode
 	hookPath         *string
 	globalProcessors []Processor
@@ -203,6 +205,7 @@ func NewRunner(settings Settings) (*Runner, error) {
 		hookPath = &normalizedHookPath
 	}
 	return &Runner{
+		persistenceRoot:  settings.PersistenceRoot,
 		mode:             settings.Mode,
 		hookPath:         hookPath,
 		globalProcessors: []Processor{sanitizerProcessor{}},
@@ -259,7 +262,7 @@ func (r *Runner) Apply(ctx context.Context, req Request) (Result, error) {
 	if mode == config.ShellPostprocessingModeUser || mode == config.ShellPostprocessingModeAll {
 		hookProcessor := r.hookProcessor
 		if hookProcessor == nil {
-			hookProcessor = userHookProcessor{hookPath: r.hookPath}
+			hookProcessor = userHookProcessor{hookPath: r.hookPath, persistenceRoot: r.persistenceRoot}
 		}
 		hook, err := Chain{IDValue: "user", Processors: []Processor{hookProcessor}}.Process(ctx, envelope)
 		if err != nil {

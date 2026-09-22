@@ -27,8 +27,6 @@ import (
 type sessionRetargetMetadata interface {
 	PlanSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetRequest) (metadata.SessionWorkspaceRetargetPlan, error)
 	CommitSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetPlan, time.Time) (metadata.SessionWorkspaceRetargetResult, error)
-	ResolveProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error)
-	ProjectWorkspaceAttached(context.Context, string, string) (bool, error)
 	ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 }
 
@@ -62,7 +60,7 @@ func NewSessionWorkspaceRetargeter(
 }
 
 func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
-	return s.retargetWorkspaceResolution(ctx, req.SessionID, nil, worktreecontract.NewOperationID(),
+	return s.retargetWorkspaceResolution(ctx, req, nil, worktreecontract.NewOperationID(),
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil }, nil)
 }
 
@@ -74,7 +72,7 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 ) (*worktreepb.ScheduledAcknowledgement, error) {
 	return s.ScheduleWorkspaceRetargetResolutionWithCompletion(
 		ctx,
-		req.SessionID,
+		req,
 		origin,
 		operationID,
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
@@ -86,13 +84,13 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 
 func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	ctx context.Context,
-	sessionID string,
+	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
 ) (*worktreepb.ScheduledAcknowledgement, error) {
-	_, err := s.retargetWorkspaceResolution(ctx, sessionID, origin, operationID, resolve, completion)
+	_, err := s.retargetWorkspaceResolution(ctx, request, origin, operationID, resolve, completion)
 	if err != nil {
 		return &worktreepb.ScheduledAcknowledgement{}, err
 	}
@@ -101,7 +99,7 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithComp
 
 func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	ctx context.Context,
-	sessionID string,
+	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
@@ -113,13 +111,16 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	if resolve == nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget resolver is required")
 	}
-	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(request.SessionID))
 	if err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	sessionID = parsedSessionID.String()
+	sessionID := parsedSessionID.String()
 	if err := context.Cause(ctx); err != nil {
 		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
+	}
+	if _, err := s.metadata.PlanSessionWorkspaceRetarget(ctx, request); err != nil {
+		return nil, err
 	}
 	type outcome struct {
 		response *sessionlaunchpb.SessionRetargetWorkspaceSuccess
@@ -415,21 +416,7 @@ func (s *SessionWorkspaceRetargeter) targetFilesystemContext(
 	var target tools.FilesystemContext
 	var err error
 	if plan.CrossProject() {
-		targetBoundary, boundaryErr := s.metadata.ResolveProjectWorkspaceBoundary(ctx, plan.TargetProject.ID)
-		if boundaryErr != nil {
-			return tools.FilesystemContext{}, boundaryErr
-		}
-		attached, attachedErr := s.metadata.ProjectWorkspaceAttached(ctx, plan.TargetProject.ID, plan.TargetWorkspaceRoot)
-		if attachedErr != nil {
-			return tools.FilesystemContext{}, attachedErr
-		}
-		if !attached {
-			targetBoundary, _, err = targetBoundary.WithWorkspace(metadata.ProjectWorkspace{CanonicalRoot: plan.TargetWorkspaceRoot})
-			if err != nil {
-				return tools.FilesystemContext{}, err
-			}
-		}
-		target, err = runtimewire.NewFilesystemContext(plan.TargetExecutionRoot, plan.TargetExecutionRoot, targetBoundary)
+		target, err = runtimewire.NewFilesystemContext(plan.TargetExecutionRoot, plan.TargetExecutionRoot, plan.TargetProject.ID)
 	} else {
 		managed := previous.ManagedWorktree
 		if managed != nil {

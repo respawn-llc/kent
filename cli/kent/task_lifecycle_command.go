@@ -467,7 +467,7 @@ func workflowConfiguredExecutionTargetSelector(target serverapi.WorkflowExecutio
 		}
 		return "ref:<revision>"
 	}
-	return workflowExecutionTargetPolicySelector(serverapi.WorkflowExecutionTargetConfiguration{Mode: target.Mode})
+	return workflowExecutionTargetPolicySelector(workflowExecutionTargetPolicyJSON{Mode: target.Mode})
 }
 
 func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {

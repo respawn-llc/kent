@@ -123,6 +123,7 @@ export type SidebarDestination =
       kind: "processes";
       mode?: SidebarMode;
       projectID: string;
+      sessionID: string;
     }>
   | Readonly<{
       kind: "custom";

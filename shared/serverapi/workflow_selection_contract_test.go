@@ -3,6 +3,10 @@ package serverapi
 import (
 	"encoding/json"
 	"testing"
+
+	"buf.build/go/protovalidate"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	"core/shared/runtimeids"
 )
 
 func TestWorkflowCurrentNodeEffectiveSelectionRoundTripsAndValidates(t *testing.T) {
@@ -55,20 +59,20 @@ func TestWorkflowTaskDetailRejectsBlankEffectiveSelectionFields(t *testing.T) {
 }
 
 func TestWorkflowDerivedEdgeWiringRejectsUnknownApplicabilityFacts(t *testing.T) {
-	edge := WorkflowDerivedEdgeWiring{
-		EdgeID: "edge-1",
-		AssigneeSelectionApplicability: WorkflowSelectorApplicability{
+	edge := &pb.DerivedEdgeWiring{
+		EdgeId: runtimeids.NewGraphEntityID(),
+		AssigneeSelectionApplicability: &pb.SelectorApplicability{
 			Available:        true,
 			ParameterVisible: true,
-			Reason:           WorkflowSelectorApplicabilityReason("future"),
+			Reason:           999,
 		},
-		ThinkingSelectionApplicability: WorkflowSelectorApplicability{
+		ThinkingSelectionApplicability: &pb.SelectorApplicability{
 			Available:        true,
 			ParameterVisible: true,
-			Reason:           WorkflowSelectorApplicabilityReasonEligible,
+			Reason:           pb.SelectorApplicabilityReason_WORKFLOW_SELECTOR_APPLICABILITY_REASON_ELIGIBLE,
 		},
 	}
-	if err := edge.Validate(); err == nil {
+	if err := protovalidate.Validate(edge); err == nil {
 		t.Fatal("unknown selector applicability reason was accepted")
 	}
 }

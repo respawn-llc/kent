@@ -38,8 +38,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	defer stop()
 	ctx = installServiceShutdownTrigger(ctx)
 	server, err := serverstartup.StartServeServer(ctx, serverstartup.Request{
-		AllowUnauthenticated: true,
-		LoadOptions:          brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
+		LoadOptions: brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

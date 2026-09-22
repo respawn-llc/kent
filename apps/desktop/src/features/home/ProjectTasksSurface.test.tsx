@@ -781,7 +781,7 @@ function withQueryClient(children: React.ReactNode) {
     fixture.invalidations.push(filters);
   });
   queryClient.setQueryData(queryKeys.projectTaskWorkflows("project-1"), {
-    pageParams: [0],
+    pageParams: [0n],
     pages: [
       {
         nextOffset: null,

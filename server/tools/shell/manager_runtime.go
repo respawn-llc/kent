@@ -285,7 +285,7 @@ func (m *Manager) waitForExit(entry *processEntry) {
 	}
 	snapshot := entry.closeOnExit(exitCode, state)
 	eventType := EventCompleted
-	if state == "killed" {
+	if snapshot.State == "killed" {
 		eventType = EventKilled
 	}
 	m.retainCompletedEntry(entry.id)

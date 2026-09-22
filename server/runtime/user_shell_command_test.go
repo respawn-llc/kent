@@ -125,7 +125,7 @@ func TestUserShellRealProcessLifecycle(t *testing.T) {
 			if mode == "background" {
 				minimumWait = time.Millisecond
 			}
-			manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(minimumWait))
+			manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(minimumWait))
 			if err != nil {
 				t.Fatal(err)
 			}

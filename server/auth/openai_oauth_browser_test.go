@@ -178,11 +178,8 @@ func testCompleteOpenAIBrowserFlow(
 	if err != nil {
 		t.Fatalf("complete flow: %v", err)
 	}
-	if method.Type != MethodOAuth || method.OAuth == nil {
-		t.Fatalf("unexpected method: %+v", method)
-	}
-	if method.OAuth.AccessToken != accessToken || method.OAuth.RefreshToken != refreshToken {
-		t.Fatalf("unexpected tokens: %+v", method.OAuth)
+	if method.AccessToken != accessToken || method.RefreshToken != refreshToken {
+		t.Fatalf("unexpected tokens: %+v", method)
 	}
 }
 

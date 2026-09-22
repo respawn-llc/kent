@@ -109,7 +109,9 @@ export function composerSuggestions(
   const invocation = tokenizeComposerCommand(text);
   if (!invocation.token.startsWith("/") || invocation.separatorWhitespace.length > 0) return [];
   if (commands.some((command) => command.aliases.includes(invocation.token))) return [];
-  return commands.filter((command) => command.token.startsWith(invocation.token));
+  return commands.filter(
+    (command) => command.execution.kind !== "unavailable" && command.token.startsWith(invocation.token),
+  );
 }
 
 export async function dispatchComposerCommand(

@@ -30,14 +30,14 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		appTestModelStep{Final: "remote prompt snapshot complete"},
 	)
 	defer model.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, model.URL()))
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
-		OpenAIBaseURL:         model.URL(),
-		OpenAIBaseURLExplicit: true,
-	}, apiKeyAuthState("test-key"))
+	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote prompt snapshot reads")
@@ -82,7 +82,8 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
-	}, apiKeyAuthState("test-key"))
+	})
+
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())

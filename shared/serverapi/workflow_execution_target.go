@@ -23,11 +23,6 @@ const (
 	WorkflowExecutionTargetModeAskOnFirstExecution WorkflowExecutionTargetMode = "ask_on_first_execution"
 )
 
-type WorkflowExecutionTargetConfiguration struct {
-	Mode      WorkflowExecutionTargetMode `json:"mode"`
-	CustomRef *string                     `json:"custom_ref,omitempty"`
-}
-
 type WorkflowExecutionTargetSelection struct {
 	Mode      WorkflowExecutionTargetMode `json:"mode"`
 	CustomRef *string                     `json:"custom_ref,omitempty"`
@@ -192,28 +187,6 @@ func DecodeWorkflowLockedExecutionTargetError(data json.RawMessage, message stri
 		return errors.New(strings.TrimSpace(message))
 	}
 	return &WorkflowLockedExecutionTargetError{Cause: envelope.Cause}
-}
-
-func (p WorkflowExecutionTargetConfiguration) Validate(allowIncompleteCustomRef bool) error {
-	if !validWorkflowExecutionTargetPolicyMode(p.Mode) {
-		return workflowRequestError(WorkflowRequestErrorInvalidValue, "execution_target.mode", "execution_target.mode is invalid")
-	}
-	if p.Mode != WorkflowExecutionTargetModeCustomRef {
-		if p.CustomRef != nil {
-			return workflowRequestError(WorkflowRequestErrorInvalidValue, "execution_target.custom_ref", "execution_target.custom_ref is only valid for custom_ref")
-		}
-		return nil
-	}
-	if p.CustomRef == nil {
-		if allowIncompleteCustomRef {
-			return nil
-		}
-		return workflowRequestError(WorkflowRequestErrorRequired, "execution_target.custom_ref", "execution_target.custom_ref is required")
-	}
-	if strings.TrimSpace(*p.CustomRef) == "" {
-		return workflowRequestError(WorkflowRequestErrorInvalidValue, "execution_target.custom_ref", "execution_target.custom_ref must be non-blank")
-	}
-	return nil
 }
 
 func (s WorkflowExecutionTargetSelection) Validate() error {
@@ -420,15 +393,6 @@ var unavailableTargetCauses = map[WorkflowExecutionTargetUnavailableCause]taskpb
 	WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing:   taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_MISSING,
 	WorkflowExecutionTargetUnavailableCauseDefaultBranchAmbiguous: taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_AMBIGUOUS,
 	WorkflowExecutionTargetUnavailableCauseGitFailure:             taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE,
-}
-
-func validWorkflowExecutionTargetPolicyMode(mode WorkflowExecutionTargetMode) bool {
-	switch mode {
-	case WorkflowExecutionTargetModeNone, WorkflowExecutionTargetModeHead, WorkflowExecutionTargetModeDefaultBranch, WorkflowExecutionTargetModeCustomRef, WorkflowExecutionTargetModeAskOnFirstExecution:
-		return true
-	default:
-		return false
-	}
 }
 
 func validWorkflowConcreteExecutionTargetMode(mode WorkflowExecutionTargetMode) bool {

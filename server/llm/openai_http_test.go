@@ -23,25 +23,25 @@ import (
 
 type staticAuth struct{}
 
-func (staticAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
+func (staticAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer token"}, nil
 }
 
 type oauthStaticAuth struct{}
 
-func (oauthStaticAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer token", nil
-}
-
-func (oauthStaticAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "acc-1", nil
+func (oauthStaticAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return &DispatchAuth{Header: "Bearer token", Mode: OpenAIAuthMode{IsOAuth: true, AccountID: "acc-1"}}, nil
 }
 
 type missingAuth struct{}
 
-func (missingAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "", auth.ErrAuthNotConfigured
+func (missingAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) {
+	return nil, auth.ErrAuthNotConfigured
 }
+
+type anonymousAuth struct{}
+
+func (anonymousAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth, error) { return nil, nil }
 
 func requireProviderCapabilities(t *testing.T, transport *HTTPTransport, mode OpenAIAuthMode) ProviderCapabilities {
 	t.Helper()
@@ -767,20 +767,14 @@ func openaiTestOptionalString(value string) *string {
 	return &value
 }
 
-func TestResolveAuth_AllowsAnonymousWhenBaseURLExplicitAndAuthNotConfigured(t *testing.T) {
+func TestResolveAuth_RejectsMissingCredentialsAtExplicitEndpoint(t *testing.T) {
 	transport := NewHTTPTransport(missingAuth{})
 	transport.BaseURL = "http://127.0.0.1:8080/v1"
 	transport.BaseURLExplicit = true
 
-	authHeader, mode, err := transport.resolveAuth(context.Background())
-	if err != nil {
-		t.Fatalf("resolveAuth: %v", err)
-	}
-	if authHeader != "" {
-		t.Fatalf("expected empty auth header, got %q", authHeader)
-	}
-	if mode.IsOAuth || mode.AccountID != "" {
-		t.Fatalf("expected anonymous non-oauth mode, got %+v", mode)
+	_, _, err := transport.resolveAuth(context.Background())
+	if !errors.Is(err, auth.ErrAuthNotConfigured) {
+		t.Fatalf("missing credentials must fail: %v", err)
 	}
 }
 
@@ -802,7 +796,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
-	transport := NewHTTPTransport(nil)
+	transport := NewHTTPTransport(anonymousAuth{})
 	transport.BaseURL = "https://example.openrouter.ai/v1"
 	transport.BaseURLExplicit = true
 	transport.Client = newRewritingHTTPClient(t, server)

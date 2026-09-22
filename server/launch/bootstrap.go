@@ -15,15 +15,11 @@ type BootstrapRequest struct {
 	WorkspaceRoot         string
 	WorkspaceRootExplicit bool
 	SessionID             string
-	OpenAIBaseURL         string
-	OpenAIBaseURLExplicit bool
 }
 
 type BootstrapPlan struct {
 	WorkspaceRoot     string
 	MainWorkspaceRoot *string
-	OpenAIBaseURL     string
-	UseOpenAIBaseURL  bool
 }
 
 func ResolveSessionCaller(persistenceRoot string, sessionID string) (subagentpolicy.Caller, error) {
@@ -51,9 +47,7 @@ func ValidateSessionExists(persistenceRoot string, sessionID string) error {
 
 func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (BootstrapPlan, error) {
 	plan := BootstrapPlan{
-		WorkspaceRoot:    strings.TrimSpace(req.WorkspaceRoot),
-		OpenAIBaseURL:    strings.TrimSpace(req.OpenAIBaseURL),
-		UseOpenAIBaseURL: req.OpenAIBaseURLExplicit,
+		WorkspaceRoot: strings.TrimSpace(req.WorkspaceRoot),
 	}
 	if strings.TrimSpace(req.SessionID) == "" {
 		return plan, nil
@@ -77,17 +71,6 @@ func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (Bootstr
 	plan.MainWorkspaceRoot = textutil.Value(target.WorkspaceRoot)
 	if !req.WorkspaceRootExplicit && strings.TrimSpace(meta.WorkspaceRoot) != "" {
 		plan.WorkspaceRoot = strings.TrimSpace(meta.WorkspaceRoot)
-	}
-	if req.OpenAIBaseURLExplicit {
-		return plan, nil
-	}
-	if meta.Continuation != nil {
-		baseURL, present := textutil.OptionalTrimmed(meta.Continuation.OpenAIBaseURL)
-		if !present {
-			return plan, nil
-		}
-		plan.OpenAIBaseURL = baseURL
-		plan.UseOpenAIBaseURL = true
 	}
 	return plan, nil
 }

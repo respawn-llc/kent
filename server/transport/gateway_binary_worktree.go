@@ -48,7 +48,7 @@ func registerWorktreeGatewayBinaryBindings(bindings map[string]gatewayBinaryBind
 				return worktreeCreateFailure(nil, protoapi.ClassifyWorktreeCreateValidation(err))
 			}),
 		registerWorktreeUnary(bindings, transition, "Enter", func() *worktreepb.EnterRequest { return &worktreepb.EnterRequest{} },
-			worktreeSessionScope[*worktreepb.EnterRequest], apicontract.WorktreeService.EnterWorktree, worktreeTransitionFailure[*worktreepb.EnterRequest]),
+			worktreeSessionScope[*worktreepb.EnterRequest], apicontract.WorktreeService.EnterWorktree, worktreeEnterFailure),
 		registerWorktreeUnary(bindings, transition, "Leave", func() *worktreepb.LeaveRequest { return &worktreepb.LeaveRequest{} },
 			worktreeSessionScope[*worktreepb.LeaveRequest], apicontract.WorktreeService.LeaveWorktree, worktreeTransitionFailure[*worktreepb.LeaveRequest]),
 		registerWorktreeUnary(bindings, transition, "Delete", func() *worktreepb.DeleteRequest { return &worktreepb.DeleteRequest{} },
@@ -224,6 +224,13 @@ func worktreeTransitionFailure[Request proto.Message](request Request, err error
 		return &worktreepb.PendingWorkCapacityDetails{}
 	}
 	return worktreeSelectorFailure(request, err)
+}
+
+func worktreeEnterFailure(request *worktreepb.EnterRequest, err error) proto.Message {
+	if details := binarySessionRetargetFailure(err); details != nil {
+		return details
+	}
+	return worktreeTransitionFailure(request, err)
 }
 
 func worktreeDeletionFailure[Request proto.Message](request Request, err error) proto.Message {

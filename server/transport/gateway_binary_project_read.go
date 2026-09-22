@@ -38,19 +38,6 @@ func registerProjectReadGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 		registerProjectViewUnary(bindings, service, "GetWorkspace",
 			func() *projectpb.GetProjectWorkspaceRequest { return &projectpb.GetProjectWorkspaceRequest{} },
 			apicontract.ProjectViewService.GetProjectWorkspace, projectRequestNotFoundFailure[*projectpb.GetProjectWorkspaceRequest]),
-		registerProjectViewUnary(bindings, service, "GetOverview",
-			func() *projectpb.GetOverviewRequest { return &projectpb.GetOverviewRequest{} },
-			apicontract.ProjectViewService.GetProjectOverview, func(request *projectpb.GetOverviewRequest, err error) proto.Message {
-				if errors.Is(err, serverapi.ErrProjectNotFound) {
-					return &projectpb.ProjectNotFoundDetails{ProjectId: request.ProjectId}
-				}
-				if unavailable, ok := serverapi.AsProjectUnavailable(err); ok {
-					if details, conversionErr := protoapi.ProjectUnavailableToProto(unavailable); conversionErr == nil {
-						return details
-					}
-				}
-				return binaryInternalFailure(err)
-			}),
 	)
 }
 

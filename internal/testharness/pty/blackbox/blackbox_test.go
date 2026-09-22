@@ -20,14 +20,14 @@ import (
 
 type staticTransportAuth struct{}
 
-func (staticTransportAuth) AuthorizationHeader(context.Context) (string, error) {
-	return "Bearer test", nil
+func (staticTransportAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer test"}, nil
 }
 
 type oauthStaticTransportAuth struct{ staticTransportAuth }
 
-func (oauthStaticTransportAuth) OpenAIAuthMetadata(context.Context) (string, string, error) {
-	return "oauth", "test-account", nil
+func (oauthStaticTransportAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
+	return &llm.DispatchAuth{Header: "Bearer test", Mode: llm.OpenAIAuthMode{IsOAuth: true, AccountID: "test-account"}}, nil
 }
 
 func TestResponsesStubRejectsUnexpectedDeveloperMessageCount(t *testing.T) {

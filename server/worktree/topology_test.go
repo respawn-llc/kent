@@ -20,6 +20,18 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestListWorktreesSupportsNonGitWorkspace(t *testing.T) {
+	env := newServiceTestEnv(t)
+	source := createNonGitSourceSession(t, env)
+	result, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{SessionId: source.Meta().SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Worktrees) != 0 || result.Target == nil {
+		t.Fatalf("expected an empty list with the Session target, got %v", result)
+	}
+}
+
 func TestProjectTopologyReturnsRegisteredExternalAndMissingInRequiredOrder(t *testing.T) {
 	env := newServiceTestEnv(t)
 	externalRoot := filepath.Join(t.TempDir(), "external")

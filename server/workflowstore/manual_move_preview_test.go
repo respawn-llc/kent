@@ -256,6 +256,7 @@ func TestManualMovePreviewRequiresAndHonorsStableTransitionSelection(t *testing.
 			PromptTemplate:    "Alternate {{.Params.prior_summary}}.",
 			Parameters:        []workflow.Parameter{{Key: "prior_summary", Description: "Prior summary.", Purpose: workflow.ParameterPurposeOrdinary}},
 		})
+		appendManualMoveRetainedReviewEdge(req, workflowID, target, target, "unavailable", workflow.ContextSourcePreviousTarget)
 	})
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -297,6 +298,100 @@ func TestManualMovePreviewRequiresAndHonorsStableTransitionSelection(t *testing.
 		TransitionKey: &unknown,
 	}); !errors.Is(err, ErrManualMoveTransitionNotUsable) {
 		t.Fatalf("stale selection error = %v, want transition-not-usable", err)
+	}
+}
+
+func TestManualMoveSkipsUnavailableRetainedRouteAndAppliesUsableContinuation(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
+		review := nodeByKey(t, def, "review")
+		audit := nodeByKey(t, def, "audit")
+		appendManualMoveRetainedReviewEdge(req, workflowID, audit, review, "unavailable", workflow.ContextSourcePreviousTarget)
+		edge := workflowGraphSaveEdgeRecord(t, req.Edges, edgeByKey(t, def, "review").ID)
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "plan"}
+	})
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	origin := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	if origin.SessionID == nil {
+		t.Fatal("started Agent Node has no Session")
+	}
+	sessionID := *origin.SessionID
+	definition, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ManualMoveRequest{
+		TaskID:       task.ID,
+		TargetNodeID: workflow.NodeIDOf(nodeByKey(t, definition, "review")),
+		Values:       map[workflow.ModelKey]map[string]string{"plan": {"summary": "Ready for review"}},
+	}
+	preview, err := store.PreviewManualMove(ctx, request)
+	if err != nil {
+		t.Fatalf("PreviewManualMove: %v", err)
+	}
+	if preview.Outcome != ManualMovePreviewOutcomeTransition || len(preview.Choices) != 1 || preview.Choices[0].TransitionKey != "review" {
+		t.Fatalf("preview = %+v, want sole usable review route", preview)
+	}
+	selected := workflow.TransitionID("review")
+	request.TransitionKey = &selected
+	prepared, err := store.PrepareManualMove(ctx, request)
+	if err != nil {
+		t.Fatalf("PrepareManualMove: %v", err)
+	}
+	moved, err := applyManualMoveForStoreTest(t, ctx, store, prepared, nil)
+	if err != nil {
+		t.Fatalf("ApplyManualMove: %v", err)
+	}
+	if len(moved.Mutation.Created) != 1 || moved.Mutation.Created[0].Reference.NodeID != request.TargetNodeID {
+		t.Fatalf("moved = %+v, want review", moved)
+	}
+	source, exact := moved.Mutation.Created[0].ContinuationSource.ExactSessionID()
+	if !exact || source != sessionID {
+		t.Fatalf("continuation = %v, want original Session %q", moved.Mutation.Created[0].ContinuationSource, sessionID)
+	}
+}
+
+func TestManualMovePreviewBlocksWhenNoIncomingRouteHasRequiredHistory(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	var targetID workflow.NodeID
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
+		targetID = workflow.NodeIDOf(nodeByKey(t, def, "review"))
+		appendManualMoveRetainedReviewEdge(req, workflowID, nodeByKey(t, def, "audit"), nodeByKey(t, def, "review"), "unavailable", workflow.ContextSourcePreviousTarget)
+		edge := workflowGraphSaveEdgeRecord(t, req.Edges, edgeByKey(t, def, "review").ID)
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "plan"}
+	})
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	before, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("current = %+v, want Backlog", before)
+	}
+	origin := before[0]
+	request := ManualMoveRequest{TaskID: task.ID, TargetNodeID: targetID}
+	preview, err := store.PreviewManualMove(ctx, request)
+	if err != nil {
+		t.Fatalf("PreviewManualMove: %v", err)
+	}
+	if preview.Outcome != ManualMovePreviewOutcomeBlocked || preview.Blocker != ManualMoveBlockerContextSessionUnavailable {
+		t.Fatalf("preview = %+v, want context unavailable blocker", preview)
+	}
+	if _, err := store.PrepareManualMove(ctx, request); !errors.Is(err, ErrManualMoveTransitionNotUsable) {
+		t.Fatalf("PrepareManualMove: %v, want context unavailable", err)
+	}
+	current, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current) != 1 || !current[0].Reference.Equal(origin.Reference) {
+		t.Fatalf("current = %+v, want unchanged origin", current)
 	}
 }
 

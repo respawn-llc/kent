@@ -13,6 +13,7 @@ import (
 	"core/server/registry"
 	"core/server/workflow"
 	"core/shared/clientui"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
@@ -74,10 +75,10 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req serverapi.Workflo
 		return serverapi.WorkflowTaskObservationResponse{}, false, err
 	}
 	nodeKeys := make(map[string]string, len(definition.Nodes))
-	nodes := make(map[string]serverapi.WorkflowNode, len(definition.Nodes))
+	nodes := make(map[string]*pb.WorkflowNode, len(definition.Nodes))
 	for _, node := range definition.Nodes {
-		nodeKeys[node.ID] = node.Key
-		nodes[node.ID] = node
+		nodeKeys[node.Id] = node.Key
+		nodes[node.Id] = node
 	}
 	currentNodes, err := s.readModels.TaskDetail.ListCurrentNodes(ctx, req.TaskID)
 	if err != nil {
@@ -202,7 +203,7 @@ func (s *Service) taskQuestion(
 
 func taskCurrentNodeFailure(
 	currentNode workflow.CurrentNode,
-	nodes map[string]serverapi.WorkflowNode,
+	nodes map[string]*pb.WorkflowNode,
 	keys map[string]string,
 ) (serverapi.WorkflowTaskObservationOutcome, error) {
 	interruption := currentNode.Scheduling.Interruption

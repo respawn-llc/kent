@@ -17,8 +17,6 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 	cfg.Settings.Model = "gpt-5.6-sol"
 	cfg.Settings.ThinkingLevel = config.DefaultOnboardingSettings().ThinkingLevel
 	cfg.Settings.ModelVerbosity = config.ModelVerbosityHigh
-	cfg.Settings.ProviderOverride = "openai"
-	cfg.Settings.OpenAIBaseURL = "http://127.0.0.1:8080/v1"
 	cfg.Settings.Timeouts.ModelRequestSeconds = 123
 	cfg.Settings.EnabledTools[toolspec.ToolAskQuestion] = true
 	cfg.Settings.EnabledTools[toolspec.ToolEdit] = true
@@ -70,9 +68,7 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 		state.selections.pendingReviewerThinking.kind != onboardingThinkingEditNone {
 		t.Fatalf("pending thinking edits must start explicit none: %+v", state.selections)
 	}
-	if state.selections.preserved.providerOverride == nil || *state.selections.preserved.providerOverride != "openai" ||
-		state.selections.preserved.openAIBaseURL == nil || *state.selections.preserved.openAIBaseURL != "http://127.0.0.1:8080/v1" ||
-		state.selections.preserved.modelTimeoutSeconds == nil || *state.selections.preserved.modelTimeoutSeconds != 123 {
+	if state.selections.preserved.modelTimeoutSeconds == nil || *state.selections.preserved.modelTimeoutSeconds != 123 {
 		t.Fatalf("preserved inputs = %+v", state.selections.preserved)
 	}
 	overrides := onboardingToolOverrides(state.selections.preserved.enabledTools)
@@ -317,7 +313,6 @@ func onboardingSeedConfig() config.App {
 
 func TestNewOnboardingFlowStateDoesNotApplyProviderCompatibilityPolicy(t *testing.T) {
 	cfg := onboardingSeedConfig()
-	cfg.Settings.ProviderOverride = "anthropic"
 	facts := testOnboardingCapabilityFacts()
 	facts.Providers = &capabilitypb.ProviderFacts{
 		CurrentEffective: &capabilitypb.ProviderFact{LlmProviderId: "openai"},
