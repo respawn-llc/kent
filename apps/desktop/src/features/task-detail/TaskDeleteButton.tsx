@@ -1,12 +1,9 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, RpcError, rpcErrorCodes } from "@/api";
-import { useAppServices, useStatusController } from "@/app-facade";
 import { TaskDeleteConfirmationDialog } from "@/shared/task-delete";
 import { Button } from "@/ui";
-import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 
 type TaskDeleteController = Readonly<{
   running: boolean;
@@ -17,59 +14,14 @@ const TaskDeleteContext = createContext<TaskDeleteController | null>(null);
 
 export function TaskDeleteProvider({
   children,
-  onDismiss,
-  taskID,
+  pending,
+  onDelete,
 }: Readonly<{
   children: ReactNode;
-  onDismiss: TaskDetailDeleteDismissal;
-  taskID: string;
+  pending: boolean;
+  onDelete(): void;
 }>) {
-  const { api } = useAppServices();
-  const { push } = useStatusController();
-  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
-  const confirmationInFlight = useRef(false);
-
-  async function deleteTask(): Promise<void> {
-    setPending(true);
-    try {
-      try {
-        await api.deleteTask(taskID);
-      } catch (error) {
-        if (!(error instanceof RpcError) || error.code !== rpcErrorCodes.workflowTaskNotFound) {
-          push({
-            body: errorMessage(error),
-            id: "task-detail-delete-error",
-            title: t("board.deleteTaskWindowError"),
-            tone: "danger",
-          });
-          return;
-        }
-      }
-      try {
-        const dismissal = await onDismiss();
-        if (dismissal.kind === "failed") {
-          pushDismissalError(dismissal.error);
-        }
-      } catch (error) {
-        pushDismissalError(error);
-      }
-    } finally {
-      setPending(false);
-      confirmationInFlight.current = false;
-    }
-  }
-
-  function pushDismissalError(error: unknown): void {
-    push({
-      body: errorMessage(error),
-      durationMs: Infinity,
-      id: "task-detail-delete-dismiss-error",
-      title: t("board.deleteTaskWindowError"),
-      tone: "danger",
-    });
-  }
 
   return (
     <TaskDeleteContext.Provider
@@ -83,19 +35,13 @@ export function TaskDeleteProvider({
       {children}
       {open ? (
         <TaskDeleteConfirmationDialog
-          disabled={false}
+          disabled={pending}
           onClose={() => {
             setOpen(false);
           }}
           onConfirm={() => {
-            if (confirmationInFlight.current) {
-              return;
-            }
-            confirmationInFlight.current = true;
             setOpen(false);
-            queueMicrotask(() => {
-              void deleteTask();
-            });
+            onDelete();
           }}
         />
       ) : null}

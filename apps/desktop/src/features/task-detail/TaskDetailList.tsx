@@ -16,7 +16,7 @@ import {
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
-import { ActivityRow, CommentComposer, CommentRow } from "./TaskDetailActivity";
+import { ActivityRow, CommentComposer, CommentRow, type CommentActions } from "./TaskDetailActivity";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { TaskDetailInboxRow } from "./TaskDetailInboxRow";
@@ -32,15 +32,11 @@ import { TaskTabs, type DetailTab } from "./TaskDetailTabs";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from "./PromptAnswerState";
 import type { PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import { selectedFeed, taskDetailPaging } from "./taskDetailPaging";
-import type {
-  TaskDetailFeedPage,
-  useTaskActivity,
-  useTaskAttention,
-  useTaskComments,
-  useTaskMutations,
-} from "./useTaskDetailData";
+import type { TaskDetailFeedPage } from "./taskDetailQueries";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
+import type { TaskDetailReads } from "./TaskDetailViewModel";
 
 type TaskDetailListItem =
   | Readonly<{ kind: "header" }>
@@ -68,8 +64,11 @@ export function TaskDetailList({
   answerQuestion,
   attention,
   comments,
+  commentActions,
   detail,
   draft,
+  draftDirty,
+  canSaveDraft,
   descriptionPresentation,
   editingComment,
   focusRequestKey,
@@ -94,17 +93,20 @@ export function TaskDetailList({
   updateError,
   updatePending,
 }: Readonly<{
-  activity: ReturnType<typeof useTaskActivity>;
-  answerQuestion: QuestionAnswerMutation;
-  attention: ReturnType<typeof useTaskAttention>;
-  comments: ReturnType<typeof useTaskComments>;
+  activity: TaskDetailReads["activity"];
+  answerQuestion: QuestionAnswerAction;
+  attention: TaskDetailReads["attention"];
+  comments: TaskDetailReads["comments"];
+  commentActions: CommentActions;
   detail: TaskDetail;
   draft: TaskDraft;
+  draftDirty: boolean;
+  canSaveDraft: boolean;
   descriptionPresentation: DescriptionPresentationState;
   editingComment: Readonly<{ id: string; body: string }> | null;
   focusRequestKey?: string | undefined;
   initialFocus?: TaskDetailInitialFocus | undefined;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   newCommentBody: string;
   onDraftChange: (draft: TaskDraft) => void;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
@@ -126,8 +128,6 @@ export function TaskDetailList({
 }>) {
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
-  const draftDirty = draft.title !== detail.title || draft.body !== detail.body;
-  const canSaveDraft = draftDirty && draft.title.trim().length > 0;
   const activityItems = useMemo(
     () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
     [activity.data],
@@ -252,6 +252,7 @@ export function TaskDetailList({
           item={item}
           loadingTitle={t("states.loading")}
           mutations={mutations}
+          commentActions={commentActions}
           newCommentBody={newCommentBody}
           noActivityTitle={t("task.noActivityTitle")}
           noCommentsTitle={t("task.noCommentsTitle")}
@@ -285,8 +286,9 @@ export function TaskDetailList({
 }
 
 type TaskDetailListRowProps = Readonly<{
+  commentActions: CommentActions;
   activityCount: number;
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
   attentionPending: boolean;
   canSaveDraft: boolean;
@@ -300,7 +302,7 @@ type TaskDetailListRowProps = Readonly<{
   initialFocus?: TaskDetailInitialFocus | undefined;
   item: TaskDetailListItem;
   loadingTitle: string;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   newCommentBody: string;
   noActivityTitle: string;
   noCommentsTitle: string;
@@ -410,7 +412,7 @@ function BodyRow({
 
 function DependenciesRow({
   detail,
-  mutations,
+  commentActions,
   onAddDependency,
   onDependenciesChanged,
   onSelectDependencyTask,
@@ -420,12 +422,7 @@ function DependenciesRow({
   return (
     <DependenciesArea
       dependencies={detail.dependencies}
-      navigationDisabled={
-        !relationshipNavigationAvailable ||
-        updatePending ||
-        mutations.addComment.isPending ||
-        mutations.replaceComment.isPending
-      }
+      navigationDisabled={!relationshipNavigationAvailable || updatePending || commentActions.editingPending}
       onAdd={onAddDependency}
       interaction={{ kind: "persisted", taskID: detail.id, onChanged: onDependenciesChanged }}
       excludedTaskIDs={() => new Set([detail.id, ...dependencyRelatedTaskIDs(detail.dependencies)])}
@@ -448,7 +445,7 @@ function TabsRow({ activityCount, commentCount, selectedTab, setTab }: TaskDetai
 
 function CommentComposerRow({
   editingComment,
-  mutations,
+  commentActions,
   newCommentBody,
   onNewCommentBodyChange,
   onEditingCommentChange,
@@ -457,7 +454,7 @@ function CommentComposerRow({
     <CommentComposer
       body={newCommentBody}
       editing={editingComment}
-      mutations={mutations}
+      actions={commentActions}
       onBodyChange={onNewCommentBodyChange}
       onEditingChange={onEditingCommentChange}
     />
@@ -480,7 +477,7 @@ function CommentsEmptyRow({ noCommentsTitle }: TaskDetailListRowProps): ReactNod
 function CommentItemRow({
   editingComment,
   item,
-  mutations,
+  commentActions,
   onEditingCommentChange,
 }: TaskDetailListRowProps): ReactNode {
   const comment = item.kind === "comment" ? item.comment : undefined;
@@ -488,7 +485,7 @@ function CommentItemRow({
     <CommentRow
       comment={comment}
       editing={editingComment?.id === comment.id}
-      mutations={mutations}
+      actions={commentActions}
       onEdit={(nextComment) => {
         onEditingCommentChange({ id: nextComment.id, body: nextComment.body });
       }}
