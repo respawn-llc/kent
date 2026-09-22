@@ -23,7 +23,9 @@ export function taskRegisteredWorktree(facts: RegisteredFacts | undefined): Work
   return { kent: { canonicalRoot: facts.kent.canonicalRoot, worktreeID: facts.kent.worktreeId } };
 }
 
-export function taskRetainedPreviousWorktree(value: GeneratedRetainedWorktree | undefined): RetainedPreviousWorktree | null {
+export function taskRetainedPreviousWorktree(
+  value: GeneratedRetainedWorktree | undefined,
+): RetainedPreviousWorktree | null {
   return value === undefined ? null : { worktree: taskRegisteredWorktree(value.worktree) };
 }
 
@@ -38,6 +40,7 @@ export function worktreeSetupRecovery(error: unknown): WorktreeSetupRecovery | n
     case SetupRecoveryDisposition.FRESH_REPLACEMENT:
       recoveryDisposition = "fresh_replacement";
       break;
+    case SetupRecoveryDisposition.UNSPECIFIED:
     default:
       throw new ContractError("Worktree setup recovery disposition is invalid.");
   }

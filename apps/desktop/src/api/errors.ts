@@ -28,7 +28,10 @@ export class RpcError extends Error {
 }
 
 export class TaskExecutionError extends RpcError {
-  constructor(rpcError: RpcError, readonly detail: ExecutionDetail) {
+  constructor(
+    rpcError: RpcError,
+    readonly detail: ExecutionDetail,
+  ) {
     super(rpcError);
     this.name = "TaskExecutionError";
   }
@@ -36,18 +39,29 @@ export class TaskExecutionError extends RpcError {
 
 export type ExecutionTargetChoiceFailure =
   | Readonly<{ kind: "branch"; reason: ReturnType<typeof taskInitialBranchReason.decode>; value: string }>
-  | Readonly<{ kind: "revision"; reason: ReturnType<typeof taskExecutionResolutionCode.decode>; value: string }>;
+  | Readonly<{
+      kind: "revision";
+      reason: ReturnType<typeof taskExecutionResolutionCode.decode>;
+      value: string;
+    }>;
 
 export function executionTargetChoiceFailure(error: unknown): ExecutionTargetChoiceFailure | null {
   if (!(error instanceof TaskExecutionError)) return null;
-  switch (error.detail.case) {
-    case "initialBranch":
-      return { kind: "branch", reason: taskInitialBranchReason.decode(error.detail.value.reason), value: error.detail.value.branchName };
-    case "executionTargetResolution":
-      return { kind: "revision", reason: taskExecutionResolutionCode.decode(error.detail.value.code), value: error.detail.value.requestedRef };
-    default:
-      return null;
+  if (error.detail.case === "initialBranch") {
+    return {
+      kind: "branch",
+      reason: taskInitialBranchReason.decode(error.detail.value.reason),
+      value: error.detail.value.branchName,
+    };
   }
+  if (error.detail.case === "executionTargetResolution") {
+    return {
+      kind: "revision",
+      reason: taskExecutionResolutionCode.decode(error.detail.value.code),
+      value: error.detail.value.requestedRef,
+    };
+  }
+  return null;
 }
 
 export function isTaskMissingError(error: unknown): boolean {

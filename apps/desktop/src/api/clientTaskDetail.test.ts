@@ -10,18 +10,26 @@ describe("ApiClient Task Activity pagination", () => {
     const transport = new FakeRpcTransport([
       {
         descriptor: lifecycle.TaskActivityService.method.list,
-        result: create(lifecycle.ActivityListResultSchema, { outcome: { case: "success", value: {
-          items: [
-            {
-              activityId: "activity-1",
-              taskId: "task-1",
-              occurredAt: { seconds: 0n, nanos: 2_000_000 },
-              updatedAt: { seconds: 0n, nanos: 2_000_000 },
-              activity: { case: "sessionStarted", value: { sessionId: "session-1", name: "Implementation" } },
+        result: create(lifecycle.ActivityListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [
+                {
+                  activityId: "activity-1",
+                  taskId: "task-1",
+                  occurredAt: { seconds: 0n, nanos: 2_000_000 },
+                  updatedAt: { seconds: 0n, nanos: 2_000_000 },
+                  activity: {
+                    case: "sessionStarted",
+                    value: { sessionId: "session-1", name: "Implementation" },
+                  },
+                },
+              ],
+              nextOffset: 50,
             },
-          ],
-          nextOffset: 50,
-        } } }),
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -39,17 +47,25 @@ describe("ApiClient Task Activity pagination", () => {
       new FakeRpcTransport([
         {
           descriptor: lifecycle.TaskActivityService.method.list,
-          result: create(lifecycle.ActivityListResultSchema, { outcome: { case: "success", value: {
-            items: [
-              {
-                activityId: "activity-1",
-                taskId: "task-other",
-                occurredAt: { seconds: 0n, nanos: 2_000_000 },
-                updatedAt: { seconds: 0n, nanos: 2_000_000 },
-                activity: { case: "sessionStarted", value: { sessionId: "session-1", name: "Implementation" } },
+          result: create(lifecycle.ActivityListResultSchema, {
+            outcome: {
+              case: "success",
+              value: {
+                items: [
+                  {
+                    activityId: "activity-1",
+                    taskId: "task-other",
+                    occurredAt: { seconds: 0n, nanos: 2_000_000 },
+                    updatedAt: { seconds: 0n, nanos: 2_000_000 },
+                    activity: {
+                      case: "sessionStarted",
+                      value: { sessionId: "session-1", name: "Implementation" },
+                    },
+                  },
+                ],
               },
-            ],
-          } } }),
+            },
+          }),
         },
       ]),
       unexpectedProjectOverflow,
@@ -63,21 +79,26 @@ describe("ApiClient Task Comment pagination", () => {
     const transport = new FakeRpcTransport([
       {
         descriptor: lifecycle.TaskCommentService.method.list,
-        result: create(lifecycle.CommentListResultSchema, { outcome: { case: "success", value: {
-          items: [
-            {
-              id: "comment-1",
-              taskId: "task-1",
-              body: "Existing comment",
-              author: lifecycle.CommentAuthorKind.USER,
-              authorId: "Nek-12",
-              createdAt: { seconds: 0n, nanos: 1_000_000 },
-              updatedAt: { seconds: 0n, nanos: 2_000_000 },
+        result: create(lifecycle.CommentListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [
+                {
+                  id: "comment-1",
+                  taskId: "task-1",
+                  body: "Existing comment",
+                  author: lifecycle.CommentAuthorKind.USER,
+                  authorId: "Nek-12",
+                  createdAt: { seconds: 0n, nanos: 1_000_000 },
+                  updatedAt: { seconds: 0n, nanos: 2_000_000 },
+                },
+              ],
+              nextOffset: 40,
+              totalCount: 41n,
             },
-          ],
-          nextOffset: 40,
-          totalCount: 41n,
-        } } }),
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -95,10 +116,14 @@ describe("ApiClient Task Comment pagination", () => {
 
   it("rejects zero continuation offsets before feature code receives a page", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{
-        descriptor: lifecycle.TaskCommentService.method.list,
-        result: create(lifecycle.CommentListResultSchema, { outcome: { case: "success", value: { nextOffset: 0 } } }),
-      }]),
+      new FakeRpcTransport([
+        {
+          descriptor: lifecycle.TaskCommentService.method.list,
+          result: create(lifecycle.CommentListResultSchema, {
+            outcome: { case: "success", value: { nextOffset: 0 } },
+          }),
+        },
+      ]),
       unexpectedProjectOverflow,
     );
 

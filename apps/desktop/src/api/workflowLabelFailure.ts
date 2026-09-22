@@ -6,7 +6,12 @@ import type {
   ProjectLabelRenameResult,
   ProjectLabelReorderResult,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import type { LabelsGetResult, ListResult, BoardGetResult, BoardNodeCardsListResult } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import type {
+  LabelsGetResult,
+  ListResult,
+  BoardGetResult,
+  BoardNodeCardsListResult,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import {
   LabelErrorReason,
   type LabelErrorDetails,
@@ -64,35 +69,21 @@ export function throwWorkflowLabelFailure(method: DescMethod, outcome: LabelOutc
 function projectLabelInfo(
   detail: Exclude<LabelDetail, { case: "label" | "taskNotFound" }>,
 ): LabelInfo | undefined {
-  switch (detail.case) {
-    case "invalidName":
-      return { reason: "invalid_name", projectID: detail.value.projectId, field: detail.value.field };
-    case "nameConflict":
-      return { reason: "name_conflict", projectID: detail.value.projectId };
-    case "catalogLimit":
-      return { reason: "catalog_limit", projectID: detail.value.projectId, limit: detail.value.limit };
-    case "projectNotFound":
-      return { reason: "project_not_found", projectID: detail.value.projectId };
-    case "labelNotFound":
-      return { reason: "label_not_found", projectID: detail.value.projectId, labelID: detail.value.labelId };
-    case "invalidMutation":
-      return { reason: "invalid_mutation", projectID: detail.value.projectId, field: detail.value.field };
-    case "invalidFilter":
-      return { reason: "invalid_filter", field: detail.value.field };
-    case "wrongProject":
-      return { reason: "wrong_project", projectID: detail.value.projectId, labelID: detail.value.labelId };
-    case "scopeError":
-    case "createSelection":
-    case "createConflict":
-    case "dependency":
-      return undefined;
-    case undefined:
-    case "invalidRequest":
-    case "authRequired":
-    case "serverNotReady":
-    case "internalFailure":
-      return undefined;
-  }
+  if (detail.case === "invalidName")
+    return { reason: "invalid_name", projectID: detail.value.projectId, field: detail.value.field };
+  if (detail.case === "nameConflict") return { reason: "name_conflict", projectID: detail.value.projectId };
+  if (detail.case === "catalogLimit")
+    return { reason: "catalog_limit", projectID: detail.value.projectId, limit: detail.value.limit };
+  if (detail.case === "projectNotFound")
+    return { reason: "project_not_found", projectID: detail.value.projectId };
+  if (detail.case === "labelNotFound")
+    return { reason: "label_not_found", projectID: detail.value.projectId, labelID: detail.value.labelId };
+  if (detail.case === "invalidMutation")
+    return { reason: "invalid_mutation", projectID: detail.value.projectId, field: detail.value.field };
+  if (detail.case === "invalidFilter") return { reason: "invalid_filter", field: detail.value.field };
+  if (detail.case === "wrongProject")
+    return { reason: "wrong_project", projectID: detail.value.projectId, labelID: detail.value.labelId };
+  return undefined;
 }
 
 function taskLabelInfo(value: LabelErrorDetails): LabelInfo | undefined {

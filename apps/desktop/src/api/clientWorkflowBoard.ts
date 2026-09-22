@@ -18,12 +18,15 @@ export async function getBoard(
   filter: BoardFilter,
 ): Promise<WorkflowBoard> {
   const method = BoardReadService.method.get;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    projectId: projectID,
-    workflowId: workflowID,
-    labelFilter: taskLabelFilterPayload(filter.labelFilter),
-    dependencyFilter: filter.dependencyFilter ?? undefined,
-  }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      projectId: projectID,
+      workflowId: workflowID,
+      labelFilter: taskLabelFilterPayload(filter.labelFilter),
+      dependencyFilter: filter.dependencyFilter ?? undefined,
+    }),
+  );
   throwWorkflowLabelFailure(method, result.outcome);
   return workflowBoard(requireUnarySuccess(method, result).board);
 }
@@ -33,19 +36,25 @@ export async function listBoardNodeCards(
   input: BoardNodeCardsInput,
 ): Promise<BoardNodeCardsPage> {
   const method = BoardReadService.method.listNodeCards;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    projectId: input.projectID,
-    workflowId: input.workflowID,
-    nodeId: input.nodeID,
-    labelFilter: taskLabelFilterPayload(input.filter.labelFilter),
-    dependencyFilter: input.filter.dependencyFilter ?? undefined,
-    pageSize: boardNodeCardsPageSize,
-    sort: input.sort === undefined ? undefined : {
-      field: taskSortField.encode(input.sort.field),
-      direction: taskSortDirection.encode(input.sort.direction),
-    },
-    offset: input.offset ?? 0,
-  }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      projectId: input.projectID,
+      workflowId: input.workflowID,
+      nodeId: input.nodeID,
+      labelFilter: taskLabelFilterPayload(input.filter.labelFilter),
+      dependencyFilter: input.filter.dependencyFilter ?? undefined,
+      pageSize: boardNodeCardsPageSize,
+      sort:
+        input.sort === undefined
+          ? undefined
+          : {
+              field: taskSortField.encode(input.sort.field),
+              direction: taskSortDirection.encode(input.sort.direction),
+            },
+      offset: input.offset ?? 0,
+    }),
+  );
   throwWorkflowLabelFailure(method, result.outcome);
   return boardNodeCardsPage(requireUnarySuccess(method, result));
 }

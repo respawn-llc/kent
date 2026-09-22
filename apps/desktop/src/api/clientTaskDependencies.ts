@@ -1,10 +1,17 @@
 import { create } from "@app/server-api-contract";
-import { TaskDependencyService, type DependencyMutationSuccess } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  TaskDependencyService,
+  type DependencyMutationSuccess,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { requireUnarySuccess } from "./protobufRpc";
 import { taskDependencyItem } from "./clientTaskProjection";
 import { taskDependencyDirection, taskDependencyMutationOutcome } from "./workflowProtoValues";
 import { throwTaskDependencyFailure } from "./taskDependencyFailure";
-import type { TaskDependencyDirection, TaskDependencyListResponse, TaskDependencyMutationResponse } from "./models";
+import type {
+  TaskDependencyDirection,
+  TaskDependencyListResponse,
+  TaskDependencyMutationResponse,
+} from "./models";
 import type { DescriptorRpcTransport } from "./transport";
 
 function dependencyMutation(value: DependencyMutationSuccess): TaskDependencyMutationResponse {
@@ -18,30 +25,46 @@ function dependencyMutation(value: DependencyMutationSuccess): TaskDependencyMut
 }
 
 export async function addTaskDependency(
-  transport: DescriptorRpcTransport, blockerTaskID: string, blockedTaskID: string,
+  transport: DescriptorRpcTransport,
+  blockerTaskID: string,
+  blockedTaskID: string,
 ): Promise<TaskDependencyMutationResponse> {
   const method = TaskDependencyService.method.add;
-  const result = await transport.callDescriptor(method, create(method.input, { blockerTaskId: blockerTaskID, blockedTaskId: blockedTaskID }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { blockerTaskId: blockerTaskID, blockedTaskId: blockedTaskID }),
+  );
   throwTaskDependencyFailure(method, result.outcome);
   return dependencyMutation(requireUnarySuccess(method, result));
 }
 
 export async function removeTaskDependency(
-  transport: DescriptorRpcTransport, blockerTaskID: string, blockedTaskID: string,
+  transport: DescriptorRpcTransport,
+  blockerTaskID: string,
+  blockedTaskID: string,
 ): Promise<TaskDependencyMutationResponse> {
   const method = TaskDependencyService.method.remove;
-  const result = await transport.callDescriptor(method, create(method.input, { blockerTaskId: blockerTaskID, blockedTaskId: blockedTaskID }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { blockerTaskId: blockerTaskID, blockedTaskId: blockedTaskID }),
+  );
   throwTaskDependencyFailure(method, result.outcome);
   return dependencyMutation(requireUnarySuccess(method, result));
 }
 
 export async function listTaskDependencies(
-  transport: DescriptorRpcTransport, taskID: string, direction?: TaskDependencyDirection,
+  transport: DescriptorRpcTransport,
+  taskID: string,
+  direction?: TaskDependencyDirection,
 ): Promise<TaskDependencyListResponse> {
   const method = TaskDependencyService.method.list;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    taskId: taskID, direction: direction === undefined ? undefined : taskDependencyDirection.encode(direction),
-  }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      taskId: taskID,
+      direction: direction === undefined ? undefined : taskDependencyDirection.encode(direction),
+    }),
+  );
   const response = requireUnarySuccess(method, result);
   return {
     taskID: response.taskId,

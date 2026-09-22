@@ -73,7 +73,7 @@ describe("subscription establishment", () => {
     const controller = new AbortController();
     const pending = runJsonSubscription({
       socket,
-      method: "workflow.subscribeProject",
+      method: "test.subscription",
       params: {},
       handler: {
         onEvent: () => undefined,

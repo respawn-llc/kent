@@ -1,8 +1,9 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { z } from "zod";
-import { create } from "@app/server-api-contract";
+import { create, decode, encode, type DescMessage } from "@app/server-api-contract";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import * as taskAttention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import * as workflow from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -21,14 +22,7 @@ import {
   RouterContextProvider,
 } from "@tanstack/react-router";
 
-import {
-  guiTaskCommentAuthor,
-  type JsonObject,
-  type JsonValue,
-  type PromptAnswerBatchResponse,
-  type QuestionAttentionItem,
-  type TaskDetail,
-} from "@/api";
+import { type PromptAnswerBatchResponse, type QuestionAttentionItem, type TaskDetail } from "@/api";
 import { ApiClient } from "@/api/composition";
 import {
   SidebarRootContext,
@@ -46,30 +40,39 @@ import { FakeRpcTransport, type FakeRoute } from "../api";
 import { createTestServices, startupRoutes, TestAppProviders, type TestAppServices } from "../app-services";
 import type { NativeBridge } from "../native-bridge";
 import { createTestSidebarController } from "../sidebar";
+import { attentionBase } from "./attention";
+export { taskQuestionPage } from "./attention";
 
-const jsonObjectSchema = z.record(z.string(), z.unknown());
-
-export const taskUpdateParamsSchema = jsonObjectSchema.and(
-  z.object({
-    body: z.string().optional(),
-    title: z.string().optional(),
-  }),
-);
+export {
+  taskActionFixture,
+  backlogTaskFixture,
+  taskStartApplied,
+  taskStartNeedsDependencies,
+  taskStartRoute,
+  taskResumeNeedsTarget,
+  taskResumeApplied,
+  taskResumeRoute,
+  taskDeleted,
+  taskAlreadyDeleted,
+  taskDeleteRoute,
+  taskDependencyAddedRoute,
+  taskDependencyRemovedRoute,
+  taskDependencyRemovalFailure,
+} from "./lifecycle";
+export {
+  taskIdentityFixture,
+  taskBlockedByFixture,
+  taskCommentPage,
+  taskCommentRoute,
+  taskActivityPage,
+  taskActivityRoute,
+} from "./reads";
 
 const taskActions = {
   canStart: false,
   canInterrupt: true,
   canResume: false,
   canDelete: false,
-};
-
-const attentionBase = {
-  project_id: "project-1",
-  workflow_id: "11111111-1111-4111-8111-111111111111",
-  task_id: "task-1",
-  task_short_id: "T-1",
-  task_title: "Resolve blocker",
-  occurred_at_unix_ms: 1,
 };
 
 export const taskDetailResponse = {
@@ -84,12 +87,20 @@ export const taskDetailResponse = {
       updatedAt: { seconds: 0n, nanos: 2_000_000 },
       done: false,
     },
-    project: { projectKey: "T", displayName: "Project", defaultWorkspaceId: "workspace-1", attachedWorkspaceCount: 1 },
+    project: {
+      projectKey: "T",
+      displayName: "Project",
+      defaultWorkspaceId: "workspace-1",
+      attachedWorkspaceCount: 1,
+    },
     workflow: { workflowId: "11111111-1111-4111-8111-111111111111", displayName: "Delivery", version: 1n },
     body: "Need operator input",
     sourceWorkspace: {
-      workspaceId: "workspace-1", displayName: "Main", rootPath: "/tmp/project",
-      availability: ProjectAvailability.AVAILABLE, isPrimary: true,
+      workspaceId: "workspace-1",
+      displayName: "Main",
+      rootPath: "/tmp/project",
+      availability: ProjectAvailability.AVAILABLE,
+      isPrimary: true,
       updatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
     executionTarget: {
@@ -103,17 +114,17 @@ export const taskDetailResponse = {
     currentNodes: [
       {
         nodeId: "node-1",
-        sessionId: "session-1",
+        sessionId: "33333333-3333-4333-8333-333333333333",
       },
     ],
     liveSessions: [
       {
-        sessionId: "session-1",
+        sessionId: "33333333-3333-4333-8333-333333333333",
         sessionName: "Review chat",
         nodeDisplayName: "Code Review",
       },
       {
-        sessionId: "session-2",
+        sessionId: "44444444-4444-4444-8444-444444444444",
         nodeDisplayName: "Implementation",
       },
     ],
@@ -142,57 +153,62 @@ export const taskDetailResponse = {
   }),
 };
 
-export const taskAttentionResponse = {
+export const taskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
   items: [
     {
       ...attentionBase,
       id: "attention-question",
-      kind: "question",
-      current_node: {
-        node_id: "node-1",
-        transition_branch_key: null,
-        session_id: null,
+      kind: taskAttention.AttentionItemKind.QUESTION,
+      detail: {
+        case: "question",
+        value: {
+          currentNode: { nodeId: "node-1" },
+          sessionName: "Session one",
+          question: {
+            sessionId: "33333333-3333-4333-8333-333333333333",
+            stepId: "22222222-2222-4222-8222-222222222222",
+            toolCallId: "ask-1",
+            kind: taskAttention.AttentionQuestionKind.ORDINARY,
+            prompt: { case: "ordinary", value: { suggestions: [] } },
+          },
+          message: "Approve protected path?",
+        },
       },
-      session_name: "Session one",
-      question: {
-        session_id: "session-1",
-        step_id: "22222222-2222-4222-8222-222222222222",
-        tool_call_id: "ask-1",
-        kind: "ordinary",
-        suggestions: [],
-        recommended_option_index: null,
-      },
-      message: "Approve protected path?",
     },
     {
       ...attentionBase,
       id: "attention-approval",
-      kind: "approval",
-      session_name: null,
-      approval_id: "approval-1",
-      approval_snapshot: {
-        source_node_display_name: "Implement",
-        targets: [{ display_name: "Ship" }],
-        commentary: "Looks good",
-        output_values: { result: "ok" },
-        workflow_revision_seen: 7,
+      kind: taskAttention.AttentionItemKind.APPROVAL,
+      detail: {
+        case: "approval",
+        value: {
+          approvalId: "approval-1",
+          approvalSnapshot: {
+            sourceNodeDisplayName: "Implement",
+            targets: [{ displayName: "Ship" }],
+            commentary: "Looks good",
+            outputValues: [{ name: "result", value: "ok" }],
+            workflowRevisionSeen: 7n,
+          },
+        },
       },
     },
   ],
-  generated_at_unix_ms: 3,
-};
+  generatedAt: { seconds: 0n, nanos: 3_000_000 },
+});
 
-export const emptyTaskAttentionResponse = {
-  items: [],
-  generated_at_unix_ms: 3,
-};
+export const emptyTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
+  generatedAt: { seconds: 0n, nanos: 3_000_000 },
+});
 
 export async function createTaskDetailFixture(): Promise<TaskDetail> {
   const client = new ApiClient(
-    new FakeRpcTransport([{
-      descriptor: taskRead.TaskReadService.method.get,
-      result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: taskDetailResponse } }),
-    }]),
+    new FakeRpcTransport([
+      {
+        descriptor: taskRead.TaskReadService.method.get,
+        result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: taskDetailResponse } }),
+      },
+    ]),
     unexpectedProjectOverflow,
   );
   return client.getTask("task-1");
@@ -204,7 +220,7 @@ export const taskDetailResponseWithAdditionalLiveSession = {
     liveSessions: [
       ...taskDetailResponse.task.liveSessions,
       create(taskRead.LiveSessionSchema, {
-        sessionId: "session-3",
+        sessionId: "55555555-5555-4555-8555-555555555555",
         sessionName: "QA chat",
         nodeDisplayName: "QA",
       }),
@@ -242,118 +258,134 @@ export const taskDetailResponseWithInterruptedCurrentScript = {
   }),
 };
 
-export const interruptedTaskAttentionResponse = {
+export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
   items: [
     {
       ...attentionBase,
       id: "attention-interrupted",
-      kind: "interrupted_current_node",
-      session_name: null,
-      current_node: { node_id: "node-script", transition_branch_key: null, session_id: null },
-      session_id: null,
-      detail_json: '{"kind":"script_failure","stderr":"permission denied"}',
+      kind: taskAttention.AttentionItemKind.INTERRUPTED_CURRENT_NODE,
+      detail: {
+        case: "interruptedCurrentNode",
+        value: {
+          currentNode: { nodeId: "node-script" },
+          details: {
+            code: "script_failure",
+            fields: [{ name: "stderr", value: "permission denied" }],
+            detail: { case: "generic", value: {} },
+          },
+        },
+      },
     },
   ],
-  generated_at_unix_ms: 3,
-};
+  generatedAt: { seconds: 0n, nanos: 3_000_000 },
+});
 
-export const questionAttention = {
+export const questionAttention = create(taskAttention.AttentionItemSchema, {
   ...attentionBase,
   id: "attention-question",
-  kind: "question",
-  current_node: {
-    node_id: "node-1",
-    transition_branch_key: null,
-    session_id: null,
+  kind: taskAttention.AttentionItemKind.QUESTION,
+  detail: {
+    case: "question",
+    value: {
+      currentNode: { nodeId: "node-1" },
+      sessionName: "Session one",
+      message: "Choose snack",
+      question: {
+        sessionId: "33333333-3333-4333-8333-333333333333",
+        stepId: "22222222-2222-4222-8222-222222222222",
+        toolCallId: "ask-1",
+        kind: taskAttention.AttentionQuestionKind.ORDINARY,
+        prompt: {
+          case: "ordinary",
+          value: { recommendedOptionIndex: 1, suggestions: ["Trail mix", "Dark chocolate"] },
+        },
+      },
+    },
   },
-  session_name: "Session one",
-  message: "Choose snack",
-  question: {
-    session_id: "session-1",
-    step_id: "22222222-2222-4222-8222-222222222222",
-    tool_call_id: "ask-1",
-    kind: "ordinary",
-    recommended_option_index: 1,
-    suggestions: ["Trail mix", "Dark chocolate"],
-  },
-};
+});
+
+export const questionAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
+  generatedAt: { seconds: 0n, nanos: 3_000_000 },
+  items: [questionAttention],
+});
 
 export function parsedQuestionAttention(): QuestionAttentionItem &
   Readonly<{
     question: Extract<QuestionAttentionItem["question"], Readonly<{ kind: "ordinary" }>>;
   }> {
+  const detail = questionAttention.detail;
+  if (detail.case !== "question" || detail.value.question?.prompt.case !== "ordinary") {
+    throw new Error("Ordinary Question fixture is required.");
+  }
+  const question = detail.value.question;
+  const prompt = question.prompt;
+  if (prompt.case !== "ordinary") throw new Error("Ordinary Question fixture is required.");
   return {
     id: questionAttention.id,
-    projectID: questionAttention.project_id,
-    workflowID: questionAttention.workflow_id,
-    taskID: questionAttention.task_id,
-    taskShortID: questionAttention.task_short_id,
-    taskTitle: questionAttention.task_title,
-    occurredAt: questionAttention.occurred_at_unix_ms,
+    projectID: questionAttention.projectId,
+    workflowID: questionAttention.workflowId,
+    taskID: questionAttention.taskId,
+    taskShortID: questionAttention.taskShortId,
+    taskTitle: questionAttention.taskTitle,
+    occurredAt: 1,
     kind: "question",
     currentNode: {
-      nodeID: questionAttention.current_node.node_id,
-      transitionBranchKey: questionAttention.current_node.transition_branch_key,
-      sessionID: questionAttention.current_node.session_id,
+      nodeID: "node-1",
+      transitionBranchKey: null,
+      sessionID: null,
       effectiveAssignee: null,
       effectiveThinking: null,
     },
-    sessionName: questionAttention.session_name,
-    message: questionAttention.message,
+    sessionName: detail.value.sessionName ?? null,
+    message: detail.value.message ?? null,
     question: {
-      sessionID: questionAttention.question.session_id,
-      stepID: questionAttention.question.step_id,
-      toolCallID: questionAttention.question.tool_call_id,
+      sessionID: question.sessionId,
+      stepID: question.stepId,
+      toolCallID: question.toolCallId,
       kind: "ordinary",
-      recommendedOptionIndex: questionAttention.question.recommended_option_index,
-      suggestions: questionAttention.question.suggestions,
+      recommendedOptionIndex: prompt.value.recommendedOptionIndex ?? null,
+      suggestions: prompt.value.suggestions,
     },
   };
 }
 
-export const taskQuestionWaitingEvent = {
-  event: {
-    resource: "task",
-    action: "question_waiting",
-    occurred_at_unix_ms: 1,
-    primary_entity_id: "task-1",
-    project_id: "project-1",
-    related_ids: ["session-1", "ask-1"],
-    workflow_id: "11111111-1111-4111-8111-111111111111",
-  },
-};
+export const taskQuestionWaitingEvent = create(workflow.ProjectEventSchema, {
+  resource: workflow.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+  action: workflow.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING,
+  occurredAt: { seconds: 0n, nanos: 1_000_000 },
+  primaryEntityId: "task-1",
+  projectId: "project-1",
+  relatedIds: ["33333333-3333-4333-8333-333333333333", "ask-1"],
+  workflowId: "11111111-1111-4111-8111-111111111111",
+});
 
-export const taskUpdatedEvent = {
-  event: {
-    resource: "task",
-    action: "updated",
-    occurred_at_unix_ms: 1,
-    primary_entity_id: "task-1",
-    project_id: "project-1",
-    workflow_id: "11111111-1111-4111-8111-111111111111",
-  },
-};
+export const taskUpdatedEvent = create(workflow.ProjectEventSchema, {
+  ...taskQuestionWaitingEvent,
+  action: workflow.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_UPDATED,
+  relatedIds: [],
+});
 
-export const activityResponse = {
+export const activityResponse = create(taskLifecycle.ActivityListSuccessSchema, {
   items: [
     {
-      activity_id: "activity-1",
-      type: "comment",
-      task_id: "task-1",
-      occurred_at_unix_ms: 2,
-      updated_at_unix_ms: 2,
-      comment: {
-        id: "comment-activity-1",
-        task_id: "task-1",
-        body: "Comment added",
-        author: "user",
-        created_at_unix_ms: 2,
-        updated_at_unix_ms: 2,
+      activityId: "activity-1",
+      taskId: "task-1",
+      occurredAt: { seconds: 0n, nanos: 2_000_000 },
+      updatedAt: { seconds: 0n, nanos: 2_000_000 },
+      activity: {
+        case: "comment",
+        value: {
+          id: "comment-activity-1",
+          taskId: "task-1",
+          body: "Comment added",
+          author: taskLifecycle.CommentAuthorKind.USER,
+          createdAt: { seconds: 0n, nanos: 2_000_000 },
+          updatedAt: { seconds: 0n, nanos: 2_000_000 },
+        },
       },
     },
   ],
-  next_offset: null,
-};
+});
 
 export const pendingAskResponse = create(QuestionService.method.listPending.output, {
   outcome: {
@@ -362,7 +394,7 @@ export const pendingAskResponse = create(QuestionService.method.listPending.outp
       questions: [
         {
           toolCallId: "ask-1",
-          sessionId: "session-1",
+          sessionId: "33333333-3333-4333-8333-333333333333",
           stepId: "11111111-1111-4111-8111-111111111111",
           question: "Choose path",
           suggestions: ["Use option A", "Use option B"],
@@ -398,70 +430,68 @@ export function promptAnswerBatchRoute(
   };
 }
 
-export const commentAddResponse = {
+export const commentAddResponse = create(taskLifecycle.CommentAddSuccessSchema, {
   comment: {
     id: "comment-2",
-    task_id: "task-1",
+    taskId: "task-1",
     body: "Fresh comment",
-    author: guiTaskCommentAuthor,
-    created_at_unix_ms: 4,
-    updated_at_unix_ms: 4,
+    author: taskLifecycle.CommentAuthorKind.USER,
+    createdAt: { seconds: 0n, nanos: 4_000_000 },
+    updatedAt: { seconds: 0n, nanos: 4_000_000 },
   },
-};
+});
 
-export const commentListResponse = {
+export const commentListResponse = create(taskLifecycle.CommentListSuccessSchema, {
   items: [
     {
       id: "comment-1",
-      task_id: "task-1",
+      taskId: "task-1",
       body: "Existing comment",
-      author: guiTaskCommentAuthor,
-      created_at_unix_ms: 1,
-      updated_at_unix_ms: 1,
+      author: taskLifecycle.CommentAuthorKind.USER,
+      createdAt: { seconds: 0n, nanos: 1_000_000 },
+      updatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
   ],
-  next_offset: null,
-  total_count: 1,
-};
+  totalCount: 1n,
+});
 
-export const firstCommentListResponse = {
+export const firstCommentListResponse = create(taskLifecycle.CommentListSuccessSchema, {
   items: [
     {
       id: "comment-page-1",
-      task_id: "task-1",
+      taskId: "task-1",
       body: "First paged comment",
-      author: guiTaskCommentAuthor,
-      created_at_unix_ms: 5,
-      updated_at_unix_ms: 5,
+      author: taskLifecycle.CommentAuthorKind.USER,
+      createdAt: { seconds: 0n, nanos: 5_000_000 },
+      updatedAt: { seconds: 0n, nanos: 5_000_000 },
     },
   ],
-  next_offset: 50,
-  total_count: 2,
-};
+  nextOffset: 50,
+  totalCount: 2n,
+});
 
-export const secondCommentListResponse = {
+export const secondCommentListResponse = create(taskLifecycle.CommentListSuccessSchema, {
   items: [
     {
       id: "comment-page-2",
-      task_id: "task-1",
+      taskId: "task-1",
       body: "Second paged comment",
-      author: guiTaskCommentAuthor,
-      created_at_unix_ms: 6,
-      updated_at_unix_ms: 6,
+      author: taskLifecycle.CommentAuthorKind.USER,
+      createdAt: { seconds: 0n, nanos: 6_000_000 },
+      updatedAt: { seconds: 0n, nanos: 6_000_000 },
     },
   ],
-  next_offset: null,
-  total_count: 2,
-};
+  totalCount: 2n,
+});
 
 export const taskUpdateResponse = create(taskLifecycle.UpdateResultSchema, {
   outcome: { case: "success", value: { task: taskDetailResponse.task.summary } },
 });
 
 export type TaskDetailFixtureOptions = Readonly<{
-  attention?: JsonValue;
+  attention?: taskAttention.TaskAttentionListSuccess;
   asks?: ListQuestionsResult;
-  comments?: unknown;
+  comments?: taskLifecycle.CommentListSuccess;
   initialFocus?: TaskDetailInitialFocus | undefined;
   nativeBridge?: NativeBridge | undefined;
   navigator?: SidebarPageNavigator | undefined;
@@ -480,7 +510,7 @@ export function createTaskDetailTestServices(
   {
     asks,
     attention = taskAttentionFixture(task),
-    comments,
+    comments = create(taskLifecycle.CommentListSuccessSchema),
     nativeBridge,
     path = "/tasks/task-1",
     routes = [],
@@ -494,14 +524,65 @@ export function createTaskDetailTestServices(
         descriptor: taskRead.TaskReadService.method.get,
         result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: task } }),
       },
-      { method: "workflow.task.attention.list", result: attention },
-      ...(comments === undefined ? [] : [{ method: "workflow.task.comment.list", result: comments }]),
-      { method: "workflow.task.activity.list", result: activityResponse },
+      {
+        descriptor: taskAttention.AttentionReadService.method.listTask,
+        result: create(taskAttention.TaskAttentionListResultSchema, {
+          outcome: { case: "success", value: attention },
+        }),
+      },
+      {
+        descriptor: taskLifecycle.TaskCommentService.method.list,
+        result: create(taskLifecycle.CommentListResultSchema, {
+          outcome: { case: "success", value: comments },
+        }),
+      },
+      {
+        descriptor: taskLifecycle.TaskActivityService.method.list,
+        result: create(taskLifecycle.ActivityListResultSchema, {
+          outcome: { case: "success", value: activityResponse },
+        }),
+      },
       ...(asks === undefined ? [] : [{ descriptor: QuestionService.method.listPending, result: asks }]),
       ...routes,
     ],
     nativeBridge,
   );
+}
+
+export function taskGetRoute(
+  load: (taskID: string, callIndex: number) => typeof taskDetailResponse | Promise<typeof taskDetailResponse>,
+): FakeRoute {
+  return {
+    descriptor: taskRead.TaskReadService.method.get,
+    resultFactory: async (request, callIndex) => {
+      const params = decode(
+        taskRead.GetRequestSchema,
+        encode<DescMessage>(taskRead.GetRequestSchema, request),
+      );
+      if (params.taskId === undefined) throw new Error("Task fixture read requires Task identity.");
+      return create(taskRead.GetResultSchema, {
+        outcome: { case: "success", value: await load(params.taskId, callIndex) },
+      });
+    },
+  };
+}
+
+export function taskUpdateRoute(
+  result: () => typeof taskUpdateResponse | Promise<typeof taskUpdateResponse> = () => taskUpdateResponse,
+): FakeRoute {
+  return { descriptor: taskLifecycle.TaskLifecycleService.method.update, resultFactory: result };
+}
+
+export function taskAttentionRoute(
+  load: () => taskAttention.TaskAttentionListSuccess | Promise<taskAttention.TaskAttentionListSuccess>,
+): FakeRoute {
+  return {
+    descriptor: taskAttention.AttentionReadService.method.listTask,
+    resultFactory: async () =>
+      create(taskAttention.TaskAttentionListResultSchema, {
+        outcome: { case: "success", value: await load() },
+      }),
+  };
 }
 
 export type MountedTaskDetailServices = TestAppServices &
@@ -571,7 +652,7 @@ export function mountTaskDetailSurface(
   };
 }
 
-function taskAttentionFixture(task: typeof taskDetailResponse): JsonValue {
+function taskAttentionFixture(task: typeof taskDetailResponse): taskAttention.TaskAttentionListSuccess {
   if (task === taskDetailResponseWithInterruptedCurrentScript) {
     return interruptedTaskAttentionResponse;
   }
@@ -579,26 +660,4 @@ function taskAttentionFixture(task: typeof taskDetailResponse): JsonValue {
     return emptyTaskAttentionResponse;
   }
   return taskAttentionResponse;
-}
-
-export function callParams(
-  calls: readonly Readonly<{ method: string; params: JsonValue }>[],
-  method: string,
-): JsonObject {
-  const params = calls.find((call) => call.method === method)?.params;
-  if (!isJsonObject(params)) {
-    throw new Error(`Missing object params for ${method}.`);
-  }
-  return params;
-}
-
-export function getCallCount(
-  calls: readonly Readonly<{ method: string; params: JsonValue }>[],
-  method: string,
-): number {
-  return calls.filter((call) => call.method === method).length;
-}
-
-export function isJsonObject(value: JsonValue | undefined): value is JsonObject {
-  return jsonObjectSchema.safeParse(value).success && !Array.isArray(value);
 }

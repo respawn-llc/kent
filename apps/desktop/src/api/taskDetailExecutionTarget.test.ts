@@ -6,12 +6,14 @@ import { taskDetailResponse } from "@/test-support/task-detail";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 
-function getTask(task: pb.TaskDetail) {
+async function getTask(task: pb.TaskDetail) {
   return new ApiClient(
-    new FakeRpcTransport([{
-      descriptor: pb.TaskReadService.method.get,
-      result: create(pb.GetResultSchema, { outcome: { case: "success", value: { task } } }),
-    }]),
+    new FakeRpcTransport([
+      {
+        descriptor: pb.TaskReadService.method.get,
+        result: create(pb.GetResultSchema, { outcome: { case: "success", value: { task } } }),
+      },
+    ]),
     unexpectedProjectOverflow,
   ).getTask("task-1");
 }
@@ -27,13 +29,15 @@ describe("task detail execution target contract", () => {
       provenance: "resolved",
     });
     expect(detail.worktreePath).toBe("/tmp/worktree");
-    expect(detail.currentNodes).toEqual([{
-      effectiveAssignee: null,
-      effectiveThinking: null,
-      nodeID: "node-1",
-      transitionBranchKey: null,
-      sessionID: "session-1",
-    }]);
+    expect(detail.currentNodes).toEqual([
+      {
+        effectiveAssignee: null,
+        effectiveThinking: null,
+        nodeID: "node-1",
+        transitionBranchKey: null,
+        sessionID: "session-1",
+      },
+    ]);
     expect(detail.liveSessions).toEqual([
       { sessionID: "session-1", sessionName: "Review chat", nodeDisplayName: "Code Review" },
       { sessionID: "session-2", sessionName: null, nodeDisplayName: "Implementation" },
@@ -42,44 +46,72 @@ describe("task detail execution target contract", () => {
   });
 
   it("distinguishes unlocked and source-workspace targets", async () => {
-    const unlocked = await getTask(create(pb.TaskDetailSchema, { ...taskDetailResponse.task, executionTarget: undefined }));
-    const sourceTarget = await getTask(create(pb.TaskDetailSchema, {
-      ...taskDetailResponse.task,
-      executionTarget: create(pb.ExecutionTargetSchema, {
-        mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
-        provenance: pb.ExecutionTargetProvenance.RESOLVED,
+    const unlocked = await getTask(
+      create(pb.TaskDetailSchema, { ...taskDetailResponse.task, executionTarget: undefined }),
+    );
+    const sourceTarget = await getTask(
+      create(pb.TaskDetailSchema, {
+        ...taskDetailResponse.task,
+        executionTarget: create(pb.ExecutionTargetSchema, {
+          mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+          provenance: pb.ExecutionTargetProvenance.RESOLVED,
+        }),
       }),
-    }));
+    );
     expect(unlocked.executionTarget).toBeNull();
     expect(sourceTarget.executionTarget).toEqual({
-      mode: "none", requestedRef: null, resolvedRef: null, commitOID: null, provenance: "resolved",
+      mode: "none",
+      requestedRef: null,
+      resolvedRef: null,
+      commitOID: null,
+      provenance: "resolved",
     });
   });
 
   it("accepts session-backed Current Nodes and sessionless Current Scripts", async () => {
     const executionIDs = Array.from({ length: 201 }, (_, index) => index.toString());
-    const currentNodes = executionIDs.map((id) => create(AttentionCurrentNodeSchema, { nodeId: `node-${id}`, sessionId: `session-${id}` }));
-    const currentScripts = executionIDs.map((id) => create(pb.CurrentScriptSchema, {
-      currentNode: { nodeId: `script-node-${id}` }, path: "script",
-    }));
-    const detail = await getTask(create(pb.TaskDetailSchema, { ...taskDetailResponse.task, currentNodes, currentScripts }));
-    expect(detail.currentNodes).toEqual(currentNodes.map((node) => ({
-      effectiveAssignee: null,
-      effectiveThinking: null,
-      nodeID: node.nodeId,
-      transitionBranchKey: null,
-      sessionID: node.sessionId,
-    })));
-    expect(detail.currentScripts).toEqual(currentScripts.map((script) => ({
-      currentNode: { nodeID: script.currentNode?.nodeId, transitionBranchKey: null, sessionID: null },
-      path: script.path,
-    })));
+    const currentNodes = executionIDs.map((id) =>
+      create(AttentionCurrentNodeSchema, { nodeId: `node-${id}`, sessionId: `session-${id}` }),
+    );
+    const currentScripts = executionIDs.map((id) =>
+      create(pb.CurrentScriptSchema, {
+        currentNode: { nodeId: `script-node-${id}` },
+        path: "script",
+      }),
+    );
+    const detail = await getTask(
+      create(pb.TaskDetailSchema, { ...taskDetailResponse.task, currentNodes, currentScripts }),
+    );
+    expect(detail.currentNodes).toEqual(
+      currentNodes.map((node) => ({
+        effectiveAssignee: null,
+        effectiveThinking: null,
+        nodeID: node.nodeId,
+        transitionBranchKey: null,
+        sessionID: node.sessionId,
+      })),
+    );
+    expect(detail.currentScripts).toEqual(
+      currentScripts.map((script) => ({
+        currentNode: { nodeID: script.currentNode?.nodeId, transitionBranchKey: null, sessionID: null },
+        path: script.path,
+      })),
+    );
   });
 
   it("rejects a Current Script with a Session", async () => {
-    await expect(getTask(create(pb.TaskDetailSchema, {
-      ...taskDetailResponse.task,
-      currentScripts: [create(pb.CurrentScriptSchema, { currentNode: { nodeId: "node-script", sessionId: "session-1" }, path: "scripts/run" })],
-    }))).rejects.toThrow();
+    await expect(
+      getTask(
+        create(pb.TaskDetailSchema, {
+          ...taskDetailResponse.task,
+          currentScripts: [
+            create(pb.CurrentScriptSchema, {
+              currentNode: { nodeId: "node-script", sessionId: "session-1" },
+              path: "scripts/run",
+            }),
+          ],
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -15,8 +15,19 @@ import {
   ProjectEventAction,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
-import { CreateSelectionReason, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker, DependencyMutationOutcome, DependencyErrorReason, CommentAuthorKind } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
-import { ExecutionTargetUnavailableCause, LockedExecutionTargetCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import {
+  CreateSelectionReason,
+  InitialBranchErrorReason,
+  ExecutionTargetResolutionCode,
+  MovePreviewBlocker,
+  DependencyMutationOutcome,
+  DependencyErrorReason,
+  CommentAuthorKind,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  ExecutionTargetUnavailableCause,
+  LockedExecutionTargetCause,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import {
   TaskStatusKind,
   TaskNativeState,
@@ -36,12 +47,12 @@ function workflowEnum<Code extends number, Name extends string>(entries: readonl
   const names = new Map<number, Name>(entries);
   const codes = new Map<string, Code>(entries.map(([code, name]) => [name, code]));
   return {
-    encode(name: string): Code {
+    encode: (name: string): Code => {
       const code = codes.get(name);
       if (code === undefined) throw new ContractError(`Unsupported Workflow value ${name}.`);
       return code;
     },
-    decode(code: number): Name {
+    decode: (code: number): Name => {
       const name = names.get(code);
       if (name === undefined) throw new ContractError(`Unsupported Workflow value ${code.toString()}.`);
       return name;

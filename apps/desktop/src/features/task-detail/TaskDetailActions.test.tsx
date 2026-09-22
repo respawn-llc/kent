@@ -7,34 +7,22 @@ import {
   mountTaskDetailSurface,
   taskDetailResponse,
   taskDetailResponseWithCurrentScript,
+  taskActionFixture,
+  taskStartRoute,
+  taskStartApplied,
 } from "@/test-support/task-detail";
-
-function taskWithActions(overrides: Record<string, unknown>) {
-  return {
-    task: {
-      ...taskDetailResponse.task,
-      attention_count: 0,
-      ...overrides,
-    },
-  };
-}
+import { projectEventsFixture } from "@/test-support/project-events";
 
 it("orders Start, Open, and targeted Interrupt in one wrapping action flow", async () => {
   const sessionName = `${"👨‍👩‍👧‍👦".repeat(31)}e\u0301x`;
   mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [
-        {
-          session_id: "session-1",
-          session_name: sessionName,
-          node_display_name: "Code Review",
-        },
-      ],
-      actions: {
-        ...taskDetailResponse.task.actions,
-        can_start: true,
+    taskActionFixture(taskDetailResponse, { canStart: true }, [
+      {
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        sessionName,
+        nodeDisplayName: "Code Review",
       },
-    }),
+    ]),
   );
 
   const flow = await screen.findByTestId("task-detail-action-flow");
@@ -50,19 +38,17 @@ it("orders Start, Open, and targeted Interrupt in one wrapping action flow", asy
 
 it("falls back to the Agent Node display name and keeps Task-wide Interrupt generic", async () => {
   mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [
-        {
-          session_id: "session-1",
-          node_display_name: "Implementation",
-        },
-        {
-          session_id: "session-2",
-          session_name: "Review",
-          node_display_name: "Code Review",
-        },
-      ],
-    }),
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        nodeDisplayName: "Implementation",
+      },
+      {
+        sessionID: "44444444-4444-4444-8444-444444444444",
+        sessionName: "Review",
+        nodeDisplayName: "Code Review",
+      },
+    ]),
   );
 
   const flow = await screen.findByTestId("task-detail-action-flow");
@@ -77,15 +63,7 @@ it("falls back to the Agent Node display name and keeps Task-wide Interrupt gene
 });
 
 it("keeps Interrupt generic when a Script is the live target", async () => {
-  mountTaskDetailSurface({
-    task: {
-      ...taskDetailResponseWithCurrentScript.task,
-      actions: {
-        ...taskDetailResponseWithCurrentScript.task.actions,
-        can_interrupt: true,
-      },
-    },
-  });
+  mountTaskDetailSurface(taskActionFixture(taskDetailResponseWithCurrentScript, { canInterrupt: true }));
 
   const flow = await screen.findByTestId("task-detail-action-flow");
   const interrupt = within(flow).getByRole("button", { name: appI18n.t("board.interrupt") });
@@ -125,31 +103,23 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
   }
 
   expect(targets).toEqual([
-    { projectID: "project-1", sessionID: "session-1" },
-    { projectID: "project-1", sessionID: "session-2" },
+    { projectID: "project-1", sessionID: "33333333-3333-4333-8333-333333333333" },
+    { projectID: "project-1", sessionID: "44444444-4444-4444-8444-444444444444" },
   ]);
 });
 
 it("shows Start loading, prevents duplicate requests, and permits it after an independent observation fails", async () => {
-  let resolveStart: ((value: unknown) => void) | undefined;
+  let resolveStart: ((value: ReturnType<typeof taskStartApplied>) => void) | undefined;
   const services = mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [],
-      actions: {
-        ...taskDetailResponse.task.actions,
-        can_start: true,
-        can_interrupt: false,
-      },
-    }),
+    taskActionFixture(taskDetailResponse, { canStart: true, canInterrupt: false }, []),
     {
       routes: [
-        {
-          method: "workflow.task.start",
-          handler: async () =>
-            new Promise((resolve) => {
+        taskStartRoute(
+          async () =>
+            new Promise<ReturnType<typeof taskStartApplied>>((resolve) => {
               resolveStart = resolve;
             }),
-        },
+        ),
       ],
     },
   );
@@ -164,18 +134,13 @@ it("shows Start loading, prevents duplicate requests, and permits it after an in
   expect(start).toBeEnabled();
   await user.click(start);
   expect(startTask).toHaveBeenCalledOnce();
-  resolveStart?.({
-    outcome: "applied",
-    applied: {
-      current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-    },
-  });
+  resolveStart?.(taskStartApplied());
   await waitFor(() => {
     expect(start).toHaveAttribute("aria-busy", "false");
   });
 
   act(() => {
-    services.transport.fail("workflow.subscribeProject", new Error("offline"));
+    projectEventsFixture(services.transport).fail(new Error("offline"));
   });
   const error = await screen.findByTestId("error-state");
   expect(screen.queryByTestId("task-detail-start")).not.toBeInTheDocument();

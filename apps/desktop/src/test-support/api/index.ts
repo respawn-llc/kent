@@ -289,7 +289,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   readonly descriptorCalls: Readonly<{
     descriptor: DescMethod;
     request: Message;
-    options?: RpcCallOptions;
+    options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly dedicatedCalls: Readonly<{
     method: string;

@@ -1,15 +1,17 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-
-import type { JsonValue } from "@/api";
+import {
+  globalAttentionPage as attentionResponse,
+  globalAttentionRoute,
+  globalAttentionRequests,
+  approvalAttentionFixture as attentionItem,
+} from "@/test-support/attention";
 import { SidebarRootContext, type SidebarDestination } from "@/app-facade";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
-import type { FakeRpcTransport, FakeRoute } from "@/test-support/api";
+import type { FakeRpcTransport } from "@/test-support/api";
 import { flushQueuedWork, installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
-import { workflowAttentionCalls, workflowAttentionRpcMethods } from "@/test-support/workflow-attention";
 import { SidebarInboxNav } from "./SidebarInboxNav";
 import { useGlobalAttentionPages } from "./useHomeData";
 
@@ -38,7 +40,7 @@ describe("Home global attention data", () => {
     );
     await flushQueuedWork();
 
-    expect(attentionPageTokens(services.transport)).toEqual([""]);
+    expect(globalAttentionRequests(services.transport)).toEqual([null]);
   });
 
   it("loads a cold cache when Sidebar is the only global attention observer", async () => {
@@ -49,12 +51,12 @@ describe("Home global attention data", () => {
     );
 
     await expectAttentionCalls(services.transport, 1);
-    expect(attentionPageTokens(services.transport)).toEqual([""]);
+    expect(globalAttentionRequests(services.transport)).toEqual([null]);
   });
 
   it("refreshes stale data for a sole Sidebar observer and renders the refreshed navigation", async () => {
     const services = createAttentionServices((pageToken, callIndex) => {
-      if (pageToken !== "") {
+      if (pageToken !== null) {
         return attentionResponse([]);
       }
       return attentionResponse(
@@ -123,7 +125,7 @@ describe("Home global attention data", () => {
   it("forwards the production infinite-query next-page token exactly once", async () => {
     let attentionQuery: ReturnType<typeof useGlobalAttentionPages> | undefined;
     const services = createAttentionServices((pageToken) =>
-      pageToken === "" ? attentionResponse([], "page-2") : attentionResponse([]),
+      pageToken === null ? attentionResponse([], "page-2") : attentionResponse([]),
     );
     renderHome(
       services,
@@ -147,7 +149,7 @@ describe("Home global attention data", () => {
       await query.fetchNextPage();
     });
     await expectAttentionCalls(services.transport, 2);
-    expect(attentionPageTokens(services.transport)).toEqual(["", "page-2"]);
+    expect(globalAttentionRequests(services.transport)).toEqual([null, "page-2"]);
   });
 });
 
@@ -171,64 +173,15 @@ function HomeAttentionQueryHarness({
   return null;
 }
 
-type AttentionPageFactory = (pageToken: string, callIndex: number) => Readonly<Record<string, JsonValue>>;
+type AttentionPageFactory = Parameters<typeof globalAttentionRoute>[0];
 
 function createAttentionServices(page: AttentionPageFactory = () => attentionResponse([])): TestAppServices {
-  return createTestServices([attentionRoute(page)]);
-}
-
-function attentionRoute(
-  page: (pageToken: string, callIndex: number) => Readonly<Record<string, JsonValue>>,
-): FakeRoute {
-  return {
-    method: workflowAttentionRpcMethods.list,
-    handler(params, callIndex) {
-      const pageToken = attentionRequestParamsSchema.parse(params).page_token;
-      return page(pageToken, callIndex);
-    },
-  };
-}
-
-function attentionResponse(items: readonly Readonly<Record<string, JsonValue>>[], nextPageToken = "") {
-  return {
-    items,
-    next_page_token: nextPageToken,
-    generated_at_unix_ms: 1,
-  } satisfies Readonly<Record<string, JsonValue>>;
-}
-
-function attentionItem(taskID: string): Readonly<Record<string, JsonValue>> {
-  return {
-    id: `approval:${taskID}`,
-    kind: "approval",
-    project_id: "project-1",
-    workflow_id: workflowID,
-    task_id: taskID,
-    task_short_id: taskID,
-    task_title: taskID,
-    approval_id: `approval-${taskID}`,
-    session_name: null,
-    message: "Approval required",
-    approval_snapshot: {
-      source_node_display_name: "Review",
-      targets: [{ display_name: "Done" }],
-      commentary: "",
-      output_values: {},
-      workflow_revision_seen: 1,
-    },
-    occurred_at_unix_ms: 1,
-  };
-}
-
-function attentionPageTokens(transport: FakeRpcTransport): string[] {
-  return workflowAttentionCalls(transport).map(
-    (call) => attentionRequestParamsSchema.parse(call.params).page_token,
-  );
+  return createTestServices([globalAttentionRoute(page)]);
 }
 
 async function expectAttentionCalls(transport: FakeRpcTransport, count: number): Promise<void> {
   await waitFor(() => {
-    expect(workflowAttentionCalls(transport)).toHaveLength(count);
+    expect(globalAttentionRequests(transport)).toHaveLength(count);
   });
 }
 
@@ -240,11 +193,3 @@ const taskDetailDestination = {
 
 const sidebarController = createTestSidebarController();
 const sidebarNavigator = createTestSidebarNavigator();
-const workflowID = "11111111-1111-4111-8111-111111111111";
-
-const attentionRequestParamsSchema = z
-  .object({
-    page_size: z.number(),
-    page_token: z.string(),
-  })
-  .strict();

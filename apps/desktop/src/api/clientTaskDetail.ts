@@ -1,7 +1,10 @@
 import { create } from "@app/server-api-contract";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
-import { TaskCommentService, TaskActivityService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  TaskCommentService,
+  TaskActivityService,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { pendingQuestion } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import { taskDetail, taskComment, taskActivity } from "./clientTaskProjection";
@@ -22,7 +25,10 @@ export async function listTaskActivity(
   offset: number,
 ): Promise<ActivityPage> {
   const method = TaskActivityService.method.list;
-  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID, offset, limit: 50 }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { taskId: taskID, offset, limit: 50 }),
+  );
   const response = requireUnarySuccess(method, result);
   const items = response.items.map(taskActivity);
   requireTaskBoundItems(taskID, items);
@@ -35,9 +41,16 @@ export async function listTaskComments(
   offset: number,
 ): Promise<CommentPage> {
   const method = TaskCommentService.method.list;
-  const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID, offset, limit: 50 }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, { taskId: taskID, offset, limit: 50 }),
+  );
   const response = requireUnarySuccess(method, result);
-  return { items: response.items.map(taskComment), nextOffset: response.nextOffset ?? null, totalCount: Number(response.totalCount) };
+  return {
+    items: response.items.map(taskComment),
+    nextOffset: response.nextOffset ?? null,
+    totalCount: Number(response.totalCount),
+  };
 }
 
 export async function addComment(
@@ -47,13 +60,22 @@ export async function addComment(
   author: string,
 ): Promise<TaskComment> {
   const method = TaskCommentService.method.add;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    taskId: taskID, body, author: taskCommentAuthor.encode(author),
-  }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      taskId: taskID,
+      body,
+      author: taskCommentAuthor.encode(author),
+    }),
+  );
   return taskComment(requireUnarySuccess(method, result).comment);
 }
 
-export async function replaceComment(transport: DescriptorRpcTransport, commentID: string, body: string): Promise<void> {
+export async function replaceComment(
+  transport: DescriptorRpcTransport,
+  commentID: string,
+  body: string,
+): Promise<void> {
   const method = TaskCommentService.method.replace;
   const result = await transport.callDescriptor(method, create(method.input, { commentId: commentID, body }));
   requireUnarySuccess(method, result);

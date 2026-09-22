@@ -4,7 +4,6 @@ import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_t
 import * as attention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { z } from "zod";
 import { create } from "@app/server-api-contract";
 import { ReadinessSeverity, ServerService } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ApiClient } from "./client";
@@ -23,9 +22,14 @@ import {
   workflowDeleteResponse,
   workflowGraphSaveImpactResponse,
 } from "./clientWorkflowGraph.testFixtures";
-const appliedStartResponse = create(taskLifecycle.StartResultSchema, { outcome: { case: "success", value: {
-  outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
-} } });
+const appliedStartResponse = create(taskLifecycle.StartResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
+      outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-1" }] } },
+    },
+  },
+});
 describe("ApiClient", () => {
   it("rejects Workflow offsets above the safe-integer ceiling at the binary boundary", () => {
     const method = wf.WorkflowDefinitionService.method.list;
@@ -105,7 +109,9 @@ describe("ApiClient", () => {
         currentNodes: [{ nodeID: "node-1", transitionBranchKey: null, sessionID: null }],
       },
     });
-    const startCall = transport.descriptorCalls.find((call) => call.descriptor === taskLifecycle.TaskLifecycleService.method.start);
+    const startCall = transport.descriptorCalls.find(
+      (call) => call.descriptor === taskLifecycle.TaskLifecycleService.method.start,
+    );
     expect(startCall?.options).toEqual({ timeoutMs: null });
     expect(startCall?.request).toMatchObject({ taskId: "task-1" });
   });
@@ -132,7 +138,8 @@ describe("ApiClient", () => {
       {
         descriptor: taskRead.BoardReadService.method.get,
         request: create(taskRead.BoardReadService.method.get.input, {
-          projectId: "project-1", labelFilter: { filter: { case: "none", value: {} } },
+          projectId: "project-1",
+          labelFilter: { filter: { case: "none", value: {} } },
         }),
       },
     ]);
@@ -162,7 +169,9 @@ describe("ApiClient", () => {
         projectId: "project-1",
         workflowId: "11111111-1111-4111-8111-111111111111",
         nodeId: "node-1",
-        labelFilter: { filter: { case: "named", value: { mode: taskRead.NamedLabelFilterMode.ALL, labelIds: [labelID] } } },
+        labelFilter: {
+          filter: { case: "named", value: { mode: taskRead.NamedLabelFilterMode.ALL, labelIds: [labelID] } },
+        },
         pageSize: 25,
         sort: { field: taskRead.ListSortField.LABELS, direction: taskRead.ListSortDirection.ASC },
         offset: 25,
@@ -205,7 +214,9 @@ describe("ApiClient", () => {
   });
   it("hides workflow join nodes from board columns and groups", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ descriptor: taskRead.BoardReadService.method.get, result: boardWithJoinResponse }]),
+      new FakeRpcTransport([
+        { descriptor: taskRead.BoardReadService.method.get, result: boardWithJoinResponse },
+      ]),
       unexpectedProjectOverflow,
     );
     await expect(
@@ -221,7 +232,9 @@ describe("ApiClient", () => {
   });
   it("parses required empty current task execution arrays", async () => {
     const client = new ApiClient(
-      new FakeRpcTransport([{ descriptor: taskRead.TaskReadService.method.get, result: emptyTaskDetailResponse }]),
+      new FakeRpcTransport([
+        { descriptor: taskRead.TaskReadService.method.get, result: emptyTaskDetailResponse },
+      ]),
       unexpectedProjectOverflow,
     );
     await expect(client.getTask("task-1")).resolves.toMatchObject({
@@ -238,19 +251,31 @@ describe("ApiClient", () => {
     const transport = new FakeRpcTransport([
       {
         descriptor: attention.AttentionReadService.method.list,
-        result: create(attention.AttentionListResultSchema, { outcome: { case: "success", value: {
-          items: [], generatedAt: { seconds: 0n, nanos: 1_000_000 },
-        } } }),
+        result: create(attention.AttentionListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [],
+              generatedAt: { seconds: 0n, nanos: 1_000_000 },
+            },
+          },
+        }),
       },
       {
         descriptor: attention.AttentionReadService.method.listTask,
-        result: create(attention.TaskAttentionListResultSchema, { outcome: { case: "success", value: {
-          items: [], generatedAt: { seconds: 0n, nanos: 2_000_000 },
-        } } }),
+        result: create(attention.TaskAttentionListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              items: [],
+              generatedAt: { seconds: 0n, nanos: 2_000_000 },
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: "" });
+    await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
     await expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
     expect(transport.descriptorCalls).toEqual([
       {
@@ -268,12 +293,17 @@ describe("ApiClient", () => {
       new FakeRpcTransport([
         {
           descriptor: taskRead.TaskReadService.method.get,
-          result: create(taskRead.GetResultSchema, { outcome: { case: "success", value: {
-            task: create(taskRead.TaskDetailSchema, {
-              ...emptyTaskDetail,
-              sourceUrl: "https://github.com/respawn-llc/kent/issues/1",
-            }),
-          } } }),
+          result: create(taskRead.GetResultSchema, {
+            outcome: {
+              case: "success",
+              value: {
+                task: create(taskRead.TaskDetailSchema, {
+                  ...emptyTaskDetail,
+                  sourceUrl: "https://github.com/respawn-llc/kent/issues/1",
+                }),
+              },
+            },
+          }),
         },
       ]),
       unexpectedProjectOverflow,
@@ -928,51 +958,56 @@ describe("ApiClient", () => {
   });
 });
 const emptyBoard = {
-    projectId: "project-1",
-    project: {
-      projectKey: "proj",
-      displayName: "Project",
-      defaultWorkspaceId: "workspace-1",
-      attachedWorkspaceCount: 1,
-    },
-    generatedAt: { seconds: 0n, nanos: 1_000_000 },
+  projectId: "project-1",
+  project: {
+    projectKey: "proj",
+    displayName: "Project",
+    defaultWorkspaceId: "workspace-1",
+    attachedWorkspaceCount: 1,
+  },
+  generatedAt: { seconds: 0n, nanos: 1_000_000 },
 };
 const emptyBoardResponse = create(taskRead.BoardGetResultSchema, {
   outcome: { case: "success", value: { board: emptyBoard } },
 });
-const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, { outcome: { case: "success", value: {
-  board: {
-    ...emptyBoard,
-    selectedWorkflow: {
-      workflowId: "11111111-1111-4111-8111-111111111111",
-      displayName: "Workflow",
-      description: "",
-      version: 1n,
-      isProjectDefault: true,
-      validForTaskCreation: true,
+const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
+      board: {
+        ...emptyBoard,
+        selectedWorkflow: {
+          workflowId: "11111111-1111-4111-8111-111111111111",
+          displayName: "Workflow",
+          description: "",
+          version: 1n,
+          isProjectDefault: true,
+          validForTaskCreation: true,
+        },
+        groups: [
+          {
+            groupId: boundaryGraphIDs.nodeGroup,
+            key: "review",
+            displayName: "Review",
+            sortOrder: 1,
+            nodeIds: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
+          },
+          {
+            groupId: boundaryGraphIDs.joinOnlyNodeGroup,
+            key: "join_only",
+            displayName: "Join Only",
+            sortOrder: 2,
+            nodeIds: [boundaryGraphIDs.joinNode],
+          },
+        ],
+        columns: [
+          boardColumnResponse(boundaryGraphIDs.node, wf.NodeKind.WORKFLOW_NODE_KIND_AGENT),
+          boardColumnResponse(boundaryGraphIDs.joinNode, wf.NodeKind.WORKFLOW_NODE_KIND_JOIN),
+        ],
+      },
     },
-    groups: [
-      {
-        groupId: boundaryGraphIDs.nodeGroup,
-        key: "review",
-        displayName: "Review",
-        sortOrder: 1,
-        nodeIds: [boundaryGraphIDs.node, boundaryGraphIDs.joinNode],
-      },
-      {
-        groupId: boundaryGraphIDs.joinOnlyNodeGroup,
-        key: "join_only",
-        displayName: "Join Only",
-        sortOrder: 2,
-        nodeIds: [boundaryGraphIDs.joinNode],
-      },
-    ],
-    columns: [
-      boardColumnResponse(boundaryGraphIDs.node, wf.NodeKind.WORKFLOW_NODE_KIND_AGENT),
-      boardColumnResponse(boundaryGraphIDs.joinNode, wf.NodeKind.WORKFLOW_NODE_KIND_JOIN),
-    ],
   },
-} } });
+});
 function boardColumnResponse(nodeID: string, kind: wf.NodeKind) {
   return {
     node: {
@@ -988,60 +1023,71 @@ function boardColumnResponse(nodeID: string, kind: wf.NodeKind) {
     taskCount: 0,
   };
 }
-const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSchema, { outcome: { case: "success", value: {
-  projectId: "project-1",
-  workflowId: "11111111-1111-4111-8111-111111111111",
-  nodeId: "node-1",
-  nextOffset: 50,
-  generatedAt: { seconds: 0n, nanos: 1_000_000 },
-} } });
-const emptyTaskDetail = create(taskRead.TaskDetailSchema, {
-    summary: {
-      id: "task-1",
+const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSchema, {
+  outcome: {
+    case: "success",
+    value: {
       projectId: "project-1",
       workflowId: "11111111-1111-4111-8111-111111111111",
-      shortId: "PROJ-1",
-      title: "Task",
-      createdAt: { seconds: 0n, nanos: 1_000_000 },
-      updatedAt: { seconds: 0n, nanos: 1_000_000 },
-      done: false,
+      nodeId: "node-1",
+      nextOffset: 50,
+      generatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
-    project: {
-      projectKey: "PROJ", displayName: "Project", defaultWorkspaceId: "workspace-1", attachedWorkspaceCount: 1,
-    },
-    workflow: {
-      workflowId: "11111111-1111-4111-8111-111111111111",
-      displayName: "Delivery",
-      version: 1n,
-    },
-    body: "Body",
-    sourceWorkspace: {
-      workspaceId: "workspace-1", displayName: "Project", rootPath: "/tmp/project",
-      availability: ProjectAvailability.AVAILABLE, isPrimary: true,
-      updatedAt: { seconds: 0n, nanos: 1_000_000 },
-    },
-    status: {
-      kind: taskRead.TaskStatusKind.BACKLOG,
-      nativeState: taskRead.TaskNativeState.ACTIVE,
-    },
-    actions: {
-      canStart: true,
-      canDelete: true,
-    },
-    labelIds: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
-    dependencies: {
-      directions: [
-        {
-          direction: taskRead.DependencyDirection.BLOCKED_BY,
-          unsatisfiedCount: 0,
-          addAvailability: { availability: { case: "available", value: { remainingCapacity: 5 } } },
-        },
-        {
-          direction: taskRead.DependencyDirection.BLOCKS,
-          addAvailability: { availability: { case: "available", value: { remainingCapacity: 4 } } },
-        },
-      ],
-    },
+  },
+});
+const emptyTaskDetail = create(taskRead.TaskDetailSchema, {
+  summary: {
+    id: "task-1",
+    projectId: "project-1",
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    shortId: "PROJ-1",
+    title: "Task",
+    createdAt: { seconds: 0n, nanos: 1_000_000 },
+    updatedAt: { seconds: 0n, nanos: 1_000_000 },
+    done: false,
+  },
+  project: {
+    projectKey: "PROJ",
+    displayName: "Project",
+    defaultWorkspaceId: "workspace-1",
+    attachedWorkspaceCount: 1,
+  },
+  workflow: {
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    displayName: "Delivery",
+    version: 1n,
+  },
+  body: "Body",
+  sourceWorkspace: {
+    workspaceId: "workspace-1",
+    displayName: "Project",
+    rootPath: "/tmp/project",
+    availability: ProjectAvailability.AVAILABLE,
+    isPrimary: true,
+    updatedAt: { seconds: 0n, nanos: 1_000_000 },
+  },
+  status: {
+    kind: taskRead.TaskStatusKind.BACKLOG,
+    nativeState: taskRead.TaskNativeState.ACTIVE,
+  },
+  actions: {
+    canStart: true,
+    canDelete: true,
+  },
+  labelIds: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
+  dependencies: {
+    directions: [
+      {
+        direction: taskRead.DependencyDirection.BLOCKED_BY,
+        unsatisfiedCount: 0,
+        addAvailability: { availability: { case: "available", value: { remainingCapacity: 5 } } },
+      },
+      {
+        direction: taskRead.DependencyDirection.BLOCKS,
+        addAvailability: { availability: { case: "available", value: { remainingCapacity: 4 } } },
+      },
+    ],
+  },
 });
 const emptyTaskDetailResponse = create(taskRead.GetResultSchema, {
   outcome: { case: "success", value: { task: emptyTaskDetail } },

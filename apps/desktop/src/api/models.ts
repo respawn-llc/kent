@@ -645,7 +645,7 @@ export type ApprovalSnapshot = Readonly<{
 
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
-  nextPageToken: string;
+  nextPageToken: string | null;
   generatedAt: number;
 }>;
 

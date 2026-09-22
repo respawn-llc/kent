@@ -14,7 +14,11 @@ import {
   type LabelFilter,
   type AssignedLabelIds,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
-import { TaskLabelService, TaskLifecycleService, DependencyRole } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  TaskLabelService,
+  TaskLifecycleService,
+  DependencyRole,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { throwWorkflowLabelFailure } from "./workflowLabelFailure";
 import { throwTaskDependencyFailure } from "./taskDependencyFailure";
@@ -177,23 +181,28 @@ export async function createTask(
   input: TaskMutationInput,
 ): Promise<CreatedTaskSummary> {
   const method = TaskLifecycleService.method.create;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    projectId: input.projectID,
-    workflowId: input.workflowID,
-    title: input.title,
-    body: input.body,
-    sourceWorkspaceId: input.sourceWorkspaceID,
-    labelIds: [...input.labelIDs],
-    dependencyIntents: input.dependencyIntents.map((intent) => ({
-      relatedTaskId: intent.relatedTaskID,
-      newTaskRole: intent.newTaskRole === "blocker" ? DependencyRole.BLOCKER : DependencyRole.BLOCKED,
-    })),
-  }));
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      projectId: input.projectID,
+      workflowId: input.workflowID,
+      title: input.title,
+      body: input.body,
+      sourceWorkspaceId: input.sourceWorkspaceID,
+      labelIds: [...input.labelIDs],
+      dependencyIntents: input.dependencyIntents.map((intent) => ({
+        relatedTaskId: intent.relatedTaskID,
+        newTaskRole: intent.newTaskRole === "blocker" ? DependencyRole.BLOCKER : DependencyRole.BLOCKED,
+      })),
+    }),
+  );
   throwWorkflowLabelFailure(method, result.outcome);
   throwTaskDependencyFailure(method, result.outcome);
-  if (result.outcome.case === "error" &&
-      classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
-      result.outcome.value.detail.case === "createSelection") {
+  if (
+    result.outcome.case === "error" &&
+    classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
+    result.outcome.value.detail.case === "createSelection"
+  ) {
     const detail = result.outcome.value.detail.value;
     throw new WorkflowTaskCreateSelectionError(protobufRpcError(method, result.outcome.value), {
       reason: taskCreateSelectionReason.decode(detail.reason),
@@ -206,7 +215,10 @@ export async function createTask(
   return { id: task.id, shortID: task.shortId, title: task.title, workflowID: task.workflowId };
 }
 
-export async function listTasks(transport: DescriptorRpcTransport, input: TaskListInput): Promise<TaskListPage> {
+export async function listTasks(
+  transport: DescriptorRpcTransport,
+  input: TaskListInput,
+): Promise<TaskListPage> {
   const method = TaskReadService.method.list;
   const result = await transport.callDescriptor(
     method,

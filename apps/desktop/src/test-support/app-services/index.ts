@@ -5,7 +5,16 @@ import {
   ServerService,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ProjectCatalogService } from "@app/server-api-contract/gen/kent/api/project/project_pb";
-import { ProjectLabelService } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import {
+  ProjectLabelService,
+  ProjectSubscriptionService,
+  WorkflowSubscriptionService,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import {
+  AttentionNotificationService,
+  AttentionReadService,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { TaskCommentService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { createElement, useMemo, type ReactNode } from "react";
@@ -135,6 +144,24 @@ function createTestLogger(): TestLogger {
 
 export const startupRoutes: readonly FakeRoute[] = [
   {
+    subscriptionDescriptor: ProjectSubscriptionService.method.subscribe,
+    startResult: create(ProjectSubscriptionService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
+  {
+    subscriptionDescriptor: WorkflowSubscriptionService.method.subscribe,
+    startResult: create(WorkflowSubscriptionService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
+  {
+    subscriptionDescriptor: AttentionNotificationService.method.subscribe,
+    startResult: create(AttentionNotificationService.method.subscribe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  },
+  {
     descriptor: ServerService.method.getReadiness,
     result: create(GetReadinessResultSchema, {
       outcome: {
@@ -168,20 +195,19 @@ export const startupRoutes: readonly FakeRoute[] = [
     }),
   },
   {
-    method: "workflow.attention.list",
-    result: {
-      items: [],
-      next_page_token: "",
-      generated_at_unix_ms: 1,
-    },
+    descriptor: AttentionReadService.method.list,
+    result: create(AttentionReadService.method.list.output, {
+      outcome: {
+        case: "success",
+        value: {
+          generatedAt: { seconds: 0n, nanos: 1_000_000 },
+        },
+      },
+    }),
   },
   {
-    method: "workflow.task.comment.list",
-    result: {
-      items: [],
-      next_offset: null,
-      total_count: 0,
-    },
+    descriptor: TaskCommentService.method.list,
+    result: create(TaskCommentService.method.list.output, { outcome: { case: "success", value: {} } }),
   },
   {
     descriptor: ProjectLabelService.method.list,

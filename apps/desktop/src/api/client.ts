@@ -269,7 +269,7 @@ export class ApiClient implements ApiService {
     return workflowBoard.listBoardNodeCards(this.#transport, input);
   }
 
-  async listAttention(pageToken: string): Promise<AttentionPage> {
+  async listAttention(pageToken: string | null): Promise<AttentionPage> {
     return attention.listAttention(this.#transport, pageToken);
   }
 

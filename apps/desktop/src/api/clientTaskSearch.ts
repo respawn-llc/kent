@@ -1,5 +1,9 @@
 import { classifyResultFailure, create } from "@app/server-api-contract";
-import { TaskReadService, type SearchHit, type SearchSource } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import {
+  TaskReadService,
+  type SearchHit,
+  type SearchSource,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { ContractError, TaskSearchError } from "./errors";
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import { taskStatus } from "./clientTaskProjection";
@@ -13,20 +17,26 @@ export async function searchTasks(
   signal?: AbortSignal,
 ): Promise<TaskSearchResponse> {
   const method = TaskReadService.method.search;
-  const result = await transport.callDescriptor(method, create(method.input, {
-    mode: taskSearchMode.encode(input.mode),
-    query: input.query,
-    context: input.context,
-    caseSensitive: input.caseSensitive,
-    includeComments: input.includeComments,
-    projectIds: [...(input.projectIDs ?? [])],
-    statusKinds: (input.statusKinds ?? []).map(taskStatusKind.encode),
-    pageSize: input.pageSize,
-    offset: input.offset,
-  }), signal === undefined ? undefined : { signal });
-  if (result.outcome.case === "error" &&
-      classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
-      result.outcome.value.detail.case === "normalizedTooShort") {
+  const result = await transport.callDescriptor(
+    method,
+    create(method.input, {
+      mode: taskSearchMode.encode(input.mode),
+      query: input.query,
+      context: input.context,
+      caseSensitive: input.caseSensitive,
+      includeComments: input.includeComments,
+      projectIds: [...(input.projectIDs ?? [])],
+      statusKinds: (input.statusKinds ?? []).map(taskStatusKind.encode),
+      pageSize: input.pageSize,
+      offset: input.offset,
+    }),
+    signal === undefined ? undefined : { signal },
+  );
+  if (
+    result.outcome.case === "error" &&
+    classifyResultFailure(method.output, result.outcome.value).kind !== "generic" &&
+    result.outcome.value.detail.case === "normalizedTooShort"
+  ) {
     throw new TaskSearchError(protobufRpcError(method, result.outcome.value), "normalized_too_short");
   }
   const response = requireUnarySuccess(method, result);

@@ -1,6 +1,10 @@
 import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
-import type { SelectionRequired, Comment as GeneratedComment, ActivityItem as GeneratedActivity } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import type {
+  SelectionRequired,
+  Comment as GeneratedComment,
+  ActivityItem as GeneratedActivity,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
 import type {
@@ -37,7 +41,10 @@ import {
   taskUnavailableTargetCause,
   taskCommentAuthor,
 } from "./workflowProtoValues";
-import type { WorkflowExecutionTarget, WorkflowExecutionTargetSelectionRequirement } from "./workflowExecutionTarget";
+import type {
+  WorkflowExecutionTarget,
+  WorkflowExecutionTargetSelectionRequirement,
+} from "./workflowExecutionTarget";
 
 export function taskStatus(value: pb.TaskStatus | undefined): TaskStatus {
   if (value === undefined) throw new ContractError("Task status is required.");
@@ -49,10 +56,10 @@ export function taskStatus(value: pb.TaskStatus | undefined): TaskStatus {
   };
 }
 
-export function taskDependencyProgress(value: pb.DependencyProgress | undefined): TaskDependencyProgress | null {
-  return value === undefined
-    ? null
-    : { satisfiedCount: value.satisfiedCount, totalCount: value.totalCount };
+export function taskDependencyProgress(
+  value: pb.DependencyProgress | undefined,
+): TaskDependencyProgress | null {
+  return value === undefined ? null : { satisfiedCount: value.satisfiedCount, totalCount: value.totalCount };
 }
 
 export function taskListPage(value: pb.ListSuccess): TaskListPage {
@@ -138,22 +145,27 @@ export function workflowBoard(value: pb.Board | undefined): WorkflowBoard {
   if (value?.project === undefined || value.generatedAt === undefined) {
     throw new ContractError("Board Project and generation time are required.");
   }
-  const columns = value.columns.map((column) => {
-    if (column.node === undefined) throw new ContractError("Board column Node is required.");
-    return {
-      id: column.node.nodeId,
-      key: column.node.key,
-      kind: workflowNodeKind.decode(column.node.kind),
-      name: column.node.displayName,
-      assigneeRole: column.node.assigneeRole ?? null,
-      outputFields: column.node.outputFields.map((field) => ({ name: field.name, description: field.description })),
-      groupID: column.groupId ?? null,
-      sortOrder: column.sortOrder,
-      isBacklog: column.isBacklog,
-      isDone: column.isDone,
-      taskCount: column.taskCount,
-    };
-  }).filter((column) => column.kind !== "join");
+  const columns = value.columns
+    .map((column) => {
+      if (column.node === undefined) throw new ContractError("Board column Node is required.");
+      return {
+        id: column.node.nodeId,
+        key: column.node.key,
+        kind: workflowNodeKind.decode(column.node.kind),
+        name: column.node.displayName,
+        assigneeRole: column.node.assigneeRole ?? null,
+        outputFields: column.node.outputFields.map((field) => ({
+          name: field.name,
+          description: field.description,
+        })),
+        groupID: column.groupId ?? null,
+        sortOrder: column.sortOrder,
+        isBacklog: column.isBacklog,
+        isDone: column.isDone,
+        taskCount: column.taskCount,
+      };
+    })
+    .filter((column) => column.kind !== "join");
   const visibleNodeIDs = new Set(columns.map((column) => column.id));
   return {
     projectID: value.projectId,
@@ -161,22 +173,26 @@ export function workflowBoard(value: pb.Board | undefined): WorkflowBoard {
     projectName: value.project.displayName,
     defaultWorkspaceID: value.project.defaultWorkspaceId,
     attachedWorkspaceCount: value.project.attachedWorkspaceCount,
-    selectedWorkflow: value.selectedWorkflow === undefined ? null : workflowPickerItem(value.selectedWorkflow),
+    selectedWorkflow:
+      value.selectedWorkflow === undefined ? null : workflowPickerItem(value.selectedWorkflow),
     workflows: value.workflows.map(workflowPickerItem),
-    groups: value.groups.map((group) => ({
-      id: group.groupId,
-      key: group.key,
-      name: group.displayName,
-      sortOrder: group.sortOrder,
-      nodeIDs: group.nodeIds.filter((nodeID) => visibleNodeIDs.has(nodeID)),
-    })).filter((group) => group.nodeIDs.length > 0),
+    groups: value.groups
+      .map((group) => ({
+        id: group.groupId,
+        key: group.key,
+        name: group.displayName,
+        sortOrder: group.sortOrder,
+        nodeIDs: group.nodeIds.filter((nodeID) => visibleNodeIDs.has(nodeID)),
+      }))
+      .filter((group) => group.nodeIDs.length > 0),
     columns,
     generatedAt: timestampMillis(value.generatedAt),
   };
 }
 
 export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccess): BoardNodeCardsPage {
-  if (value.generatedAt === undefined) throw new ContractError("Board card page generation time is required.");
+  if (value.generatedAt === undefined)
+    throw new ContractError("Board card page generation time is required.");
   return {
     projectID: value.projectId,
     workflowID: value.workflowId,
@@ -216,7 +232,8 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
 }
 
 export function taskComment(value: GeneratedComment | undefined): TaskComment {
-  if (value?.createdAt === undefined || value.updatedAt === undefined) throw new ContractError("Comment and its times are required.");
+  if (value?.createdAt === undefined || value.updatedAt === undefined)
+    throw new ContractError("Comment and its times are required.");
   return {
     id: value.id,
     taskID: value.taskId,
@@ -229,7 +246,8 @@ export function taskComment(value: GeneratedComment | undefined): TaskComment {
 }
 
 export function taskActivity(value: GeneratedActivity): ActivityItem {
-  if (value.occurredAt === undefined || value.updatedAt === undefined) throw new ContractError("Task activity times are required.");
+  if (value.occurredAt === undefined || value.updatedAt === undefined)
+    throw new ContractError("Task activity times are required.");
   const common = {
     id: value.activityId,
     taskID: value.taskId,
@@ -240,22 +258,33 @@ export function taskActivity(value: GeneratedActivity): ActivityItem {
     case "comment":
       return { ...common, type: "comment", comment: taskComment(value.activity.value) };
     case "sessionStarted":
-      return { ...common, type: "session_started", sessionID: value.activity.value.sessionId, sessionName: value.activity.value.name };
+      return {
+        ...common,
+        type: "session_started",
+        sessionID: value.activity.value.sessionId,
+        sessionName: value.activity.value.name,
+      };
     case undefined:
       throw new ContractError("Task activity variant is required.");
   }
 }
 
-export function taskTargetSelectionRequired(value: SelectionRequired): WorkflowExecutionTargetSelectionRequirement {
+export function taskTargetSelectionRequired(
+  value: SelectionRequired,
+): WorkflowExecutionTargetSelectionRequirement {
   switch (value.reason.case) {
     case "policyRequiresSelection":
       return { reason: "policy_requires_selection" };
     case "originalTargetUnavailable":
-      return { reason: "original_target_unavailable", originalTargetCause: taskOriginalTargetCause.decode(value.reason.value.cause) };
+      return {
+        reason: "original_target_unavailable",
+        originalTargetCause: taskOriginalTargetCause.decode(value.reason.value.cause),
+      };
     case "configuredTargetUnavailable": {
       const facts = value.reason.value;
       const mode = workflowExecutionTargetMode.decode(facts.mode);
-      if (mode === "none" || mode === "ask_on_first_execution") throw new ContractError("Configured target must be managed.");
+      if (mode === "none" || mode === "ask_on_first_execution")
+        throw new ContractError("Configured target must be managed.");
       return {
         reason: "configured_target_unavailable",
         configuredTarget: { mode, requestedRef: facts.requestedRef ?? null },
@@ -273,7 +302,11 @@ export function taskExecutionTarget(value: pb.ExecutionTarget | undefined): Work
   if (mode === "none") {
     return { mode, requestedRef: null, resolvedRef: null, commitOID: null, provenance: "resolved" };
   }
-  if (mode === "ask_on_first_execution" || value.requestedRef === undefined || value.commitOid === undefined) {
+  if (
+    mode === "ask_on_first_execution" ||
+    value.requestedRef === undefined ||
+    value.commitOid === undefined
+  ) {
     throw new ContractError("Task execution target is unresolved.");
   }
   return {
@@ -292,18 +325,21 @@ export function taskDependencyItem(value: pb.DependencyItem): TaskDependencyItem
     title: value.title,
     workflowID: value.workflowId,
     status: taskStatus(value.status),
-    satisfaction: value.satisfaction === undefined ? null : taskDependencySatisfaction.decode(value.satisfaction),
+    satisfaction:
+      value.satisfaction === undefined ? null : taskDependencySatisfaction.decode(value.satisfaction),
   };
 }
 
-function taskDependencyAvailability(value: pb.DependencyAddAvailability | undefined): TaskDependencyAddAvailability {
+function taskDependencyAvailability(
+  value: pb.DependencyAddAvailability | undefined,
+): TaskDependencyAddAvailability {
   const availability = value?.availability;
   switch (availability?.case) {
     case "available":
       return { kind: "available", remainingCapacity: availability.value.remainingCapacity };
     case "limitReached":
       return { kind: "limit_reached" };
-    default:
+    case undefined:
       throw new ContractError("Task dependency availability is required.");
   }
 }
@@ -325,8 +361,12 @@ export function taskDependencies(value: pb.TaskDependencies | undefined): TaskDe
 }
 
 export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
-  if (value?.summary?.createdAt === undefined || value.summary.updatedAt === undefined ||
-      value.project === undefined || value.workflow === undefined) {
+  if (
+    value?.summary?.createdAt === undefined ||
+    value.summary.updatedAt === undefined ||
+    value.project === undefined ||
+    value.workflow === undefined
+  ) {
     throw new ContractError("Task summary, times, Project, and Workflow are required.");
   }
   return {
@@ -357,7 +397,11 @@ export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
     currentScripts: value.currentScripts.map((script) => {
       if (script.currentNode === undefined) throw new ContractError("Current Script Node is required.");
       return {
-        currentNode: { nodeID: script.currentNode.nodeId, transitionBranchKey: script.currentNode.transitionBranchKey ?? null, sessionID: null },
+        currentNode: {
+          nodeID: script.currentNode.nodeId,
+          transitionBranchKey: script.currentNode.transitionBranchKey ?? null,
+          sessionID: null,
+        },
         path: script.path,
       };
     }),

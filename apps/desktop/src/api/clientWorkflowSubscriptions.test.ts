@@ -16,21 +16,38 @@ const workflowID = "11111111-1111-4111-8111-111111111111";
 const projectService = pb.ProjectSubscriptionService.method;
 const workflowService = pb.WorkflowSubscriptionService.method;
 const event = create(pb.ProjectEventSchema, {
-  action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING, resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
-  occurredAt: { seconds: 0n, nanos: 1_000_000 }, primaryEntityId: "task-1",
-  projectId: "project-1", workflowId: workflowID, relatedIds: ["session-1", "ask-1"],
+  action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING,
+  resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+  occurredAt: { seconds: 0n, nanos: 1_000_000 },
+  primaryEntityId: "task-1",
+  projectId: "project-1",
+  workflowId: workflowID,
+  relatedIds: ["session-1", "ask-1"],
 });
 const projectedEvent: WorkflowProjectEvent = {
-  action: "question_waiting", resource: "task", occurredAtUnixMs: 1, primaryEntityID: "task-1",
-  projectID: "project-1", workflowID, relatedIDs: ["session-1", "ask-1"],
+  action: "question_waiting",
+  resource: "task",
+  occurredAtUnixMs: 1,
+  primaryEntityID: "task-1",
+  projectID: "project-1",
+  workflowID,
+  relatedIDs: ["session-1", "ask-1"],
 };
 
 function transport() {
   return new FakeRpcTransport([
-    { subscriptionDescriptor: projectService.subscribe,
-      startResult: create(pb.ProjectSubscriptionStartResultSchema, { outcome: { case: "success", value: {} } }) },
-    { subscriptionDescriptor: workflowService.subscribe,
-      startResult: create(pb.WorkflowSubscriptionStartResultSchema, { outcome: { case: "success", value: {} } }) },
+    {
+      subscriptionDescriptor: projectService.subscribe,
+      startResult: create(pb.ProjectSubscriptionStartResultSchema, {
+        outcome: { case: "success", value: {} },
+      }),
+    },
+    {
+      subscriptionDescriptor: workflowService.subscribe,
+      startResult: create(pb.WorkflowSubscriptionStartResultSchema, {
+        outcome: { case: "success", value: {} },
+      }),
+    },
   ]);
 }
 
@@ -42,13 +59,24 @@ describe("ApiClient workflow subscriptions", () => {
     observeProject(client, events);
     await act(async () => {
       rpc.emitDescriptor(projectService.subscribe, projectService.event, event);
-      rpc.emitDescriptor(projectService.subscribe, projectService.event, create(pb.ProjectEventSchema, {
-        ...event, action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_DEPENDENCIES_CHANGED, relatedIds: ["task-2"],
-      }));
+      rpc.emitDescriptor(
+        projectService.subscribe,
+        projectService.event,
+        create(pb.ProjectEventSchema, {
+          ...event,
+          action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_DEPENDENCIES_CHANGED,
+          relatedIds: ["task-2"],
+        }),
+      );
     });
-    expect(events).toEqual([projectedEvent, {
-      ...projectedEvent, action: "dependencies_changed", relatedIDs: ["task-2"],
-    }]);
+    expect(events).toEqual([
+      projectedEvent,
+      {
+        ...projectedEvent,
+        action: "dependencies_changed",
+        relatedIDs: ["task-2"],
+      },
+    ]);
   });
 
   it("adapts workflow-only events without delivering them to a Project subscription", async () => {
@@ -59,10 +87,17 @@ describe("ApiClient workflow subscriptions", () => {
     observeProject(client, projectEvents);
     client.subscribeWorkflow(workflowID, eventCollector(workflowEvents));
     await act(async () => {
-      rpc.emitDescriptor(workflowService.subscribe, workflowService.event, create(pb.ProjectEventSchema, {
-        resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW, action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED,
-        workflowId: workflowID, primaryEntityId: workflowID, occurredAt: event.occurredAt,
-      }));
+      rpc.emitDescriptor(
+        workflowService.subscribe,
+        workflowService.event,
+        create(pb.ProjectEventSchema, {
+          resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW,
+          action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED,
+          workflowId: workflowID,
+          primaryEntityId: workflowID,
+          occurredAt: event.occurredAt,
+        }),
+      );
     });
     expect(workflowEvents).toMatchObject([{ resource: "workflow", action: "graph_saved", projectID: null }]);
     expect(projectEvents).toEqual([]);
@@ -73,14 +108,29 @@ describe("ApiClient workflow subscriptions", () => {
     const client = new ApiClient(rpc, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     observeProject(client, events);
-    rpc.emitDescriptor(projectService.subscribe, projectService.event, create(pb.ProjectEventSchema, {
-      action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_RENAMED, resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL,
-      projectId: "project-1", primaryEntityId: "label-1", occurredAt: event.occurredAt,
-    }));
-    rpc.emitDescriptor(projectService.subscribe, projectService.event, create(pb.ProjectEventSchema, {
-      ...event, action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LABELS_CHANGED, relatedIds: [],
-    }));
-    await waitFor(() => expect(events).toHaveLength(2));
+    rpc.emitDescriptor(
+      projectService.subscribe,
+      projectService.event,
+      create(pb.ProjectEventSchema, {
+        action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_RENAMED,
+        resource: pb.ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL,
+        projectId: "project-1",
+        primaryEntityId: "label-1",
+        occurredAt: event.occurredAt,
+      }),
+    );
+    rpc.emitDescriptor(
+      projectService.subscribe,
+      projectService.event,
+      create(pb.ProjectEventSchema, {
+        ...event,
+        action: pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LABELS_CHANGED,
+        relatedIds: [],
+      }),
+    );
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     expect(events).toMatchObject([
       { action: "renamed", resource: "label", workflowID: null, relatedIDs: [] },
       { action: "labels_changed", resource: "task", workflowID, relatedIDs: [] },
@@ -103,20 +153,36 @@ describe("ApiClient workflow subscriptions", () => {
     const client = new ApiClient(rpc, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     client.subscribeWorkflow(workflowID, eventCollector(events));
-    for (const action of [pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED, pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_CANCELED]) {
-      expect(() => rpc.emitDescriptor(workflowService.subscribe, workflowService.event,
-        create(pb.ProjectEventSchema, { ...event, action }))).toThrow();
+    for (const action of [
+      pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED,
+      pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_CANCELED,
+    ]) {
+      expect(() => {
+        rpc.emitDescriptor(
+          workflowService.subscribe,
+          workflowService.event,
+          create(pb.ProjectEventSchema, { ...event, action }),
+        );
+      }).toThrow();
     }
     expect(events).toEqual([]);
   });
 
   it("surfaces a failed start and delivers successful start and completion outcomes", () => {
-    const rpc = new FakeRpcTransport([{
-      subscriptionDescriptor: workflowService.subscribe,
-      startResult: create(pb.WorkflowSubscriptionStartResultSchema, { outcome: { case: "error", value: {
-        code: "workflow_not_found", detail: { case: "workflowNotFound", value: { workflowId: workflowID } },
-      } } }),
-    }]);
+    const rpc = new FakeRpcTransport([
+      {
+        subscriptionDescriptor: workflowService.subscribe,
+        startResult: create(pb.WorkflowSubscriptionStartResultSchema, {
+          outcome: {
+            case: "error",
+            value: {
+              code: "workflow_not_found",
+              detail: { case: "workflowNotFound", value: { workflowId: workflowID } },
+            },
+          },
+        }),
+      },
+    ]);
     const errors: Error[] = [];
     new ApiClient(rpc, unexpectedProjectOverflow).subscribeWorkflow(workflowID, eventCollector([], errors));
     rpc.openDescriptor(workflowService.subscribe);
@@ -126,12 +192,17 @@ describe("ApiClient workflow subscriptions", () => {
     const opened = vi.fn();
     const completed = vi.fn();
     const subscription = new ApiClient(success, unexpectedProjectOverflow).subscribeWorkflow(workflowID, {
-      ...eventCollector([]), onOpen: opened, onComplete: completed,
+      ...eventCollector([]),
+      onOpen: opened,
+      onComplete: completed,
     });
     success.openDescriptor(workflowService.subscribe);
     expect(opened).toHaveBeenCalledOnce();
-    success.completeDescriptor(workflowService.subscribe, workflowService.complete,
-      create(StreamCompletionSchema, { code: -32000, message: "stream stopped" }));
+    success.completeDescriptor(
+      workflowService.subscribe,
+      workflowService.complete,
+      create(StreamCompletionSchema, { code: -32000, message: "stream stopped" }),
+    );
     expect(completed).toHaveBeenCalledWith(-32000, "stream stopped");
     subscription.close();
     expect(success.descriptorSubscriptions).toEqual([]);
@@ -155,8 +226,14 @@ function observeProject(client: ApiService, events: WorkflowProjectEvent[], erro
 
 function eventCollector(events: WorkflowProjectEvent[], errors: Error[] = []) {
   return {
-    onEvent(event: WorkflowProjectEvent) { events.push(event); },
-    onComplete() { return; },
-    onError(error: Error) { errors.push(error); },
+    onEvent(event: WorkflowProjectEvent) {
+      events.push(event);
+    },
+    onComplete() {
+      return;
+    },
+    onError(error: Error) {
+      errors.push(error);
+    },
   };
 }

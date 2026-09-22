@@ -29,25 +29,20 @@ export function projectEvents(
       };
       return Effect.acquireRelease(
         Effect.sync(() =>
-          subscribeWorkflowProject(
-            transport,
-            projectID,
-            {
-              onOpen: () => {
-                offer({ kind: "open" });
-              },
-              onEvent: (event) => {
-                if (event.projectID === null || event.projectID === projectID)
-                  offer({ kind: "event", event });
-              },
-              onComplete: (code, message) => {
-                offer({ kind: "complete", code, message });
-              },
-              onError: (error) => {
-                offer({ kind: "error", error });
-              },
+          subscribeWorkflowProject(transport, projectID, {
+            onOpen: () => {
+              offer({ kind: "open" });
             },
-          ),
+            onEvent: (event) => {
+              if (event.projectID === null || event.projectID === projectID) offer({ kind: "event", event });
+            },
+            onComplete: (code, message) => {
+              offer({ kind: "complete", code, message });
+            },
+            onError: (error) => {
+              offer({ kind: "error", error });
+            },
+          }),
         ),
         (subscription) =>
           Effect.sync(() => {
