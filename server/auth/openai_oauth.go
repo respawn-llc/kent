@@ -90,29 +90,6 @@ func normalizeOpenAIOAuthOptions(opts OpenAIOAuthOptions) OpenAIOAuthOptions {
 	return opts
 }
 
-func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (OAuthMethod, error) {
-	opts = normalizeOpenAIOAuthOptions(opts)
-
-	code, err := requestOpenAIDeviceCode(ctx, opts)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	if onCode != nil {
-		onCode(code)
-	}
-
-	poll, err := pollOpenAIDeviceAuthToken(ctx, opts, code)
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-
-	method, err := exchangeOpenAIAuthorizationCode(ctx, opts, poll.AuthorizationCode, poll.CodeVerifier, issuerRedirectURI(opts))
-	if err != nil {
-		return OAuthMethod{}, err
-	}
-	return method, nil
-}
-
 func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (DeviceAuthorizationGrant, error) {
 	opts = normalizeOpenAIOAuthOptions(opts)
 	code, err := requestOpenAIDeviceCode(ctx, opts)

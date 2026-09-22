@@ -128,7 +128,7 @@ func TestDefaultOAuthHTTPClientNegotiatesAndDecodesCompressedResponse(t *testing
 	}
 }
 
-func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
+func TestCollectAndCompleteOpenAIDeviceAuthorizationGrant(t *testing.T) {
 	var pollCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -165,18 +165,32 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 	defer server.Close()
 
 	var shown DeviceCode
-	method, err := RunOpenAIDeviceCodeFlow(context.Background(), OpenAIOAuthOptions{
+	options := OpenAIOAuthOptions{
 		ClientID:    "client-1",
 		HTTPClient:  rewriteOAuthIssuerClient(server),
 		PollTimeout: 10 * time.Second,
-	}, func(code DeviceCode) {
+	}
+	grant, err := CollectOpenAIDeviceAuthorizationGrant(context.Background(), options, func(code DeviceCode) {
 		shown = code
 	})
 	if err != nil {
-		t.Fatalf("device code flow failed: %v", err)
+		t.Fatalf("collect device authorization grant failed: %v", err)
 	}
 	if shown.UserCode != "ABCD-1234" {
 		t.Fatalf("unexpected shown user code: %+v", shown)
+	}
+	if grant.AuthorizationCode != "auth-code-1" || grant.CodeVerifier != "verifier" {
+		t.Fatalf("unexpected device authorization grant: %+v", grant)
+	}
+
+	method, err := CompleteOpenAIDeviceAuthorizationGrant(
+		context.Background(),
+		options,
+		grant.AuthorizationCode,
+		grant.CodeVerifier,
+	)
+	if err != nil {
+		t.Fatalf("complete device authorization grant failed: %v", err)
 	}
 	if method.AccessToken != "access-1" || method.RefreshToken != "refresh-1" {
 		t.Fatalf("unexpected oauth tokens: %+v", method)
