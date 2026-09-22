@@ -109,7 +109,14 @@ function useProjectTaskGroupCounts(projectID: string) {
     });
     return {
       request: queryAtom(observer),
-      retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+      retry: Atom.fn(
+        () =>
+          Effect.promise(async () => {
+            const current = observer.getCurrentResult();
+            if (current.isEnabled && !current.isFetching) await observer.refetch();
+          }),
+        { concurrent: true },
+      ),
     };
   }, [api, client, projectID]);
   return { ...useAtomValue(model.request), refetch: useAtomSet(model.retry) };
@@ -125,6 +132,19 @@ function useProjectTaskGroupData(
   const queryClient = useQueryClient();
   const [retained] = useState(() => Atom.make(emptyGenerationState));
   useAtomMount(retained);
+  const disclosure = useMemo(
+    () =>
+      Atom.make((get) =>
+        Effect.sync(() => {
+          if (!enabled) {
+            get.set(retained, emptyGenerationState);
+            queryClient.removeQueries({ queryKey: queryKeys.projectTaskGroupRoot(projectID, group) });
+          }
+        }),
+      ),
+    [queryClient, projectID, group, enabled, retained],
+  );
+  useAtomMount(disclosure);
   const model = useMemo(() => {
     const observer = new InfiniteQueryObserver<
       TaskListPage,
@@ -153,8 +173,6 @@ function useProjectTaskGroupData(
     const observed = queryAtom(observer);
     const state = Atom.make((get) => {
       if (!enabled) {
-        get.set(retained, emptyGenerationState);
-        queryClient.removeQueries({ queryKey: queryKeys.projectTaskGroupRoot(projectID, group) });
         return emptyProjectTaskGroupData;
       }
       const query = get(observed);
@@ -187,11 +205,34 @@ function useProjectTaskGroupData(
     });
     return {
       state,
-      nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
-      previousPage: Atom.fn(() => Effect.promise(async () => observer.fetchPreviousPage()), {
-        concurrent: true,
-      }),
-      retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+      nextPage: Atom.fn(
+        () =>
+          Effect.promise(async () => {
+            const current = observer.getCurrentResult();
+            if (current.isEnabled && !current.isFetching && current.hasNextPage)
+              await observer.fetchNextPage();
+          }),
+        { concurrent: true },
+      ),
+      previousPage: Atom.fn(
+        () =>
+          Effect.promise(async () => {
+            const current = observer.getCurrentResult();
+            if (current.isEnabled && !current.isFetching && current.hasPreviousPage)
+              await observer.fetchPreviousPage();
+          }),
+        {
+          concurrent: true,
+        },
+      ),
+      retry: Atom.fn(
+        () =>
+          Effect.promise(async () => {
+            const current = observer.getCurrentResult();
+            if (current.isEnabled && !current.isFetching) await observer.refetch();
+          }),
+        { concurrent: true },
+      ),
     };
   }, [api, queryClient, projectID, group, enabled, sort, retained]);
   return {

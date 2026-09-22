@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import {
@@ -22,21 +22,35 @@ export function createHomeProjectPages(api: AppServices["api"], queryClient: Que
     getNextPageParam: (lastPage) => lastPage.nextPageToken ?? undefined,
     placeholderData: keepPreviousData,
   });
-  const observed = queryAtom(observer);
-  const request = Atom.make((get) => {
+  const lifetime = Atom.make((get) => {
     get.addFinalizer(() => {
       queryClient.removeQueries({ queryKey: queryKeys.projects, exact: true });
     });
-    return get(observed);
   });
   return {
-    request,
-    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
-    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+    request: queryAtom(observer),
+    lifetime,
+    nextPage: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
+        }),
+      { concurrent: true },
+    ),
+    retry: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching) await observer.refetch();
+        }),
+      { concurrent: true },
+    ),
   };
 }
 
 export function useProjectPages(model: ReturnType<typeof createHomeProjectPages>) {
+  useAtomMount(model.lifetime);
   return {
     ...useAtomValue(model.request),
     fetchNextPage: useAtomSet(model.nextPage),
@@ -67,8 +81,22 @@ export function createHomeAttentionPages(api: AppServices["api"], client: QueryC
   });
   return {
     request: queryAtom(observer),
-    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
-    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+    nextPage: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
+        }),
+      { concurrent: true },
+    ),
+    retry: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching) await observer.refetch();
+        }),
+      { concurrent: true },
+    ),
   };
 }
 

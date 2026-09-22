@@ -1,4 +1,4 @@
-import { fireEvent, render as renderReact, screen } from "@testing-library/react";
+import { act, fireEvent, render as renderReact, renderHook, screen, waitFor } from "@testing-library/react";
 import { useCallback, type ReactElement } from "react";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -7,6 +7,71 @@ import { appI18n, initializeI18n } from "@/i18n";
 import { clearLastProjectRoute, type SessionChatTarget } from "@/app-facade";
 import type { ProjectTasksViewMemory } from "./projectTasksViewMemory";
 import { HomeProjectContent } from "./HomeProjectContent";
+import { useHomeSessionPages } from "./HomeProjectModel";
+
+it.each(["main", "subagent"] as const)(
+  "rejects repeated %s paging and retry while retaining a pending page",
+  async (category) => {
+    const services = createTestServices([]);
+    const list = vi.spyOn(services.api, "listSessionPage").mockResolvedValue({
+      projectID: "project-1",
+      category,
+      sessions: [],
+      nextOffset: 50,
+    });
+    const view = renderHook(() => useHomeSessionPages("project-1", category, true), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    });
+    await waitFor(() => {
+      expect(view.result.current.isSuccess).toBe(true);
+    });
+    const response = deferred<Awaited<ReturnType<typeof services.api.listSessionPage>>>();
+    list.mockReturnValue(response.promise);
+    await act(async () => {
+      view.result.current.fetchNextPage();
+      view.result.current.fetchNextPage();
+      view.result.current.refetch();
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      response.resolve({ projectID: "project-1", category, sessions: [], nextOffset: null });
+    });
+  },
+);
+
+it.each(["main", "subagent"] as const)(
+  "ignores disabled %s requests and missing continuation edges",
+  async (category) => {
+    const services = createTestServices([]);
+    const list = vi.spyOn(services.api, "listSessionPage").mockResolvedValue({
+      projectID: "project-1",
+      category,
+      sessions: [],
+      nextOffset: null,
+    });
+    const view = renderHook(({ enabled }) => useHomeSessionPages("project-1", category, enabled), {
+      initialProps: { enabled: false },
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <TestAppProviders services={services}>{children}</TestAppProviders>
+      ),
+    });
+    await act(async () => {
+      view.result.current.fetchNextPage();
+      view.result.current.refetch();
+    });
+    expect(list).not.toHaveBeenCalled();
+    view.rerender({ enabled: true });
+    await waitFor(() => {
+      expect(view.result.current.isSuccess).toBe(true);
+    });
+    await act(async () => {
+      view.result.current.fetchNextPage();
+    });
+    expect(list).toHaveBeenCalledOnce();
+  },
+);
 
 type ProjectQueryFixture = Readonly<{
   data: Readonly<{ displayName: string; projectKey: string }> | undefined;

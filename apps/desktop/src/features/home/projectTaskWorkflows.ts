@@ -93,11 +93,33 @@ export function createProjectTaskWorkflowModel(api: ApiService, client: QueryCli
   return {
     request,
     available,
-    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
-    previousPage: Atom.fn(() => Effect.promise(async () => observer.fetchPreviousPage()), {
-      concurrent: true,
-    }),
-    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+    nextPage: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
+        }),
+      { concurrent: true },
+    ),
+    previousPage: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching && current.hasPreviousPage)
+            await observer.fetchPreviousPage();
+        }),
+      {
+        concurrent: true,
+      },
+    ),
+    retry: Atom.fn(
+      () =>
+        Effect.promise(async () => {
+          const current = observer.getCurrentResult();
+          if (current.isEnabled && !current.isFetching) await observer.refetch();
+        }),
+      { concurrent: true },
+    ),
   };
 }
 

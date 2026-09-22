@@ -81,6 +81,103 @@ describe("Project Task-list data ownership", () => {
     state.listRequests.length = 0;
   });
 
+  it.each(["next", "previous", "retry"] as const)(
+    "admits group %s once while retained rows are fetching",
+    async (action) => {
+      state.listPage = async (input) => ({
+        ...pageResponse(taskGroupForInput(input), input.offset ?? 0),
+        nextOffset: (input.offset ?? 0) + projectTaskGroupPageSize,
+      });
+      const harness = createHarness();
+      const view = renderHook(
+        () =>
+          useProjectTaskListData({
+            projectID: "project-1",
+            expanded: { active: true, backlog: false, done: false },
+          }),
+        { wrapper: ({ children }) => harness.render(children) },
+      );
+      await waitFor(() => {
+        expect(view.result.current.active.tasks).toHaveLength(1);
+      });
+      if (action === "previous") {
+        for (let page = 0; page < projectTaskGroupRetainedPages; page += 1) {
+          await act(async () => {
+            view.result.current.active.fetchNextPage();
+          });
+        }
+        expect(view.result.current.active.hasPreviousPage).toBe(true);
+      }
+      const count = state.listRequests.length;
+      const response = deferred<TaskListPage>();
+      state.listPage = async () => response.promise;
+      await act(async () => {
+        const invoke =
+          action === "next"
+            ? view.result.current.active.fetchNextPage
+            : action === "previous"
+              ? view.result.current.active.fetchPreviousPage
+              : view.result.current.active.refetch;
+        invoke();
+        invoke();
+        view.result.current.active.refetch();
+      });
+      expect(state.listRequests).toHaveLength(count + 1);
+      await act(async () => {
+        response.resolve(pageResponse("active", 0));
+      });
+    },
+  );
+
+  it("admits counts retry once while established counts are refreshing", async () => {
+    const harness = createHarness();
+    const view = renderHook(
+      () =>
+        useProjectTaskListData({
+          projectID: "project-1",
+          expanded: { active: false, backlog: false, done: false },
+        }),
+      { wrapper: ({ children }) => harness.render(children) },
+    );
+    await waitFor(() => {
+      expect(view.result.current.counts.isSuccess).toBe(true);
+    });
+    const response = deferred<ProjectTaskGroupCounts>();
+    state.getCounts = async () => response.promise;
+    await act(async () => {
+      view.result.current.counts.refetch();
+      view.result.current.counts.refetch();
+    });
+    expect(state.countRequests).toBe(2);
+    await act(async () => {
+      response.resolve(countsResponse(3));
+    });
+  });
+
+  it("ignores collapsed group requests and unavailable directional edges", async () => {
+    state.listPage = async (input) => ({ ...pageResponse(taskGroupForInput(input), 0), nextOffset: null });
+    const harness = createHarness();
+    const view = renderHook(
+      () =>
+        useProjectTaskListData({
+          projectID: "project-1",
+          expanded: { active: true, backlog: false, done: false },
+        }),
+      { wrapper: ({ children }) => harness.render(children) },
+    );
+    await waitFor(() => {
+      expect(view.result.current.active.tasks).toHaveLength(1);
+    });
+    await act(async () => {
+      view.result.current.active.fetchNextPage();
+      view.result.current.active.fetchPreviousPage();
+      view.result.current.backlog.fetchNextPage();
+      view.result.current.backlog.fetchPreviousPage();
+      view.result.current.backlog.refetch();
+    });
+    expect(state.listRequests).toHaveLength(1);
+  });
+
   it("starts counts and expanded first pages in parallel while collapsed groups stay absent", async () => {
     const pendingCounts = deferred<ProjectTaskGroupCounts>();
     state.getCounts = async () => pendingCounts.promise;
