@@ -239,7 +239,7 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
-	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
