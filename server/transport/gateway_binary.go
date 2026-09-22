@@ -112,6 +112,9 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerWorkflowTaskGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerWorkflowStreamsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerProjectMutationGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}

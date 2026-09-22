@@ -173,8 +173,6 @@ type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.
 
 var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
 	protocol.MethodAttentionNotificationSubscribe: (*Gateway).serveAttentionNotificationSubscription,
-	protocol.MethodWorkflowSubscribe:              (*Gateway).serveWorkflowSubscription,
-	protocol.MethodWorkflowSubscribeProject:       (*Gateway).serveWorkflowProjectSubscription,
 }
 
 var gatewaySubscriptionHandlers = routeHandlersForKind(apicontract.KindSubscription, gatewaySubscriptionHandlerEntries)

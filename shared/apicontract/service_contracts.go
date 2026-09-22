@@ -204,6 +204,11 @@ type WorktreeSetupSubscription interface {
 	Close() error
 }
 
+type WorkflowEventSubscription interface {
+	Next(context.Context) (*workflowpb.ProjectEvent, error)
+	Close() error
+}
+
 type WorkflowService interface {
 	CreateWorkflow(ctx context.Context, req *workflowpb.CreateRequest) (*workflowpb.CreateSuccess, error)
 	CreateAndLinkWorkflowToProject(ctx context.Context, req *workflowpb.CreateAndLinkProjectRequest) (*workflowpb.CreateAndLinkProjectSuccess, error)
@@ -253,8 +258,8 @@ type WorkflowService interface {
 	ListWorkflowTasks(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error)
 	GetWorkflowProjectTaskGroupCounts(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error)
 	SearchWorkflowTasks(ctx context.Context, req *taskpb.SearchRequest) (*taskpb.SearchSuccess, error)
-	SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error)
-	SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error)
+	SubscribeWorkflow(ctx context.Context, req *workflowpb.WorkflowSubscribeRequest) (WorkflowEventSubscription, error)
+	SubscribeWorkflowProject(ctx context.Context, req *workflowpb.ProjectSubscribeRequest) (WorkflowEventSubscription, error)
 	GetWorkflowBoard(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.BoardGetSuccess, error)
 	ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error)
 	GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error)

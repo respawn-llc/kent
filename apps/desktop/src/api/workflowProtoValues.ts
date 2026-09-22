@@ -11,6 +11,8 @@ import {
   ThinkingSelection,
   ValidationMode,
   ValidationErrorCode,
+  ProjectEventResource,
+  ProjectEventAction,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { ContractError } from "./errors";
 import { CreateSelectionReason, InitialBranchErrorReason, ExecutionTargetResolutionCode, MovePreviewBlocker, DependencyMutationOutcome, DependencyErrorReason, CommentAuthorKind } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
@@ -56,6 +58,38 @@ export const taskStatusKind = workflowEnum([
   [TaskStatusKind.QUEUED, "queued"],
   [TaskStatusKind.BACKLOG, "backlog"],
   [TaskStatusKind.ACTIVE, "active"],
+]);
+
+export const workflowEventResource = workflowEnum([
+  [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW, "workflow"],
+  [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK, "workflow_link"],
+  [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK, "task"],
+  [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL, "label"],
+]);
+
+export const workflowEventAction = workflowEnum([
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_CREATED, "created"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_UPDATED, "updated"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_RENAMED, "renamed"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_REORDERED, "reordered"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_DELETED, "deleted"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED, "graph_saved"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED, "linked"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_DEFAULT_CHANGED, "default_changed"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_UNLINKED, "unlinked"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_STARTED, "started"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_INTERRUPTED, "interrupted"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_RESUMED, "resumed"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_APPROVED, "approved"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_MOVED, "moved"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_COMPLETED, "completed"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_ADDED, "comment_added"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_UPDATED, "comment_updated"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_DELETED, "comment_deleted"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING, "question_waiting"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_CLEARED, "question_cleared"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LABELS_CHANGED, "labels_changed"],
+  [ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_DEPENDENCIES_CHANGED, "dependencies_changed"],
 ]);
 
 export const taskNativeState = workflowEnum([

@@ -135,14 +135,8 @@ func implementsValidator(t reflect.Type) bool {
 
 var routeContracts = []Route{
 	subscription[serverapi.AttentionNotificationSubscribeRequest, protocol.AttentionNotificationEventParams](protocol.MethodAttentionNotificationSubscribe, AuthServer, ScopeNone, protocol.MethodAttentionNotificationEvent, protocol.MethodAttentionNotificationComplete),
-	subscription[serverapi.WorkflowSubscribeRequest, protocol.WorkflowProjectEventParams](protocol.MethodWorkflowSubscribe, AuthServer, ScopeNone, protocol.MethodWorkflowEvent, protocol.MethodWorkflowComplete),
-	subscription[serverapi.WorkflowProjectSubscribeRequest, protocol.WorkflowProjectEventParams](protocol.MethodWorkflowSubscribeProject, AuthServer, ScopeProjectView, protocol.MethodWorkflowProjectEvent, protocol.MethodWorkflowProjectComplete),
 	notification[protocol.AttentionNotificationEventParams](protocol.MethodAttentionNotificationEvent),
 	notification[protocol.StreamCompleteParams](protocol.MethodAttentionNotificationComplete),
-	notification[protocol.WorkflowProjectEventParams](protocol.MethodWorkflowEvent),
-	notification[protocol.StreamCompleteParams](protocol.MethodWorkflowComplete),
-	notification[protocol.WorkflowProjectEventParams](protocol.MethodWorkflowProjectEvent),
-	notification[protocol.StreamCompleteParams](protocol.MethodWorkflowProjectComplete),
 }
 
 func Routes() []Route {

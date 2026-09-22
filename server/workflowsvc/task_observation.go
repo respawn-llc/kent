@@ -24,7 +24,7 @@ func (s *Service) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	sub, err := s.events.subscribe(req.ProjectId, nil)
+	sub, err := s.events.subscribe(&req.ProjectId, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +40,8 @@ func (s *Service) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 			if err != nil {
 				return nil, normalizeTaskObservationError(err)
 			}
-			if event.Resource == serverapi.WorkflowProjectEventResourceTask &&
-				(event.PrimaryEntityID == req.TaskId || slices.Contains(event.RelatedIDs, req.TaskId)) {
+			if event.Resource == pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK &&
+				(event.PrimaryEntityId == req.TaskId || slices.Contains(event.RelatedIds, req.TaskId)) {
 				break
 			}
 		}

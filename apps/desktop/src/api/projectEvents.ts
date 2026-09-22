@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import type { DescriptorRpcTransport } from "./transport";
-import { workflowProjectEventRpcHandler, type WorkflowProjectEvent } from "./workflowProjectEvents";
+import { subscribeWorkflowProject, type WorkflowProjectEvent } from "./workflowProjectEvents";
 
 export type ProjectObservation =
   | Readonly<{ kind: "open" }>
@@ -29,10 +29,10 @@ export function projectEvents(
       };
       return Effect.acquireRelease(
         Effect.sync(() =>
-          transport.subscribe(
-            "workflow.subscribeProject",
-            { project_id: projectID },
-            workflowProjectEventRpcHandler("workflow.project", {
+          subscribeWorkflowProject(
+            transport,
+            projectID,
+            {
               onOpen: () => {
                 offer({ kind: "open" });
               },
@@ -46,7 +46,7 @@ export function projectEvents(
               onError: (error) => {
                 offer({ kind: "error", error });
               },
-            }),
+            },
           ),
         ),
         (subscription) =>

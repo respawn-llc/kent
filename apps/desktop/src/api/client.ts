@@ -93,11 +93,10 @@ import type {
 import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
-import { workflowIDSchema } from "./schemas/workflowID";
 import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
-import { workflowProjectEventRpcHandler } from "./workflowProjectEvents";
+import { subscribeWorkflow } from "./workflowProjectEvents";
 import { projectEvents, type ProjectOverflowReporter } from "./projectEvents";
 import * as workflowBoard from "./clientWorkflowBoard";
 import * as workflowLabels from "./clientWorkflowLabels";
@@ -389,11 +388,7 @@ export class ApiClient implements ApiService {
   }
 
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "workflow.subscribe",
-      { workflow_id: workflowIDSchema.parse(workflowID) },
-      workflowProjectEventRpcHandler("workflow.event", handler),
-    );
+    return subscribeWorkflow(this.#transport, workflowID, handler);
   }
 
   subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {

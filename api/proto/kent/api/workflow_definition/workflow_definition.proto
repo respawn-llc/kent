@@ -2531,7 +2531,6 @@ service WorkflowSubscriptionService {
         service: "WorkflowSubscriptionService"
         method: "Complete"
       }
-      legacy_wire_name: "workflow.subscribe"
     };
   }
   rpc Event(ProjectEvent) returns (google.protobuf.Empty) {
@@ -2540,7 +2539,6 @@ service WorkflowSubscriptionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "workflow.event"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -2549,7 +2547,6 @@ service WorkflowSubscriptionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "workflow.complete"
     };
   }
 }
@@ -2571,7 +2568,6 @@ service ProjectSubscriptionService {
         service: "ProjectSubscriptionService"
         method: "Complete"
       }
-      legacy_wire_name: "workflow.subscribeProject"
     };
   }
   rpc Event(ProjectEvent) returns (google.protobuf.Empty) {
@@ -2580,7 +2576,6 @@ service ProjectSubscriptionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "workflow.project"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -2589,7 +2584,6 @@ service ProjectSubscriptionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "workflow.project.complete"
     };
   }
 }

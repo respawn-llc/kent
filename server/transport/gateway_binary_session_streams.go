@@ -96,7 +96,7 @@ func registerSessionBinarySubscription[
 			if err != nil {
 				return nil, err
 			}
-			return sessionGatewayBinarySubscriber[Event]{sub}, nil
+			return gatewayBinaryStreamSubscriber[Event]{sub}, nil
 		},
 		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
 			if details, ok := binaryServerNotReadyDetails(err); ok {
@@ -104,20 +104,20 @@ func registerSessionBinarySubscription[
 			}
 			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
 		},
-		start: start, complete: binarySessionStreamCompletion,
+		start: start, complete: binaryStreamCompletion,
 	}
 	return nil
 }
 
-type sessionGatewayBinarySubscriber[Event proto.Message] struct {
+type gatewayBinaryStreamSubscriber[Event proto.Message] struct {
 	gatewaySubscription[Event]
 }
 
-func (s sessionGatewayBinarySubscriber[Event]) Next(ctx context.Context) (proto.Message, error) {
+func (s gatewayBinaryStreamSubscriber[Event]) Next(ctx context.Context) (proto.Message, error) {
 	return s.gatewaySubscription.Next(ctx)
 }
 
-func binarySessionStreamCompletion(err error) proto.Message {
+func binaryStreamCompletion(err error) proto.Message {
 	completion := &sharedpb.StreamCompletion{}
 	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return completion

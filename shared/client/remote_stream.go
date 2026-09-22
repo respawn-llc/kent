@@ -11,6 +11,8 @@ import (
 
 	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
@@ -32,40 +34,22 @@ func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req server
 	}), nil
 }
 
-func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodWorkflowSubscribeProject, "subscribe-workflow-project", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.WorkflowProjectEventParams) (serverapi.WorkflowProjectEvent, error) {
-		return workflowProjectEventFromProtocol(params.Event)
-	}), nil
+func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req *pb.ProjectSubscribeRequest) (rpccontract.WorkflowEventSubscription, error) {
+	return subscribeGeneratedBinary(c, ctx, workflowMethod("ProjectSubscriptionService", "Subscribe"), req,
+		&pb.ProjectSubscriptionStartResult{}, func(failure *pb.ProjectSubscriptionStartError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		},
+		func() *pb.ProjectEvent { return &pb.ProjectEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
-func (c *Remote) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodWorkflowSubscribe, "subscribe-workflow", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.WorkflowProjectEventParams) (serverapi.WorkflowProjectEvent, error) {
-		return workflowProjectEventFromProtocol(params.Event)
-	}), nil
-}
-
-func workflowProjectEventFromProtocol(event protocol.WorkflowProjectEvent) (serverapi.WorkflowProjectEvent, error) {
-	decoded := serverapi.WorkflowProjectEvent{
-		ProjectID:        event.ProjectID,
-		WorkflowID:       event.WorkflowID,
-		Resource:         serverapi.WorkflowProjectEventResource(event.Resource),
-		Action:           serverapi.WorkflowProjectEventAction(event.Action),
-		PrimaryEntityID:  event.PrimaryEntityID,
-		RelatedIDs:       append([]string(nil), event.RelatedIDs...),
-		OccurredAtUnixMs: event.OccurredAtUnixMs,
-	}
-	if err := decoded.Validate(); err != nil {
-		return serverapi.WorkflowProjectEvent{}, err
-	}
-	return decoded, nil
+func (c *Remote) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscribeRequest) (rpccontract.WorkflowEventSubscription, error) {
+	return subscribeGeneratedBinary(c, ctx, workflowMethod("WorkflowSubscriptionService", "Subscribe"), req,
+		&pb.WorkflowSubscriptionStartResult{}, func(failure *pb.WorkflowSubscriptionStartError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		},
+		func() *pb.ProjectEvent { return &pb.ProjectEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
 func (c *Remote) subscribeRPC(ctx context.Context, method string, requestID string, req any, sessionID string, attachSession bool) (rpcwire.Conn, rpccontract.Route, error) {

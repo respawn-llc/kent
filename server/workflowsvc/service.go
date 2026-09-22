@@ -2371,21 +2371,25 @@ func (s *Service) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.Bo
 	return s.readModels.Board.ListNodeCards(ctx, req)
 }
 
-func (s *Service) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {
-	if err := req.Validate(); err != nil {
+func (s *Service) SubscribeWorkflowProject(ctx context.Context, req *pb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	return s.events.subscribe(strings.TrimSpace(req.ProjectID), nil)
+	return s.events.subscribe(req.ProjectId, nil)
 }
 
-func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
-	if err := req.Validate(); err != nil {
+func (s *Service) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
-	if _, err := s.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: req.WorkflowID.String()}); err != nil {
+	if _, err := s.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: req.WorkflowId}); err != nil {
 		return nil, err
 	}
-	return s.events.subscribe("", &req.WorkflowID)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	if err != nil {
+		return nil, err
+	}
+	return s.events.subscribe(nil, &workflowID)
 }
 
 func (s *Service) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
