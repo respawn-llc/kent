@@ -1676,11 +1676,11 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	registerGatewayWorkspace(t, workspace)
 
 	resolved := resolveGatewayTestConfig(t, workspace)
-	binding, err := metadata.ResolveBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
+	appCore, server := newGatewayTestServerForConfig(t, resolved.Config)
+	binding, err := appCore.MetadataStore().EnsureWorkspaceBinding(context.Background(), resolved.Config.WorkspaceRoot)
 	if err != nil {
-		t.Fatalf("ResolveBinding: %v", err)
+		t.Fatalf("EnsureWorkspaceBinding: %v", err)
 	}
-	_, server := newGatewayTestServerForConfig(t, resolved.Config)
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], binding.ProjectID)
 	if err != nil {

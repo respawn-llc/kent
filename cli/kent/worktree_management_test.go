@@ -83,7 +83,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetProjectDefaultWorkspace(context.Background(), b.ProjectID, b.WorkspaceID); err != nil {
+	if _, err := store.SetProjectDefaultWorkspaceAndGetSummary(context.Background(), b.ProjectID, b.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
 	s, err := session.Create(filepath.Join(cfg.PersistenceRoot, "projects", a.ProjectID, "sessions"),

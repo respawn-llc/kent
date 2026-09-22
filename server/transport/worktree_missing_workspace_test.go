@@ -27,7 +27,7 @@ func TestWorktreeRetainedSessionMissingWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	blockers, err := metadataStore.UnlinkProjectWorkspace(t.Context(), appCore.ProjectID(), workspace.WorkspaceID)
+	blockers, err := metadataStore.UnlinkProjectWorkspaceWithRuntimeBlockers(t.Context(), appCore.ProjectID(), workspace.WorkspaceID, nil, nil)
 	if err != nil || len(blockers) != 0 {
 		t.Fatalf("unlink Workspace: blockers=%v, err=%v", blockers, err)
 	}

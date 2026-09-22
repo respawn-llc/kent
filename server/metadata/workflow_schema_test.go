@@ -211,7 +211,7 @@ func TestTaskSessionAssociationSchemaUsesDirectOwnerAndNaturalKeys(t *testing.T)
 	now := time.Now().UTC().UnixMilli()
 	seedWorkflowGraph(t, store.db, binding.ProjectID, now)
 	seedWorkflowTask(t, store, binding.ProjectID, "BLD-1")
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestProjectLabelSchemaEnforcesCatalogIdentityScopeAndCascades(t *testing.T)
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestProjectKeyValidationCollisionAndMutability(t *testing.T) {
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestTaskSchemaAllowsEmptyBodyAndProjectScopedSourceWorkspace(t *testing.T) 
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestWorkflowSchemaRejectsCrossProjectTaskLinkFacts(t *testing.T) {
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestProjectPrimaryWorkspaceSchemaRejectsCrossProjectPointer(t *testing.T) {
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestWorkspaceSessionSchemaRejectsCrossProjectReferences(t *testing.T) {
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestTaskManagedWorktreeSchemaRejectsCrossWorkspaceReferences(t *testing.T) 
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestTaskShortIDUniquenessIsProjectScoped(t *testing.T) {
 	t.Parallel()
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
-	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}

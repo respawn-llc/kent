@@ -236,15 +236,6 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 	return store, nil
 }
 
-func ResolveBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
-	store, err := Open(persistenceRoot)
-	if err != nil {
-		return Binding{}, err
-	}
-	defer func() { _ = store.Close() }()
-	return store.EnsureWorkspaceBinding(ctx, workspaceRoot)
-}
-
 func RegisterBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
 	store, err := Open(persistenceRoot)
 	if err != nil {
@@ -766,10 +757,6 @@ func bindingFromCanonicalRootRows(canonicalRoot string, rows []sqlitegen.ListWor
 	}
 }
 
-func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot string, projectName string) (Binding, error) {
-	return s.CreateProjectForWorkspaceWithKey(ctx, workspaceRoot, projectName, "")
-}
-
 func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceRoot string, projectName string, projectKey string) (Binding, error) {
 	if s == nil || s.queries == nil {
 		return Binding{}, errors.New("metadata store is required")
@@ -892,11 +879,6 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 	return nil
 }
 
-func (s *Store) SetProjectDefaultWorkspace(ctx context.Context, projectID string, workspaceID string) error {
-	_, err := s.SetProjectDefaultWorkspaceAndGetSummary(ctx, projectID, workspaceID)
-	return err
-}
-
 func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, projectID string, workspaceID string) (serverapi.ProjectHomeSummary, error) {
 	if s == nil || s.queries == nil {
 		return serverapi.ProjectHomeSummary{}, errors.New("metadata store is required")
@@ -964,14 +946,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("commit default workspace tx: %w", err)
 	}
 	return projectHomeSummaryFromRow(rows[0]), nil
-}
-
-func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, workspaceID string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithPreflightBlockers(ctx, projectID, workspaceID, nil)
-}
-
-func (s *Store) UnlinkProjectWorkspaceWithPreflightBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, projectID, workspaceID, preflightBlockers, nil)
 }
 
 func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker, runtimeBlocker WorkspaceUnlinkRuntimeBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
@@ -2047,25 +2021,6 @@ func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID s
 		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
 	return binding, nil
-}
-
-func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, root string) (bool, error) {
-	if s == nil || s.queries == nil {
-		return false, errors.New("metadata store is required")
-	}
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return false, errors.New("project id is required")
-	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(root)
-	if err != nil {
-		return false, err
-	}
-	_, err = s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
-	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 func (s *Store) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) (bool, error) {

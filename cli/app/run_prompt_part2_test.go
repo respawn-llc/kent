@@ -220,7 +220,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	defer func() { _ = metadataStore.Close() }()
-	binding, err := metadata.ResolveBinding(ctx, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	binding, err := metadataStore.EnsureWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("ResolveBinding: %v", err)
 	}

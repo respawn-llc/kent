@@ -50,7 +50,7 @@ func TestGetProjectWorkspaceCatalogRowDistinguishesMissingProjectFromNotAttached
 		t.Fatalf("missing Project error = %v, want ErrProjectNotFound", err)
 	}
 
-	other, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other")
+	other, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Other", "")
 	if err != nil {
 		t.Fatalf("create other Project: %v", err)
 	}

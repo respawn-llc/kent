@@ -882,7 +882,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectB, err := store.CreateProjectForWorkspace(t.Context(), rootB, "B")
+	projectB, err := store.CreateProjectForWorkspaceWithKey(t.Context(), rootB, "B", "")
 	if err != nil {
 		t.Fatal(err)
 	}

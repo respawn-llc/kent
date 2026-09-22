@@ -215,7 +215,7 @@ func TestEnterWorktreeMovesDormantSessionFromNonGitWorkspaceAcrossProjects(t *te
 func createNonGitSourceSession(t *testing.T, env *serviceTestEnv) *session.Store {
 	t.Helper()
 	sourceRoot := t.TempDir()
-	sourceBinding, err := env.store.CreateProjectForWorkspace(t.Context(), sourceRoot, "Non Git Source")
+	sourceBinding, err := env.store.CreateProjectForWorkspaceWithKey(t.Context(), sourceRoot, "Non Git Source", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace source: %v", err)
 	}
