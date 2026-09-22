@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactElement, ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { RpcError, rpcErrorCodes, type WorkflowRecord } from "@/api";
+import { RpcError, rpcErrorCodes } from "@/api";
 import { NewTaskForm } from "@/features/tasks";
 import { LinkWorkflowSidebar } from "@/features/workflows";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -28,24 +28,12 @@ vi.mock("@/shared/task-dependencies", async (importOriginal) => ({
 }));
 vi.mock("@/shared/workflow-library", async (original) => ({
   ...(await original<typeof WorkflowLibrary>()),
-  WorkflowActionsContextMenu: ({ children }: { children: (loading: boolean) => ReactElement }) =>
-    children(false),
+  WorkflowActionsContextMenu: (await import("@/test-support/workflow-rendering"))
+    .WorkflowActionsContextMenuStub,
 }));
 vi.mock("@/ui", async (original) => ({
   ...(await original<typeof UiModule>()),
-  VirtualizedInfiniteList: ({
-    items,
-    renderItem,
-  }: {
-    items: readonly WorkflowRecord[];
-    renderItem: (item: WorkflowRecord) => ReactNode;
-  }) => (
-    <>
-      {items.map((item) => (
-        <div key={item.id}>{renderItem(item)}</div>
-      ))}
-    </>
-  ),
+  VirtualizedInfiniteList: (await import("@/test-support/workflow-rendering")).WorkflowListStub,
 }));
 
 const missing = new RpcError({ code: rpcErrorCodes.projectNotFound, message: "gone", method: "mutation" });

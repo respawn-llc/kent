@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactElement, ReactNode } from "react";
 import type { ProjectWorkflowLink, WorkflowRecord } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -10,25 +9,13 @@ import { LinkWorkflowSidebar } from "./LinkWorkflowSidebar";
 
 vi.mock("@/shared/workflow-library", async (original) => ({
   ...(await original<typeof WorkflowLibrary>()),
-  WorkflowActionsContextMenu: ({ children }: { children: (loading: boolean) => ReactElement }) =>
-    children(false),
+  WorkflowActionsContextMenu: (await import("@/test-support/workflow-rendering"))
+    .WorkflowActionsContextMenuStub,
 }));
 
 vi.mock("@/ui", async (original) => ({
   ...(await original<typeof UiModule>()),
-  VirtualizedInfiniteList: ({
-    items,
-    renderItem,
-  }: {
-    items: readonly WorkflowRecord[];
-    renderItem: (item: WorkflowRecord) => ReactNode;
-  }) => (
-    <>
-      {items.map((item) => (
-        <div key={item.id}>{renderItem(item)}</div>
-      ))}
-    </>
-  ),
+  VirtualizedInfiniteList: (await import("@/test-support/workflow-rendering")).WorkflowListStub,
 }));
 
 it("lets another Workflow link while the first mounted row is pending", async () => {
