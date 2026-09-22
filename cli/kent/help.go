@@ -174,7 +174,11 @@ var (
 	worktreeUsage       = leafCommandUsage(config.Command+" worktree <status|list|create|enter|leave|delete> ...", "Inspect workspace worktrees and manage a session's execution target.")
 	worktreeStatusUsage = leafCommandUsage(config.Command+" worktree status [--session <id>] [--json]", "Inspect the selected session's recorded worktree target.")
 	worktreeListUsage   = leafCommandUsage(config.Command+" worktree list [--project <id>] [--workspace <id>] [--session <id>] [--json]", "List worktrees. Explicit Project or Workspace selection produces a markerless list.")
-	worktreeCreateUsage = leafCommandUsage(config.Command+" worktree create [--project <id>] [--workspace <id>] [--session <id>] [--base <ref>] [--json] <branch-or-ref> [path]", "Create and set up a worktree without entering it. No Session is required.")
+	worktreeCreateUsage = leafCommandUsage(
+		config.Command+" worktree create [--project <id>] [--workspace <id>] [--session <id>] [--base <ref>] [--json] <branch-or-ref> [path]",
+		"Create and set up a worktree without entering it. No Session is required.",
+		"Place options before <branch-or-ref>. Use ./<name> or an absolute path for a literal destination whose name begins with '-'. This also applies after --.",
+	)
 	worktreeEnterUsage  = leafCommandUsage(config.Command+" worktree enter [--session <id>] [--json] <selector>", "Schedule the session to enter a worktree.")
 	worktreeLeaveUsage  = leafCommandUsage(config.Command+" worktree leave [--session <id>] [--json]", "Schedule the session to return to the main workspace.")
 	worktreeDeleteUsage = leafCommandUsage(config.Command+" worktree delete [--project <id>] [--workspace <id>] [--session <id>] [--force] [--delete-branch] [--force-delete-branch] [--json] <selector>", "Delete a worktree without requiring a Session; branches are retained unless deletion is explicitly requested.")

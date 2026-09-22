@@ -242,6 +242,128 @@ func TestWorktreeCommandSessionlessCreate(t *testing.T) {
 	}
 }
 
+func TestWorktreeCommandRejectsTrailingOptionBeforeServerContact(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	beforeRecords, err := f.core.MetadataStore().ListWorktreeRecordsByWorkspaceID(context.Background(), f.b.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeWorktrees := testsetup.RunGit(t, f.b.CanonicalRoot, "worktree", "list", "--porcelain")
+	beforeBranches := testsetup.RunGit(t, f.b.CanonicalRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+	t.Setenv("KENT_SERVER_PORT", "1")
+
+	var out, stderr bytes.Buffer
+	code := worktreeSubcommand([]string{"create", "--project", f.b.ProjectID, "trailing-option", "--json"}, &out, &stderr)
+	if code != 2 || out.Len() != 0 || stderr.Len() == 0 {
+		t.Fatalf("trailing option exit %d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+
+	afterRecords, err := f.core.MetadataStore().ListWorktreeRecordsByWorkspaceID(context.Background(), f.b.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(beforeRecords, afterRecords) {
+		t.Fatalf("rejection changed records: %v", afterRecords)
+	}
+	if got := testsetup.RunGit(t, f.b.CanonicalRoot, "worktree", "list", "--porcelain"); got != beforeWorktrees {
+		t.Fatalf("rejection changed Git worktrees: %s", got)
+	}
+	if got := testsetup.RunGit(t, f.b.CanonicalRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"); got != beforeBranches {
+		t.Fatalf("rejection changed branches: %s", got)
+	}
+}
+
+func TestWorktreeCommandRejectsMisplacedOptionArguments(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	t.Setenv("KENT_SERVER_PORT", "1")
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "single dash after branch", args: []string{"single-dash", "-json"}},
+		{name: "unknown option after branch", args: []string{"unknown-after", "--unknown"}},
+		{name: "unknown option before branch", args: []string{"--unknown", "unknown-before"}},
+		{name: "missing option value", args: []string{"--base"}},
+		{name: "option between branch and destination", args: []string{"branch-before-base", "--base", "selected-base"}},
+		{name: "dash destination after separator", args: []string{"--", "separator-dash", "--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			args := append([]string{"create", "--project", f.b.ProjectID}, tc.args...)
+			code := worktreeSubcommand(args, &out, &stderr)
+			if code != 2 || out.Len() != 0 || stderr.Len() == 0 {
+				t.Fatalf("rejected invocation exit %d stdout=%q stderr=%q", code, &out, &stderr)
+			}
+		})
+	}
+}
+
+func TestWorktreeCommandCreateUsesPositionedBaseOption(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	testsetup.RunGit(t, f.b.CanonicalRoot, "switch", "-c", "selected-base")
+	testsetup.RunGit(t, f.b.CanonicalRoot, "commit", "--allow-empty", "-m", "selected base")
+	selectedBase := testsetup.RunGit(t, f.b.CanonicalRoot, "rev-parse", "selected-base")
+	testsetup.RunGit(t, f.b.CanonicalRoot, "switch", "main")
+
+	var out, stderr bytes.Buffer
+	code := worktreeSubcommand([]string{
+		"create", "--project", f.b.ProjectID, "--base", "selected-base", "--json", "from-selected-base",
+	}, &out, &stderr)
+	if code != 0 {
+		t.Fatalf("create exit %d: %s", code, &stderr)
+	}
+	var response worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Target != nil {
+		t.Fatalf("sessionless creation manufactured target: %v", response.Target)
+	}
+	createdRoot := response.Worktree.Topology.Registered.Git.CanonicalRoot
+	if got := testsetup.RunGit(t, createdRoot, "rev-parse", "HEAD"); got != selectedBase {
+		t.Fatalf("created worktree HEAD = %s, want selected base %s", got, selectedBase)
+	}
+}
+
+func TestWorktreeCommandCreateAcceptsExplicitLiteralDashPath(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	baseDir := f.core.Config().Settings.Worktrees.BaseDir
+	for _, tc := range []struct {
+		name        string
+		branch      string
+		requestPath string
+		wantRoot    string
+	}{
+		{name: "relative", branch: "relative-literal", requestPath: "./--json", wantRoot: filepath.Join(baseDir, "--json")},
+		{name: "absolute", branch: "absolute-literal", requestPath: filepath.Join(baseDir, "-absolute"), wantRoot: filepath.Join(baseDir, "-absolute")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			code := worktreeSubcommand([]string{
+				"create", "--project", f.b.ProjectID, "--json", tc.branch, tc.requestPath,
+			}, &out, &stderr)
+			if code != 0 {
+				t.Fatalf("create exit %d: %s", code, &stderr)
+			}
+			var response worktreeCreateJSONOutput
+			if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			gotRoot := response.Worktree.Topology.Registered.Git.CanonicalRoot
+			wantRoot, err := config.CanonicalWorkspaceRoot(tc.wantRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotRoot != wantRoot {
+				t.Fatalf("created root = %q, want %q", gotRoot, wantRoot)
+			}
+			if info, err := os.Stat(gotRoot); err != nil || !info.IsDir() {
+				t.Fatalf("created root %q is not a directory: %v", gotRoot, err)
+			}
+		})
+	}
+}
+
 func TestWorktreeCommandCrossProjectCreate(t *testing.T) {
 	f := newWorktreeCommandFixture(t)
 	t.Setenv("KENT_SESSION_ID", f.sessionID)
