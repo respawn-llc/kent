@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight, Home, SunMoon } from "lucide-react";
 import { useCallback, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { WorkflowEditorDraftBridgeProvider } from "@/features/workflow-editor";
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
 import { toggleInMemoryThemeOverride } from "./startup/appEnvironment";
 import { AttentionController } from "./AttentionController";
@@ -121,19 +120,17 @@ function AppChromeContent({ children }: AppChromeProps) {
         </div>
       ) : null}
       <SessionChatCatalogReturnProvider>
-        <WorkflowEditorDraftBridgeProvider>
-          <ProjectDeletionEventHandler />
-          <AttentionController />
-          <div
-            className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
-            data-testid="app-shell-content"
-          >
-            <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
-              {children}
-            </div>
-            <SidebarHost />
+        <ProjectDeletionEventHandler />
+        <AttentionController />
+        <div
+          className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+          data-testid="app-shell-content"
+        >
+          <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+            {children}
           </div>
-        </WorkflowEditorDraftBridgeProvider>
+          <SidebarHost />
+        </div>
       </SessionChatCatalogReturnProvider>
     </main>
   );

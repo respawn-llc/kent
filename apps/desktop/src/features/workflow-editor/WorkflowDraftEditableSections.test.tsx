@@ -9,7 +9,7 @@ import {
 } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
 import { EditableEdgeParameters, PromptTemplateEditor } from "./WorkflowDraftEditableSections";
-import type { WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import type { WorkflowEditorView } from "./useWorkflowEditorView";
 import { initializeWorkflowEditorDraft } from "./workflowEditorDraft";
 import type { DraftWorkflowEdge } from "./workflowEditorDraftTypes";
 
@@ -74,7 +74,7 @@ describe("EditableEdgeParameters", () => {
       },
     };
     const state = initializeWorkflowEditorDraft(source);
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch(action) {
         dispatchMock(action);
       },
@@ -87,7 +87,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,
@@ -177,7 +177,7 @@ describe("EditableEdgeParameters", () => {
       },
     };
     const state = initializeWorkflowEditorDraft(source);
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch(action) {
         dispatchMock(action);
       },
@@ -190,7 +190,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,
@@ -237,7 +237,7 @@ describe("EditableEdgeParameters", () => {
         version: 1,
       },
     });
-    const controller: WorkflowEditorDraftController = {
+    const controller: WorkflowEditorView = {
       dispatch: vi.fn(),
       dirty: { dirty: false, graphDirty: false, metadataDirty: false },
       draft: state.draft,
@@ -248,7 +248,7 @@ describe("EditableEdgeParameters", () => {
         return;
       },
       saveBlockers: [],
-      saveError: "",
+      saveError: null,
       saveValidation: null,
       saving: false,
       state,

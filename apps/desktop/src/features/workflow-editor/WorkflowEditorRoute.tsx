@@ -1,19 +1,19 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useState,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction,
-} from "react";
+import { useCallback, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { useAtomValue, useAtomSuspense, useAtomRefresh } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { errorMessage, isProjectMissingError } from "@/api";
+import { errorMessage, isProjectMissingError, type WorkflowGraphSavePreview } from "@/api";
 import type { SidebarPageNavigator } from "@/app-facade";
-import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarRootController } from "@/app-facade";
+import {
+  SidebarRootOwner,
+  useOwnedSidebarRoots,
+  useAppServices,
+  sidebarTitle,
+  sidebarSizePreference,
+  type SidebarRootController,
+} from "@/app-facade";
 import { useSidebarBackWhen } from "@/app-facade";
 import type { WorkflowInspectorInitialFocus, WorkflowInspectorSelection } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
@@ -21,30 +21,21 @@ import { usePublishSidebarHeaderAction } from "@/app-facade";
 import { useWindowChromeTitle } from "@/app-facade";
 import { ErrorState, LoadingState } from "@/ui";
 import { cx } from "@/ui";
-import { useWorkflowEditorData, type WorkflowEditorData } from "./useWorkflowEditorData";
+import { type WorkflowEditorDraftState } from "./workflowEditorDraft";
 import {
-  initializeWorkflowEditorDraft,
-  workflowEditorDirtyState,
-  type WorkflowEditorDraftState,
-} from "./workflowEditorDraft";
-import {
-  useRegisterWorkflowEditorDraftController,
-  type WorkflowEditorDraftController,
-} from "./workflowEditorDraftBridgeCore";
-import {
-  graphEditWarningTranslationKey,
-  type PendingGraphMutation,
-} from "./workflowEditorGraphMutationPlanning";
-import { emptyWorkflowDefinition, emptyWorkflowValidation } from "./workflowEditorLayoutSnapshot";
-import { workflowEditorDraftStateReducer } from "./workflowEditorQueries";
+  createWorkflowEditorViewModel,
+  useWorkflowEditorActions,
+  type WorkflowEditorViewModel,
+} from "./WorkflowEditorViewModel";
+import { useWorkflowEditorView, type WorkflowEditorView } from "./useWorkflowEditorView";
+import { type PendingGraphMutation } from "./workflowEditorGraphMutationPlanning";
 import { workflowEditorViewState } from "./workflowEditorViewState";
-import { useWorkflowEditorGraphState } from "./useWorkflowEditorGraphState";
-import { useWorkflowEditorSave, type WorkflowEditorSave } from "./useWorkflowEditorSave";
 import { useWorkflowGraphDeleteConfirmation } from "./useWorkflowGraphDeleteConfirmation";
 import { WorkflowEditorCanvas } from "./WorkflowEditorCanvas";
 import { WorkflowDraftDetails } from "./WorkflowDraftInspector";
 import { WorkflowDeleteButton } from "./WorkflowDeleteButton";
 import { WorkflowEditorEmbeddedInspector } from "./WorkflowEditorEmbeddedInspector";
+import { WorkflowEditableInspectorDestination } from "./WorkflowInspectorSidebar";
 import { WorkflowEditorLegendIsland } from "./WorkflowEditorLegendIsland";
 import { WorkflowEditorStatusIsland } from "./WorkflowEditorStatusIsland";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
@@ -71,7 +62,8 @@ type WorkflowEditorReadyViewProps = Readonly<{
   activeEmbeddedInspectorInitialFocus?: WorkflowInspectorInitialFocus | undefined;
   activeEmbeddedInspectorSelection: WorkflowInspectorSelection | null;
   closeDeletedNodeInspector: (selection: WorkflowGraphSelection) => void;
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
+  model: WorkflowEditorViewModel;
   deleteConfirmationDialog: ReactNode;
   dispatch: (action: WorkflowEditorDraftAction) => void;
   draftState: WorkflowEditorDraftState | null;
@@ -79,20 +71,22 @@ type WorkflowEditorReadyViewProps = Readonly<{
   inspect: (selection: WorkflowInspectorSelection, initialFocus?: WorkflowInspectorInitialFocus) => void;
   onClearEmbeddedInspector: () => void;
   openDeleteConfirmation: (mutation: PendingGraphMutation) => void;
-  save: WorkflowEditorSave;
+  save: ReturnType<typeof useWorkflowEditorActions>;
+  confirmationPreview: WorkflowGraphSavePreview | null;
   surface: "route" | "sidebar";
   workflowID: string;
 }>;
 
 export function WorkflowEditorRoute(props: WorkflowEditorRouteProps) {
+  const key = JSON.stringify([props.workflowID, props.projectID.trim(), props.surface]);
   if (props.surface === "settings") {
-    return <WorkflowSettingsRoute {...props} />;
+    return <WorkflowSettingsRoute key={key} {...props} />;
   }
   if (props.surface === "sidebar") {
-    return <WorkflowEditorRouteContent {...props} surface="sidebar" openSidebar={null} />;
+    return <WorkflowEditorRouteContent key={key} {...props} surface="sidebar" openSidebar={null} />;
   }
   return (
-    <SidebarRootOwner>
+    <SidebarRootOwner key={key}>
       <OwnedWorkflowEditorRoute {...props} surface="route" />
     </SidebarRootOwner>
   );
@@ -100,67 +94,57 @@ export function WorkflowEditorRoute(props: WorkflowEditorRouteProps) {
 
 function WorkflowSettingsRoute({ navigator, projectID, workflowID }: WorkflowEditorRouteProps) {
   const { t } = useTranslation();
-  const data = useWorkflowEditorData(projectID, workflowID);
-  const [draftState, dispatch] = useReducer(workflowEditorDraftStateReducer, null);
-  const dirty = useMemo(
-    () =>
-      draftState === null
-        ? { dirty: false, graphDirty: false, metadataDirty: false }
-        : workflowEditorDirtyState(draftState),
-    [draftState],
-  );
-  const save = useWorkflowEditorSave({ data, dispatch, draftState, projectID, workflowID });
-  useWorkflowEditorDraftSync({ data, dirty: dirty.dirty, dispatch, draftState });
-  const fallbackDraftState = draftState ?? initializeWorkflowEditorDraft(emptyWorkflowDefinition(workflowID));
-  const controller = useMemo<WorkflowEditorDraftController>(
-    () => ({
-      dispatch,
-      dirty,
-      draft: fallbackDraftState.draft,
-      derivedWiring: fallbackDraftState.draft.derivedWiring,
-      draftValidation: null,
-      executionValidation: data.validationQuery.data ?? null,
-      save() {
-        void save.saveWorkflowDraft();
-      },
-      saveBlockers: save.saveBlockers,
-      saveError: save.saveError,
-      saveValidation:
-        save.saveValidation !== null && save.saveValidation.version === fallbackDraftState.version
-          ? save.saveValidation.results
-          : null,
-      saving: save.saving,
-      state: fallbackDraftState,
-      workflowID,
-    }),
-    [data.validationQuery.data, dirty, fallbackDraftState, save, workflowID],
-  );
+  const model = useWorkflowEditorModel(projectID, workflowID);
+  const data = useAtomValue(model.data);
+  const controller = useWorkflowEditorView(model);
+  const save = useWorkflowEditorActions(model);
+  const { confirmationPreview } = useAtomValue(model.saveState);
 
-  if (data.workflowQuery.isPending || draftState === null) {
-    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
-  }
   if (data.workflowQuery.isError) {
     return (
       <ErrorState
         body={errorMessage(data.workflowQuery.error)}
-        onRetry={() => void data.workflowQuery.refetch()}
+        onRetry={() => {
+          save.retryLoad(undefined);
+        }}
         retryLabel={t("app.retry")}
         title={t("workflowEditor.loadFailed")}
       />
     );
   }
+  if (data.workflowQuery.isPending || controller === null) {
+    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
+  }
   return (
     <>
-      <WorkflowEditorObservationFailures data={data} />
+      <WorkflowEditorObservationFailures model={model} />
       <WorkflowSettingsSurface
         controller={controller}
-        dispatch={dispatch}
         navigator={navigator}
         save={save}
+        confirmationPreview={confirmationPreview}
         workflowID={workflowID}
       />
     </>
   );
+}
+
+function useWorkflowEditorModel(rawProjectID: string, workflowID: string) {
+  const services = useAppServices();
+  const client = useQueryClient();
+  const { t } = useTranslation();
+  const { push } = useStatusController();
+  const [model] = useState(() =>
+    createWorkflowEditorViewModel({
+      services,
+      client,
+      workflowID,
+      projectID: rawProjectID.trim() || null,
+      t,
+      push,
+    }),
+  );
+  return model;
 }
 
 function OwnedWorkflowEditorRoute(props: WorkflowGraphEditorRouteProps) {
@@ -176,23 +160,19 @@ function WorkflowEditorRouteContent({
   workflowID,
 }: WorkflowGraphEditorRouteProps & Readonly<{ openSidebar: SidebarRootController["open"] | null }>) {
   const { t } = useTranslation();
-  const { push: pushStatus } = useStatusController();
-  const data = useWorkflowEditorData(projectID, workflowID);
+  const model = useWorkflowEditorModel(projectID, workflowID);
+  const data = useAtomValue(model.data);
+  const controller = useWorkflowEditorView(model);
+  const save = useWorkflowEditorActions(model);
+  const { confirmationPreview } = useAtomValue(model.saveState);
+  const { draftState } = useAtomValue(model.state);
+  const dispatch = save.edit;
   useSidebarBackWhen(data.linksQuery.isError && isProjectMissingError(data.linksQuery.error), navigator);
   const workflow = data.workflowQuery.data?.workflow;
-  const [draftState, dispatch] = useReducer(workflowEditorDraftStateReducer, null);
-  const dirty = useMemo(
-    () =>
-      draftState === null
-        ? { dirty: false, graphDirty: false, metadataDirty: false }
-        : workflowEditorDirtyState(draftState),
-    [draftState],
-  );
-  const save = useWorkflowEditorSave({ data, dispatch, draftState, projectID, workflowID });
   const [embeddedInspectorSelection, setEmbeddedInspectorSelection] =
     useState<WorkflowEditorEmbeddedInspectorSelection | null>(null);
-  const graphState = useWorkflowEditorGraphState({ data, dirty, draftState, workflowID });
-  const { draftDerivedWiring, draftValidation, executionValidation, layoutQuery } = graphState;
+  const graphState = useAtomValue(model.graph);
+  const { layoutQuery } = graphState;
   useWindowChromeTitle(
     workflow === undefined ? t("workflowEditor.title") : workflow.name,
     surface === "route",
@@ -203,6 +183,7 @@ function WorkflowEditorRouteContent({
     setEmbeddedInspectorSelection,
     surface,
     workflowID,
+    model,
   });
 
   const closeDeletedNodeInspector = useCallback(
@@ -219,50 +200,6 @@ function WorkflowEditorRouteContent({
     },
     [embeddedInspectorSelection, surface, workflowID],
   );
-
-  useWorkflowEditorDraftSync({ data, dirty: dirty.dirty, dispatch, draftState });
-
-  const fallbackDraftState = draftState ?? initializeWorkflowEditorDraft(emptyWorkflowDefinition(workflowID));
-  const controller = useMemo<WorkflowEditorDraftController>(
-    () => ({
-      dispatch,
-      dirty,
-      draft: fallbackDraftState.draft,
-      derivedWiring: draftDerivedWiring,
-      draftValidation,
-      executionValidation:
-        dirty.graphDirty && draftValidation === null ? emptyWorkflowValidation : executionValidation,
-      save() {
-        void save.saveWorkflowDraft();
-      },
-      saveBlockers: save.saveBlockers,
-      saveError: save.saveError,
-      // Drop the captured save validation once the draft moves past the version
-      // it was computed against: its errors may reference rows a later edit
-      // changed or removed, and the next save attempt re-validates fresh.
-      saveValidation:
-        save.saveValidation !== null && save.saveValidation.version === fallbackDraftState.version
-          ? save.saveValidation.results
-          : null,
-      saving: save.saving,
-      state: fallbackDraftState,
-      workflowID,
-    }),
-    [dirty, draftDerivedWiring, draftValidation, executionValidation, fallbackDraftState, save, workflowID],
-  );
-  useRegisterWorkflowEditorDraftController(controller);
-  useEffect(() => {
-    const warning = draftState?.lastTopologyMutation?.warnings[0];
-    if (warning === undefined) {
-      return;
-    }
-    pushStatus({
-      body: t(graphEditWarningTranslationKey(warning)),
-      id: `workflow-graph-edit-warning-${draftState?.version.toString() ?? "unknown"}`,
-      title: t("workflowEditor.graphEditBlockedTitle"),
-      tone: "warning",
-    });
-  }, [draftState?.lastTopologyMutation, draftState?.version, pushStatus, t]);
 
   const deleteConfirmation = useWorkflowGraphDeleteConfirmation({
     closeDeletedNodeInspector,
@@ -282,26 +219,28 @@ function WorkflowEditorRouteContent({
     return (
       <WorkflowEditorNonReadyState
         onRetryLinks={() => {
-          void data.linksQuery.refetch();
+          save.retryLinks(undefined);
         }}
         onRetryLoad={() => {
-          void data.workflowQuery.refetch();
-          void data.validationQuery.refetch();
-          void layoutQuery.refetch();
+          save.retryLoad(undefined);
+          save.retryLayout(undefined);
         }}
         viewState={viewState}
       />
     );
   }
+  if (controller === null)
+    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
 
   return (
     <>
-      <WorkflowEditorObservationFailures data={data} />
+      <WorkflowEditorObservationFailures model={model} />
       <WorkflowEditorReadyView
         activeEmbeddedInspectorInitialFocus={activeEmbeddedInspector?.initialFocus}
         activeEmbeddedInspectorSelection={activeEmbeddedInspector?.selection ?? null}
         closeDeletedNodeInspector={closeDeletedNodeInspector}
         controller={controller}
+        model={model}
         deleteConfirmationDialog={deleteConfirmation.dialog}
         dispatch={dispatch}
         draftState={draftState}
@@ -312,6 +251,7 @@ function WorkflowEditorRouteContent({
         }}
         openDeleteConfirmation={deleteConfirmation.open}
         save={save}
+        confirmationPreview={confirmationPreview}
         surface={surface}
         workflowID={workflowID}
       />
@@ -319,15 +259,22 @@ function WorkflowEditorRouteContent({
   );
 }
 
-function WorkflowEditorObservationFailures({ data }: Readonly<{ data: WorkflowEditorData }>) {
+function WorkflowEditorObservationFailures({ model }: Readonly<{ model: WorkflowEditorViewModel }>) {
   const { t } = useTranslation();
+  const workflowError = useAtomSuspense(model.workflowObservation).value;
+  const projectError = useAtomSuspense(model.projectObservation).value;
+  const retryWorkflow = useAtomRefresh(model.workflowObservation);
+  const retryProject = useAtomRefresh(model.projectObservation);
+  const observations = [
+    { key: "workflow", error: workflowError, retry: retryWorkflow },
+    { key: "project", error: projectError, retry: retryProject },
+  ];
   return (
     <>
-      {(["workflowObservation", "projectObservation"] as const).map((key) => {
-        const observation = data[key];
+      {observations.map((observation) => {
         return observation.error === null ? null : (
           <ErrorState
-            key={key}
+            key={observation.key}
             fullPage={false}
             body={errorMessage(observation.error)}
             title={t("workflowEditor.loadFailed")}
@@ -345,12 +292,15 @@ function useWorkflowGraphInspector({
   setEmbeddedInspectorSelection,
   surface,
   workflowID,
+  model,
 }: Readonly<{
   openSidebar: SidebarRootController["open"] | null;
   setEmbeddedInspectorSelection: Dispatch<SetStateAction<WorkflowEditorEmbeddedInspectorSelection | null>>;
   surface: "route" | "sidebar";
   workflowID: string;
+  model: WorkflowEditorViewModel;
 }>): (selection: WorkflowInspectorSelection, initialFocus?: WorkflowInspectorInitialFocus) => void {
+  const { t } = useTranslation();
   return useCallback(
     (selection, initialFocus) => {
       if (surface === "sidebar") {
@@ -360,9 +310,30 @@ function useWorkflowGraphInspector({
       if (openSidebar === null) {
         throw new Error("Route Workflow inspection requires a sidebar root owner.");
       }
-      openSidebar({ initialFocus, kind: "workflowInspect", mode: "overlay", selection, workflowID });
+      const destination = {
+        initialFocus,
+        kind: "workflowInspect",
+        mode: "overlay",
+        selection,
+        workflowID,
+      } as const;
+      openSidebar({
+        kind: "custom",
+        mode: "overlay",
+        title: sidebarTitle(destination, t),
+        sizing: sidebarSizePreference(destination),
+        content: (navigator) => (
+          <WorkflowEditableInspectorDestination
+            model={model}
+            navigator={navigator}
+            initialFocus={initialFocus}
+            selection={selection}
+            workflowID={workflowID}
+          />
+        ),
+      });
     },
-    [openSidebar, setEmbeddedInspectorSelection, surface, workflowID],
+    [openSidebar, setEmbeddedInspectorSelection, surface, workflowID, model, t],
   );
 }
 
@@ -380,6 +351,7 @@ function WorkflowEditorReadyView(props: WorkflowEditorReadyViewProps) {
     activeEmbeddedInspectorSelection,
     closeDeletedNodeInspector,
     controller,
+    model,
     deleteConfirmationDialog,
     dispatch,
     draftState,
@@ -388,6 +360,7 @@ function WorkflowEditorReadyView(props: WorkflowEditorReadyViewProps) {
     onClearEmbeddedInspector,
     openDeleteConfirmation,
     save,
+    confirmationPreview,
     surface,
     workflowID,
   } = props;
@@ -412,25 +385,26 @@ function WorkflowEditorReadyView(props: WorkflowEditorReadyViewProps) {
         surface={surface}
       />
       <WorkflowEditorEmbeddedInspector
+        model={model}
         initialFocus={activeEmbeddedInspectorInitialFocus}
         onClose={onClearEmbeddedInspector}
         selection={activeEmbeddedInspectorSelection}
         workflowID={workflowID}
       />
       <WorkflowEditorStatusIsland
-        confirmationPreview={save.saveConfirmationPreview}
+        confirmationPreview={confirmationPreview}
         controller={controller}
         onCancelConfirmation={() => {
-          save.setSaveConfirmationPreview(null);
+          save.dismissConfirmation(undefined);
         }}
         onConfirmSave={() => {
-          if (save.saveConfirmationPreview === null) {
+          if (confirmationPreview === null) {
             return;
           }
-          void save.saveWorkflowDraft(save.saveConfirmationPreview);
+          save.save(confirmationPreview);
         }}
         onDiscard={() => {
-          dispatch({ source: controller.state.source, type: "reset" });
+          save.discard(undefined);
         }}
         positionStrategy={positionStrategy}
       />
@@ -444,15 +418,15 @@ function WorkflowEditorReadyView(props: WorkflowEditorReadyViewProps) {
 
 function WorkflowSettingsSurface({
   controller,
-  dispatch,
   navigator,
   save,
+  confirmationPreview,
   workflowID,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
-  dispatch: (action: WorkflowEditorDraftAction) => void;
+  controller: WorkflowEditorView;
   navigator?: SidebarPageNavigator | undefined;
-  save: WorkflowEditorSave;
+  save: ReturnType<typeof useWorkflowEditorActions>;
+  confirmationPreview: WorkflowGraphSavePreview | null;
   workflowID: string;
 }>) {
   usePublishSidebarHeaderAction(
@@ -464,18 +438,18 @@ function WorkflowSettingsSurface({
         <WorkflowDraftDetails controller={controller} />
       </div>
       <WorkflowEditorStatusIsland
-        confirmationPreview={save.saveConfirmationPreview}
+        confirmationPreview={confirmationPreview}
         controller={controller}
         onCancelConfirmation={() => {
-          save.setSaveConfirmationPreview(null);
+          save.dismissConfirmation(undefined);
         }}
         onConfirmSave={() => {
-          if (save.saveConfirmationPreview !== null) {
-            void save.saveWorkflowDraft(save.saveConfirmationPreview);
+          if (confirmationPreview !== null) {
+            save.save(confirmationPreview);
           }
         }}
         onDiscard={() => {
-          dispatch({ source: controller.state.source, type: "reset" });
+          save.discard(undefined);
         }}
         positionStrategy="absolute"
       />
@@ -493,40 +467,6 @@ function embeddedSelectionMatchesNode(
     embedded.selection.kind === "node" &&
     embedded.selection.nodeID === nodeID
   );
-}
-
-function useWorkflowEditorDraftSync(
-  params: Readonly<{
-    data: WorkflowEditorData;
-    dirty: boolean;
-    dispatch: (action: Parameters<typeof workflowEditorDraftStateReducer>[1]) => void;
-    draftState: WorkflowEditorDraftState | null;
-  }>,
-): void {
-  const { data, dirty, dispatch, draftState } = params;
-  useEffect(() => {
-    const source = data.workflowQuery.data;
-    if (source === undefined) {
-      return;
-    }
-    if (draftState === null) {
-      dispatch({ source, type: "reset" });
-      return;
-    }
-    if (source.workflow.version === draftState.source.workflow.version) {
-      return;
-    }
-    if (dirty) {
-      if (
-        draftState.conflict?.workflow.version !== source.workflow.version &&
-        draftState.acknowledgedConflictVersion !== source.workflow.version
-      ) {
-        dispatch({ source, type: "conflict" });
-      }
-      return;
-    }
-    dispatch({ source, type: "reset" });
-  }, [data.workflowQuery.data, dirty, dispatch, draftState]);
 }
 
 function WorkflowEditorNonReadyState({

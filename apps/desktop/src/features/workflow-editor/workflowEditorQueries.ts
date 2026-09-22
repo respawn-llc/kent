@@ -1,58 +1,49 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
-import type { WorkflowDefinition, WorkflowGraphSavePreview, WorkflowValidation } from "@/api";
+import type { WorkflowDefinition, WorkflowValidation } from "@/api";
+import type { AppServices } from "@/app-facade";
 import { queryKeys } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import {
-  initializeWorkflowEditorDraft,
   workflowEditorDraftGraph,
   workflowEditorDraftMetadata,
-  workflowEditorDraftReducer,
   type WorkflowEditorDraftState,
 } from "./workflowEditorDraft";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
 
-export type WorkflowSaveConfirmationPreviewEntry = Readonly<{
-  key: string;
-  preview: WorkflowGraphSavePreview;
-}>;
+export const workflowEditorReadOptions = {
+  retry: false,
+  networkMode: "always",
+  refetchOnReconnect: false,
+  refetchOnWindowFocus: false,
+} as const;
 
 export function workflowSaveConfirmationPreviewKey(state: WorkflowEditorDraftState): string {
   const observedRemoteVersion = state.conflict?.workflow.version ?? state.acknowledgedConflictVersion;
-  return [
+  return JSON.stringify([
     state.source.workflow.id,
     state.source.workflow.version.toString(),
-    observedRemoteVersion.toString(),
+    observedRemoteVersion,
     state.version.toString(),
-  ].join(":");
+  ]);
 }
 
-export function workflowEditorDraftStateReducer(
-  state: WorkflowEditorDraftState | null,
-  action: Parameters<typeof workflowEditorDraftReducer>[1],
-): WorkflowEditorDraftState | null {
-  if (state === null) {
-    return action.type === "reset" ? initializeWorkflowEditorDraft(action.source) : state;
-  }
-  return workflowEditorDraftReducer(state, action);
-}
-
-export function useWorkflowDraftValidationQuery(
+export function workflowDraftValidationOptions(
+  api: AppServices["api"],
   workflowID: string,
   draftState: WorkflowEditorDraftState | null,
   graphDirty: boolean,
 ) {
-  const { api } = useAppServices();
   // Metadata-only edits (display name/description) do not bump graphVersion, so
   // the server's draft validation of the workflow name would keep reusing the
   // stale staleTime:Infinity result. Vary the key by the draft metadata too.
   const metadataSignature =
-    draftState === null ? "" : JSON.stringify(workflowEditorDraftMetadata(draftState));
-  return useQuery({
+    draftState === null ? null : JSON.stringify(workflowEditorDraftMetadata(draftState));
+  return {
     queryKey: queryKeys.workflowDraftValidation(
       workflowID,
-      draftState?.source.workflow.version ?? 0,
-      draftState?.graphVersion ?? 0,
+      draftState?.source.workflow.version ?? null,
+      draftState?.graphVersion ?? null,
       metadataSignature,
     ),
     queryFn: async () => {
@@ -68,15 +59,15 @@ export function useWorkflowDraftValidationQuery(
     },
     enabled: draftState !== null && !graphDirty,
     staleTime: Infinity,
-  });
+  };
 }
 
-export function useWorkflowDraftDerivedWiringQuery(
+export function workflowDraftDerivedWiringOptions(
+  api: AppServices["api"],
   workflowID: string,
   draftState: WorkflowEditorDraftState | null,
   graphDirty: boolean,
 ) {
-  const { api } = useAppServices();
   // Keyed on the draft graph content, not graphVersion: wiring-relevant edits
   // (edge parameters and derived wiring) intentionally leave graphVersion
   // unchanged, so a version key would serve stale wiring for exactly those
@@ -84,11 +75,11 @@ export function useWorkflowDraftDerivedWiringQuery(
   // cost on every clean-state render. Derive-wiring is cheap (no validation),
   // so refetching on graph content changes is acceptable.
   const graphSignature =
-    draftState !== null && graphDirty ? JSON.stringify(workflowEditorDraftGraph(draftState)) : "";
-  return useQuery({
+    draftState !== null && graphDirty ? JSON.stringify(workflowEditorDraftGraph(draftState)) : null;
+  return {
     queryKey: queryKeys.workflowDraftDerivedWiring(
       workflowID,
-      draftState?.source.workflow.version ?? 0,
+      draftState?.source.workflow.version ?? null,
       graphSignature,
     ),
     queryFn: async () => {
@@ -102,7 +93,7 @@ export function useWorkflowDraftDerivedWiringQuery(
     },
     enabled: draftState !== null && graphDirty,
     staleTime: Infinity,
-  });
+  };
 }
 
 export function useWorkflowScriptPathValidationQuery(workflowID: string, nodeID: string, scriptPath: string) {
@@ -124,26 +115,28 @@ export function useWorkflowScriptPathValidationQuery(workflowID: string, nodeID:
 const scriptPathValidationStaleMs = 5_000;
 const scriptPathValidationRefreshMs = 5_000;
 
-export function useWorkflowGraphLayoutQuery(
+export function workflowGraphLayoutOptions(
   workflowID: string,
   definition: WorkflowDefinition | undefined,
-  draftVersion: number,
+  draftVersion: number | null,
   validation: WorkflowValidation | null,
-): UseQueryResult<WorkflowGraphLayout> {
-  return useQuery({
+) {
+  return {
     queryKey: queryKeys.workflowGraphLayout(
       workflowID,
-      (definition?.workflow.version ?? 0) * 100_000 + draftVersion,
-      validation?.valid ?? false,
-      validation?.errors ?? [],
+      definition === undefined || draftVersion === null
+        ? null
+        : definition.workflow.version * 100_000 + draftVersion,
+      validation?.valid ?? null,
+      validation?.errors ?? null,
     ),
     queryFn: async () => {
-      if (definition === undefined || validation === null) {
+      if (definition === undefined || validation === null || draftVersion === null) {
         throw new Error("Workflow graph layout requested before workflow definition and validation loaded.");
       }
       return layoutWorkflowGraph(definition, validation);
     },
-    enabled: definition !== undefined && validation !== null,
-    placeholderData: (previous) => previous,
-  });
+    enabled: definition !== undefined && validation !== null && draftVersion !== null,
+    placeholderData: (previous: WorkflowGraphLayout | undefined) => previous,
+  };
 }

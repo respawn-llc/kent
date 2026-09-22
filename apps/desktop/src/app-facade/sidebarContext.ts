@@ -130,7 +130,7 @@ export type SidebarDestination =
       mode?: SidebarMode;
       sizing?: SidebarSizePreference | undefined;
       title: string;
-      content: ReactNode;
+      content: (navigator: SidebarPageNavigator) => ReactNode;
     }>;
 
 export type SidebarDestinationPolicy = Readonly<{

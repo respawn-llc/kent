@@ -1,8 +1,13 @@
-import type { UseQueryResult } from "@tanstack/react-query";
+import type { QueryObserverResult } from "@tanstack/react-query";
+import type { QuerySnapshot } from "@/app-facade";
+import type * as Atom from "effect/unstable/reactivity/Atom";
 
 import type { WorkflowValidation } from "@/api";
 import type { WorkflowGraphLayout } from "./workflowGraphLayout";
-import type { WorkflowEditorData } from "./useWorkflowEditorData";
+import type { WorkflowEditorViewModel } from "./WorkflowEditorViewModel";
+
+type WorkflowEditorData = Atom.Type<WorkflowEditorViewModel["data"]>;
+type LayoutResult = QuerySnapshot<QueryObserverResult<WorkflowGraphLayout>>;
 
 export type WorkflowEditorViewState =
   | Readonly<{ kind: "loading" }>
@@ -13,7 +18,7 @@ export type WorkflowEditorViewState =
 
 export function workflowEditorViewState(
   data: WorkflowEditorData,
-  layoutQuery: UseQueryResult<WorkflowGraphLayout>,
+  layoutQuery: LayoutResult,
   projectedGraph: WorkflowGraphLayout | undefined,
 ): WorkflowEditorViewState {
   if (isLinkGateLoading(data)) {
@@ -42,13 +47,10 @@ function isLinkGateLoading(data: WorkflowEditorData): boolean {
   return data.projectContext && data.linksQuery.isPending;
 }
 
-function isGraphLoading(data: WorkflowEditorData, layoutQuery: UseQueryResult<WorkflowGraphLayout>): boolean {
+function isGraphLoading(data: WorkflowEditorData, layoutQuery: LayoutResult): boolean {
   return data.workflowQuery.isPending || data.validationQuery.isPending || layoutQuery.isPending;
 }
 
-function workflowEditorLoadError(
-  data: WorkflowEditorData,
-  layoutQuery: UseQueryResult<WorkflowGraphLayout>,
-): Error | null {
+function workflowEditorLoadError(data: WorkflowEditorData, layoutQuery: LayoutResult): Error | null {
   return data.workflowQuery.error ?? data.validationQuery.error ?? layoutQuery.error ?? null;
 }
