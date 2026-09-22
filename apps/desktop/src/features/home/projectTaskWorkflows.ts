@@ -1,7 +1,16 @@
-import { useInfiniteQuery, type InfiniteData, type UseInfiniteQueryResult } from "@tanstack/react-query";
+import {
+  InfiniteQueryObserver,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
 
-import { workflowPageSize, type WorkflowPage, type WorkflowRecord } from "@/api";
-import { queryKeys, useAppServices, useRetainedQueryData } from "@/app-facade";
+import { workflowPageSize, type WorkflowPage, type WorkflowRecord, type ApiService } from "@/api";
+import { queryAtom, queryKeys, useAppServices, retainQueryData, type RetainedQueryData } from "@/app-facade";
 
 export type ProjectTaskWorkflowItem = Readonly<{
   description: string;
@@ -17,17 +26,32 @@ export type ProjectTaskWorkflowPage = Readonly<{
 
 const retainedProjectTaskWorkflowPages = 3;
 
-export function useProjectTaskWorkflowPages(
-  projectID: string,
-): UseInfiniteQueryResult<InfiniteData<ProjectTaskWorkflowPage, bigint>> {
-  const { api } = useAppServices();
-  return useInfiniteQuery<
+export function useProjectTaskWorkflowPages(projectID: string) {
+  const services = useAppServices();
+  const [api] = useState(() => services.api);
+  const client = useQueryClient();
+  const model = useMemo(
+    () => createProjectTaskWorkflowModel(api, client, projectID),
+    [api, client, projectID],
+  );
+  return {
+    ...useAtomValue(model.request),
+    newTaskAvailable: useAtomValue(model.available),
+    fetchNextPage: useAtomSet(model.nextPage),
+    fetchPreviousPage: useAtomSet(model.previousPage),
+    refetch: useAtomSet(model.retry),
+    model,
+  };
+}
+
+export function createProjectTaskWorkflowModel(api: ApiService, client: QueryClient, projectID: string) {
+  const observer = new InfiniteQueryObserver<
     ProjectTaskWorkflowPage,
     Error,
     InfiniteData<ProjectTaskWorkflowPage, bigint>,
     readonly unknown[],
     bigint
-  >({
+  >(client, {
     queryKey: queryKeys.projectTaskWorkflows(projectID),
     queryFn: async ({ pageParam }) =>
       projectTaskWorkflowPage(
@@ -48,6 +72,33 @@ export function useProjectTaskWorkflowPages(
     maxPages: retainedProjectTaskWorkflowPages,
     gcTime: 0,
   });
+  const request = queryAtom(observer);
+  const retained = Atom.make<RetainedQueryData<boolean, string> | null>(null);
+  const available = Atom.make((get) => {
+    get.mount(retained);
+    const data = get(request).data;
+    const previous = get.once(retained);
+    const next = retainQueryData(
+      previous,
+      {
+        scope: projectID,
+        data: data === undefined ? false : firstPageNewTaskAvailability(data),
+        retain: true,
+      },
+      (left, right) => left === right,
+    );
+    if (previous !== next.retained) get.set(retained, next.retained);
+    return next.data ?? false;
+  });
+  return {
+    request,
+    available,
+    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
+    previousPage: Atom.fn(() => Effect.promise(async () => observer.fetchPreviousPage()), {
+      concurrent: true,
+    }),
+    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+  };
 }
 
 function projectTaskWorkflowPage(page: WorkflowPage): ProjectTaskWorkflowPage {
@@ -73,14 +124,6 @@ export function projectTaskWorkflowItems(
   data: InfiniteData<ProjectTaskWorkflowPage, bigint> | undefined,
 ): readonly ProjectTaskWorkflowItem[] {
   return data?.pages.flatMap((page) => page.workflows) ?? [];
-}
-
-export function useProjectTaskNewTaskAvailable(
-  projectID: string,
-  data: InfiniteData<ProjectTaskWorkflowPage, bigint> | undefined,
-): boolean {
-  const currentAvailability = data === undefined ? false : firstPageNewTaskAvailability(data);
-  return useRetainedQueryData(projectID, currentAvailability, (left, right) => left === right) ?? false;
 }
 
 function firstPageNewTaskAvailability(

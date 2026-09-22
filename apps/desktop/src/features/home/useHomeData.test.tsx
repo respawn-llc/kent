@@ -1,17 +1,18 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { JsonValue } from "@/api";
-import { SidebarRootContext, type SidebarDestination } from "@/app-facade";
+import { SidebarRootContext, useAppServices, type SidebarDestination } from "@/app-facade";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import type { FakeRpcTransport, FakeRoute } from "@/test-support/api";
 import { flushQueuedWork, installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
 import { workflowAttentionCalls, workflowAttentionRpcMethods } from "@/test-support/workflow-attention";
 import { SidebarInboxNav } from "./SidebarInboxNav";
-import { useGlobalAttentionPages } from "./useHomeData";
+import { createHomeAttentionPages, useGlobalAttentionPages } from "./useHomeData";
 
 describe("Home global attention data", () => {
   beforeEach(() => {
@@ -93,6 +94,7 @@ describe("Home global attention data", () => {
         </SidebarRootContext.Provider>
       </TestAppProviders>,
     );
+    await flushQueuedWork();
     view.rerender(
       <TestAppProviders services={services}>
         <SidebarRootContext.Provider value={controller}>
@@ -144,7 +146,7 @@ describe("Home global attention data", () => {
     }
 
     await act(async () => {
-      await query.fetchNextPage();
+      query.fetchNextPage();
     });
     await expectAttentionCalls(services.transport, 2);
     expect(attentionPageTokens(services.transport)).toEqual(["", "page-2"]);
@@ -164,7 +166,10 @@ function HomeAttentionQueryHarness({
 }: Readonly<{
   onQuery?: (query: ReturnType<typeof useGlobalAttentionPages>) => void;
 }>) {
-  const query = useGlobalAttentionPages();
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const [model] = useState(() => createHomeAttentionPages(api, client, false));
+  const query = useGlobalAttentionPages(model);
   useEffect(() => {
     onQuery?.(query);
   }, [onQuery, query]);

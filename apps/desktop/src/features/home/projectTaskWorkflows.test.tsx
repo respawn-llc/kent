@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { RegistryProvider } from "@effect/atom-react";
 
 import type { WorkflowListInput, WorkflowRecord } from "@/api";
 import { projectTaskWorkflowItems, useProjectTaskWorkflowPages } from "./projectTaskWorkflows";
@@ -52,22 +53,21 @@ it("keeps a bounded bidirectional window of Project Workflow pages", async () =>
   await waitFor(() => {
     expect(view.result.current.isSuccess).toBe(true);
   });
-  let query = view.result.current;
   for (let page = 0; page < 3; page += 1) {
     await act(async () => {
-      query = await query.fetchNextPage();
+      view.result.current.fetchNextPage();
     });
   }
 
-  expect(query.data?.pageParams).toEqual([40n, 80n, 120n]);
-  expect(projectTaskWorkflowItems(query.data)).toHaveLength(90);
+  expect(view.result.current.data?.pageParams).toEqual([40n, 80n, 120n]);
+  expect(projectTaskWorkflowItems(view.result.current.data)).toHaveLength(90);
 
   await act(async () => {
-    query = await query.fetchPreviousPage();
+    view.result.current.fetchPreviousPage();
   });
 
-  expect(query.data?.pageParams).toEqual([0n, 40n, 80n]);
-  expect(projectTaskWorkflowItems(query.data)).toHaveLength(120);
+  expect(view.result.current.data?.pageParams).toEqual([0n, 40n, 80n]);
+  expect(projectTaskWorkflowItems(view.result.current.data)).toHaveLength(120);
   expect(fixture.requests).toEqual([0n, 40n, 80n, 120n, 0n]);
 });
 
@@ -76,6 +76,9 @@ function queryWrapper() {
     defaultOptions: { queries: { retry: false } },
   });
   return function QueryWrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return createElement(QueryClientProvider, { children, client: queryClient });
+    return createElement(QueryClientProvider, {
+      children: createElement(RegistryProvider, { children }),
+      client: queryClient,
+    });
   };
 }

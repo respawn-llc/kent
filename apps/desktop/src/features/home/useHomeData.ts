@@ -1,114 +1,76 @@
-import { useEffect } from "react";
+import { useState } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
 import {
   infiniteQueryOptions,
   keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
+  InfiniteQueryObserver,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 
-import { errorMessage } from "@/api";
 import type { AppServices } from "@/app-facade";
-import { queryKeys } from "@/app-facade";
+import { queryAtom, queryKeys } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 
-type NativeProjectBinding = Parameters<
-  Parameters<AppServices["nativeBridge"]["projectCreation"]["onCreated"]>[0]
->[0];
-
-export function useProjectPages() {
-  const { api } = useAppServices();
-  const queryClient = useQueryClient();
-  useEffect(
-    () => () => {
-      queryClient.removeQueries({ queryKey: queryKeys.projects, exact: true });
-    },
-    [queryClient],
-  );
-  return useInfiniteQuery({
+export function createHomeProjectPages(api: AppServices["api"], queryClient: QueryClient) {
+  const observer = new InfiniteQueryObserver(queryClient, {
     queryKey: queryKeys.projects,
     queryFn: async ({ pageParam }: Readonly<{ pageParam: string | null }>) => api.listProjects(pageParam),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.nextPageToken ?? undefined,
     placeholderData: keepPreviousData,
   });
+  const observed = queryAtom(observer);
+  const request = Atom.make((get) => {
+    get.addFinalizer(() => {
+      queryClient.removeQueries({ queryKey: queryKeys.projects, exact: true });
+    });
+    return get(observed);
+  });
+  return {
+    request,
+    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
+    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+  };
 }
 
-export function useGlobalAttentionPages() {
-  const { api } = useAppServices();
-  return useInfiniteQuery(globalAttentionQueryOptions(api));
+export function useProjectPages(model: ReturnType<typeof createHomeProjectPages>) {
+  return {
+    ...useAtomValue(model.request),
+    fetchNextPage: useAtomSet(model.nextPage),
+    refetch: useAtomSet(model.retry),
+  };
+}
+
+export function useGlobalAttentionPages(model: ReturnType<typeof createHomeAttentionPages>) {
+  return {
+    ...useAtomValue(model.request),
+    fetchNextPage: useAtomSet(model.nextPage),
+    refetch: useAtomSet(model.retry),
+  };
 }
 
 export function useSidebarGlobalAttentionPages() {
   const { api } = useAppServices();
-  return useInfiniteQuery({
+  const client = useQueryClient();
+  const [model] = useState(() => createHomeAttentionPages(api, client, true));
+  return useGlobalAttentionPages(model);
+}
+
+export function createHomeAttentionPages(api: AppServices["api"], client: QueryClient, sidebar: boolean) {
+  const observer = new InfiniteQueryObserver(client, {
     ...globalAttentionQueryOptions(api),
     refetchOnMount: (query) =>
-      query.observers.filter((observer) => observer.getCurrentResult().isEnabled).length <= 1,
+      !sidebar || query.observers.filter((current) => current.getCurrentResult().isEnabled).length <= 1,
   });
+  return {
+    request: queryAtom(observer),
+    nextPage: Atom.fn(() => Effect.promise(async () => observer.fetchNextPage()), { concurrent: true }),
+    retry: Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true }),
+  };
 }
-
-export function useProjectCreationEvents(onCreated: (binding: NativeProjectBinding) => void) {
-  const { logger, nativeBridge } = useAppServices();
-  useEffect(() => {
-    if (!nativeBridge.capabilities.projectCreationWindow) {
-      return undefined;
-    }
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void nativeBridge.projectCreation
-      .onCreated(onCreated)
-      .then((nextUnlisten) => {
-        if (!active) {
-          nextUnlisten();
-          return;
-        }
-        unlisten = nextUnlisten;
-      })
-      .catch((error: unknown) => {
-        void logger.append("warn", "Project creation event listener failed.", { error: errorMessage(error) });
-      });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, [logger, nativeBridge, onCreated]);
-}
-
-export function useProjectCreation() {
-  const { api } = useAppServices();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: ProjectCreateInput) =>
-      api.createProject(input.name, input.key, input.workspaceRoot),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-    },
-  });
-}
-
-export function useWorkspaceAttach() {
-  const { api } = useAppServices();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: WorkspaceAttachInput) =>
-      (await api.attachWorkspace(input.projectID, input.workspaceRoot)).binding,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-    },
-  });
-}
-
-export type ProjectCreateInput = Readonly<{
-  name: string;
-  key: string;
-  workspaceRoot: string;
-}>;
-
-export type WorkspaceAttachInput = Readonly<{
-  projectID: string;
-  workspaceRoot: string;
-}>;
 
 function globalAttentionQueryOptions(api: AppServices["api"]) {
   return infiniteQueryOptions({

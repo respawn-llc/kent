@@ -16,6 +16,7 @@
 - Desktop must permit otherwise valid subsequent actions and destination/input-driven reads without a global connectivity gate. Desktop must not pause operations for online status or resume them when connectivity changes. Internal transport reuse and required authentication remain supported.
 - Desktop must retain available content and required drafts after failure and show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
 - Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
+- When the operator leaves a destination, Desktop must stop its observations and dispose of its pending local action handling. Submitted mutations must retain their ordinary completion behavior, including feedback and content refresh after navigation. Local disposal must not cancel accepted server work or discard drafts retained by navigation.
 - The Processes area's focused 1.5-second polling schedule, continued polling after an individual failure, and immediate refresh when focus returns must remain active as an exception to generic focus-driven refresh restrictions.
 - The Workflow editor must retain its five-second Script-path validation schedule after a failed check. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
 - Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Except for rapid Task Label assignment edits, Desktop must not queue mutations. Desktop must not automatically replay mutations after reconnection. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
@@ -70,6 +71,8 @@
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
 
 ## Projects And Workspaces
+
+- If native Project-created notifications exceed Home's bounded observation capacity, Home must stop that observation and show a temporary error. Home must not automatically restart the observation or replay notifications. This failure must not affect Project creation or accepted server work.
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key; the default name is the directory basename.

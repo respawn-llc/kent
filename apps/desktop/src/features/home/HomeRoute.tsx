@@ -1,32 +1,31 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
 import { errorMessage } from "@/api";
-import { basename, projectKeyFromName } from "@/app-facade";
 import { useAppNavigation } from "@/app-facade";
-import { queryKeys } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarMode } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useNativeDialogFallback } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import { ErrorState, LoadingState, VirtualizedInfiniteList } from "@/ui";
-import { HomeSidebar, type HomeSidebarCategory } from "./HomeSidebar";
+import {
+  ErrorState,
+  LoadingState,
+  VirtualizedInfiniteList,
+  useStableCallback,
+} from "@/ui";
+import { HomeSidebar } from "./HomeSidebar";
+import { createHomeViewModel, type HomeViewModel } from "./HomeViewModel";
 import { HomeProjectContent } from "./HomeProjectContent";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
 import { useHomeSidebarMode } from "./useHomeSidebarMode";
-import {
-  useGlobalAttentionPages,
-  useProjectCreation,
-  useProjectCreationEvents,
-  useProjectPages,
-} from "./useHomeData";
+import { useGlobalAttentionPages, useProjectPages } from "./useHomeData";
 import { AttentionRow } from "./AttentionRow";
+import { useProjectCreationActions } from "./ProjectCreationModel";
 
-const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
 export function HomeRoute({ selectedProjectID }: Readonly<{ selectedProjectID: string | null }>) {
   return (
     <SidebarRootOwner>
@@ -37,153 +36,77 @@ export function HomeRoute({ selectedProjectID }: Readonly<{ selectedProjectID: s
 
 function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: string | null }>) {
   const { t } = useTranslation();
-  const { api, nativeBridge } = useAppServices();
+  const services = useAppServices();
   const { push } = useStatusController();
   const { mainPaneRef, sidebarMode } = useHomeSidebarMode();
   const navigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
   const queryClient = useQueryClient();
-  const creation = useProjectCreation();
-  const projects = useProjectPages();
-  const attention = useGlobalAttentionPages();
-  const [category, setCategory] = useState<HomeSidebarCategory>("projects");
-  const projectItems = projects.data?.pages.flatMap((page) => page.projects) ?? [];
-  const attentionItems = attention.data?.pages.flatMap((page) => page.items) ?? [];
-  const projectCreationDialog = useNativeDialogFallback<ProjectDraft>({
-    errorNoticeID: "project-create-window-error",
-    errorTitle: t("home.projectCreateWindowError"),
-    nativeAvailable: nativeBridge.capabilities.projectCreationWindow,
-    openNative: async (nextDraft) => {
-      await nativeBridge.projectCreation.openWindow(nextDraft);
-    },
-    renderFallback: (nextDraft, close) => (
+  const openProject = useStableCallback(navigation.openProject);
+  const [model] = useState(() =>
+    createHomeViewModel({ services, client: queryClient, t, push, openProject }),
+  );
+  const creation = useAtomValue(model.creation.state);
+  const creationActions = useProjectCreationActions(model.creation);
+  const projects = useProjectPages(model.projects);
+  const attention = useGlobalAttentionPages(model.attention);
+  const category = useAtomValue(model.category);
+  const selectCategory = useAtomSet(model.selectCategory);
+  const selectProject = useAtomSet(model.selectProject);
+  const createWorkflow = useAtomSet(model.createWorkflow);
+  const projectItems = useAtomValue(model.projectItems);
+  const attentionItems = useAtomValue(model.attentionItems);
+  const [draft, setDraft] = useState<ProjectDraft | null>(null);
+  const closeCreation = () => {
+    setDraft(null);
+  };
+  const projectCreationDialog =
+    draft === null ? null : (
       <ProjectCreateDialog
         creationError={creation.error}
-        draft={nextDraft}
+        draft={draft}
         isCreating={creation.isPending}
-        onClose={close}
-        onSubmitDraft={(values) => void submitDraft(values, close)}
+        onClose={closeCreation}
+        onSubmitDraft={(draft) => {
+          creationActions.submit({
+            draft,
+            complete: async (projectID) => {
+              closeCreation();
+              await navigation.openProject(projectID);
+            },
+            selectionRequired: closeCreation,
+          });
+        }}
       />
-    ),
-  });
+    );
 
-  async function chooseWorkspace(): Promise<void> {
-    try {
-      const selected = await nativeBridge.directories.selectDirectory({ title: t("home.chooseWorkspace") });
-      if (selected === null) {
-        return;
-      }
-      await openProjectCreationDestination(selected.path);
-    } catch (error) {
-      push({
-        id: "project-create-picker-error",
-        tone: "danger",
-        title: t("home.workspacePickerError"),
-        body: errorMessage(error),
-      });
-    }
-  }
-
-  async function openProjectCreationDestination(workspacePath: string): Promise<void> {
-    try {
-      const plan = await api.planWorkspace(workspacePath);
-      if (plan.binding !== null) {
-        void navigation.openProject(plan.binding.projectID);
-        return;
-      }
-      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
-        push({
-          id: "project-create-selection-required",
-          tone: "info",
-          title: t("home.workspaceSelectionRequired"),
-          body: t("home.workspaceSelectionRequiredBody"),
-        });
-        return;
-      }
-      const name = basename(plan.canonicalRoot);
-      const nextDraft = { name, key: projectKeyFromName(name), workspaceRoot: plan.canonicalRoot };
-      await projectCreationDialog.open(nextDraft);
-    } catch (error) {
-      push({
-        id: "project-create-plan-error",
-        tone: "danger",
-        title: t("home.workspacePlanError"),
-        body: errorMessage(error),
-      });
-    }
-  }
-
-  async function submitDraft(values: ProjectDraft, close: () => void): Promise<void> {
-    try {
-      const plan = await api.planWorkspace(values.workspaceRoot);
-      if (plan.binding !== null) {
-        close();
-        void navigation.openProject(plan.binding.projectID);
-        return;
-      }
-      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
-        close();
-        push({
-          id: "project-create-selection-required",
-          tone: "info",
-          title: t("home.workspaceSelectionRequired"),
-          body: t("home.workspaceSelectionRequiredBody"),
-        });
-        return;
-      }
-      const binding = await creation.mutateAsync({
-        name: values.name.trim(),
-        key: values.key.trim().toUpperCase(),
-        workspaceRoot: values.workspaceRoot,
-      });
-      close();
-      void navigation.openProject(binding.projectID);
-    } catch (error) {
-      push({
-        id: "project-create-submit-error",
-        tone: "danger",
-        title: t("home.workspacePlanError"),
-        body: errorMessage(error),
-      });
-    }
-  }
-
-  const handleNativeProjectCreated = useCallback(
-    (binding: Readonly<{ projectID: string }>) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      void navigation.openProject(binding.projectID);
-    },
-    [navigation, queryClient],
-  );
-
-  useProjectCreationEvents(handleNativeProjectCreated);
+  useAtomMount(model.creationObservation);
 
   const selectedCategory = selectedProjectID === null ? category : "projects";
   const detailKey = selectedProjectID === null ? "inbox" : `project:${selectedProjectID}`;
   return (
     <div className="h-full min-h-0" data-testid="home-route-root">
-      {projectCreationDialog.fallback}
+      {projectCreationDialog}
       <div className="grid h-full min-h-0 grid-cols-[350px_minmax(0,1fr)]" data-testid="home-pane-grid">
         <HomeSidebar
-          onChooseWorkspace={() => void chooseWorkspace()}
+          onChooseWorkspace={() => {
+            creationActions.chooseWorkspace({
+              openProject: navigation.openProject,
+              openDraft: setDraft,
+            });
+          }}
           onCreateWorkflow={() => {
-            open({ kind: "workflowCreate", mode: sidebarMode });
+            createWorkflow({ open, mode: sidebarMode });
           }}
           onProjectSelect={(projectID) => {
-            if (selectedProjectID === projectID) {
-              void navigation.selectHomeProject(null);
-              return;
-            }
-            void navigation.selectHomeProject(projectID);
+            selectProject({ projectID, selectedProjectID, selectProject: navigation.selectHomeProject });
           }}
           onCategorySelect={(nextCategory) => {
-            if (category === nextCategory && selectedProjectID === null) {
-              return;
-            }
-            setCategory(nextCategory);
-            if (selectedProjectID !== null) {
-              void navigation.selectHomeProject(null);
-            }
+            selectCategory({
+              category: nextCategory,
+              selectedProjectID,
+              selectProject: navigation.selectHomeProject,
+            });
           }}
           selectedCategory={selectedCategory}
           projectItems={projectItems}
@@ -205,7 +128,12 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
                 sidebarMode={sidebarMode}
               />
             ) : (
-              <AttentionList items={attentionItems} query={attention} sidebarMode={sidebarMode} />
+              <AttentionList
+                items={attentionItems}
+                model={model}
+                query={attention}
+                sidebarMode={sidebarMode}
+              />
             )}
           </OverlappingCrossfade>
         </section>
@@ -218,11 +146,21 @@ type AttentionListProps = Readonly<{
   items: readonly AttentionItem[];
   query: ReturnType<typeof useGlobalAttentionPages>;
   sidebarMode: SidebarMode;
+  model: HomeViewModel;
 }>;
 
-function AttentionList({ items, query, sidebarMode }: AttentionListProps) {
+function AttentionList({ items, query, sidebarMode, model }: AttentionListProps) {
   const { t } = useTranslation();
   const { open } = useOwnedSidebarRoots();
+  const navigation = useAppNavigation();
+  const openTask = useAtomSet(model.attentionTask);
+  const openChat = useAtomSet(model.attentionChat);
+  const onTaskDetail = useStableCallback((item: AttentionItem) => {
+    openTask({ item, open, mode: sidebarMode });
+  });
+  const onSessionChat = useStableCallback((target: Parameters<typeof navigation.openSessionChat>[0]) => {
+    openChat({ target, open: navigation.openSessionChat });
+  });
   if (query.isPending) {
     return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
@@ -249,10 +187,14 @@ function AttentionList({ items, query, sidebarMode }: AttentionListProps) {
       isFetchingNextPage={query.isFetchingNextPage}
       items={items}
       loadingLabel={t("app.loadingMore")}
-      onLoadMore={() => void query.fetchNextPage()}
+      onLoadMore={() => {
+        query.fetchNextPage();
+      }}
       paddingEnd={16}
       paddingStart={16}
-      renderItem={(item) => <AttentionRow item={item} openSidebar={open} sidebarMode={sidebarMode} />}
+      renderItem={(item) => (
+        <AttentionRow item={item} onTaskDetail={onTaskDetail} onSessionChat={onSessionChat} />
+      )}
     />
   );
 }

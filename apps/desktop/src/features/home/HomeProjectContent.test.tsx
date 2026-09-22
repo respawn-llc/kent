@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useCallback } from "react";
+import { fireEvent, render as renderReact, screen } from "@testing-library/react";
+import { useCallback, type ReactElement } from "react";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { deferred } from "@/test-support/chat-runtime";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { clearLastProjectRoute, type SessionChatTarget } from "@/app-facade";
@@ -34,22 +36,6 @@ const fixture = vi.hoisted(
   }),
 );
 
-vi.mock("@tanstack/react-query", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useQueryClient: () => ({ invalidateQueries: vi.fn(), resetQueries: vi.fn() }),
-  useQuery: () => fixture.projectQuery,
-  useInfiniteQuery: () => ({
-    data: { pages: [{ sessions: fixture.sessions }] },
-    error: null,
-    fetchNextPage: vi.fn(),
-    hasNextPage: false,
-    isError: false,
-    isFetchingNextPage: false,
-    isPending: false,
-    refetch: vi.fn(),
-  }),
-}));
-
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   useAppNavigation: () => ({
@@ -59,9 +45,27 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     selectHomeProject: vi.fn(),
   }),
   useSessionChatCatalogReturn: () => null,
-  useAppServices: () => ({ api: {} }),
   useOwnedSidebarRoots: () => ({ open: vi.fn() }),
 }));
+
+function render(content: ReactElement) {
+  const services = createTestServices([]);
+  vi.spyOn(services.api, "getProjectEdit").mockImplementation(async () => {
+    if (fixture.projectQuery.isPending) {
+      return deferred<Awaited<ReturnType<typeof services.api.getProjectEdit>>>().promise;
+    }
+    if (fixture.projectQuery.error !== null) throw fixture.projectQuery.error;
+    return { projectID: "project-1", displayName: "Kent", projectKey: "KNT" };
+  });
+  vi.spyOn(services.api, "listSessionPage").mockImplementation(async (_projectID, category, offset) => ({
+    projectID: "project-1",
+    category,
+    offset,
+    nextOffset: null,
+    sessions: fixture.sessions,
+  }));
+  return renderReact(<TestAppProviders services={services}>{content}</TestAppProviders>);
+}
 
 vi.mock("./ProjectTasksSurface", () => ({
   ProjectTasksSurface: ({ viewMemory }: Readonly<{ viewMemory: ProjectTasksViewMemory }>) => {

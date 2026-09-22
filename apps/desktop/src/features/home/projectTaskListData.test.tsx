@@ -163,7 +163,7 @@ describe("Project Task-list data ownership", () => {
     });
     for (let page = 1; page <= projectTaskGroupRetainedPages; page += 1) {
       await act(async () => {
-        await result.current.active.fetchNextPage();
+        result.current.active.fetchNextPage();
       });
     }
     await waitFor(() => {
@@ -176,7 +176,7 @@ describe("Project Task-list data ownership", () => {
     expect(result.current.active.nextRequestGeneration).toBe("project-1:end");
 
     await act(async () => {
-      await result.current.active.fetchPreviousPage();
+      result.current.active.fetchPreviousPage();
     });
     await waitFor(() => {
       expect(result.current.active.pages).toHaveLength(10);
@@ -329,8 +329,8 @@ describe("Project Task-list data ownership", () => {
     });
 
     await act(async () => {
-      void result.current.counts.refetch();
-      void result.current.active.refetch();
+      result.current.counts.refetch();
+      result.current.active.refetch();
     });
     await waitFor(() => {
       expect(result.current.counts.isFetching).toBe(true);
@@ -502,7 +502,7 @@ describe("Project Task-list data ownership", () => {
       expect(edgeResult.current.active.tasks).toHaveLength(1);
     });
     await act(async () => {
-      await edgeResult.current.active.fetchNextPage();
+      edgeResult.current.active.fetchNextPage();
     });
     await waitFor(() => {
       expect(edgeResult.current.active.isFetchNextPageError).toBe(true);
