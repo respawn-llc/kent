@@ -285,7 +285,10 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		if req.CallerSessionID != nil {
 			resolved, callerErr := launch.ResolveSessionCaller(planner.Config.PersistenceRoot, *req.CallerSessionID)
 			if callerErr != nil {
-				return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
+				if errors.Is(callerErr, session.ErrSessionNotFound) {
+					return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
+				}
+				return PlanResult{}, callerErr
 			}
 			caller = &resolved
 			if parentAgentSessionID != nil {

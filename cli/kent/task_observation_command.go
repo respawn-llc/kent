@@ -56,7 +56,7 @@ func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	if *jsonOut {
 		return taskObservationJSON(ctx, stdout, mode, *project, positionals[0])
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		detail, err := resolveWorkflowTask(ctx, cfg, remote, remote, *project, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)

@@ -7,44 +7,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/server/bootstrap"
 	"core/shared/config"
 	"core/shared/sessioncontract"
 	"core/shared/sessionenv"
 )
 
 type Request struct {
-	WorkspaceRoot             string
-	WorkspaceRootExplicit     bool
-	SessionID                 string
-	WorkspaceContextSessionID string
-	LoadOptions               config.LoadOptions
-}
-
-type RunPromptResult struct {
-	Config                config.App
-	ResolvedWorkspaceRoot string
-	CallerContext         CallerContext
+	WorkspaceRoot string
+	LoadOptions   config.LoadOptions
 }
 
 type SessionConfigResult struct {
-	Config config.App
-	Client config.ClientSettings
-}
-
-type CallerKind string
-
-const (
-	CallerKindHuman       CallerKind = "human"
-	CallerKindKentSession CallerKind = "kent_session"
-)
-
-type CallerContext struct {
-	Kind CallerKind
-}
-
-func humanCallerContext() CallerContext {
-	return CallerContext{Kind: CallerKindHuman}
+	Config config.Connection
+	Local  config.LocalPreferences
 }
 
 func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
@@ -52,54 +27,19 @@ func ResolveSessionConfig(req Request) (SessionConfigResult, error) {
 	if err != nil {
 		return SessionConfigResult{}, err
 	}
-	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
-		WorkspaceRoot:         workspaceRoot,
-		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
-		SessionID:             strings.TrimSpace(req.SessionID),
-		LoadOptions:           req.LoadOptions,
-	})
+	connection, local, err := config.LoadInteractiveConnectionDiscovery(workspaceRoot, req.LoadOptions)
 	if err != nil {
 		return SessionConfigResult{}, err
 	}
-	return SessionConfigResult{Config: plan.Config, Client: plan.Client}, nil
+	return SessionConfigResult{Config: connection, Local: local}, nil
 }
 
-func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
+func ResolveRunPromptConfig(req Request) (config.Connection, error) {
 	workspaceRoot, err := ResolveWorkspaceRoot(req.WorkspaceRoot)
 	if err != nil {
-		return RunPromptResult{}, err
+		return config.Connection{}, err
 	}
-	sessionID := strings.TrimSpace(req.SessionID)
-	contextSessionID := strings.TrimSpace(req.WorkspaceContextSessionID)
-	if sessionID == "" && !req.WorkspaceRootExplicit {
-		sessionID = contextSessionID
-	}
-	plan, err := bootstrap.ResolveConnectionConfig(bootstrap.Request{
-		WorkspaceRoot:         workspaceRoot,
-		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
-		SessionID:             sessionID,
-		LoadOptions:           req.LoadOptions,
-	})
-	if err != nil {
-		if sessionID != "" && sessionID == contextSessionID {
-			return RunPromptResult{}, workspaceContextSessionError(contextSessionID, err)
-		}
-		return RunPromptResult{}, err
-	}
-	caller := humanCallerContext()
-	if contextSessionID != "" {
-		if contextSessionID != sessionID {
-			if err := bootstrap.ValidateSessionExists(plan.Config.PersistenceRoot, contextSessionID); err != nil {
-				return RunPromptResult{}, workspaceContextSessionError(contextSessionID, err)
-			}
-		}
-		caller = CallerContext{Kind: CallerKindKentSession}
-	}
-	resolvedRoot := workspaceRoot
-	if strings.TrimSpace(plan.Config.WorkspaceRoot) != "" && plan.Config.WorkspaceRoot != workspaceRoot {
-		resolvedRoot = plan.Config.WorkspaceRoot
-	}
-	return RunPromptResult{Config: plan.Config, ResolvedWorkspaceRoot: resolvedRoot, CallerContext: caller}, nil
+	return config.LoadConnectionDiscovery(workspaceRoot, req.LoadOptions)
 }
 
 func ResolveWorkspaceRoot(workspaceRoot string) (string, error) {
@@ -121,7 +61,7 @@ func ResolveWorkspaceRoot(workspaceRoot string) (string, error) {
 // session lookup with errors.Is rather than matching rendered message text.
 var ErrWorkspaceContextSessionMissing = errors.New("workspace context session is missing")
 
-func workspaceContextSessionError(sessionID string, err error) error {
+func WorkspaceContextSessionError(sessionID string, err error) error {
 	if errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		return fmt.Errorf("%s points to missing Kent session %q; unset %s or run from a live Kent shell: %w: %w", sessionenv.SessionIDEnv, strings.TrimSpace(sessionID), sessionenv.SessionIDEnv, ErrWorkspaceContextSessionMissing, err)
 	}

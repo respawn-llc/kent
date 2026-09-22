@@ -11,8 +11,8 @@ import (
 
 const localRPCSocketFilename = "rpc.sock"
 
-func ServerLocalRPCSocketPath(cfg App) (string, bool, error) {
-	trimmedRoot := strings.TrimSpace(cfg.PersistenceRoot)
+func ServerLocalRPCSocketPath(persistenceRoot string) (string, bool, error) {
+	trimmedRoot := strings.TrimSpace(persistenceRoot)
 	if trimmedRoot == "" {
 		return "", false, nil
 	}

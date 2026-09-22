@@ -79,7 +79,8 @@ func TestRunOnboardingFlowHonorsPreSubmissionParentCancellation(t *testing.T) {
 	finalizer := &recordingOnboardingFinalizer{}
 	_, err := runOnboardingFlow(
 		ctx,
-		config.App{},
+		config.Connection{},
+		config.LocalPreferences{},
 		onboardingCapabilityFactsClientFunc(func(context.Context, *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
 			return testOnboardingCapabilityFacts(), nil
 		}),
@@ -260,16 +261,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	}
 	if request.Model == nil || request.Model.Kind != onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		t.Fatalf("model = %+v", request.Model)
-	}
-	toolOverrides := map[onboardingpb.ToolID]bool{}
-	for _, override := range request.ToolOverrides {
-		toolOverrides[override.Id] = override.Enabled
-	}
-	if len(toolOverrides) != 2 || !toolOverrides[onboardingpb.ToolID_TOOL_ID_EDIT] || toolOverrides[onboardingpb.ToolID_TOOL_ID_PATCH] {
-		t.Fatalf("tool overrides = %+v", request.ToolOverrides)
-	}
-	if request.ModelTimeoutSeconds == nil || *request.ModelTimeoutSeconds != 123 {
-		t.Fatalf("model timeout = %+v", request.ModelTimeoutSeconds)
 	}
 	if request.ContextWindow == nil || request.ContextWindow.Kind != onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE {
 		t.Fatalf("context window = %+v", request.ContextWindow)
@@ -527,7 +518,7 @@ func newOnboardingFinalizeProjectionState(t *testing.T, configure func(*config.A
 		configure(&cfg)
 	}
 	normalizeOnboardingReviewerSeedInheritance(&cfg)
-	state, err := newOnboardingFlowState(cfg, facts)
+	state, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}

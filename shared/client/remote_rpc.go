@@ -86,14 +86,14 @@ type remoteSessionControl struct {
 	initialControl *remoteControlConn
 }
 
-func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
-	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(config.ServerRPCURL(cfg))
+func configuredRemoteDialPlan(cfg config.Connection) (remoteDialPlan, error) {
+	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(cfg.RPCURL())
 	if err != nil {
 		return remoteDialPlan{}, err
 	}
 	endpoints := make([]rpcwire.Endpoint, 0, 2)
 	if shouldPreferConfiguredLocalSocket(cfg) {
-		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg); err != nil {
+		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot); err != nil {
 			return remoteDialPlan{}, err
 		} else if ok {
 			if _, statErr := os.Stat(socketPath); statErr == nil {
@@ -109,13 +109,13 @@ func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
 	return remoteDialPlan{endpoints: endpoints}, nil
 }
 
-func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
+func shouldPreferConfiguredLocalSocket(cfg config.Connection) bool {
 	// Explicit TCP target overrides must stay authoritative; the derived unix socket
 	// is only a default local optimization for the standard local attach target.
 	if hasExplicitTCPServerTarget(cfg) {
 		return false
 	}
-	host := strings.TrimSpace(cfg.Settings.ServerHost)
+	host := strings.TrimSpace(cfg.ServerHost)
 	if host == "" || strings.EqualFold(host, "localhost") {
 		return true
 	}
@@ -123,7 +123,7 @@ func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
-func hasExplicitTCPServerTarget(cfg config.App) bool {
+func hasExplicitTCPServerTarget(cfg config.Connection) bool {
 	sources := cfg.Source.Sources
 	if len(sources) == 0 {
 		return false

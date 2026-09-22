@@ -5,6 +5,7 @@ package kent.api.connection;
 import "buf/validate/validate.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
+import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/connection;connectionpb";
@@ -227,6 +228,12 @@ message AttachSessionError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_launch.SessionNotFoundDetails session_not_found = 7 [
+      (kent.api.shared.kent_result_field) = {
+        role: RESULT_FIELD_ROLE_ERROR_DETAIL
+        error_code: "session_not_found"
+      }
+    ];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL

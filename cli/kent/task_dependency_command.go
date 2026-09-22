@@ -65,7 +65,7 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 		fmt.Fprintf(stderr, "task dep %s requires --blocker <task> and --blocked <task>\n", kind)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		blockerTaskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, *blockerRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -142,7 +142,7 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)

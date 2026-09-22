@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
 	"testing"
 
+	"core/internal/testharness/testsetup"
+	"core/server/capabilityfacts"
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 )
@@ -22,13 +25,26 @@ func testOnboardingFlowState(t *testing.T, mutate func(*config.App), suppliedFac
 	if len(suppliedFacts) > 0 {
 		facts = suppliedFacts[0]
 	}
-	state, err := newOnboardingFlowState(cfg, facts)
+	state, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 	if err != nil {
 		t.Fatalf("construct test onboarding state: %v", err)
 	}
 	return state
 }
 
+func testOnboardingStateFromServerConfig(t *testing.T, cfg config.App, facts *capabilitypb.Facts) (onboardingFlowState, error) {
+	t.Helper()
+	cfg.PersistenceRoot = t.TempDir()
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
+	serverFacts, err := capabilityfacts.NewService(capabilityfacts.Options{Config: cfg, HomeDir: t.TempDir()}).GetFacts(
+		context.Background(), &capabilitypb.GetFactsRequest{},
+	)
+	if err != nil {
+		return onboardingFlowState{}, err
+	}
+	facts.Defaults = serverFacts.Defaults
+	return newOnboardingFlowState(config.LocalPreferences{Theme: cfg.Settings.Theme, Debug: cfg.Settings.Debug}, facts)
+}
 func testOnboardingFlowStatePtr(t *testing.T, mutate func(*config.App), suppliedFacts ...*capabilitypb.Facts) *onboardingFlowState {
 	t.Helper()
 	state := testOnboardingFlowState(t, mutate, suppliedFacts...)

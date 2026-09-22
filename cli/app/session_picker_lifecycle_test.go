@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"core/shared/clientui"
-	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -266,9 +265,7 @@ func TestSessionPickerZeroMovementDirectionalResultUsesDebugPolicy(t *testing.T)
 				&recordingSessionPageLoader{},
 				"dark",
 				sessionPickerHeaderInfo{
-					StatusRequest: uiStatusRequest{
-						Settings: config.Settings{Debug: debugMode},
-					},
+					Debug: debugMode,
 				},
 			)
 			model.main.bodyRequest = nil

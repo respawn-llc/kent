@@ -7,6 +7,7 @@ import (
 
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
 )
@@ -24,7 +25,19 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 	bindings[operation.Name] = gatewayBinaryBinding{
 		operation: operation, policy: gatewayBinaryCoreActiveOrdinary, progressEvent: &progressOperation,
 		request: func() proto.Message { return &runpromptpb.Request{} },
-		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
+		failure: func(_ *Gateway, _ *connectionState, message proto.Message, err error) proto.Message {
+			var denied *serverapi.SubagentLaunchDeniedError
+			if errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
+				request := message.(*runpromptpb.Request)
+				if request.CallerSessionId != nil {
+					return gatewayBinaryFailureResult(method, &runpromptpb.Error{
+						Code: "caller_session_not_found",
+						Detail: &runpromptpb.Error_CallerSessionNotFound{
+							CallerSessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: *request.CallerSessionId},
+						},
+					})
+				}
+			}
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}

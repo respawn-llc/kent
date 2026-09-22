@@ -11,6 +11,7 @@ import (
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"errors"
 	"io"
@@ -112,7 +113,10 @@ type sessionViewReader interface {
 }
 
 type launchPlannerServer interface {
-	Config() config.App
+	Connection() config.Connection
+	LocalPreferences() config.LocalPreferences
+	ProjectBinding() (client.ProjectAttachment, bool)
+	ChatSettingsClient() apicontract.ChatSettingsService
 	PresentationTheme() string
 	ProjectID() string
 	AuthStatusClient() apicontract.AuthStatusService
@@ -198,7 +202,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
-	overrides := mergeSessionPlanOverrides(sessionPlanOverridesFromConfig(p.server.Config()), req.Overrides)
+	overrides := req.Overrides
 	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: intent}
 	if overrides.HasAny() {
 		generatedRequest.Overrides, err = protoapi.RunPromptOverridesToProto(overrides)
@@ -233,8 +237,13 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 		enabledTools = append(enabledTools, id)
 	}
-	cfg := p.server.Config()
+	cfg := p.server.Connection()
 	activeSettings := settings
+	local := p.server.LocalPreferences()
+	activeSettings.Theme = p.server.PresentationTheme()
+	activeSettings.Debug = local.Debug
+	activeSettings.NotificationMethod = local.NotificationMethod
+	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
 	authSelection := authstatus.ProviderSelection(activeSettings)
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
@@ -315,46 +324,55 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
 	}
-	header := p.sessionPickerHeaderInfo(p.server.Config())
+	header, err := runStartupOperation(ctx, p.server.PresentationTheme(), "Chat settings", "Loading Chat settings...", func() (sessionPickerHeaderInfo, error) {
+		return p.sessionPickerHeaderInfo(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
 	header.Notice = notice
 	return p.pickSession(ctx, loader, p.server.PresentationTheme(), header)
 }
 
-func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHeaderInfo {
+func (p *launchPlanner) sessionPickerHeaderInfo(ctx context.Context) (sessionPickerHeaderInfo, error) {
+	cfg := p.server.Connection()
+	binding, present := p.server.ProjectBinding()
+	if !present {
+		return sessionPickerHeaderInfo{}, errors.New("workspace binding is required for Chat settings")
+	}
+	response, err := p.server.ChatSettingsClient().ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
+			ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
+		}},
+	})
+	if err != nil {
+		return sessionPickerHeaderInfo{}, err
+	}
+	catalog := response.GetNewChat()
+	if catalog == nil || catalog.InitialSettings == nil {
+		return sessionPickerHeaderInfo{}, errors.New("new Chat catalog is required")
+	}
+	var modelFacts *sessionPickerModelFacts
+	for _, choice := range catalog.Choices {
+		if choice.Agent.Role == catalog.InitialSettings.AgentRole {
+			if choice.Agent.Model != nil {
+				modelFacts = &sessionPickerModelFacts{Name: choice.Agent.Model, ThinkingLevel: choice.Agent.Thinking}
+			}
+			break
+		}
+	}
 	statusReq := populateStatusRequestCacheKeys(uiStatusRequest{
-		WorkspaceRoot:   strings.TrimSpace(cfg.WorkspaceRoot),
+		WorkspaceRoot:   binding.WorkspaceRoot,
 		PersistenceRoot: strings.TrimSpace(cfg.PersistenceRoot),
-		Settings:        cfg.Settings,
-		Source:          cfg.Source,
-		AuthStatus:      p.server.AuthStatusClient(),
 	})
 	return sessionPickerHeaderInfo{
 		Version:       config.Version,
 		StatusRequest: statusReq,
-		ServerAddress: net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)),
+		ServerAddress: net.JoinHostPort(cfg.ServerHost, strconv.Itoa(cfg.ServerPort)),
+		Debug:         p.server.LocalPreferences().Debug,
+		ModelFacts:    modelFacts,
 		updateStatus:  p.server.ServerStatusClient(),
-	}
-}
-
-func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides {
-	sources := cfg.Source.Sources
-	overrides := serverapi.RunPromptOverrides{}
-	if sourceIsCLI(sources, "model") {
-		overrides.Model = cfg.Settings.Model
-	}
-	if sourceIsCLI(sources, "thinking_level") {
-		overrides.ThinkingLevel = cfg.Settings.ThinkingLevel
-	}
-	if sourceIsCLI(sources, "theme") {
-		overrides.Theme = cfg.Settings.Theme
-	}
-	if sourceIsCLI(sources, "timeouts.model_request_seconds") {
-		overrides.ModelTimeoutSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
-	}
-	if hasCLIToolOverride(cfg.Source) {
-		overrides.Tools = enabledToolsCSV(cfg.Settings.EnabledTools)
-	}
-	return overrides
+	}, nil
 }
 
 func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serverapi.RunPromptOverrides) serverapi.RunPromptOverrides {
@@ -379,27 +397,4 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 		merged.Tools = value
 	}
 	return merged
-}
-
-func sourceIsCLI(sources map[string]config.Origin, key string) bool {
-	return sources[key].Kind == config.SourceCLI
-}
-
-func hasCLIToolOverride(source config.SourceReport) bool {
-	for _, id := range toolspec.CatalogIDs() {
-		if sourceIsCLI(source.Sources, "tools."+toolspec.ConfigName(id)) {
-			return true
-		}
-	}
-	return false
-}
-
-func enabledToolsCSV(enabled map[toolspec.ID]bool) string {
-	names := []string{}
-	for _, id := range toolspec.CatalogIDs() {
-		if enabled[id] {
-			names = append(names, toolspec.ConfigName(id))
-		}
-	}
-	return strings.Join(names, ",")
 }

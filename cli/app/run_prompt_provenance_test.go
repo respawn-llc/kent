@@ -1,43 +1,13 @@
 package app
 
-import (
-	"testing"
+import "testing"
 
-	"core/cli/app/internal/startupconfig"
-)
-
-func TestRunPromptCallerSessionIDCarriesKentSessionCaller(t *testing.T) {
-	opts := Options{WorkspaceContextSessionID: "context-session"}
-	callerID := runPromptCallerSessionID(opts, startupconfig.CallerContext{
-		Kind: startupconfig.CallerKindKentSession,
-	})
+func TestRunPromptCallerSessionIDCarriesInheritedIdentity(t *testing.T) {
+	callerID := runPromptCallerSessionID(Options{WorkspaceContextSessionID: "context-session"})
 	if callerID == nil || *callerID != "context-session" {
-		t.Fatalf("caller session ID = %v, want context-session", callerID)
+		t.Fatalf("caller session ID = %v", callerID)
 	}
-}
-
-func TestRunPromptCallerSessionIDOmittedForHumanAndMissingContext(t *testing.T) {
-	tests := []struct {
-		name   string
-		opts   Options
-		caller startupconfig.CallerContext
-	}{
-		{
-			name:   "human caller",
-			opts:   Options{WorkspaceContextSessionID: "context-session"},
-			caller: startupconfig.CallerContext{Kind: startupconfig.CallerKindHuman},
-		},
-		{
-			name:   "missing context",
-			caller: startupconfig.CallerContext{Kind: startupconfig.CallerKindKentSession},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			callerID := runPromptCallerSessionID(test.opts, test.caller)
-			if callerID != nil {
-				t.Fatalf("caller session ID = %v, want nil", callerID)
-			}
-		})
+	if runPromptCallerSessionID(Options{}) != nil {
+		t.Fatal("human caller must not carry a Session identity")
 	}
 }

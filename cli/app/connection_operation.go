@@ -66,11 +66,11 @@ func (m *connectionOperationModel[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, command
 }
 
-func runConnectionOperation[T any](ctx context.Context, selectedTheme string, label string, operation func() (T, error)) (T, error) {
+func runStartupOperation[T any](ctx context.Context, selectedTheme string, title string, label string, operation func() (T, error)) (T, error) {
 	screen := &onboardingModel{
 		width: defaultPickerWidth, height: defaultPickerHeight,
 		styles:        newOnboardingStyles(selectedTheme),
-		currentScreen: onboardingScreen{Kind: onboardingScreenLoading, Title: "Provider connections", LoadingText: label},
+		currentScreen: onboardingScreen{Kind: onboardingScreenLoading, Title: title, LoadingText: label},
 	}
 	screen.spinnerClock.Start(uiAnimationNow())
 	model := &connectionOperationModel[T]{onboardingModel: screen, operation: operation}

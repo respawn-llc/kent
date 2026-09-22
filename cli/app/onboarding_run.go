@@ -25,7 +25,7 @@ type onboardingConnectionClient interface {
 	apicontract.AuthBootstrapService
 }
 
-func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontract.CapabilityFactsService, finalizer apicontract.OnboardingFinalizeService, connections onboardingConnectionClient) (onboardingResult, error) {
+func runOnboardingFlow(ctx context.Context, cfg config.Connection, local config.LocalPreferences, factsClient apicontract.CapabilityFactsService, finalizer apicontract.OnboardingFinalizeService, connections onboardingConnectionClient) (onboardingResult, error) {
 	if err := ctx.Err(); err != nil {
 		return onboardingResult{}, err
 	}
@@ -46,7 +46,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
 		workspaceRoot = &cfg.WorkspaceRoot
 	}
-	catalog, err := runConnectionOperation(ctx, string(cfg.Settings.Theme), "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
+	catalog, err := runStartupOperation(ctx, local.Theme, "Provider connections", "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
 		return connections.GetConnections(ctx, &authpb.GetConnectionsRequest{})
 	})
 	if errors.Is(err, ErrAuthCanceledByUser) {
@@ -55,7 +55,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 	if err != nil {
 		return onboardingResult{}, err
 	}
-	form, formModel, err := newConnectionFormModel(string(cfg.Settings.Theme), catalog, true)
+	form, formModel, err := newConnectionFormModel(local.Theme, catalog, true)
 	if err != nil {
 		return onboardingResult{}, err
 	}
@@ -75,7 +75,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 		}
 		selectedTheme := formModel.state.selections.themeValue()
 		definition := protoapi.ConnectionToProto(form.id, form.definition)
-		_, err := runConnectionOperation(ctx, selectedTheme, "Preparing connection...", func() (*emptypb.Empty, error) {
+		_, err := runStartupOperation(ctx, selectedTheme, "Provider connections", "Preparing connection...", func() (*emptypb.Empty, error) {
 			current, err := connections.GetConnections(ctx, &authpb.GetConnectionsRequest{})
 			if err != nil {
 				return nil, err
@@ -99,7 +99,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 			continue
 		}
 		if !proto.Equal(factsFor, definition) {
-			facts, err := runConnectionOperation(ctx, selectedTheme, "Loading provider options...", func() (*capabilitypb.Facts, error) {
+			facts, err := runStartupOperation(ctx, selectedTheme, "Provider connections", "Loading provider options...", func() (*capabilitypb.Facts, error) {
 				return factsClient.GetFacts(ctx, &capabilitypb.GetFactsRequest{WorkspaceRoot: workspaceRoot})
 			})
 			if errors.Is(err, ErrAuthCanceledByUser) {
@@ -109,7 +109,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 				return onboardingResult{}, err
 			}
 			if model == nil {
-				state, err := newOnboardingFlowState(cfg, facts)
+				state, err := newOnboardingFlowState(local, facts)
 				if err != nil {
 					return onboardingResult{}, fmt.Errorf("initialize first-time setup selections: %w", err)
 				}

@@ -16,7 +16,7 @@ import (
 )
 
 var dialConfiguredRemote = client.DialConfiguredRemoteForProjectWorkspaceID
-var dialConfiguredProjectViewRemote = func(ctx context.Context, cfg config.App) (remoteattach.ProjectViewRemote, error) {
+var dialConfiguredProjectViewRemote = func(ctx context.Context, cfg config.Connection) (remoteattach.ProjectViewRemote, error) {
 	return client.DialConfiguredRemote(ctx, cfg)
 }
 var dialConfiguredRuntimeLiveControlRemote = client.DialConfiguredRemote
@@ -25,9 +25,8 @@ var configuredRemoteAttachTimeout = 500 * time.Millisecond
 var configuredRemoteWorkspaceDiscoveryTimeout = 5 * time.Second
 
 type runPromptWorkspaceConfig struct {
-	Options       Options
-	Config        config.App
-	CallerContext startupconfig.CallerContext
+	Options Options
+	Config  config.Connection
 }
 
 func startRunPromptClient(ctx context.Context, opts Options) (apicontract.RunPromptService, func() error, error) {
@@ -40,6 +39,27 @@ func startRunPromptClient(ctx context.Context, opts Options) (apicontract.RunPro
 
 func startRunPromptClientWithWorkspaceConfig(ctx context.Context, workspaceConfig runPromptWorkspaceConfig) (apicontract.RunPromptService, func() error, error) {
 	cfg := workspaceConfig.Config
+	opts := workspaceConfig.Options
+	sessionID := strings.TrimSpace(opts.SessionID)
+	inherited := sessionID == "" && !opts.WorkspaceRootExplicit
+	if inherited {
+		sessionID = strings.TrimSpace(opts.WorkspaceContextSessionID)
+	}
+	if sessionID != "" {
+		remote, err := attachConfiguredStartupRemote(ctx, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		bound, err := remoteattach.BindSession(ctx, remote, cfg, sessionID, config.ExplicitPersistenceRootID(cfg))
+		if err != nil {
+			err = errors.Join(err, remote.Close())
+			if inherited {
+				err = startupconfig.WorkspaceContextSessionError(sessionID, err)
+			}
+			return nil, nil, err
+		}
+		return bound, bound.Close, nil
+	}
 	runPrompt, closeFn, err := serverattach.AttachRunPrompt(ctx, serverattach.AttachRunPromptRequest{
 		Config:           cfg,
 		AttachTimeout:    configuredRemoteAttachTimeout,
@@ -77,9 +97,6 @@ func startRuntimeLiveControlClient(ctx context.Context, opts Options) (apicontra
 	if err := remote.RequireRoot(config.ExplicitPersistenceRootID(cfg)); err != nil {
 		return nil, remote.Close, errRunServerRootMismatch
 	}
-	if err := ensureRemoteAuthReady(ctx, remote, cfg.Settings, newHeadlessAuthInteractor(), false); err != nil {
-		return nil, remote.Close, err
-	}
 	return remote, remote.Close, nil
 }
 
@@ -93,7 +110,7 @@ var errRunRequiresServer = errors.New("`kent run` can only be used when a server
 // endpoint.
 var errRunServerRootMismatch = errors.New("a Kent server is running on the configured endpoint but serves a different persistence root than the selected one. Stop or reconfigure that server, or point `--persistence-root`/the configured endpoint at the matching instance, instead of starting another server which would conflict on the same address")
 
-func loadRemoteAttachConfig(opts Options) (config.App, error) {
+func loadRemoteAttachConfig(opts Options) (config.Connection, error) {
 	workspaceConfig, err := resolveRunPromptWorkspaceConfig(opts)
 	return workspaceConfig.Config, err
 }
@@ -104,29 +121,19 @@ func resolveRunPromptWorkspaceConfig(opts Options) (runPromptWorkspaceConfig, er
 		return runPromptWorkspaceConfig{}, err
 	}
 	resolvedOpts := opts
-	if strings.TrimSpace(result.ResolvedWorkspaceRoot) != "" && result.ResolvedWorkspaceRoot != opts.WorkspaceRoot {
-		resolvedOpts.WorkspaceRoot = result.ResolvedWorkspaceRoot
-	}
+	resolvedOpts.WorkspaceRoot = result.WorkspaceRoot
 	return runPromptWorkspaceConfig{
-		Options:       resolvedOpts,
-		Config:        result.Config,
-		CallerContext: result.CallerContext,
+		Options: resolvedOpts,
+		Config:  result,
 	}, nil
 }
 
 func startupConfigRequest(opts Options) startupconfig.Request {
 	return startupconfig.Request{
-		WorkspaceRoot:             opts.WorkspaceRoot,
-		WorkspaceRootExplicit:     opts.WorkspaceRootExplicit,
-		SessionID:                 opts.SessionID,
-		WorkspaceContextSessionID: opts.WorkspaceContextSessionID,
+		WorkspaceRoot: opts.WorkspaceRoot,
 		LoadOptions: config.LoadOptions{
-			Model:               opts.Model,
-			ThinkingLevel:       opts.ThinkingLevel,
-			Theme:               opts.Theme,
-			ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
-			Tools:               opts.Tools,
-			ConfigRoot:          opts.ConfigRoot,
+			Theme:      opts.Theme,
+			ConfigRoot: opts.ConfigRoot,
 		},
 	}
 }

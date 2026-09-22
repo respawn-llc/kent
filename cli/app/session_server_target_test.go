@@ -425,8 +425,8 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	if got, want := fixture.serverA.ProjectID(), fixture.serverB.ProjectID(); got != want {
 		t.Fatalf("project id mismatch across clients: a=%q b=%q", got, want)
 	}
-	if fixture.serverA.Config().WorkspaceRoot == fixture.serverB.Config().WorkspaceRoot {
-		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Config().WorkspaceRoot)
+	if fixture.serverA.Connection().WorkspaceRoot == fixture.serverB.Connection().WorkspaceRoot {
+		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Connection().WorkspaceRoot)
 	}
 	if fixture.planB.SessionID != fixture.planA.SessionID {
 		t.Fatalf("expected second client to attach same session, a=%q b=%q", fixture.planA.SessionID, fixture.planB.SessionID)
@@ -513,11 +513,11 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		t.Fatalf("loadSessionServerConfig workspace B: %v", err)
 	}
 	cfgB := resolvedB.Config
-	remoteB, err := client.DialRemoteURL(context.Background(), config.ServerRPCURL(cfgB))
+	remoteB, err := client.DialRemoteURL(context.Background(), cfgB.RPCURL())
 	if err != nil {
 		t.Fatalf("DialRemote workspace B: %v", err)
 	}
-	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB)
+	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB, resolvedB.Local)
 	t.Cleanup(func() { closeInteractiveSessionServer(t, fixture.serverB) })
 
 	fixture.planA, fixture.runtimePlanA = prepareAppRuntimePlan(t, fixture.serverA, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote multi-client runtime A")

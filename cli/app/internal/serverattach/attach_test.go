@@ -78,20 +78,20 @@ func boundProjectView(plan func(context.Context, *projectpb.PlanWorkspaceBinding
 	}
 }
 
-func testDialWorkspace(context.Context, config.App, string, string) (*client.Remote, error) {
+func testDialWorkspace(context.Context, config.Connection, string, string) (*client.Remote, error) {
 	return new(client.Remote), nil
 }
 
-func boundProjectDial(ctx context.Context, cfg config.App) (ProjectViewRemote, error) {
+func boundProjectDial(ctx context.Context, cfg config.Connection) (ProjectViewRemote, error) {
 	return planProjectDial(boundPlanResponse())(ctx, cfg)
 }
 
-func unavailableProjectDial(context.Context, config.App) (ProjectViewRemote, error) {
+func unavailableProjectDial(context.Context, config.Connection) (ProjectViewRemote, error) {
 	return nil, errors.New("configured remote unavailable")
 }
 
-func planProjectDial(response *projectpb.PlanWorkspaceBindingSuccess) func(context.Context, config.App) (ProjectViewRemote, error) {
-	return func(context.Context, config.App) (ProjectViewRemote, error) {
+func planProjectDial(response *projectpb.PlanWorkspaceBindingSuccess) func(context.Context, config.Connection) (ProjectViewRemote, error) {
+	return func(context.Context, config.Connection) (ProjectViewRemote, error) {
 		return boundProjectView(func(context.Context, *projectpb.PlanWorkspaceBindingRequest) (*projectpb.PlanWorkspaceBindingSuccess, error) {
 			return response, nil
 		}), nil
@@ -100,7 +100,7 @@ func planProjectDial(response *projectpb.PlanWorkspaceBindingSuccess) func(conte
 
 func testAttachRequest(dialProject remoteattach.DialProjectView) AttachRunPromptRequest {
 	return AttachRunPromptRequest{
-		Config:           config.App{WorkspaceRoot: "/workspace"},
+		Config:           config.Connection{WorkspaceRoot: "/workspace"},
 		AttachTimeout:    time.Second,
 		DiscoveryTimeout: time.Second,
 		DialProjectView:  dialProject,
@@ -139,7 +139,7 @@ func boundProjectViewWithRoot(rootID string) *projectViewRemoteStub {
 func TestAttachRunPromptReportsTypedPersistenceRootMismatch(t *testing.T) {
 	for _, reportedRoot := range []string{"root-other", ""} {
 		t.Run(reportedRoot, func(t *testing.T) {
-			req := testAttachRequest(func(context.Context, config.App) (remoteattach.ProjectViewRemote, error) {
+			req := testAttachRequest(func(context.Context, config.Connection) (remoteattach.ProjectViewRemote, error) {
 				projectViews := boundProjectViewWithRoot(reportedRoot)
 				return projectViews, nil
 			})
@@ -162,7 +162,7 @@ func TestAttachRunPromptReturnsExactRemoteAndCloseOperation(t *testing.T) {
 	dialWorkspace, closeServer, _ := dialWorkspaceServerWithRoot(t, "", true)
 	defer closeServer()
 	var dialed *client.Remote
-	req.DialWorkspace = func(ctx context.Context, cfg config.App, projectID string, workspaceID string) (*client.Remote, error) {
+	req.DialWorkspace = func(ctx context.Context, cfg config.Connection, projectID string, workspaceID string) (*client.Remote, error) {
 		remote, err := dialWorkspace(ctx, cfg, projectID, workspaceID)
 		dialed = remote
 		return remote, err
@@ -201,7 +201,7 @@ func dialWorkspaceServerWithRoot(t *testing.T, rootID string, attachProject bool
 		}
 	}))
 	wsURL := "ws" + server.URL[len("http"):]
-	dial := func(ctx context.Context, _ config.App, projectID string, _ string) (*client.Remote, error) {
+	dial := func(ctx context.Context, _ config.Connection, projectID string, _ string) (*client.Remote, error) {
 		if !attachProject {
 			return client.DialRemoteURL(ctx, wsURL)
 		}
@@ -288,7 +288,7 @@ func serveWorkspaceConnectionSetup(ctx context.Context, conn rpcwire.Conn, frame
 func TestAttachRunPromptPropagatesHeadlessWorkspaceFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		dialProject func(context.Context, config.App) (ProjectViewRemote, error)
+		dialProject func(context.Context, config.Connection) (ProjectViewRemote, error)
 		wantErr     error
 	}{
 		{

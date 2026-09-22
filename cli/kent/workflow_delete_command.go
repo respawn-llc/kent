@@ -25,7 +25,7 @@ func workflowDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		return runWorkflowDelete(context.Background(), remote, selector, *confirm, *jsonOut, stdout, stderr)
 	})
 }

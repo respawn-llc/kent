@@ -559,7 +559,7 @@ func openWorktreeCommandRemote(ctx context.Context, sessionID string) (*client.R
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadConnectionDiscovery(configRoot)
+	cfg, err := config.LoadConnectionDiscovery(configRoot, config.LoadOptions{})
 	if err != nil {
 		return nil, err
 	}

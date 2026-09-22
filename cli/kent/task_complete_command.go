@@ -64,7 +64,7 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "task complete --force requires exactly one explicit selector: --session or --task")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		req, err := parsed.request(context.Background(), cfg, remote, remote, agentSessionID, agentContext)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -126,7 +126,7 @@ func (a taskCompleteArgs) selectorCount() int {
 
 func (a taskCompleteArgs) request(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	agentSessionID string,

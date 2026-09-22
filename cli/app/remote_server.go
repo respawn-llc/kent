@@ -15,27 +15,28 @@ import (
 )
 
 type remoteAppServer struct {
-	remote         *client.Remote
-	identity       protocol.ServerIdentity
-	cfg            config.App
-	presentation   startupPresentation
-	retarget       *sessionWorkspaceRetargetContext
-	clientSettings config.ClientSettings
+	remote       *client.Remote
+	identity     protocol.ServerIdentity
+	connection   config.Connection
+	local        config.LocalPreferences
+	presentation startupPresentation
+	retarget     *sessionWorkspaceRetargetContext
 }
 
 type startupPresentation struct {
 	Theme string
 }
 
-func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App) *remoteAppServer {
+func newRemoteAppServerWithAuth(remote *client.Remote, connection config.Connection, local config.LocalPreferences) *remoteAppServer {
 	if remote == nil {
 		return nil
 	}
 	server := &remoteAppServer{
 		remote:       remote,
 		identity:     remote.Identity(),
-		cfg:          cfg,
-		presentation: startupPresentation{Theme: theme.Resolve(cfg.Settings.Theme)},
+		connection:   connection,
+		local:        local,
+		presentation: startupPresentation{Theme: theme.Resolve(local.Theme)},
 	}
 	if binding, present := remote.ProjectBinding(); present {
 		server.retarget = sessionWorkspaceRetargetContextFromBinding(binding, server.presentation.Theme)
@@ -64,19 +65,24 @@ func (s *remoteAppServer) Close() error {
 	return s.remote.Close()
 }
 
-func (s *remoteAppServer) Config() config.App {
-	if s == nil {
-		return config.App{}
-	}
-	return s.cfg
+func (s *remoteAppServer) Connection() config.Connection {
+	return s.connection
 }
 
 func (s *remoteAppServer) ClientSettings() config.ClientSettings {
 	if s == nil {
 		return config.ClientSettings{}
 	}
-	return s.clientSettings
+	return s.local.Client
 }
+
+func (s *remoteAppServer) LocalPreferences() config.LocalPreferences { return s.local }
+
+func (s *remoteAppServer) ProjectBinding() (client.ProjectAttachment, bool) {
+	return s.remote.ProjectBinding()
+}
+
+func (s *remoteAppServer) ChatSettingsClient() apicontract.ChatSettingsService { return s.remote }
 
 func (s *remoteAppServer) workspaceRetargetContext() *sessionWorkspaceRetargetContext {
 	if s == nil || s.retarget == nil {
@@ -90,7 +96,7 @@ func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID st
 	if s == nil {
 		return nil, errors.New("remote server is required")
 	}
-	bound, err := remoteattach.BindProjectWorkspace(ctx, s.remote, s.cfg, projectID, workspaceID, config.ExplicitPersistenceRootID(s.cfg))
+	bound, err := remoteattach.BindProjectWorkspace(ctx, s.remote, s.connection, projectID, workspaceID, config.ExplicitPersistenceRootID(s.connection))
 	if err != nil {
 		return nil, err
 	}
@@ -101,10 +107,9 @@ func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID st
 		return nil, errors.Join(errors.New("remote project attachment binding is required"), closeErr)
 	}
 	retargetContext := sessionWorkspaceRetargetContextFromBinding(binding, s.presentation.Theme)
-	next := newRemoteAppServerWithAuth(bound, s.cfg)
+	next := newRemoteAppServerWithAuth(bound, s.connection, s.local)
 	next.presentation = s.presentation
 	next.retarget = retargetContext
-	next.clientSettings = s.clientSettings
 	s.remote = nil
 	return next, nil
 }
@@ -116,9 +121,9 @@ func (s *remoteAppServer) ReattachSession(ctx context.Context, sessionID string)
 	bound, err := remoteattach.BindSession(
 		ctx,
 		s.remote,
-		s.cfg,
+		s.connection,
 		sessionID,
-		config.ExplicitPersistenceRootID(s.cfg),
+		config.ExplicitPersistenceRootID(s.connection),
 	)
 	if err != nil {
 		return err
@@ -201,28 +206,25 @@ func (s *remoteAppServer) SessionViewClient() apicontract.SessionViewService {
 	return s.remote
 }
 
-func (s *remoteAppServer) Reauthenticate(ctx context.Context, interactor authInteractor, interactiveAuth bool) error {
+func (s *remoteAppServer) Reauthenticate(ctx context.Context) error {
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}
-	if _, ok := interactor.(*interactiveAuthInteractor); ok && interactiveAuth {
-		catalog, err := runConnectionOperation(ctx, s.PresentationTheme(), "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
-			return s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
-		})
-		if err == nil {
-			err = s.manageConnections(ctx, catalog)
-		}
-		if errors.Is(err, ErrAuthCanceledByUser) {
-			return nil
-		}
-		return err
+	catalog, err := runStartupOperation(ctx, s.PresentationTheme(), "Provider connections", "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
+		return s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
+	})
+	if err == nil {
+		err = s.manageConnections(ctx, catalog)
 	}
-	return ensureRemoteAuthReady(ctx, s.remote, s.cfg.Settings, interactor, interactiveAuth)
+	if errors.Is(err, ErrAuthCanceledByUser) {
+		return nil
+	}
+	return err
 }
 
-func (s *remoteAppServer) EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor, interactiveAuth bool) error {
+func (s *remoteAppServer) EnsureAuthReady(ctx context.Context, connectionID config.ConnectionID, interactor authInteractor, interactiveAuth bool) error {
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}
-	return ensureRemoteAuthReady(ctx, s.remote, settings, interactor, interactiveAuth)
+	return ensureRemoteAuthReady(ctx, s.remote, connectionID, s.PresentationTheme(), interactor, interactiveAuth)
 }

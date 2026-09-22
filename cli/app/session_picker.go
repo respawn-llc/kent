@@ -201,7 +201,6 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPickerStatusMsg:
 		m.header.CWD = sessionPickerStatusText(message.cwd)
 		m.header.Branch = sessionPickerStatusText(message.branch)
-		m.header.Auth = sessionPickerStatusText(message.auth)
 		m.header.Model = sessionPickerStatusText(message.model)
 		m.ensureSelectedVisible(m.tab(m.activeTab))
 		return m, nil
@@ -555,7 +554,7 @@ func (m *sessionPickerModel) applyPageLoaded(message sessionPickerPageLoadedMsg)
 			directional.generation,
 			directional.offset,
 		)
-		if m.header.StatusRequest.Settings.Debug {
+		if m.header.Debug {
 			panic(err)
 		}
 		tab.resetForFreshLoad()

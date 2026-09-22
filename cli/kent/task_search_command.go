@@ -62,7 +62,7 @@ func taskSearchSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		writeTaskSearchError(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		return runTaskSearch(
 			context.Background(),
 			cfg,
@@ -79,7 +79,7 @@ func taskSearchSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 
 func runTaskSearch(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRefs []string,
@@ -105,7 +105,7 @@ func validateTaskSearchCommandRequest(request serverapi.TaskSearchRequest) error
 	return request.Validate()
 }
 
-func resolveTaskSearchProjectIDs(ctx context.Context, cfg config.App, remote apicontract.ProjectViewService, refs []string) ([]string, error) {
+func resolveTaskSearchProjectIDs(ctx context.Context, cfg config.Connection, remote apicontract.ProjectViewService, refs []string) ([]string, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}

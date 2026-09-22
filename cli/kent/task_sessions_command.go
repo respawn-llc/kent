@@ -34,7 +34,7 @@ func taskSessionsSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		return runTaskSessions(
 			context.Background(),
 			cfg,
@@ -53,7 +53,7 @@ func taskSessionsSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 
 func runTaskSessions(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,
