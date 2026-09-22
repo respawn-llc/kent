@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
@@ -27,8 +28,10 @@ func bootstrapMethod(
 	return method
 }
 
-func authGeneratedError(code string, internal *sharedpb.InternalFailureDetails) error {
+func authGeneratedError(code string, internal *sharedpb.InternalFailureDetails, connection *authpb.ConnectionFailureDetails) error {
 	switch code {
+	case "connection_failure":
+		return &serverapi.ConnectionFailure{Details: connection}
 	case "auth_required":
 		return serverapi.ErrServerAuthRequired
 	case "internal_failure":

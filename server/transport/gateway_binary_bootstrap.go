@@ -211,6 +211,9 @@ func binaryUpdateStatusFailure(err error) proto.Message {
 }
 
 func binaryAuthFailure(err error) proto.Message {
+	if failure := protoapi.ConnectionFailureToProto(err); failure != nil {
+		return failure
+	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return &authpb.AuthRequiredDetails{}
 	}

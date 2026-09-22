@@ -84,7 +84,7 @@ func (f *connectionForm) selectTemplate(template connectionTemplate) {
 func (f *connectionForm) steps() []onboardingStepDefinition {
 	finish := func(state *onboardingFlowState) error {
 		if err := f.definition.Validate(); err != nil {
-			return err
+			return errors.New("Check the connection address and environment variable name.")
 		}
 		state.pendingAction = onboardingPendingActionConnectionComplete
 		return nil
@@ -112,7 +112,7 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 		}, apply: func(state *onboardingFlowState, value string) error {
 			id, err := config.ParseConnectionID(value)
 			if err != nil {
-				return err
+				return errors.New("Start the ID with a lowercase letter and use only lowercase letters, numbers, hyphens, or underscores.")
 			}
 			if _, exists := f.catalog[id]; exists {
 				return fmt.Errorf("Connection %q already exists.", id)
@@ -134,7 +134,7 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 				definition := f.definition
 				definition.Endpoint = &value
 				if err := definition.Validate(); err != nil {
-					return err
+					return errors.New("Enter an absolute HTTP or HTTPS endpoint.")
 				}
 				f.definition = definition
 				if f.template == connectionTemplateAnonymous {
@@ -195,7 +195,7 @@ func runConnectionForm(ctx context.Context, model *onboardingModel, submit func(
 		if err == nil || errors.Is(err, ErrAuthCanceledByUser) || ctx.Err() != nil {
 			return err
 		}
-		model.errorText = err.Error()
+		model.errorText = connectionOperationErrorText(err)
 		model.syncScreen(false)
 	}
 }

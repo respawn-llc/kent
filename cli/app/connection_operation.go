@@ -3,9 +3,37 @@ package app
 import (
 	"context"
 	"errors"
+	"log"
+	"os"
+
+	"core/cli/app/internal/authui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+type connectionPresentationError struct{ cause error }
+
+func (e *connectionPresentationError) Error() string {
+	text, _ := authui.ConnectionFailureText(e.cause)
+	return text
+}
+
+func (e *connectionPresentationError) Unwrap() error { return e.cause }
+
+func presentConnectionError(err error) error {
+	if _, known := authui.ConnectionFailureText(err); known {
+		return &connectionPresentationError{cause: err}
+	}
+	return err
+}
+
+func connectionOperationErrorText(err error) string {
+	if text, known := authui.ConnectionFailureText(err); known {
+		return text
+	}
+	log.Printf("connection operation failed: %v", err)
+	return "The connection operation failed. Check the diagnostics and try again."
+}
 
 type connectionOperationDone[T any] struct {
 	value T
@@ -46,7 +74,7 @@ func runConnectionOperation[T any](ctx context.Context, selectedTheme string, la
 	}
 	screen.spinnerClock.Start(uiAnimationNow())
 	model := &connectionOperationModel[T]{onboardingModel: screen, operation: operation}
-	_, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	_, err := runStartupAlternateScreen(ctx, model, os.Stdout)
 	var zero T
 	if err != nil {
 		return zero, err
@@ -54,5 +82,5 @@ func runConnectionOperation[T any](ctx context.Context, selectedTheme string, la
 	if model.outcome == nil {
 		return zero, errors.New("connection operation ended without a result")
 	}
-	return model.outcome.value, model.outcome.err
+	return model.outcome.value, presentConnectionError(model.outcome.err)
 }

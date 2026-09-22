@@ -228,7 +228,7 @@ func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstra
 		req,
 		&authpb.GetBootstrapStatusResult{},
 		func(failure *authpb.GetBootstrapStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 }
 
@@ -237,7 +237,7 @@ func (c *Remote) GetConnections(ctx context.Context, req *authpb.GetConnectionsR
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetConnections"),
 		req, &authpb.GetConnectionsResult{},
 		func(failure *authpb.GetBootstrapStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 }
 
@@ -246,7 +246,7 @@ func (c *Remote) ConfigureConnection(ctx context.Context, req *authpb.ConfigureC
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "ConfigureConnection"),
 		req, &authpb.ConfigureConnectionResult{},
 		func(failure *authpb.CompleteBootstrapError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 }
 
@@ -256,7 +256,7 @@ func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBoot
 		req,
 		&authpb.CompleteBootstrapResult{},
 		func(failure *authpb.CompleteBootstrapError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 	if err != nil {
 		return nil, err
@@ -270,7 +270,7 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		req,
 		&authpb.GetStatusResult{},
 		func(failure *authpb.GetStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), nil)
 		})
 }
 

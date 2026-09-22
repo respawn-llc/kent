@@ -24,6 +24,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	creackpty "github.com/creack/pty"
 )
 
 type configuredDaemonFixture struct {
@@ -197,6 +199,7 @@ func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.Se
 }
 
 func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) {
+	useStartupTestTerminal(t)
 	_, workspace := newRegisteredAppWorkspace(t)
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
 	defer fakeResponses.Close()
@@ -268,6 +271,31 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	if hits.Load() != 2 {
 		t.Fatalf("expected fake LLM calls twice, got %d", hits.Load())
 	}
+}
+
+func useStartupTestTerminal(t *testing.T) {
+	t.Helper()
+	master, terminal, err := creackpty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdout := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = terminal, terminal
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, master)
+		close(drained)
+	}()
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout = stdin, stdout
+		if err := terminal.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := master.Close(); err != nil {
+			t.Error(err)
+		}
+		<-drained
+	})
 }
 
 func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T) {

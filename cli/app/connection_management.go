@@ -14,7 +14,9 @@ import (
 )
 
 func (s *remoteAppServer) EnsureConnectionSetup(ctx context.Context) error {
-	catalog, err := s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
+	catalog, err := runConnectionOperation(ctx, s.PresentationTheme(), "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
+		return s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
+	})
 	if err != nil {
 		return err
 	}

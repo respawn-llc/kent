@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -27,12 +28,44 @@ func runContextualStartupPicker(ctx context.Context, model tea.Model) (tea.Model
 	return finalModel, nil
 }
 
+// Bubble Tea owns Alternate Screen here so its renderer and native-cursor
+// coordinates agree. The terminal owner manages Alternate Scroll separately.
+func runStartupAlternateScreen(ctx context.Context, model tea.Model, output io.Writer) (tea.Model, error) {
+	terminal := startupPickerTerminal{state: startupPickerTerminalInactive}
+	wrapped := &startupAlternateScreenModel{Model: model, terminal: &terminal}
+	_, runErr := tea.NewProgram(wrapped, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithOutput(output)).Run()
+	return wrapped.Model, errors.Join(runErr, wrapped.entryErr, terminal.Close())
+}
+
+type startupAlternateScreenModel struct {
+	tea.Model
+	terminal *startupPickerTerminal
+	entryErr error
+}
+
+func (m *startupAlternateScreenModel) Init() tea.Cmd {
+	// Init runs after Bubble Tea enters Alternate Screen, before starting the
+	// wrapped model's asynchronous work.
+	if err := m.terminal.EnableAlternateScroll(); err != nil {
+		m.entryErr = err
+		return tea.Quit
+	}
+	return m.Model.Init()
+}
+
+func (m *startupAlternateScreenModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, command := m.Model.Update(msg)
+	m.Model = next
+	return m, command
+}
+
 type startupPickerTerminalState uint8
 
 const (
 	startupPickerTerminalInactive startupPickerTerminalState = iota + 1
 	startupPickerTerminalAltScreen
 	startupPickerTerminalAlternateScroll
+	startupPickerTerminalScrollOnly
 	startupPickerTerminalCleaned
 )
 
@@ -59,15 +92,30 @@ func (t *startupPickerTerminal) Enter() error {
 		return startupPickerTerminalError{Operation: "enter alt-screen", Err: err}
 	}
 	t.state = startupPickerTerminalAltScreen
-	if err := writeTerminalSequence("\x1b[?1007h"); err != nil {
+	if err := t.EnableAlternateScroll(); err != nil {
 		cleanupErr := t.Close()
-		entryErr := startupPickerTerminalError{Operation: "enable alternate scroll", Err: err}
 		if cleanupErr != nil {
-			return errors.Join(entryErr, cleanupErr)
+			return errors.Join(err, cleanupErr)
 		}
-		return entryErr
+		return err
 	}
-	t.state = startupPickerTerminalAlternateScroll
+	return nil
+}
+
+func (t *startupPickerTerminal) EnableAlternateScroll() error {
+	var next startupPickerTerminalState
+	switch t.state {
+	case startupPickerTerminalInactive:
+		next = startupPickerTerminalScrollOnly
+	case startupPickerTerminalAltScreen:
+		next = startupPickerTerminalAlternateScroll
+	default:
+		return errors.New("alternate scroll is already owned")
+	}
+	if err := writeTerminalSequence("\x1b[?1007h"); err != nil {
+		return startupPickerTerminalError{Operation: "enable alternate scroll", Err: err}
+	}
+	t.state = next
 	return nil
 }
 
@@ -76,13 +124,13 @@ func (t *startupPickerTerminal) Close() error {
 		return nil
 	}
 	var result error
-	switch t.state {
-	case startupPickerTerminalAlternateScroll:
+	if t.state == startupPickerTerminalAlternateScroll || t.state == startupPickerTerminalScrollOnly {
 		if err := writeTerminalSequence("\x1b[?1007l"); err != nil {
 			result = startupPickerTerminalError{Operation: "disable alternate scroll", Err: err}
 		}
-		fallthrough
-	case startupPickerTerminalAltScreen:
+	}
+	switch t.state {
+	case startupPickerTerminalAltScreen, startupPickerTerminalAlternateScroll:
 		if err := writeTerminalSequence("\x1b[?1049l"); err != nil {
 			exitErr := startupPickerTerminalError{Operation: "exit alt-screen", Err: err}
 			if result != nil {
@@ -91,7 +139,7 @@ func (t *startupPickerTerminal) Close() error {
 				result = exitErr
 			}
 		}
-	case startupPickerTerminalInactive:
+	case startupPickerTerminalInactive, startupPickerTerminalScrollOnly:
 	default:
 		panic(fmt.Sprintf("unknown startup picker terminal state %d", t.state))
 	}

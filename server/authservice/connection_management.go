@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -74,7 +75,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 	switch change := req.Change.(type) {
 	case *authpb.ConfigureConnectionRequest_PendingSetup:
 		if pending := s.pending.Load(); pending != nil && pending.finishing {
-			return nil, errors.New("setup Finish has already been accepted")
+			return nil, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_FINISH_ACCEPTED, nil)
 		}
 		if err := requireMissingSettings(path); err != nil {
 			return nil, err
@@ -86,7 +87,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 		s.pending.Store(&pendingConnection{id: id, definition: definition})
 	case *authpb.ConfigureConnectionRequest_DiscardSetup:
 		if pending := s.pending.Load(); pending != nil && pending.finishing {
-			return nil, errors.New("setup Finish has already been accepted")
+			return nil, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_FINISH_ACCEPTED, nil)
 		}
 		s.pending.Store(nil)
 	case *authpb.ConfigureConnectionRequest_Add:
@@ -95,7 +96,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 			return nil, err
 		}
 		if definition.Protocol == config.ConnectionChatGPT {
-			return nil, errors.New("complete subscription sign-in before adding this connection")
+			return nil, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SIGN_IN_REQUIRED, &id)
 		}
 		if err := config.AddProviderConnection(path, id, definition); err != nil {
 			return nil, err
@@ -122,7 +123,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 func (s *BootstrapService) PendingSettings(settings config.Settings) (config.Settings, error) {
 	pending := s.pending.Load()
 	if pending == nil {
-		return config.Settings{}, errors.New("select the first provider connection")
+		return config.Settings{}, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED, nil)
 	}
 	return pending.settings(settings), nil
 }
@@ -140,7 +141,7 @@ func (s *BootstrapService) FinishSetup(path string, prepare func(context.Context
 	pending := s.pending.Load()
 	if pending == nil {
 		s.writeMu.Unlock()
-		return "", errors.New("select the first provider connection")
+		return "", serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED, nil)
 	}
 	credential := pending.credential.Load()
 	if pending.definition.Protocol == config.ConnectionChatGPT && credential == nil {
@@ -183,7 +184,7 @@ func requireMissingSettings(path string) error {
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", path, err)
 	}
-	return fmt.Errorf("setup is already complete: %s", path)
+	return serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SETUP_COMPLETED, nil)
 }
 
 func (s *BootstrapService) targetSnapshot(ctx context.Context, target *authpb.ConnectionTarget) (connectionSnapshot, error) {
@@ -196,7 +197,7 @@ func (s *BootstrapService) targetSnapshot(ctx context.Context, target *authpb.Co
 	case *authpb.ConnectionTarget_PendingSetup:
 		pending := s.pending.Load()
 		if pending == nil {
-			return connectionSnapshot{}, errors.New("select the first provider connection")
+			return connectionSnapshot{}, serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED, nil)
 		}
 		snapshot := connectionSnapshot{connection: ResolvedConnection{ID: pending.id, Definition: pending.definition}, pending: pending, oauth: pending.credential.Load()}
 		if pending.definition.Protocol == config.ConnectionChatGPT && snapshot.oauth == nil {
@@ -223,10 +224,10 @@ func (s *BootstrapService) requireUnusedID(id config.ConnectionID) error {
 		return err
 	}
 	if !app.Source.SettingsFileExists() {
-		return errors.New("complete first-run setup before adding another connection")
+		return serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SETUP_REQUIRED, nil)
 	}
 	if _, present := app.Settings.Connections[id]; present {
-		return fmt.Errorf("connection %q already exists", id)
+		return &config.ConnectionAlreadyExistsError{ID: id}
 	}
 	return nil
 }
@@ -237,7 +238,7 @@ func (s *BootstrapService) commitOAuth(target *authpb.ConnectionTarget, snapshot
 	switch value := target.Target.(type) {
 	case *authpb.ConnectionTarget_PendingSetup:
 		if s.pending.Load() != snapshot.pending {
-			return errors.New("connection setup was changed or discarded")
+			return serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SETUP_CHANGED, nil)
 		}
 		snapshot.pending.credential.Store(&credential)
 		return nil
@@ -251,7 +252,7 @@ func (s *BootstrapService) commitOAuth(target *authpb.ConnectionTarget, snapshot
 			return err
 		}
 		if current.Definition.Protocol != config.ConnectionChatGPT {
-			return errors.New("connection no longer uses subscription sign-in")
+			return serverapi.NewConnectionFailure(authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_NOT_SUBSCRIPTION, &current.ID)
 		}
 	default:
 		return errors.New("connection target is required")

@@ -15,6 +15,7 @@ import (
 )
 
 func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T) {
+	useStartupTestTerminal(t)
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)

@@ -27,7 +27,10 @@ func AuthMethodPickerNotice(req AuthMethodPickerNoticeRequest) AuthNotice {
 		if errors.Is(req.FlowErr, auth.ErrDeviceCodeUnsupported) {
 			return AuthNotice{Text: "Device-code sign-in is not enabled for this issuer. Choose another method.", Kind: AuthNoticeError}
 		}
-		return AuthNotice{Text: "Sign-in failed: " + req.FlowErr.Error(), Kind: AuthNoticeError}
+		if text, known := ConnectionFailureText(req.FlowErr); known {
+			return AuthNotice{Text: text, Kind: AuthNoticeError}
+		}
+		return AuthNotice{Text: "Sign-in failed. Retry or select another sign-in method.", Kind: AuthNoticeError}
 	}
 	return AuthNotice{Text: "Choose how to authenticate.", Kind: AuthNoticeNeutral}
 }

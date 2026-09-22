@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"core/cli/app/internal/authui"
@@ -93,6 +94,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 			if errors.Is(err, ErrAuthCanceledByUser) {
 				return err
 			}
+			log.Printf("collect connection sign-in: %v", err)
 			req.FlowErr = err
 			continue
 		}
@@ -105,6 +107,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 			if errors.Is(err, ErrAuthCanceledByUser) {
 				return err
 			}
+			log.Printf("complete connection sign-in: %v", err)
 			req.FlowErr = err
 			continue
 		}

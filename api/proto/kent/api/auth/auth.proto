@@ -102,6 +102,10 @@ message GetBootstrapStatusError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    ConnectionFailureDetails connection_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "connection_failure"
+    }];
     AuthRequiredDetails auth_required = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -131,6 +135,10 @@ message CompleteBootstrapError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    ConnectionFailureDetails connection_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "connection_failure"
+    }];
     AuthRequiredDetails auth_required = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -378,6 +386,30 @@ enum ConnectionProtocol {
   CONNECTION_PROTOCOL_CHATGPT = 2;
 }
 
+enum ConnectionFailureReason {
+  CONNECTION_FAILURE_REASON_UNSPECIFIED = 0;
+  CONNECTION_FAILURE_REASON_ALREADY_EXISTS = 1;
+  CONNECTION_FAILURE_REASON_NOT_FOUND = 2;
+  CONNECTION_FAILURE_REASON_NOT_API_KEY = 3;
+  CONNECTION_FAILURE_REASON_NOT_SUBSCRIPTION = 4;
+  CONNECTION_FAILURE_REASON_SIGN_IN_REQUIRED = 5;
+  CONNECTION_FAILURE_REASON_SETUP_REQUIRED = 6;
+  CONNECTION_FAILURE_REASON_SETUP_COMPLETED = 7;
+  CONNECTION_FAILURE_REASON_FINISH_ACCEPTED = 8;
+  CONNECTION_FAILURE_REASON_SETUP_CHANGED = 9;
+  CONNECTION_FAILURE_REASON_SELECTION_REQUIRED = 10;
+}
+
+message ConnectionFailureDetails {
+  ConnectionFailureReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional string connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_failure.identity"
+    message: "connection-specific failures require a connection ID; setup failures have no connection ID"
+    expression: "(this.reason in [1, 2, 3, 4, 5]) == has(this.connection_id)"
+  };
+}
+
 message ProviderCapabilitiesOverride {
   string provider_id = 1 [(buf.validate.field).string.min_len = 1];
   bool supports_responses_api = 2;
@@ -396,6 +428,20 @@ message ConnectionDefinition {
   optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
   optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
   ProviderCapabilitiesOverride capabilities = 5;
+
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection.protocol_fields"
+    message: "Responses requires an endpoint; ChatGPT uses subscription sign-in without endpoint or environment reference"
+    expression: "this.protocol == 1 ? has(this.endpoint) : this.protocol == 2 ? (!has(this.endpoint) && !has(this.environment_variable)) : false"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection.nonblank"
+    message: "present connection fields must be non-blank"
+    expression:
+      "this.id.trim() != '' && "
+      "(!has(this.endpoint) || this.endpoint.trim() != '') && "
+      "(!has(this.environment_variable) || this.environment_variable.trim() != '')"
+  };
 }
 
 message ConnectionTarget {
@@ -429,6 +475,12 @@ message GetConnectionsResult {
 message ConnectionReferenceEdit {
   string connection_id = 1 [(buf.validate.field).string.min_len = 1];
   string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_reference.nonblank"
+    message: "connection reference fields must be non-blank"
+    expression: "this.connection_id.trim() != '' && this.environment_variable.trim() != ''"
+  };
 }
 
 message ConfigureConnectionRequest {

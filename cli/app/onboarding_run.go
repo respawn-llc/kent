@@ -40,7 +40,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 	}
 	discard := func() (onboardingResult, error) {
 		_, err := connections.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_DiscardSetup{DiscardSetup: &emptypb.Empty{}}})
-		return onboardingResult{}, errors.Join(ErrOnboardingCanceled, err)
+		return onboardingResult{}, errors.Join(ErrOnboardingCanceled, presentConnectionError(err))
 	}
 	var workspaceRoot *string
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
@@ -94,7 +94,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 			return discard()
 		}
 		if err != nil {
-			formModel.errorText = err.Error()
+			formModel.errorText = connectionOperationErrorText(err)
 			formModel.syncScreen(false)
 			continue
 		}
@@ -169,8 +169,7 @@ func runOnboardingFlow(ctx context.Context, cfg config.App, factsClient apicontr
 func runOnboardingProgram(ctx context.Context, model *onboardingModel) (tea.Model, error) {
 	cursor := newUITerminalCursorState()
 	model.terminalCursor = cursor
-	return tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx),
-		tea.WithOutput(newUITerminalCursorWriter(os.Stdout, cursor))).Run()
+	return runStartupAlternateScreen(ctx, model, newUITerminalCursorWriter(os.Stdout, cursor))
 }
 
 func onboardingFlowOutcome(outcome onboardingFinalizeDoneMsg) (onboardingResult, error) {

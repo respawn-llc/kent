@@ -7,13 +7,25 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type ConnectionAlreadyExistsError struct{ ID ConnectionID }
+
+func (e *ConnectionAlreadyExistsError) Error() string {
+	return fmt.Sprintf("connection %q already exists", e.ID)
+}
+
+type ConnectionNotAPIKeyError struct{ ID ConnectionID }
+
+func (e *ConnectionNotAPIKeyError) Error() string {
+	return fmt.Sprintf("connection %q is not API-key-backed", e.ID)
+}
+
 func AddProviderConnection(path string, id ConnectionID, definition ProviderConnection) error {
 	if err := definition.Validate(); err != nil {
 		return err
 	}
 	return editConnectionFile(path, id, func(raw, definitions settingsFile, existing map[ConnectionID]ProviderConnection) error {
 		if _, present := existing[id]; present {
-			return fmt.Errorf("connection %q already exists", id)
+			return &ConnectionAlreadyExistsError{ID: id}
 		}
 		definitions[string(id)] = connectionSettingsTable(definition)
 		raw["connections"] = map[string]any(definitions)
@@ -24,8 +36,11 @@ func AddProviderConnection(path string, id ConnectionID, definition ProviderConn
 func SetProviderConnectionEnvironment(path string, id ConnectionID, name string) error {
 	return editConnectionFile(path, id, func(_ settingsFile, definitions settingsFile, existing map[ConnectionID]ProviderConnection) error {
 		connection, present := existing[id]
-		if !present || connection.Protocol != ConnectionResponses || connection.EnvironmentVariable == nil {
-			return fmt.Errorf("connection %q is not an API-key connection", id)
+		if !present {
+			return &ConnectionReferenceError{Connection: &id}
+		}
+		if connection.Protocol != ConnectionResponses || connection.EnvironmentVariable == nil {
+			return &ConnectionNotAPIKeyError{ID: id}
 		}
 		connection.EnvironmentVariable = &name
 		if err := connection.Validate(); err != nil {
