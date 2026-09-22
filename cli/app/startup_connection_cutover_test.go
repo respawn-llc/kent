@@ -11,10 +11,12 @@ import (
 	"core/cli/app/internal/startupconfig"
 	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
+	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -181,13 +183,35 @@ func TestPreSessionChatSettingsUseServerBaselineWithoutCreatingSession(t *testin
 		t.Fatal(err)
 	}
 	defer bound.Close()
-	planner := newSessionLaunchPlanner(bound)
-	header, err := planner.sessionPickerHeaderInfo(context.Background())
+	readErr := errors.New("header settings unavailable")
+	planner := newSessionLaunchPlanner(failingHeaderSettingsServer{launchPlannerServer: bound, err: readErr})
+	planner.pickSession = func(ctx context.Context, loader sessionPageLoader, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
+		model := newSessionPickerModel(ctx, loader, theme, header)
+		model.Init()
+		if model.main.bodyRequest == nil || model.subagents.bodyRequest == nil {
+			t.Fatal("both tab loads must start independently of header settings")
+		}
+		model.Update(model.collectModelFactsCmd()())
+		if model.main.bodyRequest == nil || model.subagents.bodyRequest == nil ||
+			model.startupStatus.notice.Diagnostic != readErr {
+			t.Fatal("header failure must remain visible without stopping tab loads")
+		}
+		return sessionPickerCancelResult{}, nil
+	}
+	if _, err := planner.selectSession(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	planner = newSessionLaunchPlanner(bound)
+	header, err := planner.sessionPickerHeaderInfo()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if header.ModelFacts == nil || header.ModelFacts.Name == nil || *header.ModelFacts.Name != cfg.Settings.Model {
-		t.Fatalf("pre-Session model did not follow server settings: %+v", header.ModelFacts)
+	facts, err := header.loadModelFacts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts == nil || facts.Name == nil || *facts.Name != cfg.Settings.Model {
+		t.Fatalf("pre-Session model did not follow server settings: %+v", facts)
 	}
 	page, err := bound.ProjectViewClient().ListSessionPage(t.Context(), &projectpb.SessionPageRequest{
 		ProjectId: resolved.Binding.ProjectId, Category: projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
@@ -195,4 +219,22 @@ func TestPreSessionChatSettingsUseServerBaselineWithoutCreatingSession(t *testin
 	if err != nil || len(page.GetSessions()) != 0 {
 		t.Fatalf("reading settings created a Session: %v, %v", page, err)
 	}
+}
+
+type failingHeaderSettingsServer struct {
+	launchPlannerServer
+	err error
+}
+
+func (s failingHeaderSettingsServer) ChatSettingsClient() apicontract.ChatSettingsService {
+	return failingHeaderSettingsReader{ChatSettingsService: s.launchPlannerServer.ChatSettingsClient(), err: s.err}
+}
+
+type failingHeaderSettingsReader struct {
+	apicontract.ChatSettingsService
+	err error
+}
+
+func (s failingHeaderSettingsReader) ReadChatSettings(context.Context, *chatsettingspb.ReadRequest) (*chatsettingspb.ReadSuccess, error) {
+	return nil, s.err
 }

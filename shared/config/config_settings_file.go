@@ -226,10 +226,7 @@ func RenderSettingsTOMLForOnboarding(settings Settings, options OnboardingWriteO
 }
 
 func onboardingPreservedSources(preserved map[string]bool) map[string]Origin {
-	if len(preserved) == 0 {
-		return nil
-	}
-	sources := map[string]Origin{}
+	sources := configRegistry.defaultSourceMap()
 	for key, preserve := range preserved {
 		if preserve {
 			sources[key] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: key}}

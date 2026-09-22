@@ -729,6 +729,88 @@ func newTestFinalizer(t *testing.T, root string, home string) *onboarding.Finali
 	return newTestFinalizerAtEndpoint(t, root, home, "https://api.openai.com/v1")
 }
 
+func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T) {
+	root := t.TempDir()
+	baseline, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		PersistenceRoot: root, Baseline: baseline.Settings,
+		BaselineSources: baseline.Source.Sources,
+		Connections:     newPendingConnection(t, root, "https://api.openai.com/v1"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := "gpt-5.4-mini"
+	_, err = finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+		Supervisor: &onboardingpb.SupervisorChoice{
+			Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS,
+			Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := loadFinalizedConfig(t, root)
+	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "" {
+		t.Fatalf("Supervisor did not follow visible choices: %+v", actual.Settings.Reviewer)
+	}
+	if !actual.Source.Sources["reviewer.model"].Inherited("reviewer.model") {
+		t.Fatal("inherited Supervisor model became an explicit override")
+	}
+}
+
+func TestFinalizerRetainsExplicitSupervisorBaselineOverride(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(fmt.Sprint(replace), func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("[reviewer]\nmodel = \"gpt-5.4\"\nthinking_level = \"\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				PersistenceRoot: root, Baseline: baseline.Settings, BaselineSources: baseline.Source.Sources,
+				Connections: newPendingConnection(t, root, "https://api.openai.com/v1"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := "gpt-5.4-mini"
+			request := &onboardingpb.FinalizeRequest{
+				Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+			}
+			expectedModel, expectedThinking := "gpt-5.4", ""
+			if replace {
+				thinking := &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")}
+				request.Thinking = thinking
+				request.Supervisor = &onboardingpb.SupervisorChoice{
+					Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS,
+					Model:     request.Model, Thinking: thinking,
+				}
+				expectedModel, expectedThinking = model, "high"
+			}
+			if _, err := finalizer.Finalize(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+			actual := loadFinalizedConfig(t, root)
+			if actual.Settings.Reviewer.Model != expectedModel || actual.Settings.Reviewer.ThinkingLevel != expectedThinking ||
+				!actual.Source.Sources["reviewer.model"].Declares("reviewer.model") ||
+				!actual.Source.Sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") {
+				t.Fatalf("explicit Supervisor baseline was lost: %+v", actual.Settings.Reviewer)
+			}
+		})
+	}
+}
+
 func TestFinalizerPreservesPublishedBaselineAndExplicitlyResetsWindow(t *testing.T) {
 	for _, reset := range []bool{false, true} {
 		t.Run(fmt.Sprint(reset), func(t *testing.T) {

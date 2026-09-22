@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -15,16 +16,16 @@ import (
 const sessionPickerHeaderHorizontalFrameWidth = 4
 
 type sessionPickerHeaderInfo struct {
-	Version       string
-	CWD           string
-	Branch        string
-	Model         string
-	Debug         bool
-	StatusRequest uiStatusRequest
-	ServerAddress string
-	Notice        *startupPickerNotice
-	ModelFacts    *sessionPickerModelFacts
-	updateStatus  apicontract.ServerStatusService
+	Version        string
+	CWD            string
+	Branch         string
+	Model          string
+	Debug          bool
+	StatusRequest  uiStatusRequest
+	ServerAddress  string
+	Notice         *startupPickerNotice
+	updateStatus   apicontract.ServerStatusService
+	loadModelFacts func(context.Context) (*sessionPickerModelFacts, error)
 }
 
 type sessionPickerModelFacts struct {

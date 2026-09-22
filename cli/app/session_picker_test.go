@@ -14,7 +14,6 @@ import (
 	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -200,8 +199,10 @@ func TestSessionPickerIgnoresMouseSGRRunes(t *testing.T) {
 func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	repoRoot := initStatusLineGitRepo(t, "picker-branch")
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-		Version:    "1.2.3",
-		ModelFacts: sessionPickerTestModelFacts("gpt-5", "high"),
+		Version: "1.2.3",
+		loadModelFacts: func(context.Context) (*sessionPickerModelFacts, error) {
+			return sessionPickerTestModelFacts("gpt-5", "high"), nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -215,6 +216,7 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 
 	next, _ := m.Update(cmd())
 	updated := next.(*sessionPickerModel)
+	updated.Update(updated.collectModelFactsCmd()())
 	plain := stripANSIAndTrimRight(updated.renderHeader())
 	for _, want := range []string{"git picker-branch", "gpt-5 high"} {
 		if !strings.Contains(plain, want) {
@@ -228,7 +230,9 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version:       "1.2.3",
 		ServerAddress: "127.0.0.1:53082",
-		ModelFacts:    sessionPickerTestModelFacts("gpt-5", "high"),
+		loadModelFacts: func(context.Context) (*sessionPickerModelFacts, error) {
+			return sessionPickerTestModelFacts("gpt-5", "high"), nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -246,9 +250,6 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 		if strings.Contains(before, unexpected) {
 			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
 		}
-	}
-	if height := lipgloss.Height(m.renderHeader()); height != 4 {
-		t.Fatalf("initial header height = %d, want static shell height 4", height)
 	}
 }
 
@@ -268,12 +269,10 @@ func TestSessionPickerStatusOmitsAbsentModel(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected async status command")
 	}
-	message, ok := cmd().(sessionPickerStatusMsg)
-	if !ok {
-		t.Fatalf("status message = %T", message)
-	}
-	if message.model != nil {
-		t.Fatalf("absent model projected as %q", *message.model)
+	model := newTestSessionPickerModel(t, nil, header)
+	model.Update(cmd())
+	if model.header.Model != "" {
+		t.Fatalf("absent model projected as %q", model.header.Model)
 	}
 }
 

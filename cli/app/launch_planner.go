@@ -324,9 +324,7 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
 	}
-	header, err := runStartupOperation(ctx, p.server.PresentationTheme(), "Chat settings", "Loading Chat settings...", func() (sessionPickerHeaderInfo, error) {
-		return p.sessionPickerHeaderInfo(ctx)
-	})
+	header, err := p.sessionPickerHeaderInfo()
 	if err != nil {
 		return nil, err
 	}
@@ -334,23 +332,39 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 	return p.pickSession(ctx, loader, p.server.PresentationTheme(), header)
 }
 
-func (p *launchPlanner) sessionPickerHeaderInfo(ctx context.Context) (sessionPickerHeaderInfo, error) {
+func (p *launchPlanner) sessionPickerHeaderInfo() (sessionPickerHeaderInfo, error) {
 	cfg := p.server.Connection()
 	binding, present := p.server.ProjectBinding()
 	if !present {
 		return sessionPickerHeaderInfo{}, errors.New("workspace binding is required for Chat settings")
 	}
-	response, err := p.server.ChatSettingsClient().ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
+	request := &chatsettingspb.ReadRequest{
 		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
 			ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
 		}},
-	})
+	}
+	return sessionPickerHeaderInfo{
+		Version: config.Version,
+		StatusRequest: populateStatusRequestCacheKeys(uiStatusRequest{
+			WorkspaceRoot: binding.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		}),
+		ServerAddress: net.JoinHostPort(cfg.ServerHost, strconv.Itoa(cfg.ServerPort)),
+		Debug:         p.server.LocalPreferences().Debug,
+		updateStatus:  p.server.ServerStatusClient(),
+		loadModelFacts: func(ctx context.Context) (*sessionPickerModelFacts, error) {
+			return loadSessionPickerModelFacts(ctx, p.server.ChatSettingsClient(), request)
+		},
+	}, nil
+}
+
+func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSettingsService, request *chatsettingspb.ReadRequest) (*sessionPickerModelFacts, error) {
+	response, err := service.ReadChatSettings(ctx, request)
 	if err != nil {
-		return sessionPickerHeaderInfo{}, err
+		return nil, err
 	}
 	catalog := response.GetNewChat()
 	if catalog == nil || catalog.InitialSettings == nil {
-		return sessionPickerHeaderInfo{}, errors.New("new Chat catalog is required")
+		return nil, errors.New("new Chat catalog is required")
 	}
 	var modelFacts *sessionPickerModelFacts
 	for _, choice := range catalog.Choices {
@@ -361,18 +375,7 @@ func (p *launchPlanner) sessionPickerHeaderInfo(ctx context.Context) (sessionPic
 			break
 		}
 	}
-	statusReq := populateStatusRequestCacheKeys(uiStatusRequest{
-		WorkspaceRoot:   binding.WorkspaceRoot,
-		PersistenceRoot: strings.TrimSpace(cfg.PersistenceRoot),
-	})
-	return sessionPickerHeaderInfo{
-		Version:       config.Version,
-		StatusRequest: statusReq,
-		ServerAddress: net.JoinHostPort(cfg.ServerHost, strconv.Itoa(cfg.ServerPort)),
-		Debug:         p.server.LocalPreferences().Debug,
-		ModelFacts:    modelFacts,
-		updateStatus:  p.server.ServerStatusClient(),
-	}, nil
+	return modelFacts, nil
 }
 
 func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serverapi.RunPromptOverrides) serverapi.RunPromptOverrides {

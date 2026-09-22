@@ -29,6 +29,7 @@ type Finalizer struct {
 	homeDir         string
 	connections     *authservice.BootstrapService
 	baseline        config.Settings
+	baselineSources map[string]config.Origin
 }
 
 type Options struct {
@@ -38,6 +39,7 @@ type Options struct {
 	HomeDir         string
 	Connections     *authservice.BootstrapService
 	Baseline        config.Settings
+	BaselineSources map[string]config.Origin
 }
 
 func NewFinalizer(options Options) (*Finalizer, error) {
@@ -67,6 +69,7 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 		homeDir:         homeDir,
 		connections:     options.Connections,
 		baseline:        options.Baseline,
+		baselineSources: maps.Clone(options.BaselineSources),
 	}, nil
 }
 
@@ -82,7 +85,7 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 	}
 	ledger := &mutationLedger{}
 	path, err := f.connections.FinishSetup(settingsPath, f.baseline, func(ctx context.Context, initial config.Settings) (config.Settings, config.OnboardingWriteOptions, error) {
-		settings, preserved, err := projectSettings(req, initial)
+		settings, preserved, err := projectSettings(req, initial, f.baselineSources)
 		options := config.OnboardingWriteOptions{PreservedDefaults: preserved}
 		if err != nil {
 			return config.Settings{}, options, err
@@ -114,9 +117,14 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 	return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: path}, nil
 }
 
-func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings) (config.Settings, map[string]bool, error) {
+func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings, sources map[string]config.Origin) (config.Settings, map[string]bool, error) {
 	settings.EnabledTools = maps.Clone(settings.EnabledTools)
 	preserved := map[string]bool{}
+	for key, origin := range sources {
+		if origin.Declares(key) {
+			preserved[key] = true
+		}
+	}
 	effectiveModel := settings.Model
 	if req.Model != nil {
 		model, err := modelChoiceValue(req.Model)
@@ -278,14 +286,12 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		if err != nil {
 			return err
 		}
-		if model != settings.Model {
-			settings.Reviewer.Model = model
-			preserved["reviewer.model"] = true
-		}
+		settings.Reviewer.Model = model
+		preserved["reviewer.model"] = true
 	}
-	reviewerModel := settings.Reviewer.Model
-	if strings.TrimSpace(reviewerModel) == "" {
-		reviewerModel = settings.Model
+	reviewerModel := settings.Model
+	if preserved["reviewer.model"] {
+		reviewerModel = settings.Reviewer.Model
 	}
 	if choice.Thinking != nil {
 		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
@@ -295,10 +301,8 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		if err != nil {
 			return err
 		}
-		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DISABLED || thinking != settings.ThinkingLevel {
-			settings.Reviewer.ThinkingLevel = thinking
-			preserved["reviewer.thinking_level"] = true
-		}
+		settings.Reviewer.ThinkingLevel = thinking
+		preserved["reviewer.thinking_level"] = true
 	}
 	return nil
 }

@@ -102,6 +102,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
 		Baseline:        cfg.Settings,
+		BaselineSources: cfg.Source.Sources,
 		PersistenceRoot: cfg.PersistenceRoot,
 		WorkspaceRoot:   cfg.WorkspaceRoot,
 		SettingsPath:    cfg.Source.File(config.FileGlobal).Path,
