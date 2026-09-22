@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useCallback } from "react";
 
 import { appI18n, initializeI18n } from "@/i18n";
-import type { SessionChatTarget } from "@/app-facade";
+import { clearLastProjectRoute, type SessionChatTarget } from "@/app-facade";
 import type { ProjectTasksViewMemory } from "./projectTasksViewMemory";
 import { HomeProjectContent } from "./HomeProjectContent";
 
@@ -90,6 +90,7 @@ vi.mock("./ProjectTasksSurface", () => ({
 beforeAll(async () => initializeI18n());
 
 beforeEach(() => {
+  clearLastProjectRoute("project-1");
   fixture.projectQuery = {
     data: { displayName: "Kent", projectKey: "KNT" },
     error: null,
