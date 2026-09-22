@@ -321,7 +321,7 @@ func TestFinalizerRollsBackImportsWhenConfigWriteFails(t *testing.T) {
 func TestFinalizerExistingConfigWinsBeforeValidationAndSideEffects(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(root, "config.toml")); err != nil {
+	if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(filepath.Join(root, "config.toml"), config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
 		t.Fatalf("write existing config: %v", err)
 	}
 	badTheme := onboardingpb.Theme(999)
