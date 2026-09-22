@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"time"
 
-	"core/cli/app/internal/runner"
+	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
@@ -25,22 +25,29 @@ type Options struct {
 	ConfigRoot                string
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (runErr error) {
 	interactor := newInteractiveAuthInteractor()
-	return runner.RunInteractive(ctx, runnerRequestFromOptions(opts), runner.Dependencies{
-		StartSessionServer: func(ctx context.Context) (io.Closer, error) {
-			return startSessionServer(ctx, opts, interactor, true)
-		},
-		RunSessionLifecycle: func(ctx context.Context, server io.Closer, intent *serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) error {
-			interactive, ok := server.(interactiveSessionServer)
-			if !ok {
-				return errors.New("interactive session server is required")
-			}
-			return runSessionLifecycleWithOptions(ctx, interactive, interactor, sessionLifecycleOptions{
-				Intent:    intent,
-				Overrides: overrides,
-			})
-		},
+	server, err := startSessionServer(ctx, opts, interactor, true)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeErr := server.Close()
+		if closeErr == nil {
+			return
+		}
+		if runErr == nil || !errors.Is(closeErr, runErr) {
+			runErr = errors.Join(runErr, closeErr)
+		}
+	}()
+
+	intent, overrides, err := sessionLaunchOptionsFor(opts)
+	if err != nil {
+		return err
+	}
+	return runSessionLifecycleWithOptions(ctx, server, interactor, sessionLifecycleOptions{
+		Intent:    intent,
+		Overrides: overrides,
 	})
 }
 
@@ -61,10 +68,38 @@ func RunPrompt(ctx context.Context, opts Options, prompt string, timeout time.Du
 	return runPrompt(ctx, runClient, workspaceConfig.Options, workspaceConfig.CallerContext, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
 }
 
-func runnerRequestFromOptions(opts Options) runner.Request {
-	return runner.Request{
-		SessionID:                 opts.SessionID,
-		WorkspaceContextSessionID: opts.WorkspaceContextSessionID,
-		AgentRole:                 opts.AgentRole,
+func sessionLaunchOptionsFor(opts Options) (*serverapi.SessionLaunchIntent, serverapi.RunPromptOverrides, error) {
+	var agentRole *string
+	if opts.AgentRole != nil {
+		value := strings.TrimSpace(*opts.AgentRole)
+		if value == "" {
+			return nil, serverapi.RunPromptOverrides{}, errors.New("agent role must not be blank")
+		}
+		agentRole = &value
 	}
+	overrides := serverapi.RunPromptOverrides{AgentRole: agentRole}
+	if opts.SessionID != "" && opts.WorkspaceContextSessionID != "" {
+		return nil, serverapi.RunPromptOverrides{}, errors.New("session ID and workspace context session ID cannot both be set")
+	}
+	if opts.SessionID != "" {
+		sessionID, err := runtimeids.ParseSessionID(opts.SessionID)
+		if err != nil {
+			return nil, serverapi.RunPromptOverrides{}, err
+		}
+		intent := serverapi.OpenExistingSessionLaunchIntent(sessionID)
+		return &intent, overrides, nil
+	}
+	if opts.WorkspaceContextSessionID != "" {
+		parentID, err := runtimeids.ParseSessionID(opts.WorkspaceContextSessionID)
+		if err != nil {
+			return nil, serverapi.RunPromptOverrides{}, err
+		}
+		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parentID))
+		return &intent, overrides, nil
+	}
+	if agentRole != nil && *agentRole != config.DefaultSubagentRole {
+		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
+		return &intent, overrides, nil
+	}
+	return nil, overrides, nil
 }
