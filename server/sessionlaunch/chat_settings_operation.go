@@ -21,6 +21,7 @@ type PreparedChatSettingsOperationInput struct {
 	Locked             *session.LockedContract
 	WorkflowLocked     bool
 	CompactionMode     config.CompactionMode
+	PreparedSelection  *launch.PreparedChatSettings
 }
 type PreparedChatSettingsOperationResult struct {
 	State     session.ChatSettingsState
@@ -44,6 +45,9 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 			return PreparedChatSettingsOperationResult{}, err
 		}
 		selectedEntry.Settings = &selectedSettings
+	}
+	if input.PreparedSelection != nil {
+		selectedEntry.Settings = input.PreparedSelection
 	}
 	baseSettings := input.Effective
 	if !selectedAvailable && input.Locked == nil {
@@ -84,6 +88,9 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		if (input.Locked != nil || input.WorkflowLocked) && agent != rawAgent {
 			return rejectedChatSettingsOperation(input, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 		}
+		if input.PreparedSelection != nil {
+			entry.Settings = input.PreparedSelection
+		}
 		if agent != rawAgent || !selectedAvailable {
 			if entry.SelectionError != nil {
 				return PreparedChatSettingsOperationResult{}, fmt.Errorf("select Agent %q: %w", agent, entry.SelectionError)
@@ -103,7 +110,13 @@ func ProjectPreparedChatSettingsOperation(input PreparedChatSettingsOperationInp
 		target.Settings.Supervisor = &supervisor
 	case *chatsettingspb.MutationOperation_Thinking:
 		thinking := strings.TrimSpace(operation.Thinking)
-		thinkingProjection := projectChatThinking(baseSettings.Thinking, *selectedEntry.Settings)
+		capabilityThinking := baseSettings.Thinking
+		if input.PreparedSelection != nil {
+			// A previous model's saved effort cannot turn the newly selected
+			// model's enumerated choices into custom-value support.
+			capabilityThinking = input.PreparedSelection.Baseline.Thinking
+		}
+		thinkingProjection := projectChatThinking(capabilityThinking, *selectedEntry.Settings)
 		if thinkingProjection == nil ||
 			(thinkingProjection.Kind == chatsettingspb.ThinkingKind_THINKING_KIND_ENUMERATED &&
 				!slices.Contains(thinkingProjection.Values, thinking)) {

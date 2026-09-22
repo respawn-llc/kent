@@ -258,7 +258,7 @@ func newTestHeadlessSessionLaunch(
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
 		}},
-	})
+	}, sessionlaunch.ChatSettingsOwner{})
 }
 
 type fixedSessionProjectResolver struct{}
@@ -456,7 +456,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 	})
 	sessionID := mustRunPromptSessionID(t, store.Meta().SessionID)
@@ -615,7 +615,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority:       authority,
 		PromptHistory:          meta,
 		ManagedWorktreeBaseDir: managedBase,
@@ -798,7 +798,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
-	})
+	}, sessionlaunch.ChatSettingsOwner{})
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    sessionLauncher,
 		RuntimeAuthority: authority,
@@ -1002,7 +1002,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 		PromptHistory:    meta,
 	})

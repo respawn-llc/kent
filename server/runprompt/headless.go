@@ -60,16 +60,23 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 		return nil, errors.New("headless session launch service is required")
 	}
 	selectedSessionID, openingExisting := req.Intent.SessionID()
-	if openingExisting && l.boot.RuntimeAuthority != nil {
-		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
-			return nil, ErrSessionRunning
-		}
-	}
 	launchReq := sessionlaunch.PlanRequest{
 		Mode:            launch.ModeHeadless,
 		Intent:          req.Intent,
 		CallerSessionID: req.CallerSessionID,
 		Overrides:       req.Overrides,
+	}
+	if openingExisting && strings.TrimSpace(req.Overrides.ThinkingLevel) != "" {
+		var err error
+		launchReq, err = l.boot.SessionLaunch.SaveRunSelection(ctx, launchReq)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if openingExisting && l.boot.RuntimeAuthority != nil {
+		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
+			return nil, ErrSessionRunning
+		}
 	}
 	result, err := l.boot.SessionLaunch.PlanLaunchSession(ctx, launchReq)
 	if err != nil {

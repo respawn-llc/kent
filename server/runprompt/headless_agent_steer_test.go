@@ -135,7 +135,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 				CwdRelpath:       ".",
 				EffectiveWorkdir: workspace,
 			}},
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 		PromptHistory:    history,
 	})
