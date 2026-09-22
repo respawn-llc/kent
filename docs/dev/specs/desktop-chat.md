@@ -666,8 +666,7 @@
 - The freeform/commentary field is pinned below the main picker scroll region. It has a three-line minimum, grows through seven lines, and then scrolls internally.
 - For a suggested answer, freeform text is optional commentary. For `Neither`, at least one non-whitespace character is required.
 - Confirming a blank `Neither` selection only focuses the freeform field; it does not mark the prompt answered or advance.
-- Pointer activation of `Neither` with nonblank freeform confirms immediately. With blank freeform, it selects `Neither` and focuses the field without confirming.
-- Enter while `Neither` is selected follows the same rule: nonblank freeform confirms; blank freeform only focuses the field.
+- Enter while `Neither` is selected must confirm nonblank freeform. With blank freeform, Enter must only focus the field.
 - Approvals use the same picker, navigation, selection, commentary, confirmation, and batch-submission behavior. They render only their server-provided approval decisions.
 - The answer-selection drafts and unresolved/answered/declined markers are transient UI form state. They survive navigation only while the picker remains open. Connection loss must preserve drafts while the picker remains open. Leaving the Chat destination, refreshing the browser, or relaunching Desktop discards them. Pending prompt identity and final resolution remain server-authoritative.
 - One picker batch contains the pending prompts with the same server-provided Step identity. Desktop introduces no second batch identifier. Desktop shows ordinary Questions in the order the model invoked their tool calls. Approval order has no product guarantee. If more than one Step has pending prompts, the earliest batch is shown first.
