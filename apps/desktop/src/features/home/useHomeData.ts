@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import * as Effect from "effect/Effect";
 import {
   infiniteQueryOptions,
   keepPreviousData,
@@ -11,7 +10,7 @@ import {
 } from "@tanstack/react-query";
 
 import type { AppServices } from "@/app-facade";
-import { queryAtom, queryKeys } from "@/app-facade";
+import { infiniteQueryReadActions, queryAtom, queryKeys } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 
 export function createHomeProjectPages(api: AppServices["api"], queryClient: QueryClient) {
@@ -30,22 +29,7 @@ export function createHomeProjectPages(api: AppServices["api"], queryClient: Que
   return {
     request: queryAtom(observer),
     lifetime,
-    nextPage: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
-        }),
-      { concurrent: true },
-    ),
-    retry: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching) await observer.refetch();
-        }),
-      { concurrent: true },
-    ),
+    ...infiniteQueryReadActions(observer),
   };
 }
 
@@ -81,22 +65,7 @@ export function createHomeAttentionPages(api: AppServices["api"], client: QueryC
   });
   return {
     request: queryAtom(observer),
-    nextPage: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
-        }),
-      { concurrent: true },
-    ),
-    retry: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching) await observer.refetch();
-        }),
-      { concurrent: true },
-    ),
+    ...infiniteQueryReadActions(observer),
   };
 }
 

@@ -7,10 +7,16 @@ import {
 import { useMemo, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import * as Effect from "effect/Effect";
 
 import { workflowPageSize, type WorkflowPage, type WorkflowRecord, type ApiService } from "@/api";
-import { queryAtom, queryKeys, useAppServices, retainQueryData, type RetainedQueryData } from "@/app-facade";
+import {
+  infiniteQueryReadActions,
+  queryAtom,
+  queryKeys,
+  useAppServices,
+  retainQueryData,
+  type RetainedQueryData,
+} from "@/app-facade";
 
 export type ProjectTaskWorkflowItem = Readonly<{
   description: string;
@@ -93,33 +99,7 @@ export function createProjectTaskWorkflowModel(api: ApiService, client: QueryCli
   return {
     request,
     available,
-    nextPage: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching && current.hasNextPage) await observer.fetchNextPage();
-        }),
-      { concurrent: true },
-    ),
-    previousPage: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching && current.hasPreviousPage)
-            await observer.fetchPreviousPage();
-        }),
-      {
-        concurrent: true,
-      },
-    ),
-    retry: Atom.fn(
-      () =>
-        Effect.promise(async () => {
-          const current = observer.getCurrentResult();
-          if (current.isEnabled && !current.isFetching) await observer.refetch();
-        }),
-      { concurrent: true },
-    ),
+    ...infiniteQueryReadActions(observer),
   };
 }
 

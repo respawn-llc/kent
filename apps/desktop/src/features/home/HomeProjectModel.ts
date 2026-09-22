@@ -14,6 +14,7 @@ import {
   mainSessionCatalogInfiniteQueryOptions,
   subagentSessionCatalogInfiniteQueryOptions,
   queryAtom,
+  infiniteQueryReadActions,
   queryKeys,
   useAppServices,
   type AppServices,
@@ -62,23 +63,7 @@ export function useHomeSessionPages(projectID: string, category: "main" | "subag
     });
     return {
       request: queryAtom(observer),
-      nextPage: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching && current.hasNextPage)
-              await observer.fetchNextPage();
-          }),
-        { concurrent: true },
-      ),
-      retry: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching) await observer.refetch();
-          }),
-        { concurrent: true },
-      ),
+      ...infiniteQueryReadActions(observer),
     };
   }, [api, client, projectID, category, enabled]);
   return {

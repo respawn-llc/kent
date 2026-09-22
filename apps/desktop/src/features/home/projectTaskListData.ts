@@ -22,6 +22,8 @@ import {
 } from "@/api";
 import {
   queryAtom,
+  infiniteQueryReadActions,
+  queryReadActions,
   queryKeys,
   useAppServices,
   useProjectObservation,
@@ -109,14 +111,7 @@ function useProjectTaskGroupCounts(projectID: string) {
     });
     return {
       request: queryAtom(observer),
-      retry: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching) await observer.refetch();
-          }),
-        { concurrent: true },
-      ),
+      ...queryReadActions(observer),
     };
   }, [api, client, projectID]);
   return { ...useAtomValue(model.request), refetch: useAtomSet(model.retry) };
@@ -205,34 +200,7 @@ function useProjectTaskGroupData(
     });
     return {
       state,
-      nextPage: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching && current.hasNextPage)
-              await observer.fetchNextPage();
-          }),
-        { concurrent: true },
-      ),
-      previousPage: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching && current.hasPreviousPage)
-              await observer.fetchPreviousPage();
-          }),
-        {
-          concurrent: true,
-        },
-      ),
-      retry: Atom.fn(
-        () =>
-          Effect.promise(async () => {
-            const current = observer.getCurrentResult();
-            if (current.isEnabled && !current.isFetching) await observer.refetch();
-          }),
-        { concurrent: true },
-      ),
+      ...infiniteQueryReadActions(observer),
     };
   }, [api, queryClient, projectID, group, enabled, sort, retained]);
   return {
