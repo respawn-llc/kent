@@ -190,7 +190,7 @@ export function KanbanColumn({
             <header className="pointer-events-none flex items-start justify-between gap-[var(--space-2)] px-[var(--space-3)] pt-[var(--space-3)] pb-[var(--space-3)]">
               <div>
                 <h2 className="m-0 text-[1rem]">{column.name}</h2>
-                {column.assigneeRole.length > 0 ? (
+                {column.assigneeRole !== null ? (
                   <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
                 ) : null}
               </div>

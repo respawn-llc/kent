@@ -70,7 +70,7 @@ type questionCommandPendingQuestion struct {
 	ToolCallID             clientui.ToolCallID
 	SessionID              runtimeids.SessionID
 	StepID                 runtimeids.StepID
-	Kind                   serverapi.WorkflowAttentionQuestionKind
+	Kind                   taskpb.AttentionQuestionKind
 	Question               string
 	Suggestions            []string
 	RecommendedOptionIndex *int
@@ -407,7 +407,7 @@ func questionBatchAnswer(
 	commentary *string,
 ) (*promptpb.AnswerBatchEntry, error) {
 	entry := &promptpb.AnswerBatchEntry{ToolCallId: string(question.ToolCallID)}
-	if question.Kind == serverapi.WorkflowAttentionQuestionKindApproval {
+	if question.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
 		if question.Approval == nil {
 			return nil, errors.New("pending Approval has no authoritative options")
 		}
@@ -539,7 +539,7 @@ func readPendingSessionPromptByKey(
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
-	if expected.Kind == serverapi.WorkflowAttentionQuestionKindOrdinary {
+	if expected.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY {
 		for _, ask := range asks {
 			if ask.SessionID == expected.SessionID &&
 				ask.StepID == expected.StepID &&
@@ -669,7 +669,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 			StepID:     stepID,
 		}
 		if ordinary := prompt.GetOrdinary(); ordinary != nil {
-			question.Kind = serverapi.WorkflowAttentionQuestionKindOrdinary
+			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY
 			if detail.Message == nil {
 				return nil, fmt.Errorf("pending question %q has no content", item.Id)
 			}
@@ -680,7 +680,7 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 				question.RecommendedOptionIndex = &index
 			}
 		} else {
-			question.Kind = serverapi.WorkflowAttentionQuestionKindApproval
+			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
 			if detail.Message == nil || question.ToolCallID.Validate() != nil || len(prompt.GetApproval().GetApprovalDecisions()) == 0 {
 				continue
 			}
@@ -862,7 +862,7 @@ func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQues
 		ToolCallID:             ask.ToolCallID,
 		SessionID:              ask.SessionID,
 		StepID:                 ask.StepID,
-		Kind:                   serverapi.WorkflowAttentionQuestionKindOrdinary,
+		Kind:                   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
 		Question:               ask.Question,
 		Suggestions:            append([]string(nil), ask.Suggestions...),
 		RecommendedOptionIndex: textutil.Pointer(ask.RecommendedOptionIndex),
@@ -882,7 +882,7 @@ func pendingSessionApproval(
 		ToolCallID: approval.ToolCallID,
 		SessionID:  approval.SessionID,
 		StepID:     approval.StepID,
-		Kind:       serverapi.WorkflowAttentionQuestionKindApproval,
+		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,
 		Approval:   &cloned,
 	}, true, nil

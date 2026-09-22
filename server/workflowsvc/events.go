@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"core/server/workflowstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -63,7 +63,7 @@ func (b *workflowProjectEventBroker) subscribe(projectID *string, workflowID *ru
 	return sub, nil
 }
 
-func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, event workflowstore.WorkflowEventRecord) error {
+func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, event workflowcontract.Event) error {
 	if b == nil {
 		return nil
 	}
@@ -84,12 +84,16 @@ func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, eve
 		value := event.WorkflowID.String()
 		workflowID = &value
 	}
-	b.publish(&pb.ProjectEvent{
+	projected := &pb.ProjectEvent{
 		ProjectId: event.ProjectID, WorkflowId: workflowID,
 		Resource: resource, Action: action, PrimaryEntityId: event.PrimaryEntityID,
 		RelatedIds: append([]string(nil), event.RelatedIDs...),
 		OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
-	})
+	}
+	if err := protoapi.Validate(projected); err != nil {
+		return err
+	}
+	b.publish(projected)
 	return nil
 }
 

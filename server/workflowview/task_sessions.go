@@ -99,12 +99,12 @@ func (s *TaskSessions) List(ctx context.Context, req *taskpb.TaskOffsetPageReque
 			items = append(items, projection.item)
 		}
 	}
-	page := serverapi.FinalizeWorkflowOffsetPage(window, items)
-	next, err := TaskNextOffset(page.NextOffset)
+	page, nextOffset := serverapi.TrimOffsetLookahead(window, items)
+	next, err := TaskNextOffset(nextOffset)
 	if err != nil {
 		return nil, err
 	}
-	return &taskpb.SessionListSuccess{TaskId: taskID, Items: page.Items, NextOffset: next}, nil
+	return &taskpb.SessionListSuccess{TaskId: taskID, Items: page, NextOffset: next}, nil
 }
 
 func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([]taskSessionProjection, []string, error) {

@@ -119,7 +119,6 @@ export {
   WorkflowTaskCreateSelectionError,
   WorkflowTaskDependencyError,
   TaskSearchError,
-  decodeWorkflowLabelError,
   isTaskContextSelectionRequiredError,
   isProjectMissingError,
   isTaskMissingError,

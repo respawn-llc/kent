@@ -65,10 +65,10 @@ describe("attention notification API", () => {
       { type: "resolved", sequence: 2, id: { kind: "question", uuid: "batch-1" } },
     ]);
     expect(() => pending(transport, create(pb.AttentionNotificationSchema, {
-      ...question, target: {
+      ...question, target: create(pb.AttentionNotificationTargetSchema, {
         kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
         target: { case: "sessionPrompt", value: { sessionId: "session-1" } },
-      },
+      }),
     }))).toThrow();
   });
 

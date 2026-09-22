@@ -93,10 +93,13 @@ class JsonRpcWebSocketTransport implements RpcTransport {
   async callDescriptor<Method extends DescMethod>(
     method: Method,
     request: MessageShape<Method["input"]>,
-    options?: RpcCallOptions,
+    options?: RpcDedicatedCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
     switch (unaryConnectionPolicy(method)) {
       case "multiplexed": {
+        if (options?.signal !== undefined) {
+          throw new TransportError("AbortSignal requires a dedicated operation descriptor.");
+        }
         const socket = await this.#open();
         return this.#sendDescriptor(socket, method, request, options);
       }

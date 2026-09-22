@@ -54,6 +54,9 @@ describe("ApiClient workflow labels", () => {
         group: taskRead.ProjectTaskGroup.DONE, statusKinds: [taskRead.TaskStatusKind.DONE],
       }),
     ];
+    const first = definitions[0];
+    const third = definitions[2];
+    if (first === undefined || third === undefined) throw new Error("Group fixtures are required.");
     const result = create(taskRead.ProjectTaskGroupCountsSuccessSchema, {
       projectId: "project-1",
       definitions,
@@ -78,7 +81,7 @@ describe("ApiClient workflow labels", () => {
       counts: { active: 3, backlog: 2, done: 1 },
     });
     await expect(
-      getCounts({ ...result, definitions: [definitions[0], definitions[0], definitions[2]] }),
+      getCounts({ ...result, definitions: [first, first, third] }),
     ).rejects.toThrow();
   });
   it("reorders a Project label catalog and preserves the authoritative response order", async () => {

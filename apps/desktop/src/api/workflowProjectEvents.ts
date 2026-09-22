@@ -7,6 +7,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { StreamCompletionSchema, type StreamCompletion } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { timestampMillis } from "./clientTime";
+import { required } from "./chatWire";
 import { requireUnarySuccess } from "./protobufRpc";
 import { workflowEventAction, workflowEventResource } from "./workflowProtoValues";
 import type { DescriptorRpcTransport, DescriptorSubscriptionHandler } from "./transport";
@@ -62,7 +63,7 @@ function workflowEventHandler(handler: WorkflowProjectEventHandler): DescriptorS
     onEvent(event) {
       handler.onEvent({
         action: workflowEventAction.decode(event.action), resource: workflowEventResource.decode(event.resource),
-        occurredAtUnixMs: timestampMillis(event.occurredAt), primaryEntityID: event.primaryEntityId,
+        occurredAtUnixMs: timestampMillis(required(event.occurredAt)), primaryEntityID: event.primaryEntityId,
         projectID: event.projectId ?? null, workflowID: event.workflowId ?? null, relatedIDs: event.relatedIds,
       });
     },

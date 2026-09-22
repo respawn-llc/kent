@@ -354,7 +354,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   async callDescriptor<Method extends DescMethod>(
     descriptor: Method,
     request: MessageShape<Method["input"]>,
-    options?: RpcCallOptions,
+    options?: RpcDedicatedCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
     validate(descriptor.input, request);
     this.descriptorCalls.push(

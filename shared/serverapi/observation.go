@@ -102,18 +102,6 @@ func validateObservationApproval(approval clientui.PendingApproval) error {
 	return nil
 }
 
-type RuntimeLiveWatchFailure struct {
-	Reason     string  `json:"reason"`
-	Diagnostic *string `json:"diagnostic,omitempty"`
-}
-
-func (f RuntimeLiveWatchFailure) Validate() error {
-	if strings.TrimSpace(f.Reason) == "" {
-		return errors.New("failure reason is required")
-	}
-	return nil
-}
-
 func validateObservationToolCallIdentity(toolCallID clientui.ToolCallID, sessionID runtimeids.SessionID, stepID runtimeids.StepID) error {
 	if err := toolCallID.Validate(); err != nil {
 		return err
@@ -123,93 +111,6 @@ func validateObservationToolCallIdentity(toolCallID clientui.ToolCallID, session
 	}
 	if stepID.IsZero() {
 		return errors.New("observation prompt step id is required")
-	}
-	return nil
-}
-
-type WorkflowTaskObservationMode string
-
-const (
-	WorkflowTaskObservationWait  WorkflowTaskObservationMode = "wait"
-	WorkflowTaskObservationWatch WorkflowTaskObservationMode = "watch"
-)
-
-type WorkflowTaskObservationRequest struct {
-	TaskID    string                      `json:"task_id"`
-	ProjectID string                      `json:"project_id"`
-	Mode      WorkflowTaskObservationMode `json:"mode"`
-}
-
-func (r WorkflowTaskObservationRequest) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	if r.Mode != WorkflowTaskObservationWait && r.Mode != WorkflowTaskObservationWatch {
-		return errors.New("workflow task observation mode is invalid")
-	}
-	return nil
-}
-
-type WorkflowTaskObservationOutcomeKind string
-
-const (
-	WorkflowTaskObservationDone           WorkflowTaskObservationOutcomeKind = "done"
-	WorkflowTaskObservationQuestion       WorkflowTaskObservationOutcomeKind = "question"
-	WorkflowTaskObservationExecutionError WorkflowTaskObservationOutcomeKind = "execution_error"
-	WorkflowTaskObservationInterrupted    WorkflowTaskObservationOutcomeKind = "interrupted"
-)
-
-type WorkflowTaskObservationOutcome struct {
-	Kind       WorkflowTaskObservationOutcomeKind `json:"kind"`
-	SessionID  *string                            `json:"session_id,omitempty"`
-	ScriptPath *string                            `json:"script_path,omitempty"`
-	NodeKey    *string                            `json:"node_key,omitempty"`
-	Question   *ObservationQuestion               `json:"question,omitempty"`
-	Failure    *RuntimeLiveWatchFailure           `json:"failure,omitempty"`
-}
-
-type WorkflowTaskObservationResponse struct {
-	TaskID      string                           `json:"task_id"`
-	TaskShortID string                           `json:"task_short_id"`
-	Outcomes    []WorkflowTaskObservationOutcome `json:"outcomes"`
-}
-
-func (r WorkflowTaskObservationResponse) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	if strings.TrimSpace(r.TaskShortID) == "" {
-		return errors.New("task_short_id is required")
-	}
-	if len(r.Outcomes) == 0 {
-		return errors.New("task observation outcomes are required")
-	}
-	for _, outcome := range r.Outcomes {
-		switch outcome.Kind {
-		case WorkflowTaskObservationDone:
-			if outcome.Question != nil || outcome.Failure != nil {
-				return errors.New("done outcome has an invalid payload")
-			}
-		case WorkflowTaskObservationQuestion:
-			if outcome.Question == nil || outcome.Failure != nil {
-				return errors.New("question outcome has an invalid payload")
-			}
-			if err := outcome.Question.Validate(); err != nil {
-				return err
-			}
-		case WorkflowTaskObservationExecutionError, WorkflowTaskObservationInterrupted:
-			if outcome.Failure == nil || outcome.Question != nil {
-				return errors.New("failure outcome has an invalid payload")
-			}
-			if err := outcome.Failure.Validate(); err != nil {
-				return err
-			}
-		default:
-			return errors.New("task observation outcome kind is invalid")
-		}
 	}
 	return nil
 }

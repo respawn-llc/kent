@@ -1,5 +1,5 @@
 import { createJsonRpcTransport } from "./jsonRpc";
-import { ProtocolMismatchError, RpcError, ServerRootMismatchError, decodeWorkflowLabelError } from "./errors";
+import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
 import { protocolVersion, subscriptionCompleteMethod } from "./jsonRpcSocket";
 import { create, decodeEnvelope, encode, encodeEnvelope, operationName } from "@app/server-api-contract";
 import {
@@ -139,38 +139,23 @@ describe("JsonRpcWebSocketTransport", () => {
     });
 
     const malformedReadiness = callReadiness(transport);
-    const request = transport.call("workflow.task.create", {
-      project_id: "project-1",
-      name: "Priority",
-    });
+    const request = transport.call("test.unary", { value: "input" });
     await waitForSent(socket, 4);
     socket.receive(new Uint8Array([0xff]).buffer);
     malformedBinaryAck(socket, 2);
     await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
     errorAck(socket, 3, {
       code: -32031,
-      message: "project not found",
-      data: {
-        type: "workflow_label_error",
-        reason: "project_not_found",
-        project_id: "project-1",
-      },
+      message: "diagnostic",
+      data: { value: "detail" },
     });
 
     const error = await request.catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(RpcError);
     expect(error).toMatchObject({
       code: -32031,
-      method: "workflow.task.create",
-      data: {
-        type: "workflow_label_error",
-        reason: "project_not_found",
-        project_id: "project-1",
-      },
-    });
-    expect(decodeWorkflowLabelError(error)).toMatchObject({
-      reason: "project_not_found",
-      projectID: "project-1",
+      method: "test.unary",
+      data: { value: "detail" },
     });
   });
 
@@ -261,6 +246,21 @@ describe("JsonRpcWebSocketTransport", () => {
     });
     expect(socket.sent).toHaveLength(2);
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+  });
+
+  it("rejects AbortSignal for multiplexed descriptors before opening a socket", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const method = ServerService.method.getReadiness;
+    const result = transport.callDescriptor(method, create(method.input), {
+      signal: new AbortController().signal,
+    }).catch((error: unknown) => error);
+    const socket = sockets[0];
+    if (socket !== undefined) {
+      await socket.setup();
+      binaryAck(socket, 1, method, { result: readinessResult() });
+    }
+    expect(await result).toBeInstanceOf(TransportError);
+    expect(sockets).toHaveLength(0);
   });
 
   it("cancels a dedicated call by closing only its socket", async () => {

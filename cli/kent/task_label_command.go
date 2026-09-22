@@ -15,7 +15,6 @@ import (
 	"core/shared/config"
 	"core/shared/labelcontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type workflowProjectLabelCatalogSnapshot struct {
@@ -86,11 +85,11 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if strings.TrimSpace(task.Summary.ProjectID) == "" {
+		if strings.TrimSpace(task.Summary.ProjectId) == "" {
 			fmt.Fprintln(stderr, "resolved task is missing project_id")
 			return 1
 		}
-		_, snapshot, err := loadWorkflowProjectLabelCatalog(context.Background(), remote, task.Summary.ProjectID)
+		_, snapshot, err := loadWorkflowProjectLabelCatalog(context.Background(), remote, task.Summary.ProjectId)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -100,7 +99,7 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		request := &taskpb.LabelsUpdateRequest{TaskId: task.Summary.ID}
+		request := &taskpb.LabelsUpdateRequest{TaskId: task.Summary.Id}
 		switch operation {
 		case taskLabelAssignmentOperationAdd:
 			request.AddLabelIds = labelIDs
@@ -121,8 +120,8 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintf(stderr, "invalid task label assignment response: %v\n", err)
 			return 1
 		}
-		if response.Assignment.TaskId != task.Summary.ID {
-			fmt.Fprintf(stderr, "task label assignment response task %q does not match resolved task %q\n", response.Assignment.TaskId, task.Summary.ID)
+		if response.Assignment.TaskId != task.Summary.Id {
+			fmt.Fprintf(stderr, "task label assignment response task %q does not match resolved task %q\n", response.Assignment.TaskId, task.Summary.Id)
 			return 1
 		}
 		if *jsonOut {

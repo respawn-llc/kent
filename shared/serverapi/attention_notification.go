@@ -1,24 +1,12 @@
 package serverapi
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"core/shared/clientui"
 )
-
-type AttentionNotificationSubscribeRequest struct{}
-
-func (r AttentionNotificationSubscribeRequest) Validate() error {
-	return nil
-}
-
-type AttentionNotificationSubscription interface {
-	Next(context.Context) (clientui.AttentionNotificationEvent, error)
-	Close() error
-}
 
 type attentionEventValidator func(clientui.AttentionNotificationEvent) error
 type attentionTargetValidator func(clientui.AttentionNotificationTarget) error

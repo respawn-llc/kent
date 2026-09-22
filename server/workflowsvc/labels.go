@@ -9,7 +9,7 @@ import (
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 func (s *Service) CreateWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelCreateRequest) (*pb.ProjectLabelCreateSuccess, error) {
@@ -21,7 +21,7 @@ func (s *Service) CreateWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 		return nil, err
 	}
 	response := &pb.ProjectLabelCreateSuccess{Label: workflowProjectLabel(record)}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionCreated, response.Label.Id)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionCreated, response.Label.Id)
 	return response, nil
 }
 
@@ -58,7 +58,7 @@ func (s *Service) RenameWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 		return nil, err
 	}
 	response := &pb.ProjectLabelRenameSuccess{Label: workflowProjectLabel(record)}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionRenamed, response.Label.Id)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionRenamed, response.Label.Id)
 	return response, nil
 }
 
@@ -75,7 +75,7 @@ func (s *Service) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 		return nil, err
 	}
 	response := &pb.ProjectLabelDeleteSuccess{LabelId: record.ID.String()}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionDeleted, response.LabelId)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionDeleted, response.LabelId)
 	return response, nil
 }
 
@@ -109,8 +109,8 @@ func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proj
 		s.publishProjectEvent(
 			ctx,
 			req.ProjectId,
-			serverapi.WorkflowProjectEventResourceLabel,
-			serverapi.WorkflowProjectEventActionReordered,
+			workflowcontract.EventResourceLabel,
+			workflowcontract.EventActionReordered,
 			req.ProjectId,
 		)
 	}
@@ -155,7 +155,7 @@ func (s *Service) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.Labe
 			LabelIds: labelIDs(ids),
 		},
 	}
-	s.publishProjectWorkflowEvent(ctx, scope.ProjectID, scope.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionLabelsChanged, req.TaskId)
+	s.publishProjectWorkflowEvent(ctx, scope.ProjectID, scope.WorkflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionLabelsChanged, req.TaskId)
 	return response, nil
 }
 
@@ -166,8 +166,8 @@ func workflowProjectLabel(record workflowstore.ProjectLabelRecord) *pb.ProjectLa
 	}
 }
 
-func (s *Service) publishProjectEvent(ctx context.Context, projectID string, resource serverapi.WorkflowProjectEventResource, action serverapi.WorkflowProjectEventAction, primaryEntityID string, relatedIDs ...string) {
-	s.publishWorkflowEvent(ctx, workflowstore.WorkflowEventRecord{
+func (s *Service) publishProjectEvent(ctx context.Context, projectID string, resource workflowcontract.EventResource, action workflowcontract.EventAction, primaryEntityID string, relatedIDs ...string) {
+	s.publishWorkflowEvent(ctx, workflowcontract.Event{
 		ProjectID:       &projectID,
 		Resource:        resource,
 		Action:          action,

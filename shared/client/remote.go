@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -646,16 +645,6 @@ func (c *Remote) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*
 func (c *Remote) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskObservationService").Methods().ByName("Observe")
 	return callGeneratedBinary(c, ctx, method, req, &taskpb.ObserveResult{}, taskEntityGeneratedError[*taskpb.ObserveError])
-}
-
-func normalizeWorkflowTaskObservationRPCError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, io.EOF) {
-		return fmt.Errorf("%w: workflow task observation RPC stream closed: %v", serverapi.ErrStreamFailed, err)
-	}
-	return err
 }
 
 func (c *Remote) ReadChatSettings(

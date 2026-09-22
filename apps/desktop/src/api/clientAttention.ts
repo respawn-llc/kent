@@ -24,7 +24,7 @@ export async function listAttention(transport: DescriptorRpcTransport, pageToken
   return {
     items: response.items.map(attentionItem),
     nextPageToken: response.nextPageToken ?? "",
-    generatedAt: timestampMillis(response.generatedAt),
+    generatedAt: timestampMillis(required(response.generatedAt)),
   };
 }
 
@@ -33,14 +33,14 @@ export async function listTaskAttention(transport: DescriptorRpcTransport, taskI
   const response = requireUnarySuccess(method, await transport.callDescriptor(method, create(method.input, { taskId })));
   const items = response.items.map(attentionItem);
   requireTaskBoundItems(taskId, items);
-  return { items, generatedAt: timestampMillis(response.generatedAt) };
+  return { items, generatedAt: timestampMillis(required(response.generatedAt)) };
 }
 
 export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
   const base = {
     id: value.id, projectID: value.projectId, workflowID: value.workflowId,
     taskID: value.taskId, taskShortID: value.taskShortId, taskTitle: value.taskTitle,
-    occurredAt: timestampMillis(value.occurredAt),
+    occurredAt: timestampMillis(required(value.occurredAt)),
   };
   switch (value.detail.case) {
     case "question": {

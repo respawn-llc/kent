@@ -56,7 +56,7 @@ function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotifica
       const id = attentionID(required(value.id));
       return {
         type: "resolved", sequence, id, kind: id.kind,
-        occurredAt: new Date(timestampMillis(value.occurredAt)).toISOString(),
+        occurredAt: new Date(timestampMillis(required(value.occurredAt))).toISOString(),
       };
     }
     default: throw new ContractError("Attention notification has no event.");
@@ -66,7 +66,7 @@ function attentionEvent(event: pb.AttentionNotificationEvent): AttentionNotifica
 function attentionNotification(value: pb.AttentionNotification): AttentionNotification {
   const id = attentionID(required(value.id));
   const base: AttentionNotification = {
-    id, kind: id.kind, occurredAt: new Date(timestampMillis(value.occurredAt)).toISOString(), revision: Number(value.revision),
+    id, kind: id.kind, occurredAt: new Date(timestampMillis(required(value.occurredAt))).toISOString(), revision: Number(value.revision),
     target: attentionTarget(required(value.target)),
     question: null, approval: null, workflowApproval: null, interruptedCurrentNode: null,
   };

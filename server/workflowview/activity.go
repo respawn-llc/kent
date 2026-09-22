@@ -71,18 +71,18 @@ func (a *Activity) loadPage(ctx context.Context, req *taskpb.TaskOffsetPageReque
 	if err != nil {
 		return activityPage{}, err
 	}
-	offsetPage := serverapi.FinalizeWorkflowOffsetPage(window, rows)
-	next, err := TaskNextOffset(offsetPage.NextOffset)
+	items, nextOffset := serverapi.TrimOffsetLookahead(window, rows)
+	next, err := TaskNextOffset(nextOffset)
 	if err != nil {
 		return activityPage{}, err
 	}
-	comments, err := a.commentsByID(ctx, sourceIDsByType(offsetPage.Items, "comment"))
+	comments, err := a.commentsByID(ctx, sourceIDsByType(items, "comment"))
 	if err != nil {
 		return activityPage{}, err
 	}
 	return activityPage{
 		task:       task,
-		rows:       offsetPage.Items,
+		rows:       items,
 		comments:   comments,
 		nextOffset: next,
 	}, nil

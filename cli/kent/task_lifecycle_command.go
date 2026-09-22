@@ -25,8 +25,7 @@ import (
 )
 
 var (
-	taskStartSessionPollTimeout  = 7 * time.Second
-	taskStartSessionPollInterval = 200 * time.Millisecond
+	taskStartSessionPollTimeout = 7 * time.Second
 )
 
 func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1399,7 +1398,7 @@ func subscribeWorktreeSetupProgress(ctx context.Context, remote apicontract.Work
 				}
 				return
 			}
-			if event.GetSetupOperationId() != setupOperationID.Domain().String() {
+			if event.GetSetupOperationId() != setupOperationID.String() {
 				done <- worktreeSetupObservationResult{err: errors.New("worktree setup event operation ID does not match subscription")}
 				return
 			}
@@ -1488,34 +1487,4 @@ func writeWorktreeSetupProgress(stderr io.Writer, event *worktreepb.SetupEvent) 
 		return
 	}
 	fmt.Fprintf(stderr, "Waiting for worktree setup script %s in %s.\n", event.GetStarted().GetScriptPath(), event.GetStarted().GetWorktreeRoot())
-}
-
-func waitForWorkflowTaskRunSession(ctx context.Context, remote apicontract.WorkflowService, taskID string, _ string, timeout time.Duration, interval time.Duration) (serverapi.WorkflowTaskDetail, error) {
-	if strings.TrimSpace(taskID) == "" {
-		return serverapi.WorkflowTaskDetail{}, errors.New("task id is required")
-	}
-	if interval <= 0 {
-		interval = taskStartSessionPollInterval
-	}
-	pollCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	for {
-		detail, err := getWorkflowTaskByID(pollCtx, remote, taskID)
-		if err != nil {
-			if pollCtx.Err() != nil {
-				return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s but session id was not assigned within %s", taskID, timeout)
-			}
-			return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s but failed to load task detail while waiting for session id: %w", taskID, err)
-		}
-		if len(detail.CurrentScripts) > 0 || len(detail.LiveSessions) > 0 {
-			return detail, nil
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-pollCtx.Done():
-			timer.Stop()
-			return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s but session id was not assigned within %s", taskDisplayID(detail), timeout)
-		case <-timer.C:
-		}
-	}
 }

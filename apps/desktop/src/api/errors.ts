@@ -2,8 +2,6 @@ import { z } from "zod";
 import type { Message } from "@app/server-api-contract";
 
 import type { JsonValue } from "./json";
-import { workflowIDSchema } from "./schemas/workflowID";
-import { labelIDSchema } from "./schemas/workflowLabels";
 import { rpcErrorCodes } from "./rpcErrorCodes";
 import type { ExecutionDetail } from "./taskExecutionFailure";
 import { taskInitialBranchReason, taskExecutionResolutionCode } from "./workflowProtoValues";
@@ -63,7 +61,7 @@ export function isTaskContextSelectionRequiredError(error: unknown): boolean {
 export function isProjectMissingError(error: unknown): boolean {
   return (
     (error instanceof RpcError && error.code === rpcErrorCodes.projectNotFound) ||
-    decodeWorkflowLabelError(error)?.reason === "project_not_found"
+    (error instanceof WorkflowLabelError && error.reason === "project_not_found")
   );
 }
 
@@ -163,68 +161,6 @@ export class WorkflowLabelError extends RpcError {
     this.field = info.field;
     this.limit = info.limit;
   }
-}
-
-const requiredIDSchema = z.string().trim().min(1);
-const workflowLabelErrorDataSchema = z
-  .object({
-    type: z.literal("workflow_label_error"),
-    reason: z.enum([
-      "project_not_found",
-      "label_not_found",
-      "wrong_project",
-      "invalid_filter",
-      "invalid_mutation",
-    ]),
-    project_id: requiredIDSchema.optional(),
-    task_id: requiredIDSchema.optional(),
-    label_id: labelIDSchema.optional(),
-    field: requiredIDSchema.optional(),
-    limit: z.number().int().positive().optional(),
-  })
-  .strict()
-  .superRefine((data, context) => {
-    const required = (field: "project_id" | "task_id" | "label_id" | "field") => {
-      if (data[field] === undefined) {
-        context.addIssue({ code: "custom", message: `${field} is required`, path: [field] });
-      }
-    };
-    switch (data.reason) {
-      case "project_not_found":
-        required("project_id");
-        break;
-      case "label_not_found":
-        required("label_id");
-        break;
-      case "wrong_project":
-        required("project_id");
-        required("label_id");
-        break;
-      case "invalid_filter":
-      case "invalid_mutation":
-        required("field");
-        break;
-    }
-  })
-  .transform((data) => ({
-    reason: data.reason,
-    projectID: data.project_id ?? null,
-    taskID: data.task_id ?? null,
-    labelID: data.label_id ?? null,
-    field: data.field ?? null,
-    limit: data.limit ?? null,
-  }));
-
-export function decodeWorkflowLabelError(error: unknown): WorkflowLabelError | null {
-  if (error instanceof WorkflowLabelError) return error;
-  if (!(error instanceof RpcError)) {
-    return null;
-  }
-  const parsed = workflowLabelErrorDataSchema.safeParse(error.data);
-  if (!parsed.success) {
-    return null;
-  }
-  return new WorkflowLabelError(error, parsed.data);
 }
 
 export const workflowTaskDependencyErrorReasons = [
