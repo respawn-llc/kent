@@ -119,6 +119,7 @@ export class ApiClient implements ApiService {
   readonly chat: ChatApi;
 
   listProcesses = async (target: ChatSessionTarget) => processes.listProcesses(this.#transport, target);
+  observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {

@@ -81,6 +81,10 @@ type ProcessViewService interface {
 	GetProcess(ctx context.Context, req *processpb.GetRequest) (*processpb.GetSuccess, error)
 }
 
+type ProcessObservationService interface {
+	ObserveProcesses(context.Context, *processpb.ObserveRequest) (serverapi.ProcessObservationSubscription, error)
+}
+
 type ProjectViewService interface {
 	ListProjects(ctx context.Context, req *emptypb.Empty) (*projectpb.ProjectListSuccess, error)
 	ListProjectHome(ctx context.Context, req *projectpb.ProjectHomeListRequest) (*projectpb.ProjectHomeListSuccess, error)

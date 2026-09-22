@@ -20,18 +20,19 @@ import (
 )
 
 type Manager struct {
-	persistenceRoot     string
-	mu                  sync.Mutex
-	nextID              int
-	entries             sync.Map
-	completedRecency    []string
-	tempDir             string
-	onEvent             func(Event) bool
-	minimumExecToBgTime time.Duration
-	closeGracePeriod    time.Duration
-	closeWaitTimeout    time.Duration
-	closed              bool
-	maxConcurrent       int
+	persistenceRoot        string
+	mu                     sync.Mutex
+	nextID                 int
+	entries                sync.Map
+	completedRecency       []string
+	tempDir                string
+	onEvent                func(Event) bool
+	onBackgroundListChange func(string)
+	minimumExecToBgTime    time.Duration
+	closeGracePeriod       time.Duration
+	closeWaitTimeout       time.Duration
+	closed                 bool
+	maxConcurrent          int
 	// Includes starts in progress until they fail or their process exits.
 	occupiedSlots int
 }
@@ -103,6 +104,26 @@ func (m *Manager) SetEventHandler(handler func(Event) bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onEvent = handler
+}
+
+// SetBackgroundListChangeHandler installs the composition-owned observation input.
+// The handler must only signal observers, never project lists or wait for delivery.
+func (m *Manager) SetBackgroundListChangeHandler(handler func(string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onBackgroundListChange = handler
+}
+
+func (m *Manager) notifyBackgroundListChange(snapshot Snapshot) {
+	if !snapshot.Backgrounded {
+		return
+	}
+	m.mu.Lock()
+	handler := m.onBackgroundListChange
+	m.mu.Unlock()
+	if handler != nil {
+		handler(snapshot.OwnerSessionID)
+	}
 }
 
 func (m *Manager) SetMinimumExecToBgTime(value time.Duration) {
@@ -294,6 +315,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		m.releaseEntry(id)
 		return result, nil
 	}
+	m.notifyBackgroundListChange(snapshot)
 	m.emitEvent(newBackgroundedEvent(snapshot))
 	_ = deprioritizeManagedProcess(cmd.Process)
 	processed, err := m.applyPostprocessing(ctx, entry, string(output), nil, true, maxOutputChars)
@@ -450,6 +472,7 @@ func (m *Manager) Kill(id string) error {
 	entry.killRequested = true
 	entry.publishSnapshotLocked()
 	entry.mu.Unlock()
+	m.notifyBackgroundListChange(entry.snapshot())
 	return killManagedProcess(process)
 }
 

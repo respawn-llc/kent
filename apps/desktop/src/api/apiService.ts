@@ -92,7 +92,7 @@ import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
-import type { DesktopProcess } from "./processes";
+import type { DesktopProcess, ProcessObservationError } from "./processes";
 
 export type ApiSubscription = Readonly<{
   close(): void;
@@ -102,6 +102,9 @@ export interface ApiService {
   readonly chat: ChatApi;
 
   listProcesses(target: ChatSessionTarget): Promise<readonly DesktopProcess[]>;
+  observeProcesses(
+    target: ChatSessionTarget,
+  ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
   killProcess(processID: string): Promise<void>;
   getReadiness(): Promise<ServerReadiness>;
   listProjects(pageToken: string | null): Promise<ProjectPage>;
