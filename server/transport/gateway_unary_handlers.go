@@ -5,7 +5,6 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/protocol"
-	"core/shared/serverapi"
 )
 
 func gatewayClientCall[C any, Req any, Resp any](getClient func(GatewayDependencies) C, call func(C, context.Context, Req) (Resp, error)) gatewayUnaryHandler {
@@ -32,8 +31,4 @@ func runtimePendingWorkClient(deps GatewayDependencies) apicontract.RuntimePendi
 	return client
 }
 
-var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
-	protocol.MethodWorkflowAttentionList:     gatewayClientCall[apicontract.WorkflowService, serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](GatewayDependencies.WorkflowClient, apicontract.WorkflowService.ListWorkflowAttention),
-	protocol.MethodWorkflowTaskAttentionList: gatewayClientCall[apicontract.WorkflowService, serverapi.WorkflowTaskAttentionListRequest, serverapi.WorkflowTaskAttentionListResponse](GatewayDependencies.WorkflowClient, apicontract.WorkflowService.ListWorkflowTaskAttention),
-	protocol.MethodWorkflowTaskObserve:       gatewayClientCall[apicontract.WorkflowService, serverapi.WorkflowTaskObservationRequest, serverapi.WorkflowTaskObservationResponse](GatewayDependencies.WorkflowClient, apicontract.WorkflowService.ObserveWorkflowTask),
-}
+var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{}

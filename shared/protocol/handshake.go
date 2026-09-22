@@ -6,15 +6,12 @@ import (
 )
 
 const (
-	MethodWorkflowAttentionList          = "workflow.attention.list"
-	MethodWorkflowTaskAttentionList      = "workflow.task.attention.list"
 	MethodWorkflowSubscribe              = "workflow.subscribe"
 	MethodWorkflowSubscribeProject       = "workflow.subscribeProject"
 	MethodWorkflowEvent                  = "workflow.event"
 	MethodWorkflowComplete               = "workflow.complete"
 	MethodWorkflowProjectEvent           = "workflow.project"
 	MethodWorkflowProjectComplete        = "workflow.project.complete"
-	MethodWorkflowTaskObserve            = "workflow.task.observe"
 	MethodAttentionNotificationSubscribe = "attention.notification.subscribe"
 	MethodAttentionNotificationEvent     = "attention.notification"
 	MethodAttentionNotificationComplete  = "attention.notification.complete"

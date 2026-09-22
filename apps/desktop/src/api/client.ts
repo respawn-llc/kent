@@ -11,7 +11,7 @@ import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
-import { parseRpcResponse as parse } from "./clientParse";
+import * as attention from "./clientAttention";
 import * as taskLifecycle from "./clientTaskLifecycle";
 import * as taskDependencies from "./clientTaskDependencies";
 import * as taskDetail from "./clientTaskDetail";
@@ -44,7 +44,7 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { compactJsonObject, emptyJsonObject } from "./json";
+import { emptyJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
 import { subscribeWorktreeSetup, type WorktreeSetupEventHandler } from "./worktreeSetup";
@@ -94,7 +94,6 @@ import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
 import { workflowIDSchema } from "./schemas/workflowID";
-import { attentionPageSchema } from "./schemas/workflowBoard";
 import type { DescriptorRpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
@@ -273,21 +272,11 @@ export class ApiClient implements ApiService {
   }
 
   async listAttention(pageToken: string): Promise<AttentionPage> {
-    return parse(
-      "workflow.attention.list",
-      attentionPageSchema,
-      await this.#transport.call(
-        "workflow.attention.list",
-        compactJsonObject({
-          page_size: 40,
-          page_token: pageToken,
-        }),
-      ),
-    );
+    return attention.listAttention(this.#transport, pageToken);
   }
 
   async listTaskAttention(taskID: string): Promise<TaskAttention> {
-    return taskDetail.listTaskAttention(this.#transport, taskID);
+    return attention.listTaskAttention(this.#transport, taskID);
   }
 
   async createTask(input: TaskMutationInput): Promise<CreatedTaskSummary> {

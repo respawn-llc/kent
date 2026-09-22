@@ -115,16 +115,6 @@ enum ExecutionTargetResolutionCode {
   EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE = 3;
 }
 
-enum LockedExecutionTargetCause {
-  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
-  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
-  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
-  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
-  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
-  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
-  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
-}
-
 enum InitialBranchErrorReason {
   INITIAL_BRANCH_ERROR_REASON_UNSPECIFIED = 0;
   INITIAL_BRANCH_ERROR_REASON_INVALID_NAME = 1;
@@ -836,13 +826,6 @@ message ExecutionTargetResolutionDetails {
   string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
 }
 
-message LockedExecutionTargetDetails {
-  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
 message InitialBranchDetails {
   InitialBranchErrorReason reason = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -1384,6 +1367,6 @@ service TaskLabelService {
 
 service TaskObservationService {
   rpc Observe(ObserveRequest) returns (ObserveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.observe"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }

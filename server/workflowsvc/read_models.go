@@ -9,7 +9,6 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type WorkflowDefinitionReadModel interface {
@@ -52,8 +51,8 @@ type WorkflowTaskSessionReadModel interface {
 }
 
 type WorkflowAttentionReadModel interface {
-	List(context.Context, serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error)
-	ListTask(context.Context, serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error)
+	List(context.Context, *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error)
+	ListTask(context.Context, *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error)
 }
 
 type ReadModels struct {

@@ -1,7 +1,7 @@
 import { create } from "@app/server-api-contract";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import { ExecutionTargetUnavailableCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ExecutionTargetUnavailableCause, LockedExecutionTargetCause } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ApiClient } from "./client";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 
@@ -72,7 +72,7 @@ describe("task lifecycle client", () => {
       });
     }
     const original = moveClient(create(lifecycle.MoveSuccessSchema, { outcome: { case: "selectionRequired", value: {
-      reason: { case: "originalTargetUnavailable", value: { cause: lifecycle.LockedExecutionTargetCause.MISSING_BRANCH } },
+      reason: { case: "originalTargetUnavailable", value: { cause: LockedExecutionTargetCause.MISSING_BRANCH } },
     } } }));
     await expect(original.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
       outcome: "selection_required",

@@ -250,6 +250,23 @@ message ConfiguredExecutionTargetUnavailableDetails {
   };
 }
 
+enum LockedExecutionTargetCause {
+  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
+  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
+  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
+  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
+  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
+  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
+  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
+}
+
+message LockedExecutionTargetDetails {
+  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
 message InterruptedCurrentNodeDetails {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -264,6 +281,7 @@ message InterruptedCurrentNodeDetails {
     option (buf.validate.oneof).required = true;
     GenericInterruptionDetails generic = 3;
     ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 4;
+    LockedExecutionTargetDetails original_execution_target_unavailable = 5;
   }
 
   option (buf.validate.message).cel = {
@@ -274,7 +292,7 @@ message InterruptedCurrentNodeDetails {
 }
 
 message QuestionAttention {
-  string message = 1 [
+  optional string message = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_task.question_attention_message_nonblank"
@@ -292,6 +310,12 @@ message QuestionAttention {
     }
   ];
   AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_message"
+    message: "message is required unless an approval has access targets"
+    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"
@@ -701,7 +725,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.attention.list"
     };
   }
   rpc ListTask(TaskAttentionListRequest) returns (TaskAttentionListResult) {
@@ -711,7 +734,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.attention.list"
     };
   }
 }

@@ -528,14 +528,18 @@ func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteReque
 		})
 }
 
-func (c *Remote) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](c, ctx, protocol.MethodWorkflowAttentionList, req)
-	return validateWorkflowResponse("list workflow attention", response, err)
+func (c *Remote) ListWorkflowAttention(ctx context.Context, req *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionReadService").Methods().ByName("List")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.AttentionListResult{}, func(failure *taskpb.AttentionListError) error {
+		return generatedOperationFailure(failure.Code)
+	})
 }
 
-func (c *Remote) ListWorkflowTaskAttention(ctx context.Context, req serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskAttentionListRequest, serverapi.WorkflowTaskAttentionListResponse](c, ctx, protocol.MethodWorkflowTaskAttentionList, req)
-	return validateWorkflowTaskBoundResponse("list workflow task attention", strings.TrimSpace(req.TaskID), response, err)
+func (c *Remote) ListWorkflowTaskAttention(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionReadService").Methods().ByName("ListTask")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.TaskAttentionListResult{}, func(failure *taskpb.TaskAttentionListError) error {
+		return generatedOperationFailure(failure.Code)
+	})
 }
 
 func (c *Remote) AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error) {
@@ -639,15 +643,9 @@ func (c *Remote) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*
 		})
 }
 
-func (c *Remote) ObserveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskObservationRequest) (serverapi.WorkflowTaskObservationResponse, error) {
-	response, err := callUnscopedRPC[serverapi.WorkflowTaskObservationRequest, serverapi.WorkflowTaskObservationResponse](c, ctx, protocol.MethodWorkflowTaskObserve, req)
-	if err = normalizeWorkflowTaskObservationRPCError(err); err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.WorkflowTaskObservationResponse{}, invalidResponseError("workflow task observation", err)
-	}
-	return response, nil
+func (c *Remote) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskObservationService").Methods().ByName("Observe")
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.ObserveResult{}, taskEntityGeneratedError[*taskpb.ObserveError])
 }
 
 func normalizeWorkflowTaskObservationRPCError(err error) error {

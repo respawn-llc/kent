@@ -6,6 +6,11 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
+var TaskObservationMode = workflowValueNames(map[pb.ObservationMode]string{
+	pb.ObservationMode_OBSERVATION_MODE_WAIT:  "wait",
+	pb.ObservationMode_OBSERVATION_MODE_WATCH: "watch",
+})
+
 var TaskStatusKind = workflowValueNames(map[pb.TaskStatusKind]string{
 	pb.TaskStatusKind_TASK_STATUS_KIND_DONE:             "done",
 	pb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION: "waiting_question",

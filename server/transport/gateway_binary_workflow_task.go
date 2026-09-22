@@ -21,7 +21,18 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 	lifecycle := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService")
 	dependencies := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService")
 	comments := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskCommentService")
+	attention := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionReadService")
+	observation := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskObservationService")
 	return errors.Join(
+		registerWorkflowUnary(bindings, observation, "Observe",
+			func() *taskpb.ObserveRequest { return &taskpb.ObserveRequest{} },
+			apicontract.WorkflowService.ObserveWorkflowTask, binaryTaskEntityFailure[*taskpb.ObserveRequest]),
+		registerWorkflowUnary(bindings, attention, "List",
+			func() *taskpb.AttentionListRequest { return &taskpb.AttentionListRequest{} },
+			apicontract.WorkflowService.ListWorkflowAttention, binaryTaskAttentionFailure[*taskpb.AttentionListRequest]),
+		registerWorkflowUnary(bindings, attention, "ListTask",
+			func() *taskpb.TaskAttentionListRequest { return &taskpb.TaskAttentionListRequest{} },
+			apicontract.WorkflowService.ListWorkflowTaskAttention, binaryTaskAttentionFailure[*taskpb.TaskAttentionListRequest]),
 		registerWorkflowUnary(bindings, read, "List",
 			func() *taskpb.ListRequest { return &taskpb.ListRequest{} },
 			apicontract.WorkflowService.ListWorkflowTasks, binaryTaskListFailure),
@@ -98,6 +109,25 @@ func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinary
 			func() *taskpb.TaskOffsetPageRequest { return &taskpb.TaskOffsetPageRequest{} },
 			apicontract.WorkflowService.ListWorkflowTaskSessions, binaryTaskEntityFailure[*taskpb.TaskOffsetPageRequest]),
 	)
+}
+
+func binaryTaskAttentionFailure[Request proto.Message](_ Request, err error) proto.Message {
+	var validation serverapi.WorkflowRequestValidationError
+	if errors.As(err, &validation) {
+		var code taskpb.AttentionRequestValidationCode
+		switch validation.Code {
+		case serverapi.WorkflowRequestErrorRequired:
+			code = taskpb.AttentionRequestValidationCode_ATTENTION_REQUEST_VALIDATION_CODE_REQUIRED
+		case serverapi.WorkflowRequestErrorInvalidValue:
+			code = taskpb.AttentionRequestValidationCode_ATTENTION_REQUEST_VALIDATION_CODE_INVALID_VALUE
+		case serverapi.WorkflowRequestErrorInvalidMode:
+			code = taskpb.AttentionRequestValidationCode_ATTENTION_REQUEST_VALIDATION_CODE_INVALID_MODE
+		default:
+			return nil
+		}
+		return &taskpb.AttentionRequestValidationDetails{Code: code, Field: validation.Field}
+	}
+	return nil
 }
 
 func binaryTaskDependencyMutationFailure[Request proto.Message](request Request, err error) proto.Message {

@@ -2244,32 +2244,12 @@ func workflowAttentionContext(ctx context.Context) (context.Context, context.Can
 	return context.WithTimeout(context.WithoutCancel(ctx), workflowAttentionFinalizationTimeout)
 }
 
-func (s *Service) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowAttentionListResponse{}, err
-	}
-	response, err := s.readModels.Attention.List(ctx, req)
-	if err != nil {
-		return serverapi.WorkflowAttentionListResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.WorkflowAttentionListResponse{}, err
-	}
-	return response, nil
+func (s *Service) ListWorkflowAttention(ctx context.Context, req *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error) {
+	return s.readModels.Attention.List(ctx, req)
 }
 
-func (s *Service) ListWorkflowTaskAttention(ctx context.Context, req serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskAttentionListResponse{}, err
-	}
-	response, err := s.readModels.Attention.ListTask(ctx, req)
-	if err != nil {
-		return serverapi.WorkflowTaskAttentionListResponse{}, err
-	}
-	if err := response.ValidateForTask(strings.TrimSpace(req.TaskID)); err != nil {
-		return serverapi.WorkflowTaskAttentionListResponse{}, err
-	}
-	return response, nil
+func (s *Service) ListWorkflowTaskAttention(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
+	return s.readModels.Attention.ListTask(ctx, req)
 }
 
 func (s *Service) ListWorkflowTaskSessions(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {

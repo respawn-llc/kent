@@ -19,6 +19,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -616,8 +617,8 @@ func listTaskQuestionCandidates(
 ) ([]taskQuestionSessionCandidate, error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
-	response, err := remote.ListWorkflowTaskAttention(rpcCtx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: taskID,
+	response, err := remote.ListWorkflowTaskAttention(rpcCtx, &taskpb.TaskAttentionListRequest{
+		TaskId: taskID,
 	})
 	if err != nil {
 		return nil, err
@@ -625,54 +626,65 @@ func listTaskQuestionCandidates(
 	return taskQuestionCandidates(response.Items)
 }
 
-func taskQuestionCandidates(items []serverapi.WorkflowAttentionItem) ([]taskQuestionSessionCandidate, error) {
-	questions := make([]serverapi.WorkflowAttentionItem, 0, len(items))
+func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessionCandidate, error) {
+	questions := make([]*taskpb.AttentionItem, 0, len(items))
 	for _, item := range items {
-		if item.Kind != string(serverapi.WorkflowTaskAttentionKindQuestion) {
+		if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 			continue
 		}
-		if item.Question == nil {
-			return nil, fmt.Errorf("pending question %q has no typed prompt", item.ID)
+		if item.GetQuestion().GetQuestion() == nil {
+			return nil, fmt.Errorf("pending question %q has no typed prompt", item.Id)
 		}
-		if item.Question.Kind != serverapi.WorkflowAttentionQuestionKindOrdinary && item.Question.Kind != serverapi.WorkflowAttentionQuestionKindApproval {
+		if item.GetQuestion().Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY && item.GetQuestion().Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
 			continue
 		}
 		questions = append(questions, item)
 	}
 	sort.Slice(questions, func(i, j int) bool {
-		if questions[i].OccurredAtUnixMs != questions[j].OccurredAtUnixMs {
-			return questions[i].OccurredAtUnixMs < questions[j].OccurredAtUnixMs
+		if !questions[i].OccurredAt.AsTime().Equal(questions[j].OccurredAt.AsTime()) {
+			return questions[i].OccurredAt.AsTime().Before(questions[j].OccurredAt.AsTime())
 		}
-		return questions[i].ID < questions[j].ID
+		return questions[i].Id < questions[j].Id
 	})
 	candidates := make([]taskQuestionSessionCandidate, 0)
 	candidateBySession := make(map[runtimeids.SessionID]int)
 	for _, item := range questions {
-		prompt := *item.Question
-		sessionID := prompt.SessionID
-		sessionName, err := normalizedOptionalQuestionSessionName(item.SessionName)
+		detail := item.GetQuestion()
+		prompt := detail.Question
+		sessionID, err := runtimeids.ParseSessionID(prompt.SessionId)
 		if err != nil {
-			return nil, fmt.Errorf("pending question %q session name: %w", item.ID, err)
+			return nil, err
+		}
+		stepID, err := runtimeids.ParseStepID(prompt.StepId)
+		if err != nil {
+			return nil, err
+		}
+		sessionName, err := normalizedOptionalQuestionSessionName(detail.SessionName)
+		if err != nil {
+			return nil, fmt.Errorf("pending question %q session name: %w", item.Id, err)
 		}
 		question := questionCommandPendingQuestion{
-			ToolCallID: prompt.ToolCallID,
-			SessionID:  prompt.SessionID,
-			StepID:     prompt.StepID,
-			Kind:       prompt.Kind,
+			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
+			SessionID:  sessionID,
+			StepID:     stepID,
 		}
-		if prompt.Kind == serverapi.WorkflowAttentionQuestionKindOrdinary {
-			if item.Message == nil {
-				return nil, fmt.Errorf("pending question %q has no content", item.ID)
+		if ordinary := prompt.GetOrdinary(); ordinary != nil {
+			question.Kind = serverapi.WorkflowAttentionQuestionKindOrdinary
+			if detail.Message == nil {
+				return nil, fmt.Errorf("pending question %q has no content", item.Id)
 			}
-			question.Question = *item.Message
-			question.Suggestions = append([]string(nil), prompt.Suggestions...)
-			question.RecommendedOptionIndex = textutil.Pointer(prompt.RecommendedOptionIndex)
+			question.Question = *detail.Message
+			question.Suggestions = append([]string(nil), ordinary.Suggestions...)
+			if ordinary.RecommendedOptionIndex != nil {
+				index := int(*ordinary.RecommendedOptionIndex)
+				question.RecommendedOptionIndex = &index
+			}
 		} else {
-			if item.Message == nil || prompt.SessionID.IsZero() || prompt.StepID.IsZero() ||
-				prompt.ToolCallID.Validate() != nil || len(prompt.ApprovalDecisions) == 0 {
+			question.Kind = serverapi.WorkflowAttentionQuestionKindApproval
+			if detail.Message == nil || question.ToolCallID.Validate() != nil || len(prompt.GetApproval().GetApprovalDecisions()) == 0 {
 				continue
 			}
-			question.Question = *item.Message
+			question.Question = *detail.Message
 		}
 		index, exists := candidateBySession[sessionID]
 		if !exists {

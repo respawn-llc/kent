@@ -269,10 +269,14 @@ func WorkflowUnavailableTargetCause(value taskpb.ExecutionTargetUnavailableCause
 func NewWorkflowConfiguredTargetSelectionRequirement(mode WorkflowExecutionTargetMode, requestedRef *string, cause WorkflowExecutionTargetUnavailableCause) *taskpb.SelectionRequired {
 	return &taskpb.SelectionRequired{
 		Reason: &taskpb.SelectionRequired_ConfiguredTargetUnavailable{
-			ConfiguredTargetUnavailable: &taskpb.ConfiguredExecutionTargetUnavailableDetails{
-				Mode: configuredTargetModes[mode], RequestedRef: requestedRef, Cause: unavailableTargetCauses[cause],
-			},
+			ConfiguredTargetUnavailable: WorkflowConfiguredTargetUnavailableDetails(mode, requestedRef, cause),
 		},
+	}
+}
+
+func WorkflowConfiguredTargetUnavailableDetails(mode WorkflowExecutionTargetMode, requestedRef *string, cause WorkflowExecutionTargetUnavailableCause) *taskpb.ConfiguredExecutionTargetUnavailableDetails {
+	return &taskpb.ConfiguredExecutionTargetUnavailableDetails{
+		Mode: configuredTargetModes[mode], RequestedRef: requestedRef, Cause: unavailableTargetCauses[cause],
 	}
 }
 

@@ -6,23 +6,9 @@ import { pendingQuestion } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import { taskDetail, taskComment, taskActivity } from "./clientTaskProjection";
 import { taskCommentAuthor } from "./workflowProtoValues";
-import { parseRpcResponse } from "./clientParse";
 import { requireTaskBoundItems } from "./clientParse";
-import type { ActivityPage, CommentPage, PendingAsk, TaskAttention, TaskComment, TaskDetail } from "./models";
-import {
-  taskAttentionSchema,
-} from "./schemas/workflowBoard";
-import type { DescriptorRpcTransport, RpcTransport, SessionAttachmentTarget } from "./transport";
-
-export async function listTaskAttention(transport: RpcTransport, taskID: string): Promise<TaskAttention> {
-  const response = parseRpcResponse(
-    "workflow.task.attention.list",
-    taskAttentionSchema,
-    await transport.call("workflow.task.attention.list", { task_id: taskID }),
-  );
-  requireTaskBoundItems(taskID, response.items);
-  return response;
-}
+import type { ActivityPage, CommentPage, PendingAsk, TaskComment, TaskDetail } from "./models";
+import type { DescriptorRpcTransport, SessionAttachmentTarget } from "./transport";
 
 export async function getTask(transport: DescriptorRpcTransport, taskID: string): Promise<TaskDetail> {
   const method = TaskReadService.method.get;

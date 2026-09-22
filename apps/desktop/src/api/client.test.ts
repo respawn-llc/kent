@@ -1,6 +1,7 @@
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import * as attention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { z } from "zod";
@@ -236,25 +237,29 @@ describe("ApiClient", () => {
   it("uses separate global and task attention RPC contracts", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.attention.list",
-        result: { items: [], next_page_token: "", generated_at_unix_ms: 1 },
+        descriptor: attention.AttentionReadService.method.list,
+        result: create(attention.AttentionListResultSchema, { outcome: { case: "success", value: {
+          items: [], generatedAt: { seconds: 0n, nanos: 1_000_000 },
+        } } }),
       },
       {
-        method: "workflow.task.attention.list",
-        result: { items: [], generated_at_unix_ms: 2 },
+        descriptor: attention.AttentionReadService.method.listTask,
+        result: create(attention.TaskAttentionListResultSchema, { outcome: { case: "success", value: {
+          items: [], generatedAt: { seconds: 0n, nanos: 2_000_000 },
+        } } }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: "" });
     await expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.attention.list",
-        params: { page_size: 40, page_token: "cursor-1" },
+        descriptor: attention.AttentionReadService.method.list,
+        request: create(attention.AttentionListRequestSchema, { pageSize: 40, pageToken: "cursor-1" }),
       },
       {
-        method: "workflow.task.attention.list",
-        params: { task_id: "task-1" },
+        descriptor: attention.AttentionReadService.method.listTask,
+        request: create(attention.TaskAttentionListRequestSchema, { taskId: "task-1" }),
       },
     ]);
   });
