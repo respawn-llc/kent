@@ -55,20 +55,16 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err := os.WriteFile(filepath.Join(sourceRoot, "remote_demo.md"), []byte("server body $ARGUMENTS"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	providers := onboarding.ProductionProviderCatalog()
-	providerIndex := slices.IndexFunc(providers, func(provider onboarding.Provider) bool { return provider.HomeEntry == ".claude" })
-	if providerIndex < 0 {
-		t.Fatal("Claude Code provider UUID is missing")
-	}
-	providerUUID := providers[providerIndex].UUID.String()
+	providerID := "claude_code"
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
 	if _, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		CommandsImport: &onboardingpb.ImportSelection{
-			Mode:         onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
-			ProviderUuid: &providerUUID,
+			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+			ImportProviderId: &providerID,
+			SourceRootPath:   &sourceRoot,
 		},
 	}); err != nil {
 		t.Fatalf("Finalize: %v", err)

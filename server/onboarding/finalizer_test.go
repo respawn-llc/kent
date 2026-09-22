@@ -13,8 +13,6 @@ import (
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 func TestFinalizerDefaultEqualChoicesRenderLikeDefaults(t *testing.T) {
@@ -218,12 +216,12 @@ func TestFinalizerRejectsUnsupportedVerbosityForSelectedModel(t *testing.T) {
 func TestFinalizerImportsSkillsAndCommandsBeforeConfigWrite(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	skillUUID := createProviderSkillSource(t, home, ".claude")
-	commandUUID := createProviderCommandSource(t, home, ".claude")
+	skillRoot := createProviderSkillSource(t, home, ".claude")
+	commandRoot := createProviderCommandSource(t, home, ".claude")
 
 	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport:   &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(skillUUID.String())},
-		CommandsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(commandUUID.String())},
+		SkillsImport:   importSelection("claude_code", skillRoot),
+		CommandsImport: importSelection("claude_code", commandRoot),
 	})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
@@ -267,7 +265,8 @@ func TestFinalizerImportsSelectedCapabilityFactSkillRoot(t *testing.T) {
 func TestFinalizerReturnsSelectedProviderDiscoveryError(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := providerUUIDForHomeEntry(t, ".codex")
+	providerID := "codex"
+	rootPath := filepath.Join(home, ".codex", "skills", "local")
 	if err := os.MkdirAll(filepath.Join(home, ".codex", "skills"), 0o755); err != nil {
 		t.Fatalf("mkdir codex skills parent: %v", err)
 	}
@@ -276,7 +275,7 @@ func TestFinalizerReturnsSelectedProviderDiscoveryError(t *testing.T) {
 	}
 
 	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport: importSelection(providerID, rootPath),
 	})
 	var finalizeErr *serverapi.OnboardingFinalizeError
 	if !errors.As(err, &finalizeErr) {
@@ -286,7 +285,7 @@ func TestFinalizerReturnsSelectedProviderDiscoveryError(t *testing.T) {
 		t.Fatalf("code = %q, want import_failed", finalizeErr.Code)
 	}
 	details := finalizeErr.Details.(serverapi.OnboardingImportFailedDetails)
-	if details.Operation != serverapi.OnboardingImportOperationDiscover || details.ProviderUUID == nil || *details.ProviderUUID != providerUUID {
+	if details.Operation != serverapi.OnboardingImportOperationDiscover || details.ImportProviderID == nil || *details.ImportProviderID != providerID || details.SourceRootPath == nil || *details.SourceRootPath != rootPath {
 		t.Fatalf("details = %+v, want selected provider discover failure", details)
 	}
 }
@@ -294,7 +293,7 @@ func TestFinalizerReturnsSelectedProviderDiscoveryError(t *testing.T) {
 func TestFinalizerRollsBackImportsWhenConfigWriteFails(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := createProviderSkillSource(t, home, ".claude")
+	skillRoot := createProviderSkillSource(t, home, ".claude")
 	blocker := filepath.Join(root, "not-a-dir")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write blocker: %v", err)
@@ -309,7 +308,7 @@ func TestFinalizerRollsBackImportsWhenConfigWriteFails(t *testing.T) {
 	}
 
 	_, err = finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport: importSelection("claude_code", skillRoot),
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigWriteFailed) {
 		t.Fatalf("error = %v, want config_write_failed", err)
@@ -326,11 +325,11 @@ func TestFinalizerExistingConfigWinsBeforeValidationAndSideEffects(t *testing.T)
 		t.Fatalf("write existing config: %v", err)
 	}
 	badTheme := onboardingpb.Theme(999)
-	providerUUID := createProviderSkillSource(t, home, ".claude")
+	skillRoot := createProviderSkillSource(t, home, ".claude")
 
 	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		Theme:        &badTheme,
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport: importSelection("claude_code", skillRoot),
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigAlreadyExists) {
 		t.Fatalf("error = %v, want config_already_exists", err)
@@ -400,9 +399,10 @@ func TestFinalizerMissingHomeMakesRequestedImportUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
-	providerUUID := providerUUIDForHomeEntry(t, ".claude")
+	providerID := "claude_code"
+	rootPath := filepath.Join(root, "missing-home", "skills")
 	_, err = finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport: importSelection(providerID, rootPath),
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
 		t.Fatalf("Finalize error = %v, want import_unavailable", err)
@@ -448,7 +448,7 @@ func assertSymlink(t *testing.T, path string) {
 func TestFinalizerReturnsTargetExistsForRequestedImportBlockedByTarget(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := createProviderSkillSource(t, home, ".claude")
+	skillRoot := createProviderSkillSource(t, home, ".claude")
 	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
 		t.Fatalf("mkdir target: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestFinalizerReturnsTargetExistsForRequestedImportBlockedByTarget(t *testin
 	finalizer := newTestFinalizer(t, root, home)
 
 	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport: importSelection("claude_code", skillRoot),
 	})
 	var finalizeErr *serverapi.OnboardingFinalizeError
 	if !errors.As(err, &finalizeErr) {
@@ -479,13 +479,13 @@ func TestFinalizerReturnsTargetExistsForRequestedImportBlockedByTarget(t *testin
 func TestFinalizerRollsBackEarlierImportWhenLaterImportSelectionFails(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := createProviderSkillSource(t, home, ".claude")
-	missingCommandsUUID := providerUUID
+	skillRoot := createProviderSkillSource(t, home, ".claude")
+	missingCommandsRoot := filepath.Join(home, ".claude", "commands")
 	finalizer := newTestFinalizer(t, root, home)
 
 	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport:   &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
-		CommandsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(missingCommandsUUID.String())},
+		SkillsImport:   importSelection("claude_code", skillRoot),
+		CommandsImport: importSelection("claude_code", missingCommandsRoot),
 	})
 	var finalizeErr *serverapi.OnboardingFinalizeError
 	if !errors.As(err, &finalizeErr) {
@@ -505,14 +505,16 @@ func TestFinalizerRollsBackEarlierImportWhenLaterImportSelectionFails(t *testing
 func TestFinalizerRestoresPreexistingEmptyTargetDirectoryOnRollback(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := createProviderSkillSource(t, home, ".claude")
+	skillRoot := createProviderSkillSource(t, home, ".claude")
 	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
 		t.Fatalf("mkdir empty target: %v", err)
 	}
 
+	commandRoot := filepath.Join(home, ".claude", "commands")
+
 	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport:   &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
-		CommandsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		SkillsImport:   importSelection("claude_code", skillRoot),
+		CommandsImport: importSelection("claude_code", commandRoot),
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
 		t.Fatalf("error = %v, want import_unavailable", err)
@@ -530,19 +532,6 @@ func TestFinalizerRestoresPreexistingEmptyTargetDirectoryOnRollback(t *testing.T
 	}
 	if len(entries) != 0 {
 		t.Fatalf("restored skills dir entries = %d, want empty", len(entries))
-	}
-}
-
-func TestFinalizerRejectsNonV4ProviderUUID(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
-	v1UUID := uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
-
-	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(v1UUID.String())},
-	})
-	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
-		t.Fatalf("error = %v, want invalid_request", err)
 	}
 }
 
@@ -595,13 +584,13 @@ func TestFinalizerRejectsNativeCompactionForSelectedNonOpenAIModel(t *testing.T)
 func TestFinalizerCommandsImportBlocksLegacyCommandsDirectory(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	providerUUID := createProviderCommandSource(t, home, ".claude")
+	commandRoot := createProviderCommandSource(t, home, ".claude")
 	if err := os.MkdirAll(filepath.Join(root, "commands", "legacy"), 0o755); err != nil {
 		t.Fatalf("mkdir legacy commands: %v", err)
 	}
 
 	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		CommandsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(providerUUID.String())},
+		CommandsImport: importSelection("claude_code", commandRoot),
 	})
 	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
 		t.Fatalf("Finalize error = %v, want import_unavailable", err)
@@ -611,24 +600,11 @@ func TestFinalizerCommandsImportBlocksLegacyCommandsDirectory(t *testing.T) {
 	}
 }
 
-func TestProductionProviderCatalogUUIDsAreStableV4Values(t *testing.T) {
-	first := onboarding.ProductionProviderCatalog()
-	second := onboarding.ProductionProviderCatalog()
-	if len(first) == 0 || len(first) != len(second) {
-		t.Fatalf("catalog lengths = %d/%d", len(first), len(second))
-	}
-	seen := map[uuid.UUID]bool{}
-	for index := range first {
-		if first[index].UUID == uuid.Nil || first[index].UUID.Version() != 4 {
-			t.Fatalf("provider %d uuid = %s, want v4", index, first[index].UUID)
-		}
-		if first[index].UUID != second[index].UUID {
-			t.Fatalf("provider %d uuid changed across calls: %s vs %s", index, first[index].UUID, second[index].UUID)
-		}
-		if seen[first[index].UUID] {
-			t.Fatalf("duplicate provider uuid %s", first[index].UUID)
-		}
-		seen[first[index].UUID] = true
+func importSelection(providerID, sourceRoot string) *onboardingpb.ImportSelection {
+	return &onboardingpb.ImportSelection{
+		Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+		ImportProviderId: ptr(providerID),
+		SourceRootPath:   ptr(sourceRoot),
 	}
 }
 
@@ -641,12 +617,11 @@ func newTestFinalizer(t *testing.T, root string, home string) *onboarding.Finali
 	return finalizer
 }
 
-func createProviderSkillSource(t *testing.T, home string, entry string) uuid.UUID {
+func createProviderSkillSource(t *testing.T, home string, entry string) string {
 	t.Helper()
-	providerUUID := providerUUIDForHomeEntry(t, entry)
-	skillDir := filepath.Join(home, entry, "skills", "example")
-	createSkillDirectory(t, skillDir)
-	return providerUUID
+	skillRoot := filepath.Join(home, entry, "skills")
+	createSkillDirectory(t, filepath.Join(skillRoot, "example"))
+	return skillRoot
 }
 
 func createSkillDirectory(t *testing.T, skillDir string) {
@@ -659,30 +634,14 @@ func createSkillDirectory(t *testing.T, skillDir string) {
 	}
 }
 
-func createProviderCommandSource(t *testing.T, home string, entry string) uuid.UUID {
+func createProviderCommandSource(t *testing.T, home string, entry string) string {
 	t.Helper()
-	providerUUID := providerUUIDForHomeEntry(t, entry)
-	commandDir := filepath.Join(home, entry, "commands")
-	if err := os.MkdirAll(commandDir, 0o755); err != nil {
+	commandRoot := filepath.Join(home, entry, "commands")
+	if err := os.MkdirAll(commandRoot, 0o755); err != nil {
 		t.Fatalf("mkdir command source: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(commandDir, "example.md"), []byte("command"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(commandRoot, "example.md"), []byte("command"), 0o644); err != nil {
 		t.Fatalf("write command: %v", err)
 	}
-	return providerUUID
-}
-
-func providerUUIDForHomeEntry(t *testing.T, entry string) uuid.UUID {
-	t.Helper()
-	var providerUUID uuid.UUID
-	for _, provider := range onboarding.ProductionProviderCatalog() {
-		if provider.HomeEntry == entry {
-			providerUUID = provider.UUID
-			break
-		}
-	}
-	if providerUUID == uuid.Nil {
-		t.Fatalf("provider %s not found", entry)
-	}
-	return providerUUID
+	return commandRoot
 }

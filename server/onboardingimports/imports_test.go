@@ -1,7 +1,6 @@
 package onboardingimports
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -235,26 +234,6 @@ func TestDiscoverReportsTargetProbeErrorsAndKeepsGeneratedSkills(t *testing.T) {
 	}
 	if !hasSourceKindItem(result.Skills.Items, SourceKindGenerated) {
 		t.Fatalf("expected generated skill facts despite target failure, items=%+v errors=%+v", result.Skills.Items, result.Errors)
-	}
-}
-
-func TestValidateChoiceUsesStructuredRefs(t *testing.T) {
-	configRoot := t.TempDir()
-	home := t.TempDir()
-	writeProviderSkill(t, home, ProviderAgents, "skills", "review", "Review", "Review code")
-	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	if len(result.Skills.Choices) < 2 {
-		t.Fatalf("expected symlink choice, got %+v", result.Skills.Choices)
-	}
-	if err := ValidateChoice(result, result.Skills.Choices[1].Ref, ItemKindSkill); err != nil {
-		t.Fatalf("valid choice rejected: %v", err)
-	}
-	missing := ChoiceRef{Mode: ChoiceModeSymlinkSource}
-	if err := ValidateChoice(result, missing, ItemKindSkill); !errors.Is(err, ErrInvalidChoice) {
-		t.Fatalf("invalid choice err = %v, want ErrInvalidChoice", err)
 	}
 }
 

@@ -18,7 +18,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
-	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
 
@@ -94,16 +93,6 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if err := os.WriteFile(filepath.Join(sourceRoot, "remote_demo.md"), []byte("server body $ARGUMENTS"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var providerUUID uuid.UUID
-	for _, provider := range onboarding.ProductionProviderCatalog() {
-		if provider.HomeEntry == ".claude" {
-			providerUUID = provider.UUID
-			break
-		}
-	}
-	if providerUUID == uuid.Nil {
-		t.Fatal("Claude Code provider UUID is missing")
-	}
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
 		PersistenceRoot: serverRoot,
 		WorkspaceRoot:   serverWorkspace,
@@ -112,11 +101,12 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
-	providerUUIDText := providerUUID.String()
+	providerID := "claude_code"
 	if _, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		CommandsImport: &onboardingpb.ImportSelection{
-			Mode:         onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
-			ProviderUuid: &providerUUIDText,
+			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+			ImportProviderId: &providerID,
+			SourceRootPath:   &sourceRoot,
 		},
 	}); err != nil {
 		t.Fatalf("Finalize: %v", err)

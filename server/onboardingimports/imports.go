@@ -214,19 +214,6 @@ func Discover(opts Options) (Result, error) {
 	return result, nil
 }
 
-func ValidateChoice(result Result, ref ChoiceRef, itemKind ItemKind) error {
-	choices := result.Skills.Choices
-	if itemKind == ItemKindCommand {
-		choices = result.Commands.Choices
-	}
-	for _, choice := range choices {
-		if choiceRefEqual(choice.Ref, ref) {
-			return nil
-		}
-	}
-	return ErrInvalidChoice
-}
-
 func resolveWorkspaceRoot(root *string) (string, bool, error) {
 	if root == nil {
 		return "", false, nil
@@ -573,10 +560,6 @@ func addProviderError(result *Result, providerID ProviderID, path string, itemKi
 
 func itemKindPointer(value ItemKind) *ItemKind {
 	return &value
-}
-
-func choiceRefEqual(left, right ChoiceRef) bool {
-	return left.Mode == right.Mode && textutil.EqualOptional(left.ProviderID, right.ProviderID) && textutil.EqualOptional(left.SourceRoot, right.SourceRoot)
 }
 
 func choiceItemEqual(left, right ItemRef) bool {

@@ -9,8 +9,6 @@ import (
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
-
-	"github.com/google/uuid"
 )
 
 func ServerNotReadyToProto(err *serverapi.ServerNotReadyError) (*serverpb.ServerNotReadyDetails, error) {
@@ -228,7 +226,6 @@ func importUnavailableDetailsToProto(details serverapi.OnboardingImportUnavailab
 	return &onboardingpb.ImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Reason:           reason,
@@ -248,14 +245,9 @@ func importUnavailableDetailsFromProto(details *onboardingpb.ImportUnavailableDe
 	if err != nil {
 		return serverapi.OnboardingImportUnavailableDetails{}, err
 	}
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
 	return serverapi.OnboardingImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		ReasonCode:       reason,
@@ -277,7 +269,6 @@ func importFailedDetailsToProto(details serverapi.OnboardingImportFailedDetails)
 	}
 	return &onboardingpb.ImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,
@@ -298,13 +289,8 @@ func importFailedDetailsFromProto(details *onboardingpb.ImportFailedDetails) (se
 	if err != nil {
 		return serverapi.OnboardingImportFailedDetails{}, err
 	}
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportFailedDetails{}, err
-	}
 	return serverapi.OnboardingImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,
@@ -570,25 +556,6 @@ func cancelPhaseFromProto(phase onboardingpb.CancelPhase) (serverapi.OnboardingC
 	default:
 		return "", fmt.Errorf("protobuf onboarding cancel phase %v is unsupported", phase)
 	}
-}
-
-func uuidToString(value *uuid.UUID) *string {
-	if value == nil {
-		return nil
-	}
-	text := value.String()
-	return &text
-}
-
-func uuidFromString(value *string) (*uuid.UUID, error) {
-	if value == nil {
-		return nil, nil
-	}
-	parsed, err := uuid.Parse(*value)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
 }
 
 func cloneBootstrapErrorPointer[T any](value *T) *T {

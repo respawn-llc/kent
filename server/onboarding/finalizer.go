@@ -17,8 +17,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/theme"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 type Finalizer struct {
@@ -481,34 +479,14 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 		return serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelImporting)
 	}
 	if err := executeSymlink(ledger, target, sourceRoot); err != nil {
-		providerUUID, _ := selectionProviderUUID(selection)
 		return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
-			ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationCreateSymlink, Cause: err.Error(),
+			ImportKind: kind, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationCreateSymlink, Cause: err.Error(),
 		}, err)
 	}
 	return nil
 }
 
 func selectedImportChoice(choices []onboardingimports.Choice, discoveryErrors []onboardingimports.Error, selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind) (onboardingimports.Choice, error) {
-	if selection.ProviderUuid != nil {
-		providerUUID, err := uuid.Parse(*selection.ProviderUuid)
-		if err != nil || providerUUID.Version() != 4 {
-			return onboardingimports.Choice{}, invalidRequest(string(kind)+"_import.provider_uuid", "uuid_v4_required")
-		}
-		providerID, ok := importProviderIDForUUID(providerUUID)
-		if !ok {
-			return onboardingimports.Choice{}, importUnavailable(selection, kind, serverapi.OnboardingImportReasonNotDiscovered)
-		}
-		for _, choice := range choices {
-			if symlinkChoiceForProvider(choice, providerID) {
-				return choice, nil
-			}
-		}
-		if err := providerDiscoveryError(discoveryErrors, providerID, kind); err != nil {
-			return onboardingimports.Choice{}, importDiscoveryFailed(selection, kind, err)
-		}
-		return onboardingimports.Choice{}, importUnavailable(selection, kind, serverapi.OnboardingImportReasonNotDiscovered)
-	}
 	providerID := onboardingimports.ProviderID(strings.TrimSpace(derefString(selection.ImportProviderId)))
 	root := filepath.Clean(strings.TrimSpace(derefString(selection.SourceRootPath)))
 	for _, choice := range choices {
@@ -522,15 +500,6 @@ func selectedImportChoice(choices []onboardingimports.Choice, discoveryErrors []
 	return onboardingimports.Choice{}, importUnavailable(selection, kind, serverapi.OnboardingImportReasonNotDiscovered)
 }
 
-func importProviderIDForUUID(providerUUID uuid.UUID) (onboardingimports.ProviderID, bool) {
-	for _, provider := range ProductionProviderCatalog() {
-		if provider.UUID == providerUUID {
-			return provider.ImportProviderID, true
-		}
-	}
-	return "", false
-}
-
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -538,30 +507,17 @@ func derefString(value *string) string {
 	return *value
 }
 
-func symlinkChoiceForProvider(choice onboardingimports.Choice, providerID onboardingimports.ProviderID) bool {
+func choiceMatchesRef(choice onboardingimports.Choice, providerID onboardingimports.ProviderID, root string) bool {
 	return choice.Ref.Mode == onboardingimports.ChoiceModeSymlinkSource &&
 		choice.Ref.ProviderID != nil &&
 		*choice.Ref.ProviderID == providerID &&
-		choice.Ref.SourceRoot != nil
-}
-
-func choiceMatchesRef(choice onboardingimports.Choice, providerID onboardingimports.ProviderID, root string) bool {
-	return symlinkChoiceForProvider(choice, providerID) && filepath.Clean(derefString(choice.Ref.SourceRoot)) == root
+		choice.Ref.SourceRoot != nil &&
+		filepath.Clean(derefString(choice.Ref.SourceRoot)) == root
 }
 
 func rootDiscoveryError(discoveryErrors []onboardingimports.Error, providerID onboardingimports.ProviderID, root string, kind serverapi.OnboardingImportKind) error {
 	for _, discoveryErr := range sortedDiscoveryErrors(discoveryErrors) {
 		if discoveryErr.ProviderID == nil || *discoveryErr.ProviderID != providerID || discoveryErr.Path == nil || filepath.Clean(*discoveryErr.Path) != root || !discoveryErrorMatchesKind(discoveryErr, kind) {
-			continue
-		}
-		return discoveryError(discoveryErr)
-	}
-	return nil
-}
-
-func providerDiscoveryError(discoveryErrors []onboardingimports.Error, providerID onboardingimports.ProviderID, kind serverapi.OnboardingImportKind) error {
-	for _, discoveryErr := range sortedDiscoveryErrors(discoveryErrors) {
-		if discoveryErr.ProviderID == nil || *discoveryErr.ProviderID != providerID || !discoveryErrorMatchesKind(discoveryErr, kind) {
 			continue
 		}
 		return discoveryError(discoveryErr)
@@ -600,9 +556,8 @@ func discoveryError(discoveryErr onboardingimports.Error) error {
 }
 
 func importDiscoveryFailed(selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind, err error) error {
-	providerUUID, _ := selectionProviderUUID(selection)
 	return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
-		ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationDiscover, Cause: err.Error(),
+		ImportKind: kind, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationDiscover, Cause: err.Error(),
 	}, err)
 }
 
@@ -612,22 +567,10 @@ func importUnavailable(selection *onboardingpb.ImportSelection, kind serverapi.O
 		if selection.Mode == onboardingpb.ImportMode_IMPORT_MODE_NONE {
 			details.Mode = serverapi.OnboardingImportModeNone
 		}
-		details.ProviderUUID, _ = selectionProviderUUID(selection)
 		details.ImportProviderID = selection.ImportProviderId
 		details.SourceRootPath = selection.SourceRootPath
 	}
 	return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportUnavailable, details, nil)
-}
-
-func selectionProviderUUID(selection *onboardingpb.ImportSelection) (*uuid.UUID, error) {
-	if selection == nil || selection.ProviderUuid == nil {
-		return nil, nil
-	}
-	value, err := uuid.Parse(*selection.ProviderUuid)
-	if err != nil {
-		return nil, err
-	}
-	return &value, nil
 }
 
 func invalidRequest(field, code string) error {

@@ -66,6 +66,7 @@
 - If a provided workspace root cannot be validated, the facts response includes a structured workspace-scope import error, reports global import facts, and omits workspace-local duplicate and skip checks.
 - Import facts include both provider source roots and item source paths when available.
 - Provider facts use stable identifiers. Each client supplies display names.
+- An import selection identifies the import provider and source root returned by Capability Facts. Finalization re-discovers and validates that exact pair before importing; it does not accept a provider UUID as an alternate selection or infer a source root from one.
 - Recommendations are structured facts such as identifiers, modes, counts, and paths. Each client supplies the wording.
 - When no workspace root is provided, import facts include global external-provider imports and generated Kent skill candidates, but omit workspace-local duplicate and skip checks.
 - Reading setup facts does not execute imports, finalize choices, or write configuration.
