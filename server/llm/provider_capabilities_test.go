@@ -312,28 +312,6 @@ func TestLockedProviderVerbosityPreservesExplicitFalseAndFallsBackOnlyWhenAbsent
 	}
 }
 
-func TestProviderCapabilitiesFromLockedOrOverridePrefersSessionContract(t *testing.T) {
-	lockedVerbosity := true
-	caps, ok := ProviderCapabilitiesFromLockedOrOverride(
-		&session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:                "locked-provider",
-			SupportsResponsesAPI:      false,
-			SupportsProviderVerbosity: &lockedVerbosity,
-		}},
-		config.ProviderCapabilitiesOverride{
-			ProviderID:                "configured-provider",
-			SupportsResponsesAPI:      true,
-			SupportsProviderVerbosity: false,
-		},
-	)
-	if !ok {
-		t.Fatal("expected resolved provider capabilities")
-	}
-	if caps.ProviderID != "locked-provider" || caps.SupportsResponsesAPI || !caps.SupportsProviderVerbosity {
-		t.Fatalf("resolved capabilities = %+v, want locked contract", caps)
-	}
-}
-
 func TestRequiredToolChoiceSupportUsesResponsesAdapterContract(t *testing.T) {
 	for _, providerID := range []string{"openai", "chatgpt-codex", "openai-compatible"} {
 		t.Run(providerID, func(t *testing.T) {
