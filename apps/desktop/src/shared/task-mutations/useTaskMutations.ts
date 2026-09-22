@@ -84,10 +84,3 @@ export function createUpdateTaskAction(api: AppServices["api"], queryClient: Que
     }),
   );
 }
-
-export function useUpdateTask() {
-  const { api } = useAppServices();
-  const queryClient = useQueryClient();
-  const model = useMemo(() => createUpdateTaskAction(api, queryClient), [api, queryClient]);
-  return useQueryAction(model);
-}
