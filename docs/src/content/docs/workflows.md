@@ -41,9 +41,9 @@ From a project, create or link a workflow, open the workflow editor, then edit t
 
 ## 2. Set Up Agent Roles
 
-Workflow Agent Nodes run existing Kent subagent roles. Each Agent Node requires an Assignee, and that role must effectively enable `ask_question`; see [Tools](../config/#tools) for tool configuration. Why? Ability to ask questions prevents infinite loops and other issues where workflow is problematic or requirements are ambiguous.
+Workflow Agent Nodes run existing Kent subagent roles. Each Agent Node requires an Assignee, and that role must effectively enable `ask_question`. See [Tools](../config/#tools) for tool configuration. Why? Ability to ask questions prevents infinite loops and other issues where workflow is problematic or requirements are ambiguous.
 
-Eligible serial transitions into Agent Nodes can select an Assignee from roles explicitly configured with `agent_callable = true`; Kent force-enables `ask_question` for that transition-selected execution.
+Eligible serial transitions into Agent Nodes can select an Assignee from roles explicitly configured with `agent_callable = true`. Kent force-enables `ask_question` for that transition-selected execution.
 
 ```toml
 [subagents.implementer]
@@ -71,7 +71,7 @@ See [Headless runs](../headless/#subagent-roles) for the role configuration refe
 - A project links workflows, provides workspaces, and owns the task board.
 - A task is the durable unit of work that moves through one workflow.
 - A task directly owns its Current Nodes: normally one node, or several while a transition fans out into parallel branches. Current Nodes have no independent identity.
-- An Agent Current Node can bind to a retained Kent Session. A Script Current Node has no Session and retains only the state needed to resume its script.
+- An agent current node can bind to an existing Kent session. A script current node uses its saved script state for resumption.
 
 Creating a task puts it in Backlog. Starting the task applies the workflow's start transition and creates its first executable Current Node.
 
@@ -79,13 +79,13 @@ Creating a task puts it in Backlog. Starting the task applies the workflow's sta
 
 Nodes are workflow states. Visible executable and terminal nodes become board columns.
 
-| Node kind       | Use                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| Start / Backlog | Where tasks rest after creation. Each workflow has one start node.                                        |
-| Agent           | Runs a Kent agent using the selected subagent role.                                                       |
-| Script          | Executes a local script on the Kent server.                 |
-| Join            | Waits for parallel branches and aggregates their parameters. |
-| Terminal        | A sink where automation stops, commonly Done.                                                             |
+| Node kind       | Use                                                                |
+| --------------- | ------------------------------------------------------------------ |
+| Start / Backlog | Where tasks rest after creation. Each workflow has one start node. |
+| Agent           | Runs a Kent agent using the selected subagent role.                |
+| Script          | Executes a local script on the Kent server.                        |
+| Join            | Waits for parallel branches and aggregates their parameters.       |
+| Terminal        | A sink where automation stops, commonly Done.                      |
 
 Keep node keys stable and machine-friendly, such as `plan`, `implement`, `review`, `needs_changes`, and `done`. Keys are used by agents, prompts, and validation, so prefer lower-case letters, numbers, and underscores over display labels with spaces.
 
@@ -181,7 +181,7 @@ The node script receiver JSON as stdin:
 }
 ```
 
-Top-level properties are incoming workflow parameter values. `_kent` contains meta-information about the workflow execution, useful for scripting or logging. 
+Top-level properties are incoming workflow parameter values. `_kent` contains meta-information about the workflow execution, useful for scripting or logging.
 
 Stdout must be the workflow completion JSON. Stderr is diagnostics only. For example:
 
@@ -201,10 +201,10 @@ Parameters are required string outputs from the source agent. They are how one n
 
 For example, a Review to Needs Changes transition can require:
 
-| Parameter      | Description                                                                 |
-| -------------- | --------------------------------------------------------------------------- |
+| Parameter      | Description                                            |
+| -------------- | ------------------------------------------------------ |
 | `findings`     | Required implementation changes, including file paths. |
-| `verification` | Checks the reviewer ran and the results.                                    |
+| `verification` | Checks the reviewer ran and the results.               |
 
 Declare parameters on the transition whose source agent can produce them. In fan-out transitions, matching parameter keys must have matching descriptions because they represent one shared output contract.
 
@@ -212,27 +212,27 @@ For each transition, the source agent must provide the declared parameters befor
 
 ### Transition Assignee And Thinking Selection
 
-Each eligible serial Agent or Script transition into an Agent Node can independently enable **Let the previous node choose** for the target Assignee and **Let the previous node select thinking level** for thinking. A disabled selector uses the target Agent Node's configured fallback Assignee or configured thinking; Fan-Out transitions do not support either selector.
+Each eligible serial Agent or Script transition into an Agent Node can independently enable **Let the previous node choose** for the target Assignee and **Let the previous node select thinking level** for thinking. A disabled selector uses the target Agent Node's configured fallback Assignee or configured thinking. Fan-out transitions do not support either selector.
 
 Transition-selected effort follows the Session's [Thinking settings](/config/#thinking). Transition-selected Assignees must be explicitly agent-callable roles.
 
 ### Context Modes
 
 Context mode controls how the target agent starts its session.
-It applies to transitions into agent nodes; transitions into joins or terminal nodes do not start agent sessions.
+It applies to transitions into agent nodes. Transitions into joins or terminal nodes do not start agent sessions.
 
-| Mode                         | Best for                                                                   | Trade-offs                                                                                                                                                                                                            |
-| ---------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs.                                                                                              |
-| Compact and continue session | A large phase handing off to another role or another direction.            | Adds a handoff step and starts a new session from a summary. Good when full conversation history is unnecessary but a clean summary matters. Every session already compacts when needed, this mode just forces the compaction and allows role switch.                                                                         |
-| Continue session             | Tight loops and direct follow-up work with retained context.               | Preserves conversation history and prompt-cache continuity. |
+| Mode                         | Best for                                                                   | Trade-offs                                                                                                                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs.                                                                                             |
+| Compact and continue session | A large phase handing off to another role or another direction.            | Adds a handoff step and starts a new session from a summary. Good when full conversation history is unnecessary but a clean summary matters. This mode forces compaction at the transition and allows a role switch. |
+| Continue session             | Tight loops and direct follow-up work with the same context.               | Uses the same conversation history and prompt cache.                                                                                                                                                                 |
 
 Continuation modes also have a context source:
 
 - Immediate source uses the session from the node that just completed.
 - Selected node uses a previous node that is guaranteed to have run before this transition.
-- Previous target uses the latest retained Session associated with this edge's target node. Use it for loops where the workflow returns to a node and should continue that node's prior Session.
-- Previous target, or new session uses the latest retained Session associated with this edge's target node when one exists. Use it for re-review loops where the first pass starts fresh and later passes continue the target's prior Session.
+- Previous target uses the latest saved session associated with this edge's target node. Use it for loops where the workflow returns to a node and should continue that node's prior Session.
+- Previous target, or new session uses the latest saved session associated with this edge's target node when one exists. Use it for re-review loops where the first pass starts fresh and later passes continue the target's prior Session.
 
 Use `new_session` or `compact_and_continue_session` when you need to change agent roles between sessions or the task benefits from fresh pair of eyes.
 
@@ -243,7 +243,7 @@ A transition can require approval. When the source agent chooses that transition
 ### Completion Modes
 
 Completion mode controls how an agent node reports that it has finished and which transition it selected.
-Only agent nodes have completion modes; Start, Join, and Terminal nodes do not execute agent loops.
+Only agent nodes have completion modes. Start, join, and terminal nodes use their own transition rules.
 
 | Mode                   | Use                                                                                                                                                      | Cache and cost notes                                                                                                                                  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -252,16 +252,15 @@ Only agent nodes have completion modes; Start, Join, and Terminal nodes do not e
 | Structured output      | Provider-native structured output. Use it when the provider supports strict structured responses and the node is not part of a `continue_session` chain. | Lowest-friction on capable providers, but prevents the Current Node from starting when unsupported and fully invalidates cache on continued sessions. |
 | Tool call              | Dedicated completion tool. Use it for providers without structured-output support.                                                                       | Reliable tool-driven completion, but fully invalidates cache on continued sessions.                                                                   |
 | Shell command          | Completion through the agent's shell environment. Prefer this for `continue_session` chains.                                                             | Requires the shell tool for the target role and gives the agent shell access, but avoids completion-contract cache invalidation.                      |
-| Unstructured output    | Best-effort raw JSON final answer. Use only when you need `continue_session` and cannot use shell commands.                                               | Most fragile mode. It avoids dynamic completion metadata, but depends on the model following exact final-answer instructions.                         |
+| Unstructured output    | Best-effort raw JSON final answer. Use only when you need `continue_session` and cannot use shell commands.                                              | Most fragile mode. It avoids dynamic completion metadata, but depends on the model following exact final-answer instructions.                         |
 
-
-`auto` chooses unstructured output if the runtime has no shell available; otherwise it chooses shell command when the workflow contains a `continue_session` transition, structured output on capable providers, and tool call as the remaining fallback.
+`auto` chooses unstructured output if the runtime has no shell available. Otherwise it chooses shell command when the workflow contains a `continue_session` transition, structured output on capable providers, and tool call as the remaining fallback.
 
 ### Cache And Cost Behavior
 
 Workflow design affects prompt-cache continuity and token spend:
 
-- `continue_session` gives the strongest cache continuity because it keeps the retained Session, conversation history, and provider cache.
+- `continue_session` gives the strongest cache continuity because it uses the same session, conversation history, and provider cache.
 - `new_session` starts clean. The prompt and parameters must carry enough context for the agent, otherwise the target agent will spend tokens re-orienting in the workspace, negating the cost and quality benefits of fresh context.
 - `compact_and_continue_session` compacts the previous session, then starts a fresh session from that summary with the target role. It frees context but adds costs to compact the session.
 
@@ -279,14 +278,13 @@ Each task belongs to one project and one linked workflow: the project supplies w
 
 The workflow's worktree policy chooses where agent and script nodes run:
 
-| Policy                    | Execution root                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------------------------- |
-| Ask when execution starts |  Will ask for a target for every task start      |
-| No managed worktree       | The task's selected workspace. |
-| Source HEAD               | A worktree created from the source repository's current commit.                       |
-| Repository default branch | A worktree created from the default branch configured by local remote-HEAD metadata (a remote must be present).  |
-| Custom Git revision       | Provide a fixed branch, tag, or commit.         |
-
+| Policy                    | Execution root                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Ask when execution starts | Will ask for a target for every task start                                                                      |
+| No managed worktree       | The task's selected workspace.                                                                                  |
+| Source HEAD               | A worktree created from the source repository's current commit.                                                 |
+| Repository default branch | A worktree created from the default branch configured by local remote-HEAD metadata (a remote must be present). |
+| Custom Git revision       | Provide a fixed branch, tag, or commit.                                                                         |
 
 Managed replacements use a fresh Worktree and default their branch name to the Task Short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`.
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
@@ -23,18 +22,7 @@ type Request struct {
 	LoadOptions           config.LoadOptions
 }
 
-func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Request) (*core.Core, error) {
-	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
-	if err != nil {
-		panicOnMetadataMigrationFailure(err)
-		return nil, err
-	}
-	cfg := resolved.Config
-	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(store, bootstrapReq.Environment, bootstrapReq.Now)
-	if err != nil {
-		return nil, err
-	}
+func startConfiguredCore(ctx context.Context, bootstrapReq serverbootstrap.Request, cfg config.App, authSupport serverbootstrap.AuthSupport, lease *core.RootLockLease) (*core.Core, error) {
 	if !cfg.Source.SettingsFileExists() {
 		return nil, ErrOnboardingRequired
 	}
@@ -47,7 +35,7 @@ func startCoreWithBootstrap(ctx context.Context, bootstrapReq serverbootstrap.Re
 		cfg,
 		authSupport,
 		background,
-		coreOptionsForBootstrap(bootstrapReq, nil),
+		coreOptionsForBootstrap(bootstrapReq, lease),
 	)
 	if err != nil {
 		_ = background.Close()

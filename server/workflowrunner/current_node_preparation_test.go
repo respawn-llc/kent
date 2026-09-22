@@ -36,6 +36,7 @@ func TestApprovalCloneStartupWaitsForSourcePostTurnCompaction(t *testing.T) {
 	}
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	release := sync.OnceFunc(func() { close(client.release) })
 	t.Cleanup(release)
 	workflowID, _ := createCurrentNodeFanoutWorkflow(t, f.store, true, workflow.ContextModeCompactAndContinueSession)

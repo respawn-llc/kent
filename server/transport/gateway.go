@@ -71,8 +71,8 @@ type GatewayServerStatusDependencies interface {
 type GatewayAuthDependencies interface {
 	AuthManager() *auth.Manager
 	AuthBootstrapClient() apicontract.AuthBootstrapService
+	ConnectionManagementClient() apicontract.ConnectionManagementService
 	AuthStatusClient() apicontract.AuthStatusService
-	ServerAuthRequired() bool
 }
 
 type GatewayCapabilityFactsDependencies interface {
@@ -497,13 +497,6 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
 	}
 	if err := g.requireCoreActive(); err != nil {
-		return responseForError(req.ID, err)
-	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		operation.Options.AuthenticationStage,
-	); err != nil {
 		return responseForError(req.ID, err)
 	}
 	route.Scope = routeScopePolicy(operation.Options.ScopePolicy)

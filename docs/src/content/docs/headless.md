@@ -36,6 +36,7 @@ kent run watch <session-id> # report the next question or terminal outcome
 When a human invokes `kent run steer`, the running Session receives a user message. When agents communicate, they also receive guidance on how to respond.
 
 ### Questions
+
 Subagent `kent run` sessions cannot ask questions, but agents can answer each other's questions for workflow tasks and interactive sessions. In general, humans don't need to use the CLI, agents know how to ask and answer each other's questions.
 
 To inspect or answer a pending Question from an interactive or Workflow Session:
@@ -52,9 +53,10 @@ kent questions list --session <session-id> --max-handoffs 1 --json
 More info in the CLI help.
 
 ## Subagent Roles
+
 Roles select the model settings and context used by a headless Session.
 
-- Resuming a Session preserves the Session's last-used role.
+- Resuming a session selects its last-used role.
 - You can start a new interactive session with a specified role by running `kent --agent <role>`.
 - Once the agent starts, kent snapshots and locks some settings from its role - model, provider, tools, thinking, and others, to prevent cache invalidation because you cannot change the agent role without invalidating the caches, so **any further adjustments to roles or parameters will be ignored at least until the next compaction.**
 - To apply a role while reopening a specific Session, combine it with `--session` or `--continue`.
@@ -64,37 +66,37 @@ See [Configuration](../config/#subagents) for role overrides and delegation meta
 
 ## Delegation Depth
 
-Kent limits model-originated creation of new children to prevent infinite subagent recursion. A root session is depth `0`; with the default maximum of `2`, a root can create a subagent at depth `1`, that subagent can create one at depth `2`, and creation of a child at depth `3` is rejected.
+Kent limits model-originated creation of new children to prevent infinite subagent recursion. A root session is depth `0`. With the default maximum of `2`, a root can create a subagent at depth `1`, that subagent can create one at depth `2`, and creation of a child at depth `3` is rejected.
 
 Configure the root-level TOML key, supported range, and disable-with-zero behavior in the [configuration reference](../config/#core-settings). There is no environment-variable or `kent run` flag override.
 
 ## Workspace Binding
 
 Headless runs fail if the selected workspace is not already attached to a Kent project.
-This is needed to enable functionality related to project management and allows remote execution, but sometimes comes as a limitation where you want to run subagents in different repos. Agents already know how to do this. To fix the error manually, you simply need to approve workspace (git repo, folder etc.) binding:
+Attach the workspace to a project before launching a headless run:
 
 - `kent project` prints the project id for the bound workspace at `path` or `cwd`. Use to learn project IDs.
 - `kent attach <path>` attaches another workspace at [path] to the project already bound to `cwd`.
 - `kent attach --project <project-id> [path]` attaches using the ID.
-- `kent detach --project <project-id> [path]` removes one workspace binding from that project. The path defaults to the current directory; use `--workspace <workspace-id>` when the saved path is inaccessible or missing.
+- `kent detach --project <project-id> [path]` removes one workspace binding from that project. The path defaults to the current directory. Use `--workspace <workspace-id>` when the saved path is inaccessible or missing.
 - `kent project default --project <project-id> [path]` changes the project's default workspace.
 - `kent rebind <session-id> <new-path>` retargets a session to a target path's only attached project.
 - `kent rebind --project <project-id> <session-id> <new-path>` selects a non-workflow session's project explicitly and attaches an unbound target workspace.
 
-
-- Workflow sessions cannot move across projects. 
-- Existing background commands continue in their original directories. 
+- Workflow sessions cannot move across projects.
+- Existing background commands continue in their original directories.
 
 More info in the CLI help.
 
 ### Project deletion
+
 Delete a Project by its canonical Project ID:
 
 ```bash
 kent project delete <project-id>
 ```
 
-You can only do that if there are no active sessions or tasks targeting it. 
+You can only do that if there are no active sessions or tasks targeting it.
 
 :::warning
 
@@ -150,12 +152,12 @@ Because the child was never created, this response has no session ID or continua
 
 Supported run-specific flags:
 
-| Flag              | Description                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `--timeout`       | Optional run timeout such as `30s`, `5m`, or `1h`. Default is no timeout.                                    |
-| `--output-mode`   | `final-text` or `json`. Default is `final-text`.                                                             |
-| `--progress-mode` | `stderr` for live responses and notices, or `quiet` for final-result-only output. Default is `stderr`.       |
-| `-q`, `--quiet`   | Shortcut for `--progress-mode=quiet`.                                                                        |
-| `--continue`      | Continue a previous session by id.                                                                           |
-| `--agent`         | Select a role; `default` uses the headless default. Omission preserves a resumed role and defaults new runs. |
-| `--fast`          | Shortcut for the built-in `fast` subagent role.                                                              |
+| Flag              | Description                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `--timeout`       | Optional run timeout such as `30s`, `5m`, or `1h`. Default is no timeout.                                                   |
+| `--output-mode`   | `final-text` or `json`. Default is `final-text`.                                                                            |
+| `--progress-mode` | `stderr` for live responses and notices, or `quiet` for final-result-only output. Default is `stderr`.                      |
+| `-q`, `--quiet`   | Shortcut for `--progress-mode=quiet`.                                                                                       |
+| `--continue`      | Continue a previous session by id.                                                                                          |
+| `--agent`         | Select a role. `default` uses the headless default. Omission selects a resumed session's role or the default for a new run. |
+| `--fast`          | Shortcut for the built-in `fast` subagent role.                                                                             |

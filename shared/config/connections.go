@@ -15,8 +15,9 @@ type ConnectionReplacement struct {
 }
 
 const (
-	ConnectionResponses ConnectionProtocol = "responses"
-	ConnectionChatGPT   ConnectionProtocol = "chatgpt-codex"
+	ConnectionResponses            ConnectionProtocol = "responses"
+	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
+	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
 )
 
 type ProviderConnection struct {
@@ -32,7 +33,7 @@ type ConnectionReferenceError struct {
 
 func (e *ConnectionReferenceError) Error() string {
 	if e.Connection == nil {
-		return "select a provider connection with the connection setting"
+		return "provider connection setup is required; add a connection in the interactive terminal or select a named connection in the server global configuration"
 	}
 	return fmt.Sprintf("provider connection %q is not defined in the server global configuration", *e.Connection)
 }

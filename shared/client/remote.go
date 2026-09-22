@@ -232,6 +232,24 @@ func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstra
 		})
 }
 
+func (c *Remote) GetConnections(ctx context.Context, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetConnections"),
+		req, &authpb.GetConnectionsResult{},
+		func(failure *authpb.GetBootstrapStatusError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+		})
+}
+
+func (c *Remote) ConfigureConnection(ctx context.Context, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "ConfigureConnection"),
+		req, &authpb.ConfigureConnectionResult{},
+		func(failure *authpb.CompleteBootstrapError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+		})
+}
+
 func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
 	resp, err := callGeneratedBinary(c, ctx,
 		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "CompleteBootstrap"),

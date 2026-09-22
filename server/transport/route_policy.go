@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	rpccontract "core/shared/apicontract"
-	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	processpb "core/shared/protoapi/gen/kent/api/process"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/serverapi"
@@ -87,87 +85,6 @@ type gatewayRouteError struct {
 
 func (e gatewayRouteError) Error() string {
 	return e.message
-}
-
-func (e routePolicyExecutor) requireAuth(ctx context.Context, state *connectionState, method string) error {
-	stage, known := e.authenticationStage(method)
-	if !known {
-		stage = sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-	}
-	return e.requireAuthenticationStage(ctx, state, stage)
-}
-
-func (e routePolicyExecutor) requireAuthenticationStage(
-	ctx context.Context,
-	state *connectionState,
-	stage sharedpb.AuthenticationStage,
-) error {
-	if stage != sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER {
-		return nil
-	}
-	ready, err := e.serverAuthReady(ctx, state)
-	if err != nil {
-		return err
-	}
-	if !ready {
-		return serverapi.ErrServerAuthRequired
-	}
-	return nil
-}
-
-func (e routePolicyExecutor) requiresServerAuth(method string) bool {
-	stage, known := e.authenticationStage(method)
-	return !known || stage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-}
-
-func (e routePolicyExecutor) authenticationStage(method string) (sharedpb.AuthenticationStage, bool) {
-	trimmed := strings.TrimSpace(method)
-	if trimmed == "" {
-		return sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_NONE, true
-	}
-	var registration gatewayRegistration
-	if e.gateway != nil {
-		registration = e.gateway.registration
-	}
-	if len(registration.operations) == 0 {
-		var err error
-		registration, err = productionGatewayRegistration()
-		if err != nil {
-			panic(err)
-		}
-	}
-	if operation, exists := registration.operations[trimmed]; exists {
-		if _, migrated := registration.BinaryBinding(trimmed); migrated {
-			return operation.Options.AuthenticationStage, true
-		}
-		if operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_NOTIFICATION &&
-			operation.LegacyWireName == nil {
-			return operation.Options.AuthenticationStage, true
-		}
-	}
-	operation, _, ok := registration.LegacyOperation(trimmed)
-	if !ok {
-		return sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_UNSPECIFIED, false
-	}
-	return operation.Options.AuthenticationStage, true
-}
-
-func (e routePolicyExecutor) serverAuthReady(ctx context.Context, connection *connectionState) (bool, error) {
-	g := e.gateway
-	if g == nil || g.deps == nil {
-		return false, nil
-	}
-	if !g.deps.ServerAuthRequired() {
-		return true, nil
-	}
-	if g.deps.AuthBootstrapClient() == nil {
-		return false, nil
-	}
-	status, err := g.deps.AuthBootstrapClient().GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{})
-	if err != nil {
-		return false, err
-	}
-	return status.AuthReady, nil
 }
 
 func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {

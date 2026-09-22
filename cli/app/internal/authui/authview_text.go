@@ -19,8 +19,7 @@ type AuthNotice struct {
 }
 
 type AuthMethodPickerNoticeRequest struct {
-	FlowErr      error
-	HasEnvAPIKey bool
+	FlowErr error
 }
 
 func AuthMethodPickerNotice(req AuthMethodPickerNoticeRequest) AuthNotice {
@@ -29,9 +28,6 @@ func AuthMethodPickerNotice(req AuthMethodPickerNoticeRequest) AuthNotice {
 			return AuthNotice{Text: "Device-code sign-in is not enabled for this issuer. Choose another method.", Kind: AuthNoticeError}
 		}
 		return AuthNotice{Text: "Sign-in failed: " + req.FlowErr.Error(), Kind: AuthNoticeError}
-	}
-	if req.HasEnvAPIKey {
-		return AuthNotice{Text: "Choose how Kent should sign in. OPENAI_API_KEY is available for this launch.", Kind: AuthNoticeNeutral}
 	}
 	return AuthNotice{Text: "Choose how to authenticate.", Kind: AuthNoticeNeutral}
 }

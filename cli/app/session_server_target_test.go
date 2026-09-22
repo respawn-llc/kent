@@ -216,7 +216,8 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 			if pickerCalls > 1 {
 				t.Fatal("no-auth selection must not re-enter the auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
 	firstServer, err := startSessionServer(context.Background(), Options{

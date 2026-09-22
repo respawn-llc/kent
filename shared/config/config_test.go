@@ -502,7 +502,7 @@ func TestPreparePersistenceRootRefusesProcessStartRootUnderGoTest(t *testing.T) 
 		processStartAccountHome = originalAccountHome
 	})
 
-	_, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
+	_, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
 	if err == nil {
 		t.Fatal("expected process-start persistence root to be refused under go test")
 	}
@@ -521,7 +521,7 @@ func TestPreparePersistenceRootAllowsIsolatedTempHomeUnderGoTest(t *testing.T) {
 		processStartAccountHome = originalAccountHome
 	})
 
-	if _, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
+	if _, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
 		t.Fatalf("prepare temp persistence root: %v", err)
 	}
 }

@@ -41,6 +41,12 @@ func (e *onboardingInternalStateError) Error() string {
 }
 
 func (state *onboardingFlowState) validateInvariant(operation string, stepID onboardingStepID) error {
+	if state.facts == nil {
+		switch stepID {
+		case onboardingStepTheme, connectionStepTemplate, connectionStepID, connectionStepEndpoint, connectionStepEnvironment:
+			return nil
+		}
+	}
 	if violation, ok := state.selections.invariantViolation(); ok {
 		return state.handleInvariantViolation(operation, stepID, violation)
 	}

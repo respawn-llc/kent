@@ -43,7 +43,7 @@ message BootstrapStatus {
 }
 
 message GetBootstrapStatusRequest {
-  optional string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  ConnectionTarget target = 1 [(buf.validate.field).required = true];
 }
 
 message CompleteBootstrapRequest {
@@ -60,7 +60,7 @@ message CompleteBootstrapRequest {
   optional string oauth_code_verifier = 7 [(buf.validate.field).string.min_len = 1];
   optional string device_authorization_code = 8 [(buf.validate.field).string.min_len = 1];
   optional string device_code_verifier = 9 [(buf.validate.field).string.min_len = 1];
-  optional string connection_id = 10 [(buf.validate.field).string.min_len = 1];
+  ConnectionTarget target = 10 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.auth.bootstrap.mode_payload"
@@ -372,7 +372,103 @@ message GetStatusResult {
   }
 }
 
+enum ConnectionProtocol {
+  CONNECTION_PROTOCOL_UNSPECIFIED = 0;
+  CONNECTION_PROTOCOL_RESPONSES = 1;
+  CONNECTION_PROTOCOL_CHATGPT = 2;
+}
+
+message ProviderCapabilitiesOverride {
+  string provider_id = 1 [(buf.validate.field).string.min_len = 1];
+  bool supports_responses_api = 2;
+  bool supports_responses_compact = 3;
+  bool supports_prompt_cache_key = 5;
+  bool supports_native_web_search = 6;
+  bool supports_reasoning_encrypted = 7;
+  bool supports_server_side_context_edit = 8;
+  bool supports_provider_verbosity = 9;
+  bool is_openai_first_party = 10;
+}
+
+message ConnectionDefinition {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  ConnectionProtocol protocol = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
+  optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
+  ProviderCapabilitiesOverride capabilities = 5;
+}
+
+message ConnectionTarget {
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty pending_setup = 2;
+    ConnectionDefinition add_connection = 3;
+  }
+}
+
+message GetConnectionsRequest {
+  optional string workspace_root = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConnectionCatalog {
+  repeated ConnectionDefinition connections = 1;
+  optional string default_connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  ConnectionDefinition pending_setup = 3;
+  optional string workspace_connection_id = 4 [(buf.validate.field).string.min_len = 1];
+}
+
+message GetConnectionsResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    ConnectionCatalog success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GetBootstrapStatusError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
+message ConnectionReferenceEdit {
+  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConfigureConnectionRequest {
+  oneof change {
+    option (buf.validate.oneof).required = true;
+    ConnectionDefinition pending_setup = 1;
+    google.protobuf.Empty discard_setup = 2;
+    ConnectionDefinition add = 3;
+    ConnectionReferenceEdit reference = 4;
+    string default_connection_id = 5 [(buf.validate.field).string.min_len = 1];
+  }
+}
+
+message ConfigureConnectionResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    CompleteBootstrapError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 service AuthService {
+  rpc GetConnections(GetConnectionsRequest) returns (GetConnectionsResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+  rpc ConfigureConnection(ConfigureConnectionRequest) returns (ConfigureConnectionResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetBootstrapStatus(GetBootstrapStatusRequest) returns (GetBootstrapStatusResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY

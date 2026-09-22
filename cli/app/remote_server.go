@@ -6,10 +6,10 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"errors"
 
-	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/protocol"
 	"core/shared/theme"
 )
@@ -205,19 +205,24 @@ func (s *remoteAppServer) Reauthenticate(ctx context.Context, interactor authInt
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}
-	status, err := s.remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{ConnectionId: (*string)(s.cfg.Settings.Connection)})
-	if err != nil {
+	if _, ok := interactor.(*interactiveAuthInteractor); ok && interactiveAuth {
+		catalog, err := runConnectionOperation(ctx, s.PresentationTheme(), "Loading connections...", func() (*authpb.ConnectionCatalog, error) {
+			return s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{})
+		})
+		if err == nil {
+			err = s.manageConnections(ctx, catalog)
+		}
+		if errors.Is(err, ErrAuthCanceledByUser) {
+			return nil
+		}
 		return err
-	}
-	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
-		return interactive.completeRemoteAuthBootstrap(ctx, s.remote, s.cfg.Settings, status, true)
 	}
 	return ensureRemoteAuthReady(ctx, s.remote, s.cfg.Settings, interactor, interactiveAuth)
 }
 
-func (s *remoteAppServer) EnsureAuthReady(ctx context.Context, interactor authInteractor, interactiveAuth bool) error {
+func (s *remoteAppServer) EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor, interactiveAuth bool) error {
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}
-	return ensureRemoteAuthReady(ctx, s.remote, s.cfg.Settings, interactor, interactiveAuth)
+	return ensureRemoteAuthReady(ctx, s.remote, settings, interactor, interactiveAuth)
 }

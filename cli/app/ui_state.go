@@ -116,13 +116,6 @@ type uiInputFeatureState struct {
 	promptCatalogRefreshToken *uuid.UUID
 	finalAnswerOperation      *uiFinalAnswerOperation
 	finalAnswerOperationToken uint64
-	authSlashCommand          authSlashCommandKind
-	authSlashCommandErr       string
-	authSlashSessionOpen      bool
-	authSlashLoading          bool
-	authSlashToken            uint64
-	authSlashGeneration       uint64
-	authSlashResolved         uint64
 	slashCommandFilter        string
 	slashCommandFilterSet     bool
 	slashCommandSelection     int

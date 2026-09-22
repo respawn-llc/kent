@@ -54,7 +54,8 @@ type interactiveSessionServer interface {
 	launchPlannerServer
 	sessionWorkspaceChangeServer
 	sessionTransitionServer
-	EnsureAuthReady(ctx context.Context, interactor authInteractor, interactive bool) error
+	EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor, interactive bool) error
+	EnsureConnectionSetup(ctx context.Context) error
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
 }
 
@@ -158,8 +159,17 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 		if err != nil {
 			return err
 		}
+		if err := server.EnsureConnectionSetup(ctx); err != nil {
+			if errors.Is(err, ErrAuthCanceledByUser) {
+				return nil
+			}
+			return err
+		}
 		plan, err := planner.PlanSession(ctx, launchRequest)
 		if err != nil {
+			return err
+		}
+		if err := server.EnsureAuthReady(ctx, plan.ActiveSettings, interactor, true); err != nil {
 			return err
 		}
 		plan.ClientLifecycleCommand = clientSettings.Hooks.LifecycleCommand()
