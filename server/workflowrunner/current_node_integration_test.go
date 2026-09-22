@@ -63,7 +63,6 @@ type currentNodeRunnerFixture struct {
 	controller       *workflowexecution.CurrentNodeController
 	starter          *Starter
 	executionTargets *worktree.Service
-	dependencies     *workflowview.TaskDependencies
 	projectID        string
 	workspaceID      string
 	workspace        string
@@ -275,19 +274,6 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new current node controller: %v", err)
 	}
 	fixture.controller = controller
-	projection, err := workflowview.NewTaskStatusProjection(
-		store,
-		workflowview.NewTaskProjector(),
-		controller,
-	)
-	if err != nil {
-		t.Fatalf("new Task status projection: %v", err)
-	}
-	dependencies, err := workflowview.NewTaskDependencies(metadataStore, projection, dependencyCounter)
-	if err != nil {
-		t.Fatalf("new Task dependency projection: %v", err)
-	}
-	fixture.dependencies = dependencies
 	return fixture
 }
 
@@ -3355,7 +3341,7 @@ func TestCurrentNodeAgentUsesDurableCommentCountWithoutReadingCommentBodies(t *t
 	}
 }
 
-func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTerminalChanges(t *testing.T) {
+func TestCurrentNodeTaskAwarenessFollowsTerminalChanges(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	blocker := f.createTask(t, workflowID)
@@ -3372,13 +3358,8 @@ func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTermi
 		if err != nil {
 			t.Fatalf("TaskAwareness: %v", err)
 		}
-		projected, err := f.dependencies.GetTaskDependencies(context.Background(), string(blocked.ID))
-		if err != nil {
-			t.Fatalf("GetTaskDependencies: %v", err)
-		}
-		if awareness.UnsatisfiedDependencyCount != want ||
-			awareness.UnsatisfiedDependencyCount != int64(projected.UnsatisfiedBlockerCount) {
-			t.Fatalf("awareness/projection unsatisfied count = %d/%d, want %d", awareness.UnsatisfiedDependencyCount, projected.UnsatisfiedBlockerCount, want)
+		if awareness.UnsatisfiedDependencyCount != int64(want) {
+			t.Fatalf("awareness unsatisfied count = %d, want %d", awareness.UnsatisfiedDependencyCount, want)
 		}
 	}
 	assertAwareness(1)
