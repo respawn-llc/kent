@@ -80,27 +80,6 @@ type sessionUserTurnRequest struct {
 	Arguments string
 }
 
-type goalSetRequest struct {
-	SessionID string
-	Objective string
-	Actor     string
-	RunID     string
-	StepID    string
-}
-
-type goalStatusRequest struct {
-	SessionID string
-	Status    string
-	Actor     string
-	RunID     string
-	StepID    string
-}
-
-type goalClearRequest struct {
-	SessionID string
-	Actor     string
-}
-
 func NewService(authority *sessionruntime.Authority) *Service {
 	return &Service{authority: authority}
 }
