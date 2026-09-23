@@ -1,9 +1,12 @@
-import { ArrowUp, Square } from "lucide-react";
+import { ComposerIcon } from "./ComposerIcon";
+import { AnimatePresence } from "motion/react";
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useAppServices } from "@/app-facade";
 
 import {
-  Button,
+  AnimatedReveal,
+  AnimatedSize,
   ErrorState,
   IconTooltipButton,
   Island,
@@ -11,13 +14,10 @@ import {
   Spinner,
   cx,
   fieldInputClassName,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from "@/ui";
 import { ComposerPendingSheet } from "./ComposerPendingSheet";
 import { ChatPromptPicker } from "./ChatPromptPicker";
+import { ComposerSendButton } from "./ComposerSendButton";
 import { SessionChatContext } from "./SessionChatContext";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
@@ -42,6 +42,7 @@ export function ChatComposer({
   editorRef,
 }: ChatComposerProps) {
   const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
   const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
@@ -98,37 +99,54 @@ export function ChatComposer({
       onKeyDown={onEditorKeyDown}
       placeholder={
         stoppable && activity?.queueAccepting
-          ? t("chatComposer.queuePlaceholder")
-          : t("chatComposer.placeholder")
+          ? t("chatComposer.queuePlaceholder", {
+              shortcut: queueShortcutLabel(nativeBridge.capabilities.platform),
+            })
+          : undefined
       }
     />
   );
   return (
     <div className="chat-composer" ref={root}>
-      {(pickerOpen || composer.pending.items.length > 0) && (
-        <PeekingSurface>
-          <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} />
-          {pickerOpen && <ComposerSuggestions composer={composer} />}
-        </PeekingSurface>
-      )}
-      <Island className="chat-composer-input" style={heightStyle} unpadded>
-        <div hidden={promptVisible} className={promptVisible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}>
-          {editorRegion}
-        </div>
-        {promptPicker !== null && <ChatPromptPicker picker={promptPicker} />}
-        <ComposerControls
-          composer={composer}
-          settings={settings}
-          settingsChip={settingsChip}
-          stoppable={stoppable}
-          controls={controls}
-        />
+      <AnimatePresence initial={false}>
+        {(pickerOpen || composer.pending.items.length > 0) && (
+          <AnimatedReveal key="peeking-surface">
+            <PeekingSurface>
+              <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} />
+              {pickerOpen && <ComposerSuggestions composer={composer} />}
+            </PeekingSurface>
+          </AnimatedReveal>
+        )}
+      </AnimatePresence>
+      <Island className="overflow-hidden" unpadded>
+        <AnimatedSize>
+          <div className="chat-composer-input" style={heightStyle}>
+            <div
+              hidden={promptVisible}
+              className={promptVisible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}
+            >
+              {editorRegion}
+            </div>
+            {promptPicker !== null && <ChatPromptPicker picker={promptPicker} />}
+            <ComposerControls
+              composer={composer}
+              settings={settings}
+              settingsChip={settingsChip}
+              stoppable={stoppable}
+              controls={controls}
+            />
+          </div>
+        </AnimatedSize>
       </Island>
     </div>
   );
 }
 
 type Composer = ReturnType<typeof useChatComposer>;
+
+function queueShortcutLabel(platform: string): string {
+  return platform === "macos" ? "⌘+Enter" : "Ctrl+Enter";
+}
 
 function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
   const { t } = useTranslation();
@@ -176,16 +194,6 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
   );
 }
 
-function composerSendLabel(composer: Composer, t: ReturnType<typeof useTranslation>["t"]) {
-  return composer.navigationPending
-    ? t("chat.savingDraft")
-    : composer.draft.kind === "loading"
-      ? t("chatComposer.loadingDraft")
-      : composer.submission.kind !== "ready"
-        ? t("chatComposer.loadingSettings")
-        : t("chatComposer.empty");
-}
-
 function ComposerControls({
   composer,
   settings,
@@ -200,23 +208,6 @@ function ComposerControls({
   controls?: ReactNode;
 }>) {
   const { t } = useTranslation();
-  const send = (
-    <Button
-      size="icon"
-      aria-label={t("chatComposer.send")}
-      disabled={!composer.canSubmit}
-      variant="primary"
-      onClick={() => {
-        composer.submit("send");
-      }}
-    >
-      {composer.inputPending || composer.navigationPending ? (
-        <Spinner size="sm" className="text-[var(--color-on-primary)]" />
-      ) : (
-        <ArrowUp size={18} />
-      )}
-    </Button>
-  );
   return (
     <div className="chat-composer-controls">
       <div className="chat-composer-settings">
@@ -235,21 +226,13 @@ function ComposerControls({
             }}
             size="icon-sm"
           >
-            {composer.pending.stopPending ? <Spinner size="sm" /> : <Square size={15} />}
+            <ComposerIcon
+              kind={composer.pending.stopPending ? "loading" : "stop"}
+              className="text-[var(--color-error)]"
+            />
           </IconTooltipButton>
         )}
-        {composer.canSubmit ? (
-          send
-        ) : (
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">{send}</span>
-              </TooltipTrigger>
-              <TooltipContent>{composerSendLabel(composer, t)}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+        <ComposerSendButton />
       </div>
     </div>
   );

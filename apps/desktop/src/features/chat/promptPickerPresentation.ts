@@ -29,10 +29,3 @@ export function pickerOptions(prompt: PendingPrompt, t: TFunction): readonly Pic
     { value: "neither", text: t("task.neitherOption"), selection: { kind: "neither" }, recommended: false },
   ];
 }
-
-export function sameSelection(left: PickerSelection, right: PickerSelection): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === "suggested" && right.kind === "suggested") return left.number === right.number;
-  if (left.kind === "approval" && right.kind === "approval") return left.decision === right.decision;
-  return true;
-}

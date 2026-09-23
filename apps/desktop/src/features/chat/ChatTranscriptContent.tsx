@@ -18,11 +18,13 @@ const estimateSize = () => 120;
 export function ChatTranscriptContent({
   edit,
   openingVisible,
-}: Readonly<{ edit: ChatMessageEditControl; openingVisible: boolean }>) {
+  bottomInset,
+}: Readonly<{ edit: ChatMessageEditControl; openingVisible: boolean; bottomInset: number }>) {
   const { transcript } = useChatRuntimeSnapshot();
   const neighbors = useMemo(() => messageNeighbors(transcript.items), [transcript.items]);
   return (
     <ChatTranscriptTail
+      bottomInset={bottomInset}
       openingVisible={openingVisible}
       estimateSize={estimateSize}
       slots={{

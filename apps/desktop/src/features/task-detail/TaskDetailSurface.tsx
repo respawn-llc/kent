@@ -1,4 +1,6 @@
-import { useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, isTaskMissingError } from "@/api";
@@ -9,14 +11,19 @@ import type {
   SidebarRootController,
   TaskDetailInitialFocus,
 } from "@/app-facade";
-import { useSidebarBackWhen } from "@/app-facade";
+import { useAppServices, useSidebarBackWhen } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { ProjectLabelsProvider, TaskLabelAssignmentProvider } from "@/shared/labels";
 import { ErrorState, LoadingState } from "@/ui";
 import { TaskDetailContent } from "./TaskDetailContent";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
-import { useTaskActivity, useTaskAttention, useTaskComments, useTaskDetail } from "./useTaskDetailData";
+import {
+  createTaskDetailViewModel,
+  useTaskDetailActions,
+  useTaskDetailObservation,
+  useTaskDetailReads,
+} from "./TaskDetailViewModel";
 
 type TaskDetailSurfaceCommonProps = Readonly<{
   taskId: string;
@@ -42,7 +49,11 @@ export type TaskDetailSurfaceProps = TaskDetailSurfaceCommonProps &
       }>
   );
 
-export function TaskDetailSurface({
+export function TaskDetailSurface(props: TaskDetailSurfaceProps) {
+  return <TaskDetailDestination key={props.taskId} {...props} />;
+}
+
+function TaskDetailDestination({
   taskId,
   enabled,
   initialFocus,
@@ -57,22 +68,19 @@ export function TaskDetailSurface({
 }: TaskDetailSurfaceProps) {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const reportLabelError = useCallback(
-    (error: unknown) => {
-      push({
-        body: errorMessage(error),
-        durationMs: Infinity,
-        id: "task-label-load-error",
-        title: t("labels.loadFailed"),
-        tone: "danger",
-      });
-    },
-    [push, t],
+  const services = useAppServices();
+  const client = useQueryClient();
+  const [model] = useState(() =>
+    createTaskDetailViewModel({ services, client, taskID: taskId, enabled, retainedState, t, push }),
   );
-  const detail = useTaskDetail(taskId, enabled);
-  const attention = useTaskAttention(taskId, enabled);
-  const activity = useTaskActivity(taskId, enabled);
-  const comments = useTaskComments(taskId, enabled);
+  const { detail, attention, activity, comments } = useTaskDetailReads(model, enabled);
+  const actions = useTaskDetailActions(model);
+  const observation = useTaskDetailObservation(model);
+  const capture = useAtomValue(model.editing.capture);
+  useEffect(() => {
+    if (navigator === undefined || detail.data === undefined) return;
+    return navigator.registerCapture(capture);
+  }, [capture, detail.data, navigator]);
   const deleteDismissal: TaskDetailDeleteDismissal =
     navigator === undefined ? onDeleteDismiss : async () => ({ kind: navigator.close() });
   const taskMissing = detail.isError && isTaskMissingError(detail.error);
@@ -82,11 +90,39 @@ export function TaskDetailSurface({
   }
   if (detail.isError) {
     if (taskMissing && navigator !== undefined) return null;
-    return <ErrorState body={errorMessage(detail.error)} reveal={false} title={t("states.error")} />;
+    return (
+      <ErrorState
+        body={errorMessage(detail.error)}
+        reveal={false}
+        title={t("states.error")}
+        onRetry={() => {
+          detail.refetch();
+        }}
+        retryLabel={t("app.retry")}
+      />
+    );
   }
+  const failure = [
+    {
+      error: attention.error,
+      retry: () => {
+        attention.refetch();
+      },
+    },
+    observation,
+  ].find(({ error }) => error !== null);
+  if (failure !== undefined)
+    return (
+      <ErrorState
+        body={errorMessage(failure.error)}
+        title={t("states.error")}
+        onRetry={failure.retry}
+        retryLabel={t("app.retry")}
+      />
+    );
   return (
     <ProjectLabelsProvider
-      onBackgroundError={reportLabelError}
+      onBackgroundError={model.reportLabelError}
       projectID={detail.data.projectID}
       subscribeToProject={false}
     >
@@ -97,13 +133,14 @@ export function TaskDetailSurface({
           attention={attention}
           comments={comments}
           detail={detail.data}
+          model={model}
+          actions={actions}
           initialFocus={initialFocus}
           navigator={navigator}
           onDeleteDismiss={deleteDismissal}
           onMutated={onMutated}
           openSessionChat={openSessionChat}
           openSidebar={openSidebar}
-          retainedState={retainedState}
           sidebarDestination={sidebarDestination}
           sidebarMode={sidebarMode}
         />

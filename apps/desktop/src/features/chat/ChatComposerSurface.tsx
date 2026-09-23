@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 
 import type { ChatRuntimeActivity } from "@/api";
 import { useChatRuntimePresentation } from "@/app-facade";
+import { Island } from "@/ui";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import type { useChatComposer } from "./useChatComposer";
 import { useChatPromptPicker } from "./useChatPromptPicker";
@@ -26,8 +27,10 @@ export function ChatComposerSurface({ composer, children, enabled = true }: Surf
     <ComposerSurfaceContext.Provider
       value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}
     >
-      <div className="h-full min-h-0" {...keyboard.surface}>
-        {children}
+      <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>
+        <Island className="h-full min-h-0 w-full min-w-0 overflow-hidden" unpadded>
+          {children}
+        </Island>
       </div>
     </ComposerSurfaceContext.Provider>
   );

@@ -32,6 +32,7 @@ Paths are resolved relative to the configuration file that supplies them unless 
 Kent snapshots the rendered system prompt when it creates the session contract. Edits take effect after successful compaction and the next model request.
 
 ## Placeholders
+
 You can assemble your own system prompt from building blocks provided by Kent. It's highly recommended to leave the instructions about the harness (`HarnessWorkflowAutonomy`) intact.
 
 System prompt files use Go template syntax with these fields:

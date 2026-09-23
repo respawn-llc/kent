@@ -79,13 +79,13 @@ Creating a task puts it in Backlog. Starting the task applies the workflow's sta
 
 Nodes are workflow states. Visible executable and terminal nodes become board columns.
 
-| Node kind       | Use                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| Start / Backlog | Where tasks rest after creation. Each workflow has one start node.                                        |
-| Agent           | Runs a Kent agent using the selected subagent role.                                                       |
-| Script          | Executes a local script on the Kent server.                 |
-| Join            | Waits for parallel branches and aggregates their parameters. |
-| Terminal        | A sink where automation stops, commonly Done.                                                             |
+| Node kind       | Use                                                                |
+| --------------- | ------------------------------------------------------------------ |
+| Start / Backlog | Where tasks rest after creation. Each workflow has one start node. |
+| Agent           | Runs a Kent agent using the selected subagent role.                |
+| Script          | Executes a local script on the Kent server.                        |
+| Join            | Waits for parallel branches and aggregates their parameters.       |
+| Terminal        | A sink where automation stops, commonly Done.                      |
 
 Keep node keys stable and machine-friendly, such as `plan`, `implement`, `review`, `needs_changes`, and `done`. Keys are used by agents, prompts, and validation, so prefer lower-case letters, numbers, and underscores over display labels with spaces.
 
@@ -181,7 +181,7 @@ The node script receives JSON as stdin:
 }
 ```
 
-Top-level properties are incoming workflow parameter values. `_kent` contains meta-information about the workflow execution, useful for scripting or logging. 
+Top-level properties are incoming workflow parameter values. `_kent` contains meta-information about the workflow execution, useful for scripting or logging.
 
 Stdout must be the workflow completion JSON. Stderr is diagnostics only. For example:
 
@@ -201,10 +201,10 @@ Parameters are required string outputs from the source agent. They are how one n
 
 For example, a Review to Needs Changes transition can require:
 
-| Parameter      | Description                                                                 |
-| -------------- | --------------------------------------------------------------------------- |
+| Parameter      | Description                                            |
+| -------------- | ------------------------------------------------------ |
 | `findings`     | Required implementation changes, including file paths. |
-| `verification` | Checks the reviewer ran and the results.                                    |
+| `verification` | Checks the reviewer ran and the results.               |
 
 Declare parameters on the transition whose source agent can produce them. In fan-out transitions, matching parameter keys must have matching descriptions because they represent one shared output contract.
 
@@ -221,11 +221,11 @@ Transition-selected effort follows the Session's [Thinking settings](/config/#th
 Context mode controls how the target agent starts its session.
 It applies to transitions into agent nodes; transitions into joins or terminal nodes do not start agent sessions.
 
-| Mode                         | Best for                                                                   | Trade-offs                                                                                                                                                                                                            |
-| ---------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs.                                                                                              |
-| Compact and continue session | A large phase handing off to another role or another direction.            | Adds a handoff step and starts a new session from a summary. Good when full conversation history is unnecessary but a clean summary matters. Every session already compacts when needed, this mode just forces the compaction and allows role switch.                                                                         |
-| Continue session             | Tight loops and direct follow-up work with retained context.               | Preserves conversation history and prompt-cache continuity. |
+| Mode                         | Best for                                                                   | Trade-offs                                                                                                                                                                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New session                  | Independent work, QA, code review, security review, release note drafting. | Lowest starting context and cleanest role boundary. The prompt and parameters must contain the context the target needs.                                                                                                                              |
+| Compact and continue session | A large phase handing off to another role or another direction.            | Adds a handoff step and starts a new session from a summary. Good when full conversation history is unnecessary but a clean summary matters. Every session already compacts when needed, this mode just forces the compaction and allows role switch. |
+| Continue session             | Tight loops and direct follow-up work with retained context.               | Preserves conversation history and prompt-cache continuity.                                                                                                                                                                                           |
 
 Continuation modes also have a context source:
 
@@ -252,8 +252,7 @@ Only agent nodes have completion modes; Start, Join, and Terminal nodes do not e
 | Structured output      | Provider-native structured output. Use it when the provider supports strict structured responses and the node is not part of a `continue_session` chain. | Lowest-friction on capable providers, but prevents the Current Node from starting when unsupported and fully invalidates cache on continued sessions. |
 | Tool call              | Dedicated completion tool. Use it for providers without structured-output support.                                                                       | Reliable tool-driven completion, but fully invalidates cache on continued sessions.                                                                   |
 | Shell command          | Completion through the agent's shell environment. Prefer this for `continue_session` chains.                                                             | Requires the shell tool for the target role and gives the agent shell access, but avoids completion-contract cache invalidation.                      |
-| Unstructured output    | Best-effort raw JSON final answer. Use only when you need `continue_session` and cannot use shell commands.                                               | Most fragile mode. It avoids dynamic completion metadata, but depends on the model following exact final-answer instructions.                         |
-
+| Unstructured output    | Best-effort raw JSON final answer. Use only when you need `continue_session` and cannot use shell commands.                                              | Most fragile mode. It avoids dynamic completion metadata, but depends on the model following exact final-answer instructions.                         |
 
 `auto` chooses unstructured output if the runtime has no shell available; otherwise it chooses shell command when the workflow contains a `continue_session` transition, structured output on capable providers, and tool call as the remaining fallback.
 
@@ -279,14 +278,13 @@ Each task belongs to one project and one linked workflow: the project supplies w
 
 The workflow's worktree policy chooses where agent and script nodes run:
 
-| Policy                    | Execution root                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------------------------- |
-| Ask when execution starts |  Will ask for a target for every task start      |
-| No managed worktree       | The task's selected workspace. |
-| Source HEAD               | A worktree created from the source repository's current commit.                       |
-| Repository default branch | A worktree created from the default branch configured by local remote-HEAD metadata (a remote must be present).  |
-| Custom Git revision       | Provide a fixed branch, tag, or commit.         |
-
+| Policy                    | Execution root                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Ask when execution starts | Will ask for a target for every task start                                                                      |
+| No managed worktree       | The task's selected workspace.                                                                                  |
+| Source HEAD               | A worktree created from the source repository's current commit.                                                 |
+| Repository default branch | A worktree created from the default branch configured by local remote-HEAD metadata (a remote must be present). |
+| Custom Git revision       | Provide a fixed branch, tag, or commit.                                                                         |
 
 Managed replacements use a fresh Worktree and default their branch name to the Task Short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`.
 
