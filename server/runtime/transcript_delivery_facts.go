@@ -294,8 +294,7 @@ func TranscriptToolStartFactsFromEventChecked(evt Event) ([]TranscriptLiveToolSt
 }
 
 type transcriptMessageProjectionContext struct {
-	Provenance           *TranscriptCommittedRowProvenance
-	CompletionProvenance map[string]*TranscriptCommittedRowProvenance
+	Provenance *TranscriptCommittedRowProvenance
 }
 
 func transcriptCommittedRowFactsFromMessage(
@@ -307,10 +306,8 @@ func transcriptCommittedRowFactsFromMessage(
 ) []TranscriptCommittedRowFact {
 	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID, completions, materializedToolCalls)
 	var provenance *TranscriptCommittedRowProvenance
-	var completionProvenance map[string]*TranscriptCommittedRowProvenance
 	if len(contexts) > 0 {
 		provenance = contexts[0].Provenance
-		completionProvenance = contexts[0].CompletionProvenance
 	}
 	for index := range facts {
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
@@ -319,11 +316,6 @@ func transcriptCommittedRowFactsFromMessage(
 		}
 		if facts[index].Assistant != nil && provenance != nil {
 			facts[index].Assistant.CommittedAtUnixMs = textutil.Pointer(provenance.CommittedAtUnixMs)
-		}
-		if facts[index].Tool != nil && completionProvenance != nil {
-			if owner := completionProvenance[facts[index].Tool.ToolCallID]; owner != nil {
-				facts[index].Provenance = cloneTranscriptCommittedRowProvenance(owner)
-			}
 		}
 	}
 	return facts
@@ -394,10 +386,6 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 	default:
 		return nil
 	}
-}
-
-func transcriptCommittedEntryCountFromMessage(msg llm.Message, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) int {
-	return len(visibleChatEntriesFromMessage(msg, completions, materializedToolCalls))
 }
 
 func transcriptCommittedRowFactFromChatEntry(entry ChatEntry) (TranscriptCommittedRowFact, bool) {
