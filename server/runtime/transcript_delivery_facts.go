@@ -128,8 +128,6 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		facts = transcriptCommittedRowFactsFromMessage(
 			evt.Message,
 			evt.AssistantTranscriptStreamID,
-			nil,
-			nil,
 			transcriptMessageProjectionContext{Provenance: evt.CommittedProvenance},
 		)
 	case EventUserMessageFlushed:
@@ -300,11 +298,9 @@ type transcriptMessageProjectionContext struct {
 func transcriptCommittedRowFactsFromMessage(
 	msg llm.Message,
 	streamID *uuid.UUID,
-	completions map[string]tools.Result,
-	materializedToolCalls map[string]struct{},
 	contexts ...transcriptMessageProjectionContext,
 ) []TranscriptCommittedRowFact {
-	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID, completions, materializedToolCalls)
+	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID)
 	var provenance *TranscriptCommittedRowProvenance
 	if len(contexts) > 0 {
 		provenance = contexts[0].Provenance
@@ -321,7 +317,7 @@ func transcriptCommittedRowFactsFromMessage(
 	return facts
 }
 
-func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
+func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID) []TranscriptCommittedRowFact {
 	switch msg.Role {
 	case llm.RoleUser:
 		if msg.MessageType != nil &&
@@ -344,7 +340,7 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 		}
 		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
-		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
+		out := make([]TranscriptCommittedRowFact, 0, 1)
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {
 			phase, _ := textutil.OptionalValue(msg.Phase)
 			out = append(out, TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactAssistant, Visibility: assistantTranscriptVisibility(phase), Assistant: &TranscriptAssistantRowFact{
@@ -353,14 +349,9 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 				StreamID: cloneTranscriptStreamID(streamID),
 			}})
 		}
-		for _, call := range msg.ToolCalls {
-			if result, ok := synthesizedToolResultForCall(call, completions, materializedToolCalls); ok {
-				out = append(out, transcriptToolRowFactFromResult(result))
-			}
-		}
 		return out
 	case llm.RoleTool:
-		return []TranscriptCommittedRowFact{transcriptToolRowFactFromResult(resolvedToolResultForMessage(msg, completions))}
+		return []TranscriptCommittedRowFact{transcriptToolRowFactFromResult(resolvedToolResultForMessage(msg, nil))}
 	case llm.RoleDeveloper:
 		if msg.MessageType != nil &&
 			*msg.MessageType == llm.MessageTypeCompactionSummary {
