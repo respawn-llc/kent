@@ -399,7 +399,7 @@ func (s *ResponsesStub) writeOperationResponse(ctx context.Context, writer http.
 		s.writeResponse(ctx, writer, operation)
 	case RouteModel:
 		if err := writeJSON(writer, http.StatusOK, map[string]any{
-			"id":             "gpt-5",
+			"id":             "gpt-6-sol",
 			"object":         "model",
 			"created":        0,
 			"owned_by":       "kent",

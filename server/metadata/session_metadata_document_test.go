@@ -12,7 +12,7 @@ import (
 func TestStoredLockedContractPreservesCapabilitiesWithObsoleteCountingFields(t *testing.T) {
 	t.Parallel()
 	const stored = `{
-		"model":"gpt-5",
+		"model":"gpt-6-sol",
 		"provider_contract":{
 			"provider_id":"openai",
 			"supports_responses_api":true,
@@ -30,7 +30,7 @@ func TestStoredLockedContractPreservesCapabilitiesWithObsoleteCountingFields(t *
 	}`
 	verbosity := false
 	want := session.LockedContract{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		ProviderContract: session.LockedProviderCapabilities{
 			ProviderID:                    "openai",
 			SupportsResponsesAPI:          true,

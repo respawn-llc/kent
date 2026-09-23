@@ -55,7 +55,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, containerDir)
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspace,
@@ -68,7 +68,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: workspace,
 		Settings: testsetup.WriteProviderSettings(t, root, config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ModelContextWindow: 200_000,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Shell: config.ShellSettings{

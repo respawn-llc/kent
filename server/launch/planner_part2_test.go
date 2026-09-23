@@ -17,7 +17,7 @@ import (
 func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"context_compaction_threshold_tokens = 221000",
 	)
 	store := createTestSession(t, workspace)
@@ -29,9 +29,9 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 		Source:              loaded.Source,
 	}, store, filepath.Dir(store.Dir()))
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"})
-	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
-		t.Fatalf("model = %q, want gpt-5.4-mini", updated.ActiveSettings.Model)
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-6-luna"})
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
 	if updated.ActiveSettings.ModelContextWindow != 272_000 {
 		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)

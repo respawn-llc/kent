@@ -383,7 +383,7 @@ func TestBuildReviewerRequestDoesNotRediscoverMissingSkills(t *testing.T) {
 	items := []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("request")}}
 	got, err := buildReviewerRequestItemsWithBuilder(
 		items,
-		newMetaContextBuilder(workspace, "gpt-5", "high", skillPolicyWithDisabled("workspace skill"), time.Now()),
+		newMetaContextBuilder(workspace, "gpt-6-sol", "high", skillPolicyWithDisabled("workspace skill"), time.Now()),
 		false,
 	)
 	if err != nil {

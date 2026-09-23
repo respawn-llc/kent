@@ -255,8 +255,8 @@ func TestUnsupportedThinkingCompactionIgnoresNativeBaseline(t *testing.T) {
 		provider string
 		native   bool
 	}{
-		{name: "older model native compaction", model: "gpt-5", mode: "native", provider: "openai", native: true},
-		{name: "older model local compaction", model: "gpt-5", mode: "local", provider: "openai", native: true},
+		{name: "older model native compaction", model: "gpt-5.6-sol", mode: "native", provider: "openai", native: true},
+		{name: "older model local compaction", model: "gpt-5.6-sol", mode: "local", provider: "openai", native: true},
 		{name: "Astra custom endpoint local compaction", model: "gpt-6-astra", mode: "local", provider: "openai-compatible"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 
+	"core/server/authservice"
 	"core/server/llm"
 	"core/server/onboardingimports"
 	"core/shared/clientui"
@@ -28,15 +29,17 @@ const (
 type Options struct {
 	Config  config.App
 	HomeDir string
+	Setup   *authservice.BootstrapService
 }
 
 type Service struct {
 	cfg     config.App
 	homeDir string
+	setup   *authservice.BootstrapService
 }
 
 func NewService(opts Options) *Service {
-	return &Service{cfg: opts.Config, homeDir: opts.HomeDir}
+	return &Service{cfg: opts.Config, homeDir: opts.HomeDir, setup: opts.Setup}
 }
 
 func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
@@ -44,7 +47,15 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 		return nil, errors.New("capability facts request is required")
 	}
 	providerIDs := normalizedProviderIDs(req.ExplicitLlmProviderIds)
-	currentProvider, err := s.currentProviderFacts(ctx)
+	settings := s.cfg.Settings
+	if s.setup != nil {
+		var err error
+		settings, err = s.setup.PendingSettings(settings)
+		if err != nil {
+			return nil, err
+		}
+	}
+	currentProvider, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +63,7 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 	if err != nil {
 		return nil, err
 	}
-	defaults, err := defaultFacts(s.cfg.Settings)
+	defaults, err := defaultFacts(settings)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +71,7 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 		ConfigRoot:    s.cfg.PersistenceRoot,
 		WorkspaceRoot: req.WorkspaceRoot,
 		HomeDir:       s.homeDir,
-		SkillPolicy:   config.ResolveSkillPolicy(s.cfg.Settings),
+		SkillPolicy:   config.ResolveSkillPolicy(settings),
 	})
 	if err != nil {
 		return nil, err
@@ -96,10 +107,6 @@ func normalizedProviderIDs(values []string) []string {
 	return out
 }
 
-func (s *Service) currentProviderFacts(ctx context.Context) (llm.ProviderCapabilities, error) {
-	return llm.ResolveRuntimeProviderCapabilities(s.cfg.Settings)
-}
-
 func explicitProviderFacts(providerIDs []string) ([]*capabilitypb.ProviderFact, error) {
 	facts := make([]*capabilitypb.ProviderFact, 0, len(providerIDs))
 	for _, providerID := range providerIDs {
@@ -133,7 +140,8 @@ func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCa
 	if modelID == "" {
 		return nil, errBlankModelCatalogEntry
 	}
-	contextWindow, err := positiveUint32Ptr(contract.ContextWindowTokens, "model context window")
+	metadata := contract.ContextMetadata(providerCaps)
+	contextWindow, err := positiveUint32Ptr(metadata.ContextWindowTokens, "model context window")
 	if err != nil {
 		return nil, err
 	}
@@ -147,8 +155,8 @@ func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCa
 		SupportsVisionInputs:     contract.SupportsVisionInputs,
 		Verbosity:                verbosityFact(llm.VerbositySupportForModelAndProvider(modelID, providerCaps)),
 	}
-	if contract.LargeContextWindowTokens > contract.ContextWindowTokens {
-		tokens, err := uint32Value(contract.LargeContextWindowTokens, "model large context window")
+	if metadata.LargeContextWindowTokens > metadata.ContextWindowTokens {
+		tokens, err := uint32Value(metadata.LargeContextWindowTokens, "model large context window")
 		if err != nil {
 			return nil, err
 		}

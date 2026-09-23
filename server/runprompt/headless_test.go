@@ -341,7 +341,7 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 	runtimePlan, err := launcher.prepareRuntime(context.Background(), launch.SessionPlan{
 		Descriptor: descriptor,
 		ActiveSettings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, "http://127.0.0.1:1")),
 		BaseSettings: config.Settings{
@@ -390,7 +390,7 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
@@ -465,7 +465,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
@@ -620,7 +620,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Settings.Model = "gpt-5"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.ThinkingLevel = "medium"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
@@ -748,7 +748,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = root
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: false}
 	cfg.Settings = testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	hiddenSettings := cfg.Settings
@@ -983,7 +983,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = root
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: true}
 	workerSettings := cfg.Settings
@@ -1168,7 +1168,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, "http://wrong.invalid")),
@@ -1624,7 +1624,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:               "gpt-5",
+			Model:               "gpt-6-sol",
 			ThinkingLevel:       "medium",
 			ShellOutputMaxChars: 16_000,
 			EnabledTools:        map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
@@ -1794,7 +1794,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-5"}),
+		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
@@ -1846,7 +1846,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),

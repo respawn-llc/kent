@@ -31,7 +31,7 @@ func TestWorkflowToolModeAdvertisesCompleteNodeWithRequiredChoice(t *testing.T) 
 			Controller:     &externallyCompletedWorkflowController{},
 		},
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 		},
 	)
@@ -86,7 +86,7 @@ func TestWorkflowCanUseAutomaticToolChoice(t *testing.T) {
 					Controller:             &externallyCompletedWorkflowController{},
 				},
 				Config{
-					Model:        "gpt-5",
+					Model:        "gpt-6-sol",
 					EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 				},
 			)
@@ -110,7 +110,7 @@ func TestNonWorkflowRequestOmitsCompleteNodeWithAutomaticChoice(t *testing.T) {
 		mustCreateTestSession(t),
 		&fakeClient{},
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolCompleteNode},
 		},
 	)
@@ -141,7 +141,7 @@ func TestShellWorkflowUsesNativeWebSearchAsRequiredToolChoice(t *testing.T) {
 			Controller:     &externallyCompletedWorkflowController{},
 		},
 		Config{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 			WebSearchMode: "native",
 		},
@@ -168,7 +168,7 @@ func TestShellWorkflowRejectsRequiredChoiceWithoutEffectiveTools(t *testing.T) {
 		client,
 		tools.NewRegistry(),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 	publishTestWorkflowExecution(t, engine, &workflowruntime.CurrentNodeExecutionConfig{
@@ -204,7 +204,7 @@ func TestShellWorkflowRejectsProviderWithoutRequiredToolChoice(t *testing.T) {
 			Controller:     &externallyCompletedWorkflowController{},
 		},
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 		},
 	)
@@ -232,7 +232,7 @@ func TestWorkflowRequestRejectsUnresolvedCompletionModeBeforeProviderDispatch(t 
 			Controller:     &externallyCompletedWorkflowController{},
 		},
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 		},
 	)
@@ -274,7 +274,7 @@ func TestWorkflowRejectsDuplicateCompletionBeforeExecutingMixedToolCalls(t *test
 			Handler: sideEffect,
 		}),
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 			OnEvent: func(event Event) {
 				if event.Kind != EventToolCallCompleted || event.ToolResult == nil {
@@ -361,7 +361,7 @@ func TestStructuredWorkflowCompletionStopsAfterSingleProviderDispatch(t *testing
 			CompletionMode: workflowruntime.CompletionModeStructuredOutput,
 			Controller:     controller,
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	if _, err := engine.SubmitUserMessage(context.Background(), "run"); err != nil {
@@ -405,7 +405,7 @@ func TestUnstructuredWorkflowCompletionRecordsParsedRequest(t *testing.T) {
 			CompletionMode: workflowruntime.CompletionModeUnstructuredOutput,
 			Controller:     controller,
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	if _, err := engine.SubmitUserMessage(context.Background(), "run"); err != nil {
@@ -460,7 +460,7 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 		},
 		{
 			name:       "vision catalog model",
-			model:      "gpt-5.3-codex",
+			model:      "gpt-6-luna",
 			wantVision: true,
 		},
 		{
@@ -469,13 +469,14 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 			wantVision: true,
 		},
 		{
-			name:       "codex spark catalog model",
-			model:      "gpt-5.3-codex-spark",
-			wantVision: false,
+			name:         "catalog model with explicit vision disabled",
+			model:        "gpt-6-luna",
+			capabilities: &session.LockedModelCapabilities{SupportsReasoningEffort: true},
+			wantVision:   false,
 		},
 		{
 			name:         "explicit vision override",
-			model:        "gpt-4.1-2026-01-15",
+			model:        "custom-vision-model",
 			capabilities: &session.LockedModelCapabilities{SupportsVisionInputs: true},
 			wantVision:   true,
 		},
@@ -532,7 +533,7 @@ func TestRequestToolsUseActiveProviderCapabilitiesForPatchShape(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		EnabledTools: []string{string(toolspec.ToolPatch)},
 		ProviderContract: llm.LockedProviderCapabilitiesFromContract(llm.ProviderCapabilities{
 			ProviderID:           "openai",
@@ -557,7 +558,7 @@ func TestRequestToolsUseActiveProviderCapabilitiesForPatchShape(t *testing.T) {
 			Handler: fakeTool{name: toolspec.ToolPatch},
 		}),
 		Config{
-			Model:                        "gpt-5",
+			Model:                        "gpt-6-sol",
 			EnabledTools:                 []toolspec.ID{toolspec.ToolPatch},
 			ProviderCapabilitiesOverride: &activeCapabilities,
 		},

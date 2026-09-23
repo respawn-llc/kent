@@ -42,7 +42,7 @@ func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 			var mu sync.Mutex
 			var restored []string
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-				Model: "gpt-5",
+				Model: "gpt-6-sol",
 				OnEvent: func(event Event) {
 					if event.HumanInputInterrupted != nil {
 						mu.Lock()
@@ -120,7 +120,7 @@ func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 
 func TestLiveRunWaitIdleReturnsNoActive(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.WaitForActiveRunResult(context.Background()); !errors.Is(err, ErrNoActiveLiveRun) {
 		t.Fatalf("WaitForActiveRunResult idle error = %v, want ErrNoActiveLiveRun", err)
@@ -133,7 +133,7 @@ func TestCapturedActiveRunResultSurvivesFastCompletion(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("fast final"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	var handle *LiveRunWaitHandle
 	var captureErr error
@@ -163,7 +163,7 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 	eng := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("recovered"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	}}}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
 		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
@@ -195,7 +195,7 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 }
 
 func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T) {
-	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5", Debug: true})
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol", Debug: true})
 	eng.liveRun.beginStep(&RunSnapshot{
 		RunID: uuid.NewString(), StepID: uuid.NewString(),
 		Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
@@ -209,7 +209,7 @@ func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T)
 }
 
 func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
-	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
 		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
@@ -252,7 +252,7 @@ func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
 
 func TestTryInterruptActiveRunCancelsCompactionStep(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepCtxSeen := make(chan context.Context, 1)
 	done := make(chan error, 1)
 	eng.ensureOrchestrationCollaborators()
@@ -298,7 +298,7 @@ func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
 	var mu sync.Mutex
 	var restored []InterruptedHumanInput
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			if event.HumanInputInterrupted != nil {
 				mu.Lock()
@@ -307,6 +307,11 @@ func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
 			}
 		},
 	})
+	// Let compaction release queued work before the Stop caller resumes.
+	eng.stepLifecycle = &settledInterruptStepLifecycle{
+		exclusiveStepLifecycle: eng.stepLifecycle,
+		settle:                 func() { waitEngineLifecycleTasks(t, eng) },
+	}
 	started, release := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -357,6 +362,17 @@ func TestStopDuringCompactionRestoresRetainedLiveRunContinuation(t *testing.T) {
 	}
 }
 
+type settledInterruptStepLifecycle struct {
+	exclusiveStepLifecycle
+	settle func()
+}
+
+func (s *settledInterruptStepLifecycle) InterruptCurrent(beforeCancel func(*RunSnapshot)) (*RunSnapshot, error) {
+	snapshot, err := s.exclusiveStepLifecycle.InterruptCurrent(beforeCancel)
+	s.settle()
+	return snapshot, err
+}
+
 func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
 	client := &goalCompactionClient{
 		heldRuntimeCompactionClient: &heldRuntimeCompactionClient{
@@ -367,7 +383,7 @@ func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
 		goal: newScriptedGoalLoopClient(),
 	}
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+		Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	_, err := eng.SetGoal(t.Context(), "retain goal across compaction", session.GoalActorUser)
 	pendingWorkTestNoError(t, err)
@@ -408,7 +424,7 @@ func (c *goalCompactionClient) Generate(ctx context.Context, request llm.Request
 
 func TestExclusiveStepEmitRunStateControlsActiveLiveRunGroup(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
 
@@ -474,7 +490,7 @@ func TestWaitForActiveRunResultReturnsAssistantFinalAnswer(t *testing.T) {
 			return nil
 		},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	submitDone := make(chan error, 1)
 	go func() {
 		_, err := eng.SubmitUserMessage(context.Background(), "hello")
@@ -505,7 +521,7 @@ func TestWaitForActiveRunResultReturnsAssistantFinalAnswer(t *testing.T) {
 
 func TestTryInterruptActiveRunCancelsActiveStepAndWaiters(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
 	eng.stepLifecycle = lifecycle
 	started := make(chan struct{})
@@ -567,7 +583,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 			release: releaseTool,
 		},
 	}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			eventsMu.Lock()
 			events = append(events, event)
@@ -705,7 +721,7 @@ func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T
 
 func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveStep(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.ensureOrchestrationCollaborators()
 	activeRunID := uuid.NewString()
 	activeStepID := uuid.NewString()
@@ -759,7 +775,7 @@ func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveSte
 
 func TestTryInterruptActiveRunIdleNoops(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	stopped, err := eng.TryInterruptActiveRun()
 	if err != nil || stopped {

@@ -15,7 +15,7 @@ import (
 func TestProviderConnectionDefinitions(t *testing.T) {
 	_, _, app := loadConfigTestFileApp(t, `
 connection = "chatgpt-1"
-model = "gpt-5"
+model = "gpt-6-sol"
 [connections.chatgpt-1]
 protocol = "chatgpt-codex"
 [connections.local_1]
@@ -41,7 +41,7 @@ model = "local-model"
 		t.Fatal("connection capabilities must not become agent capability overrides")
 	}
 	role := app.Settings.Subagents["local"]
-	if role.Settings.Connection == nil || *role.Settings.Connection != "local_1" || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-5" {
+	if role.Settings.Connection == nil || *role.Settings.Connection != "local_1" || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-6-sol" {
 		t.Fatalf("independent role declaration = %+v", role.Settings)
 	}
 }
@@ -127,7 +127,7 @@ func TestProviderConnectionSelectionInheritance(t *testing.T) {
 	_, workspace, path := newConfigTestFile(t)
 	writeConfigTestFile(t, path, `
 connection = "chatgpt-1"
-model = "gpt-5"
+model = "gpt-6-sol"
 [connections.chatgpt-1]
 protocol = "chatgpt-codex"
 [connections.local]
@@ -153,7 +153,7 @@ thinking_level = "low"
 		t.Fatal("Supervisor must inherit the effective agent connection and its declaration")
 	}
 	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
-	if err != nil || inherited.Connection == nil || *inherited.Connection != "chatgpt-1" || inherited.Model != "gpt-5" {
+	if err != nil || inherited.Connection == nil || *inherited.Connection != "chatgpt-1" || inherited.Model != "gpt-6-sol" {
 		t.Fatalf("default inheritance = %+v, %v", inherited, err)
 	}
 	private := filepath.Join(workspace, ConfigDirName, "config.local.toml")
@@ -179,10 +179,10 @@ connection = "chatgpt-1"
 
 func TestConfigurationOriginsDistinguishEqualFileValues(t *testing.T) {
 	_, workspace, globalPath := newConfigTestFile(t)
-	writeConfigTestFile(t, globalPath, "model = \"gpt-5\"\n")
+	writeConfigTestFile(t, globalPath, "model = \"gpt-6-sol\"\n")
 	global := loadConfigTestApp(t, workspace, LoadOptions{})
 	sharedPath := filepath.Join(workspace, ConfigDirName, "config.toml")
-	writeConfigTestFile(t, sharedPath, "model = \"gpt-5\"\n")
+	writeConfigTestFile(t, sharedPath, "model = \"gpt-6-sol\"\n")
 	shared := loadConfigTestApp(t, workspace, LoadOptions{})
 	if global.Settings.Model != shared.Settings.Model {
 		t.Fatal("equal declarations should resolve to the same model")
@@ -502,7 +502,7 @@ func TestPreparePersistenceRootRefusesProcessStartRootUnderGoTest(t *testing.T) 
 		processStartAccountHome = originalAccountHome
 	})
 
-	_, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
+	_, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
 	if err == nil {
 		t.Fatal("expected process-start persistence root to be refused under go test")
 	}
@@ -521,7 +521,7 @@ func TestPreparePersistenceRootAllowsIsolatedTempHomeUnderGoTest(t *testing.T) {
 		processStartAccountHome = originalAccountHome
 	})
 
-	if _, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
+	if _, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
 		t.Fatalf("prepare temp persistence root: %v", err)
 	}
 }
@@ -930,10 +930,10 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 func TestLoadSubagentRoleFromFile(t *testing.T) {
 	home, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{
-		"model = \"gpt-5.6-sol\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.fast]",
-		"model = \"gpt-5.4-mini\"",
+		"model = \"gpt-6-luna\"",
 		"thinking_level = \"low\"",
 		"",
 		"[subagents.fast.reviewer]",
@@ -949,8 +949,8 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected fast subagent role, got %+v", cfg.Settings.Subagents)
 	}
-	if role.Settings.Model != "gpt-5.4-mini" {
-		t.Fatalf("role model = %q, want gpt-5.4-mini", role.Settings.Model)
+	if role.Settings.Model != "gpt-6-luna" {
+		t.Fatalf("role model = %q, want gpt-6-luna", role.Settings.Model)
 	}
 	if role.Settings.ThinkingLevel != "low" {
 		t.Fatalf("role thinking = %q, want low", role.Settings.ThinkingLevel)
@@ -1094,9 +1094,9 @@ func TestLoadSubagentRoleWorkflowSubagentMetadata(t *testing.T) {
 		want    bool
 		wantSet bool
 	}{
-		{name: "omitted defaults enabled", body: "[subagents.worker]\nmodel = \"gpt-5.4-mini\"\n", want: true},
-		{name: "explicit enabled", body: "[subagents.worker]\nworkflow_subagent = true\nmodel = \"gpt-5.4-mini\"\n", want: true, wantSet: true},
-		{name: "explicit disabled", body: "[subagents.worker]\nworkflow_subagent = false\nmodel = \"gpt-5.4-mini\"\n", wantSet: true},
+		{name: "omitted defaults enabled", body: "[subagents.worker]\nmodel = \"gpt-6-luna\"\n", want: true},
+		{name: "explicit enabled", body: "[subagents.worker]\nworkflow_subagent = true\nmodel = \"gpt-6-luna\"\n", want: true, wantSet: true},
+		{name: "explicit disabled", body: "[subagents.worker]\nworkflow_subagent = false\nmodel = \"gpt-6-luna\"\n", wantSet: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1152,14 +1152,14 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 		body string
 		want configRejectionExpectation
 	}{
-		{name: "reserved name/none", body: "[subagents.none]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
-		{name: "reserved name/self", body: "[subagents.self]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
+		{name: "reserved name/none", body: "[subagents.none]\nmodel = \"gpt-6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
+		{name: "reserved name/self", body: "[subagents.self]\nmodel = \"gpt-6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
 		{name: "invalid metadata/description type", body: "[subagents.worker]\ndescription = 123\n", want: configKeyTypeExpectation("string")},
 		{name: "invalid metadata/agent callable type", body: "[subagents.worker]\nagent_callable = \"no\"\n", want: configKeyTypeExpectation("boolean")},
 		{name: "invalid metadata/workflow subagent type", body: "[subagents.worker]\nworkflow_subagent = \"no\"\n", want: configKeyTypeExpectation("boolean")},
 		{name: "invalid metadata/description length", body: "[subagents.worker]\ndescription = \"" + strings.Repeat("x", MaxSubagentDescriptionChars+1) + "\"\n", want: configErrorChainExpectation{errSubagentDescriptionTooLong}},
 		{name: "nested subagents table", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
@@ -1168,21 +1168,21 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 			"thinking_level = \"high\"",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.subagents")},
 		{name: "unknown key/unknown toggle", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
 			"unknown_toggle = true",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.unknown_toggle")},
 		{name: "unknown key/workflow subagent typo", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
 			"workflow_subagent_typo = true",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.workflow_subagent_typo")},
 		{name: "invalid values", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"connection = \"\"",
@@ -1197,7 +1197,7 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 			"model_context_window = 39999",
 		}, "\n"), want: configErrorChainExpectation{errSubagentRole, errModelContextWindowBelowMinimum}},
 		{name: "persistence root", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"persistence_root = \"/tmp/custom\"",

@@ -313,7 +313,7 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 		t.Fatal("expected first core to seed at least one generated skill")
 	}
 
-	authSupportB, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupportB, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport B: %v", err)
 	}
@@ -561,7 +561,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(persistenceRoot, "config.toml"), []byte(
-		"model = \"gpt-5.6-sol\"\npriority_request_mode = true\n[subagents.worker]\nthinking_level = \"high\"\n",
+		"model = \"gpt-6-sol\"\npriority_request_mode = true\n[subagents.worker]\nthinking_level = \"high\"\n",
 	), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestSessionChatSettingsPreparationUsesPersistedConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	resolved.Config.Settings.Model = "gpt-5.6-sol"
+	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, "https://api.openai.com/v1"))
 	resolved.Config.Settings.PriorityRequestMode = true
 	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
@@ -645,7 +645,7 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	resolved.Config.Settings.Model = "gpt-5.6-sol"
+	resolved.Config.Settings.Model = "gpt-6-sol"
 	binding, err := metadata.RegisterBinding(t.Context(), persistenceRoot, workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
@@ -653,7 +653,7 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
 	store := createCoreSettingsSession(t, appCore, resolved.Config, binding.ProjectID)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		ProviderContract: session.LockedProviderCapabilities{
 			ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
 		},
@@ -668,8 +668,8 @@ func TestChatSettingsReadUsesLockedPromptFacingModelCapabilities(t *testing.T) {
 		t.Fatalf("ReadChatSettings: %v", err)
 	}
 	settings := response.GetSession().Settings
-	if settings.SelectedAgent.Model != "gpt-5" || settings.Thinking == nil || slices.Contains(settings.Thinking.Values, "ultra") {
-		t.Fatalf("locked gpt-5 settings = %+v, want locked model Thinking values without ultra", settings)
+	if settings.SelectedAgent.Model != "gpt-6-sol" || settings.Thinking == nil || slices.Contains(settings.Thinking.Values, "ultra") {
+		t.Fatalf("locked gpt-6-sol settings = %+v, want locked model Thinking values without ultra", settings)
 	}
 }
 
@@ -746,7 +746,7 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(state), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

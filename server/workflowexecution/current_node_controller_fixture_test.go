@@ -873,7 +873,7 @@ func (f currentNodeQuestionFixture) startAgentExecutionForSession(
 		t.Fatalf("NewOpenSessionDescriptor: %v", err)
 	}
 	settings := f.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{

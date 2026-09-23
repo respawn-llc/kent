@@ -33,11 +33,11 @@ func (a *countingOAuthAuth) ResolveDispatchAuth(context.Context) (*DispatchAuth,
 func TestOpenAIDispatchRejectsInvalidSessionBeforeAuth(t *testing.T) {
 	methods := map[string]func(*HTTPTransport, *string) error{
 		"generate": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
+			_, err := transport.Generate(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID}, StreamCallbacks{})
 			return err
 		},
 		"compact": func(transport *HTTPTransport, sessionID *string) error {
-			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
+			_, err := transport.Compact(context.Background(), OpenAIRequest{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: sessionID})
 			return err
 		},
 	}
@@ -241,8 +241,8 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 		},
 	}
 	invalidModels := map[string]string{
-		"empty": "", "leading SP": " gpt-5", "trailing HTAB": "gpt-5\t",
-		"semicolon": "gpt-5;tier=priority", "control byte": "gpt-\n5",
+		"empty": "", "leading SP": " gpt-6-sol", "trailing HTAB": "gpt-6-sol\t",
+		"semicolon": "gpt-6-sol;tier=priority", "control byte": "gpt-\n6-sol",
 	}
 	for methodName, dispatchRequest := range methods {
 		for invalidName, model := range invalidModels {

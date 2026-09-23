@@ -37,7 +37,7 @@ func (e *Engine) currentProviderCapabilities(ctx context.Context) (llm.ProviderC
 }
 
 // estimateTokensFromBytes approximates the token cost of a UTF-8 string of the
-// given byte length using the ~4-bytes-per-token rule of thumb that the GPT-4
+// given byte length using the ~4-bytes-per-token rule of thumb that the
 // family follows in practice. Used everywhere we need a deterministic estimate
 // without calling the provider's tokenizer.
 func estimateTokensFromBytes(byteLen int) int {

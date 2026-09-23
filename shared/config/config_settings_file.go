@@ -105,6 +105,15 @@ func ensureSettingsDir(path string) error {
 }
 
 func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
+	return installSettingsFile(path, contents, false)
+}
+
+func replaceSettingsFile(path string, contents string) error {
+	_, err := installSettingsFile(path, contents, true)
+	return err
+}
+
+func installSettingsFile(path string, contents string, replace bool) (bool, error) {
 	if err := ensureSettingsDir(path); err != nil {
 		return false, err
 	}
@@ -130,6 +139,13 @@ func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
 	}
 	if err := temp.Close(); err != nil {
 		return false, fmt.Errorf("close settings temp file: %w", err)
+	}
+	if replace {
+		if err := os.Rename(tempPath, path); err != nil {
+			return false, fmt.Errorf("replace settings file: %w", err)
+		}
+		cleanupTemp = false
+		return true, nil
 	}
 	if err := os.Link(tempPath, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -189,7 +205,24 @@ func RenderSettingsTOMLForOnboarding(settings Settings, options OnboardingWriteO
 	if err != nil {
 		return "", err
 	}
-	return settingsTOMLForOnboarding(normalized, options.PreservedDefaults), nil
+	var output bytes.Buffer
+	encoder := toml.NewEncoder(&output)
+	if normalized.Connection != nil {
+		if err := encoder.Encode(map[string]any{"connection": string(*normalized.Connection)}); err != nil {
+			return "", err
+		}
+	}
+	output.WriteString(settingsTOMLForOnboarding(normalized, options.PreservedDefaults))
+	if len(normalized.Connections) > 0 {
+		connections := map[string]any{}
+		for id, definition := range normalized.Connections {
+			connections[string(id)] = connectionSettingsTable(definition)
+		}
+		if err := encoder.Encode(map[string]any{"connections": connections}); err != nil {
+			return "", err
+		}
+	}
+	return output.String(), nil
 }
 
 func onboardingPreservedSources(preserved map[string]bool) map[string]Origin {
@@ -225,11 +258,11 @@ func WriteSettingsFileForOnboardingWithOptionsAt(path string, settings Settings,
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("settings path is required")
 	}
-	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, onboardingPreservedSources(options.PreservedDefaults))
+	rendered, err := RenderSettingsTOMLForOnboarding(settings, options)
 	if err != nil {
 		return "", err
 	}
-	created, err := writeSettingsFileIfMissing(path, settingsTOMLForOnboarding(normalized, options.PreservedDefaults))
+	created, err := writeSettingsFileIfMissing(path, rendered)
 	if err != nil {
 		return "", err
 	}

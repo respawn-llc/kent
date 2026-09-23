@@ -93,15 +93,15 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5.6-sol"
-	settings.Reviewer.Model = "gpt-5.6-sol"
+	settings.Model = "gpt-6-sol"
+	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ModelContextWindow = 160_000
 	settings.ModelContextWindow = 160_000
 	settings.ContextCompactionThresholdTokens = 120_000
 	settings.CompactionMode = config.CompactionModeLocal
 	roleSettings := settings
-	roleSettings.Model = "gpt-5.6-sol"
-	roleSettings.Reviewer.Model = "gpt-5.6-sol"
+	roleSettings.Model = "gpt-6-sol"
+	roleSettings.Reviewer.Model = "gpt-6-sol"
 	roleSettings.Reviewer.ModelContextWindow = 140_000
 	roleSettings.ModelContextWindow = 140_000
 	roleSettings.ContextCompactionThresholdTokens = 110_000

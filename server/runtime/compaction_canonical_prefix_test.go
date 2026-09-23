@@ -45,7 +45,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		newTestToolRegistry(t, tools.HandlerRegistration{
 			ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
-		Config{Model: "gpt-5", GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", GlobalConfigDir: globalConfigDir},
 	)
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("enable headless context: %v", err)

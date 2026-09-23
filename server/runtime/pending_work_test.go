@@ -16,7 +16,7 @@ import (
 )
 
 func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	firstSteer := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
@@ -69,7 +69,7 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 }
 
 func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	for index := range runtimeinput.PendingWorkCapacity {
 		if _, err := engine.messageFlow.QueueUserMessage(plainQueuedUserInput(fmt.Sprintf("pending %d", index))); err != nil {
@@ -126,7 +126,7 @@ func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
 }
 
 func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	message := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
@@ -182,7 +182,7 @@ func TestStoppedHumanInputPublishesPendingWorkChangedWithoutBlockingList(t *test
 	var interruption *HumanInputInterruptedEvent
 	var firstChange sync.Once
 	changed, unblock, delivered := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	first := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
 		return engine.Steer(context.Background(), "stopped", nil)

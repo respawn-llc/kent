@@ -26,7 +26,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		Usage: llm.Usage{InputTokens: 100, WindowTokens: 200_000},
 	}}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		OnEvent:        func(event Event) { events = append(events, event) },
 	})
@@ -65,7 +65,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		reopenedStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	reopenedPage := mustEngineNewestSegmentPage(t, reopened)
 	assertSingleCompactionSummaryAndPreservedUserFact(
@@ -147,7 +147,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -245,7 +245,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 		mustOpenTestSession(t, store.Dir()),
 		providerClient,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	reopenedPage := mustEngineNewestSegmentPage(t, reopened)
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(reopenedPage.Snapshot)
@@ -278,7 +278,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 		&fakeClient{},
 		newTestToolRegistry(t),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -342,7 +342,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 		mustOpenTestSession(t, store.Dir()),
 		&fakeClient{},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	restartedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	assertReplacementFactsMatch(t, restartedFacts, replacementTime)

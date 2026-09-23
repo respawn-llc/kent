@@ -114,7 +114,7 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 
 func TestNewWithContextNamesMissingRuntimeBundleResource(t *testing.T) {
 	cfg := config.App{PersistenceRoot: t.TempDir()}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 		t.Fatal("expected first NewWithContext error")
 	}
 
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

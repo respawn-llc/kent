@@ -30,7 +30,7 @@ func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
 				started: started,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,7 +76,7 @@ func TestExecuteToolCallsClosesCompletedAndInterruptedResultsInRosterOrder(t *te
 			Handler: handler,
 		}),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 	publishTestWorkflowExecution(t, engine, testWorkflowConfig(

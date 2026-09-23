@@ -9,6 +9,7 @@ func TestNormalizeThinkingLevel(t *testing.T) {
 		want string
 		ok   bool
 	}{
+		{name: "none", raw: "none", want: "none", ok: true},
 		{name: "low", raw: "low", want: "low", ok: true},
 		{name: "medium", raw: "medium", want: "medium", ok: true},
 		{name: "high", raw: "high", want: "high", ok: true},

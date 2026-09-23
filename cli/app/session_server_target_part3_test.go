@@ -36,7 +36,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -81,7 +81,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)

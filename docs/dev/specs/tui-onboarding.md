@@ -13,17 +13,18 @@
 - The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities. Connection setup must precede provider-dependent choices and the Defaults finalization path.
 - Step graph (order + visibility conditions):
   1. **Theme** — dark/light with live preview as the cursor moves; keeping the detected default stays on auto-detection.
-  2. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config (preserving the chosen theme) and skips all remaining steps.
-  3. **Model** — text input, pre-filled with the current default.
-  4. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
-  5. **Thinking level** — only for reasoning-capable models; level list + Disable + custom-value entry (custom opens a text sub-step; empty custom value rejected).
-  6. **Verbosity** — only for verbosity-capable models.
-  7. **Follow-up questions** — enable/disable the ask-question tool.
-  8. **Supervisor** — off / after edits / always; when enabled, sub-steps for supervisor model (pre-filled with the primary model) and supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).
-  9. **Compaction mode** — Local always offered; Native only when the provider supports it; Manual-only.
-  10. **Skills import** — only when importable items are detected from other providers; skills enablement is a multi-select.
-  11. **Slash commands import** — only when importable slash commands are detected from other providers.
-  12. **Review** — finish, or start over (returns to the first step with all selections preserved).
+  2. **Connection setup** — choose and configure the first Provider Connection, including sign-in under [Provider Connections](provider-connections.md).
+  3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
+  4. **Model** — text input, pre-filled with the current default.
+  5. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
+  6. **Thinking level** — only for reasoning-capable models; level list + Disable + custom-value entry (custom opens a text sub-step; empty custom value rejected).
+  7. **Verbosity** — only for verbosity-capable models.
+  8. **Follow-up questions** — enable/disable the ask-question tool.
+  9. **Supervisor** — off / after edits / always; when enabled, sub-steps for supervisor model (pre-filled with the primary model) and supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).
+  10. **Compaction mode** — Local always offered; Native only when the provider supports it; Manual-only.
+  11. **Skills import** — only when importable items are detected from other providers; skills enablement is a multi-select.
+  12. **Slash commands import** — only when importable slash commands are detected from other providers.
+  13. **Review** — finish, or start over (returns to the first step with all selections preserved).
 - Validation errors render inline on the current screen and block advancing; they never abort the wizard.
 
 ## Keys
@@ -36,6 +37,7 @@
 
 - Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
+- The default model must be GPT-6 Sol with a 272,000-token context window.
 - Config is written exactly once, at finalize. No step writes settings incrementally. Connection setup must remain unsaved before finalization.
 - Canceling before finalization aborts startup with a clear `setup canceled` error and writes nothing. The next launch opens first-time setup again.
 - Finalization cannot be canceled after submission.
@@ -47,11 +49,12 @@
 - The wizard submits choices to Kent. Kent executes imports and writes `config.toml`; the TUI does not write files.
 - Kent supplies model facts such as context windows, thinking, and verbosity support.
 - Kent also supplies provider facts such as native compaction and importable skills or commands.
-- One setup attempt requests Capability Facts once.
+- Setup must request Capability Facts after connection selection and refresh them only when that selection changes. Ordinary model and tool navigation must not refetch them.
 - Capability Facts uses the latest completely published startup configuration and settings available when Kent selects the request's snapshot.
-- Capability Facts combines that snapshot with auth-store and import-discovery observations performed for the request.
+- Capability Facts must combine the completed pending connection selection with import-discovery observations performed for the request.
 - Capability Facts does not wait for an in-progress startup activation to publish newer settings. A separate setup attempt may observe a newer published snapshot.
 - Model facts include the complete built-in known-model list and each model's capabilities.
+- GPT-6 Astra, Sol, and Luna must use a 272,000-token default context window. Their optional large window must be 872,000 tokens for ChatGPT subscription connections and 1,050,000 tokens for OpenAI API-key connections. Setup must display and persist the window for the selected connection.
 - Model facts include one fallback for non-empty unknown model names, so every client applies the same behavior.
 - Provider capability facts cover both the current effective provider and explicit provider choices.
 - An unknown explicit provider fails with an unsupported-provider error. Kent does not replace it with the current provider.

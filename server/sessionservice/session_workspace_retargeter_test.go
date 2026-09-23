@@ -290,7 +290,7 @@ func (f realSessionRetargetFixture) runtimePlan(t *testing.T, client llm.Client,
 		MainWorkspaceRoot: f.sourceBinding.CanonicalRoot,
 		EnabledTools:      enabled,
 		Settings: testsetup.WriteProviderSettings(t, f.metadata.PersistenceRoot(), config.Settings{
-			Model:    "gpt-5",
+			Model:    "gpt-6-sol",
 			Reviewer: config.ReviewerSettings{Frequency: "off"},
 			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}),

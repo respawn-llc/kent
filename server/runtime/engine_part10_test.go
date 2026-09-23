@@ -52,7 +52,7 @@ func TestInjectsGlobalAndWorkspaceAgentsBeforeFirstUserMessage(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("first submit: %v", err)
@@ -142,7 +142,7 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, child, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, child, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first child turn"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestInjectsSkillsContextBeforeEnvironmentAndPersists(t *testing.T) {
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok-1")}, Usage: llm.Usage{WindowTokens: 200000}},
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok-2")}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("first submit: %v", err)
@@ -252,7 +252,7 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:       "gpt-5",
+		Model:       "gpt-6-sol",
 		SkillPolicy: skillPolicyWithDisabled("workspace skill"),
 	})
 
@@ -293,7 +293,7 @@ func TestBrokenSymlinkedSkillsAreSkippedAndWarnedInTranscript(t *testing.T) {
 
 	store := mustCreateNamedTestSessionAt(t, t.TempDir(), "ws", workspace)
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
-	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -325,7 +325,7 @@ func TestEnvironmentContextMessageFallsBackToProcessCWDWhenWorkspaceRootMissing(
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	msg, err := environmentContextMessage("", "gpt-5.3-codex", time.Unix(0, 0).UTC())
+	msg, err := environmentContextMessage("", "gpt-6-luna", time.Unix(0, 0).UTC())
 	if err != nil {
 		t.Fatalf("environmentContextMessage: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestEnvironmentContextMessageAddsOnlyKnownModelKnowledgeCutoffRow(t *testin
 	workspace := t.TempDir()
 	now := time.Unix(0, 0).UTC()
 
-	known, err := environmentContextMessage(workspace, "gpt-5.3-codex", now)
+	known, err := environmentContextMessage(workspace, "gpt-6-luna", now)
 	if err != nil {
 		t.Fatalf("known environmentContextMessage: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
 	store := mustCreateNamedTestSessionAt(t, t.TempDir(), "ws", workspace)
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:                 "gpt-5.3-codex",
+		Model:                 "gpt-6-luna",
 		ThinkingLevel:         "high",
 		AutoCompactTokenLimit: 1_000_000_000,
 		CompactionMode:        "local",
@@ -404,13 +404,13 @@ func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
 	if envMsg.Role != llm.RoleDeveloper || envMsg.MessageType == nil || *envMsg.MessageType != llm.MessageTypeEnvironment {
 		t.Fatalf("expected first request message to be environment context, got %+v", envMsg)
 	}
-	if !strings.Contains(messageContent(envMsg), "\nYour model: gpt-5.3-codex\n") {
+	if !strings.Contains(messageContent(envMsg), "\nYour model: gpt-6-luna\n") {
 		t.Fatalf("expected environment context to contain labeled model identifier, got %q", messageContent(envMsg))
 	}
 	if !strings.Contains(messageContent(envMsg), "\nCWD: "+workspace+"\n") {
 		t.Fatalf("expected environment context cwd to use session workspace root %q, got %q", workspace, messageContent(envMsg))
 	}
-	if strings.Contains(messageContent(envMsg), "Your model: gpt-5.3-codex high") {
+	if strings.Contains(messageContent(envMsg), "Your model: gpt-6-luna high") {
 		t.Fatalf("expected environment context to exclude thinking level from model identifier, got %q", messageContent(envMsg))
 	}
 }
@@ -439,7 +439,7 @@ func TestManualCompactionReinjectsOnlyActiveHeadlessState(t *testing.T) {
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
 				Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 			}}}
-			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
+			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
 			if test.active {
 				if err := store.SetHeadlessActive(true); err != nil {
 					t.Fatalf("mark headless active: %v", err)
@@ -490,7 +490,7 @@ func TestSubmitUserMessagePersistsHeadlessModeTransitions(t *testing.T) {
 			finalOutputItemResponse("transitioned"),
 			finalOutputItemResponse("continued"),
 		}}
-		eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5", HeadlessMode: headless})
+		eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol", HeadlessMode: headless})
 		transitionPrompt := "transition " + name
 		if _, err := eng.SubmitUserMessage(context.Background(), transitionPrompt); err != nil {
 			t.Fatalf("transition submit: %v", err)
@@ -558,7 +558,7 @@ func newHeadlessTransitionStore(t *testing.T, seedHeadlessMode bool) *session.St
 
 	store := mustCreateTestSession(t)
 	seedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("seeded")}}
-	seedEngine := mustNewExecTestEngine(t, store, seedClient, Config{Model: "gpt-5"})
+	seedEngine := mustNewExecTestEngine(t, store, seedClient, Config{Model: "gpt-6-sol"})
 	if _, err := seedEngine.SubmitUserMessage(context.Background(), "seed"); err != nil {
 		t.Fatalf("seed interactive session: %v", err)
 	}
@@ -567,7 +567,7 @@ func newHeadlessTransitionStore(t *testing.T, seedHeadlessMode bool) *session.St
 	}
 
 	headlessClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("headless")}}
-	headlessEngine := mustNewExecTestEngine(t, store, headlessClient, Config{Model: "gpt-5", HeadlessMode: true})
+	headlessEngine := mustNewExecTestEngine(t, store, headlessClient, Config{Model: "gpt-6-sol", HeadlessMode: true})
 	if _, err := headlessEngine.SubmitUserMessage(context.Background(), "enter headless"); err != nil {
 		t.Fatalf("seed headless session: %v", err)
 	}

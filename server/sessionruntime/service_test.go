@@ -540,7 +540,7 @@ func TestActivateSessionRuntimeRejectsMissingOwnerID(t *testing.T) {
 
 func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
-	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
+	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-6-sol"}); err != nil {
 		t.Fatalf("lock Session model: %v", err)
 	}
 	calls := 0
@@ -556,7 +556,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 	})
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{RuntimeClientFactory: factory})
 	settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 40
 	settings.CompactionMode = config.CompactionModeNative
 	settings.Reviewer.Frequency = "off"
@@ -908,7 +908,7 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 
 func sessionRuntimeFastSettings(enabled bool) config.Settings {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.PriorityRequestMode = enabled
 	settings = testsetup.ProviderSettings(settings)
 	settings.Reviewer.Frequency = "off"
@@ -999,7 +999,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings: testsetup.ProviderSettings(config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ThinkingLevel:      "medium",
 			ModelContextWindow: 200000,
 			AllowNonCwdEdits:   false,
@@ -1120,7 +1120,7 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 		SessionID: fixture.store.Meta().SessionID, OwnerID: "interactive-owner",
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings: testsetup.ProviderSettings(config.Settings{
-			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}),
@@ -1208,7 +1208,7 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings: config.Settings{
-			Model: "gpt-5", ThinkingLevel: "medium", ModelContextWindow: 200000,
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
 			Reviewer: config.ReviewerSettings{Frequency: "off"},
 			Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
@@ -1280,7 +1280,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		ActiveSettings: testsetup.ProviderSettings(config.Settings{
-			Model:                  "gpt-5",
+			Model:                  "gpt-6-sol",
 			ThinkingLevel:          "medium",
 			ModelContextWindow:     200000,
 			MinimumExecToBgSeconds: 1,

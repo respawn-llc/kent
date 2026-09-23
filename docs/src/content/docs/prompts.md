@@ -16,7 +16,7 @@ These files are `developer`-level instructions.
 
 ## System Prompt
 
-Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role's `system_prompt_file` replaces the inherited agent selection. Omission inherits; an explicitly empty path is invalid.
+Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role's `system_prompt_file` replaces the inherited agent selection. Omission inherits the agent selection. Empty paths are invalid.
 
 The selected file keeps its scope in this priority order, lowest to highest. Only one of the configured-file entries participates:
 

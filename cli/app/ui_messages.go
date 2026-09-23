@@ -52,13 +52,6 @@ type committedEntryPersistDoneMsg struct {
 	err      error
 }
 
-type authSlashCommandRefreshedMsg struct {
-	token      uint64
-	generation uint64
-	kind       authSlashCommandKind
-	err        error
-}
-
 type goalRuntimeOperation string
 
 const (

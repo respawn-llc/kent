@@ -1,6 +1,10 @@
 set working-directory := ".."
 set positional-arguments
 
+# Fresh-install TUI QA. Pass false to retain temporary state after exit.
+onboarding cleanup="true":
+    @python3 scripts/dev-onboarding.py "$1"
+
 desktop *args:
     just _node
     just _gen-typescript

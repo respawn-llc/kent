@@ -3,7 +3,7 @@ title: Quickstart
 description: Install Kent, authenticate on first launch, tune the most useful settings, and learn the main session workflows.
 ---
 
-## 1. Install Kent Server and CLI
+## 1. Install Kent server and CLI
 
 #### Homebrew (macOS Apple Silicon/Linux)
 
@@ -38,7 +38,7 @@ irm https://kent.sh/install.ps1 | iex
 
 Check the installed version with: `kent --version`
 
-## 2. Optional: Install the Background Service
+## 2. Optional: Install the background service
 
 Run this if you want one shared Kent server to start at login:
 
@@ -54,7 +54,7 @@ The desktop app lets you use Kent's [Workflows and Tasks](../workflows/) feature
 
 ![Kent Desktop showing a project kanban board with tasks grouped by workflow stage](/desktop/desktop-kanban.webp)
 
-### Manual Install
+### Manual install
 
 Download the installer for macOS Apple Silicon, Linux x86_64, or Windows x64 at [kent.sh/desktop](https://kent.sh/desktop), or install the macOS app via Homebrew:
 
@@ -69,25 +69,23 @@ The desktop app, due to the asynchronous nature of workflows, needs a [server](.
 
 :::
 
-# First Use
+## First use
 
 :::danger[Security Warning]
-Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
+Kent grants the model **full access** to your computer, with unrestricted tool execution. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** Use [Sandboxing](../sandboxing/) to isolate its access.
 :::
 
-Start Kent CLI with: `kent`. The first run will ask you to pick an auth option and walk you through onboarding.
-The session picker shows when a newer Kent server release is available; update Kent through the installation channel you used.
+Start the terminal client with `kent`. First-run setup selects a theme and provider connection before offering default or custom model settings. The connection choices are ChatGPT subscription, API-key Responses-compatible, and auth-less Responses-compatible.
 
-Supported auth options:
+API-key setup asks for a variable name on the server machine. Configure its value using the [server environment](../server/#provider-environment).
 
-- OpenAI/Codex subscription OAuth via the startup sign-in picker.
-- No auth for custom providers. This option supports any provider like `ollama`, `omlx` local models, or third-party providers like GLM coding plan. The only requirement is that the provider supports the OpenAI Responses format.
+Finish saves the first connection as the default. Choosing defaults finishes immediately after connection setup. Canceling setup or restarting the server before Finish discards unsaved settings and sign-in. Use [`/login` or `/logout`](../config/#provider-connections) to manage connections afterward.
 
 :::note
 Anthropic or Gemini subscriptions/models will not be supported until these companies allow third-party harnesses in their ToS.
 :::
 
-## Main TUI Workflows
+## Main terminal workflows
 
 - Press `F1` to invoke the help menu.
 - Use `Enter` to steer the model, `Tab` to queue messages. Slash commands can be queued too!
@@ -107,7 +105,7 @@ For the full command reference, see [Slash Commands](../slash-commands/).
 
 Kent reads settings from `~/.kent/config.toml`. The full reference is on the [Configuration](../config/) page.
 
-## Skills and Slash Commands
+## Skills and slash commands
 
 On first launch, the setup wizard can optionally import existing skills and slash-command directories from supported providers.
 

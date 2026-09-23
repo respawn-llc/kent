@@ -14,6 +14,7 @@ import (
 	"core/prompts"
 	"core/server/auth"
 	"core/server/authservice"
+	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -55,6 +56,7 @@ type WorkflowAttentionRegistry interface {
 type Starter struct {
 	environment          func(string) (string, bool)
 	cfg                  config.App
+	workspaceConfig      chatcontext.FixedRootWorkspaceResolver
 	metadata             *metadata.Store
 	store                RuntimeStore
 	authManager          *auth.Manager
@@ -67,10 +69,11 @@ type Starter struct {
 }
 
 type StarterOptions struct {
-	Environment          func(string) (string, bool)
-	RuntimeClientFactory runtimewire.RuntimeClientFactory
-	RuntimeAuthority     *sessionruntime.Authority
-	TaskDependencies     TaskDependencyCounter
+	WorkspaceConfigLoadOptions config.LoadOptions
+	Environment                func(string) (string, bool)
+	RuntimeClientFactory       runtimewire.RuntimeClientFactory
+	RuntimeAuthority           *sessionruntime.Authority
+	TaskDependencies           TaskDependencyCounter
 }
 
 func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStore, authManager *auth.Manager, attention WorkflowAttentionRegistry, opts StarterOptions) (*Starter, error) {
@@ -87,6 +90,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 	return &Starter{
 		environment:          opts.Environment,
 		cfg:                  cfg,
+		workspaceConfig:      chatcontext.NewFixedRootWorkspaceResolver(cfg.PersistenceRoot, cfg.WorkspaceRoot, opts.WorkspaceConfigLoadOptions),
 		metadata:             metadataStore,
 		store:                store,
 		authManager:          authManager,
@@ -800,8 +804,8 @@ func workflowPromptOverrides(role string) serverapi.RunPromptOverrides {
 	return serverapi.RunPromptOverrides{AgentRole: &role}
 }
 
-func (s *Starter) validateRole(role string) error {
-	if workflow.IsDefaultAgentRole(role) || config.LookupSubagentRole(s.cfg.Settings, strings.TrimSpace(role)).Status == config.SubagentRoleLookupPresent {
+func validateRole(settings config.Settings, role string) error {
+	if workflow.IsDefaultAgentRole(role) || config.LookupSubagentRole(settings, strings.TrimSpace(role)).Status == config.SubagentRoleLookupPresent {
 		return nil
 	}
 	return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)

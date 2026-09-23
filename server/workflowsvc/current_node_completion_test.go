@@ -145,7 +145,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	}
 	settings := appCfg.Settings
 	settings = testsetup.WriteProviderSettings(t, metadataStore.PersistenceRoot(), settings)
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{

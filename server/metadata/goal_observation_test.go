@@ -116,7 +116,7 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 	_, _ = subscription.Next(t.Context())
 
 	if err := sessionStore.MarkModelDispatchLocked(session.LockedContract{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		EnabledTools:    []string{string(toolspec.ToolExecCommand)},
 		HasEnabledTools: true,
 	}); err != nil {

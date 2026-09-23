@@ -65,7 +65,7 @@ func newContextFactTestEngine(
 	}
 	initializeTestEventLog(t, store)
 	engine := mustNewTestEngine(t, store, client, registry, Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	return engine, store
@@ -153,7 +153,7 @@ func TestSuccessfulAgentStepEstablishesAbsentManualEligibilityFact(t *testing.T)
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
 		}}},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	if _, err := engine.SubmitUserMessage(context.Background(), "hello"); err != nil {
@@ -184,7 +184,7 @@ func TestSuccessfulCompactionEstablishesBothAbsentContextFacts(t *testing.T) {
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
 		}}},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5", CompactionMode: "local"},
+		Config{Model: "gpt-6-sol", CompactionMode: "local"},
 	)
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 

@@ -24,7 +24,7 @@ func TestSubmitUserMessageDoesNotEmitCommittedConversationUpdatedAfterFlushedUse
 	}}}
 	events := make([]Event, 0, 16)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
@@ -51,7 +51,7 @@ func TestSubmitUserMessageWithToolCallDoesNotEmitCommittedConversationUpdatedAft
 	}}
 	events := make([]Event, 0, 32)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run tool"); err != nil {
@@ -86,7 +86,7 @@ func TestPatchToolCallStartedUsesTranscriptWorkingDir(t *testing.T) {
 	}}
 	var started *transcript.ToolCallMeta
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch}}), Config{
-		Model:                "gpt-5",
+		Model:                "gpt-6-sol",
 		TranscriptWorkingDir: "/worktree",
 		OnEvent: func(evt Event) {
 			if evt.Kind == EventToolCallStarted && evt.ToolCall != nil {
@@ -138,7 +138,7 @@ func TestHostedToolOnlyTurnUsesCommittedToolCompletionBeforeFollowUpAssistantMes
 	events := make([]Event, 0, 24)
 	autoCompactionEnabled := false
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		WebSearchMode:         "native",
 		EnabledTools:          []toolspec.ID{toolspec.ToolWebSearch},
 		AutoCompactionEnabled: &autoCompactionEnabled,
@@ -192,7 +192,7 @@ func TestHostedToolOnlyMissingPhaseTurnUsesCommittedToolCompletion(t *testing.T)
 	events := make([]Event, 0, 24)
 	autoCompactionEnabled := false
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		WebSearchMode:         "native",
 		EnabledTools:          []toolspec.ID{toolspec.ToolWebSearch},
 		AutoCompactionEnabled: &autoCompactionEnabled,
@@ -233,10 +233,10 @@ func TestReviewerTranscriptPathsUseRichEventsWithoutCommittedConversationUpdated
 	var eventsMu sync.Mutex
 	events := make([]Event, 0, 48)
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			VerboseOutput: true,
 			Client:        reviewerClient,

@@ -8,7 +8,7 @@ import (
 )
 
 func TestAuthMethodPickerSelectsSecondOption(t *testing.T) {
-	m := newAuthMethodPickerModel("dark", startupPickerNotice{}, false, true)
+	m := newAuthMethodPickerModel("dark", startupPickerNotice{})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = next.(*startupPickerModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -31,7 +31,7 @@ func TestStartupPickerEnterDoesNothingWhenThereAreNoItems(t *testing.T) {
 }
 
 func TestAuthMethodPickerCancel(t *testing.T) {
-	m := newAuthMethodPickerModel("dark", startupPickerNotice{}, false, true)
+	m := newAuthMethodPickerModel("dark", startupPickerNotice{})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	m = next.(*startupPickerModel)
 	if !m.result.Canceled {

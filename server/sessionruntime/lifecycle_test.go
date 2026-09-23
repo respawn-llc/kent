@@ -345,6 +345,7 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 		toolspec.ToolAskQuestion,
 		toolspec.ToolWebSearch,
 	}
+	plan.options.Settings.Model = "gpt-5.6-sol"
 	plan.options.Settings.WebSearch = "native"
 	capabilities := llm.ProviderCapabilities{
 		ProviderID:                    "openai",

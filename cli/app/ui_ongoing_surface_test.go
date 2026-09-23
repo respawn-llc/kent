@@ -247,11 +247,11 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 				slash := newSlashPickerScrollTestModel()
 				m.commandRegistry = slash.commandRegistry
 				testSetMainInput(m, "/")
-				m.refreshSlashCommandFilterFromInputWithAuth(true)
+				m.refreshSlashCommandFilterFromInput()
 			},
 			close: func(m *uiModel) {
 				testSetMainInput(m, "")
-				m.refreshSlashCommandFilterFromInputWithAuth(true)
+				m.refreshSlashCommandFilterFromInput()
 			}},
 		{
 			name: "file picker",

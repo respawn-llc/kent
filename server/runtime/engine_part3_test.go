@@ -48,10 +48,10 @@ func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 50 * time.Millisecond}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			ClientFactory: func() (llm.Client, error) {
 				return reviewerClient, nil
@@ -102,10 +102,10 @@ func TestSetReviewerDisabledConcurrentWithBusyStepSkipsReviewerForCurrentRun(t *
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch, delay: 50 * time.Millisecond}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -290,7 +290,7 @@ func TestSubmitUserMessageContinuesAfterHostedToolOnlyTurn(t *testing.T) {
 	client.caps = openAIFirstPartyNativeWebSearchCaps()
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		WebSearchMode: "native",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 	})
@@ -406,7 +406,7 @@ func TestMixedAcceptedCallsPersistInProviderOutputOrder(t *testing.T) {
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			WebSearchMode: "native",
 			EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 			OnEvent: func(event Event) {
@@ -550,7 +550,7 @@ func TestInvalidMixedAcceptedCallPositionsFailBeforeToolEffects(t *testing.T) {
 					Handler: probe,
 				}),
 				Config{
-					Model:         "gpt-5",
+					Model:         "gpt-6-sol",
 					WebSearchMode: "native",
 					EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 				},
@@ -626,7 +626,7 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 		client,
 		newTestToolRegistry(t),
 		Config{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			WebSearchMode: "native",
 			EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 		},
@@ -685,7 +685,7 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 		reopened,
 		&fakeClient{},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	snapshot := mustTranscriptHydrationSnapshot(t, restored)
 	for _, callID := range want {
@@ -718,7 +718,7 @@ func TestSubmitUserMessageContinuesAfterInvalidHostedWebSearch(t *testing.T) {
 	client.caps = openAIFirstPartyNativeWebSearchCaps()
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		WebSearchMode: "native",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 		OnEvent: func(evt Event) {
@@ -824,7 +824,7 @@ func TestSubmitUserMessageFinalAnswerWithHostedToolCallMaterializesToolBeforeFin
 	client.caps = openAIFirstPartyNativeWebSearchCaps()
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		WebSearchMode: "native",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 	})
@@ -909,7 +909,7 @@ func TestSubmitUserMessageCommentaryWithoutToolCallsForcesNextLoop(t *testing.T)
 		},
 	}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -959,7 +959,7 @@ func TestSubmitUserMessageViewImageToolFollowsModelCapabilities(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolViewImage, Handler: fakeTool{name: toolspec.ToolViewImage}}), Config{
-		Model:        "gpt-5.3-codex",
+		Model:        "gpt-6-luna",
 		EnabledTools: []toolspec.ID{toolspec.ToolViewImage},
 	})
 
@@ -990,7 +990,7 @@ func TestNewRejectsTransientProviderCapabilityFailure(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		&fakeClient{capsErr: capabilityErr},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5.3-codex"},
+		Config{Model: "gpt-6-luna"},
 	)
 	if !errors.Is(err, capabilityErr) {
 		t.Fatalf("New error = %v, want provider capability error", err)
@@ -1026,7 +1026,7 @@ func TestEnsureLocked_PersistsProviderCapabilityOverrideOverTransportMetadata(t 
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                        "gpt-5.4",
+		Model:                        "gpt-6-sol",
 		ProviderCapabilitiesOverride: override,
 		EnabledTools:                 []toolspec.ID{toolspec.ToolExecCommand},
 	})
@@ -1090,7 +1090,7 @@ func TestSubmitUserMessageMissingPhaseDefaultsToCommentaryAndWarns(t *testing.T)
 		},
 	}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -1152,7 +1152,7 @@ func TestSubmitUserMessageMissingPhaseRemainsTerminal(t *testing.T) {
 	}}
 	client.caps = llm.ProviderCapabilities{ProviderID: "anthropic", SupportsResponsesAPI: false, IsOpenAIFirstParty: false}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {

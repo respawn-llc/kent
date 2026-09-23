@@ -718,7 +718,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	})
 	runtimeService := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{})
 	activateSettings := cfg.Settings
-	activateSettings.Model = "gpt-5.4"
+	activateSettings.Model = "gpt-6-sol"
 	activateSettings.ThinkingLevel = "medium"
 	activateSettings.Reviewer.Frequency = "off"
 	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")

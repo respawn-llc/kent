@@ -83,10 +83,10 @@ func TestConfigRoleResolverUsesConfiguredRoleIdentity(t *testing.T) {
 
 func TestWorkflowDefaultAssigneeUsesHeadlessSettings(t *testing.T) {
 	settings := config.Settings{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Subagents: map[string]config.SubagentRole{
 			config.DefaultSubagentRole: {
-				Settings: config.Settings{Model: "gpt-5-mini"},
+				Settings: config.Settings{Model: "gpt-6-luna"},
 				Sources: map[string]config.Origin{"model": {
 					Kind:     config.SourceInput,
 					Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {
@@ -99,7 +99,7 @@ func TestWorkflowDefaultAssigneeUsesHeadlessSettings(t *testing.T) {
 		},
 	}
 	role, ok := (configRoleResolver{app: testsetup.ProgrammaticConfig(t, settings)}).ResolveConfiguredRole(workflow.DefaultAgentRole)
-	if !ok || role.Model != "gpt-5-mini" {
+	if !ok || role.Model != "gpt-6-luna" {
 		t.Fatalf("direct default assignment = %+v, exists=%t", role, ok)
 	}
 }

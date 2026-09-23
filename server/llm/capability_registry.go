@@ -24,6 +24,7 @@ type ModelCapabilityContract struct {
 	Model                         string
 	ContextWindowTokens           int
 	LargeContextWindowTokens      int
+	SubscriptionContext           *ModelMetadata
 	KnowledgeCutoff               ModelKnowledgeCutoff
 	HasKnowledgeCutoff            bool
 	SupportsReasoningEffort       bool
@@ -33,6 +34,16 @@ type ModelCapabilityContract struct {
 	SupportsVerbosity             bool
 	SupportedVerbosityLevels      []string
 	SupportsVisionInputs          bool
+}
+
+func (c ModelCapabilityContract) ContextMetadata(provider ProviderCapabilities) ModelMetadata {
+	if provider.ProviderID == "chatgpt-codex" && c.SubscriptionContext != nil {
+		return *c.SubscriptionContext
+	}
+	return ModelMetadata{
+		ContextWindowTokens:      c.ContextWindowTokens,
+		LargeContextWindowTokens: c.LargeContextWindowTokens,
+	}
 }
 
 func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {

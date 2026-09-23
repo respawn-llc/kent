@@ -786,7 +786,7 @@ func TestDetailModeStatusLineOmitsActionForCompleteAssistantRow(t *testing.T) {
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	m := newProjectedStaticUIModel(
 		WithUISessionID(detailTestSessionID),
-		WithUIModelName("gpt-5"),
+		WithUIModelName("gpt-6-sol"),
 	)
 	m.statusConfig.SessionViews = &countingSessionViewClient{page: page}
 	m.terminalGeometry = terminalGeometryKnown(100, 16)

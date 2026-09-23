@@ -18,7 +18,7 @@ func TestProviderUsageRecordsReviewerOperations(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(11)}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"},
+		Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), engine, "reviewer-usage", client); err != nil {
 		t.Fatalf("run Reviewer: %v", err)
@@ -31,7 +31,7 @@ func TestProviderUsageRecordsReviewerOperations(t *testing.T) {
 func TestProviderUsageRecordsOperationIdentity(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(11)}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	if _, err := generateTestActiveStep(
 		context.Background(),
 		engine,
@@ -66,7 +66,7 @@ func TestProviderUsageRecordsOperationIdentity(t *testing.T) {
 func TestProviderUsageRecordsLocalCompaction(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(13)}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", CompactionMode: "local"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	if err := steerTestActiveStep(engine, "local-compaction-input", steerMessagesWithPersistenceIntent(
 		steeringPriorityNormal, steeringMessageEventNone, true,
 		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact locally")}},
@@ -87,7 +87,7 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 		responses:           []llm.Response{providerUsageTestMixedResponse(2), providerUsageTestMixedResponse(5)},
 		compactionResponses: []llm.CompactionResponse{{Checkpoint: remoteCompactionReplacement(9, 4, 200_000).Checkpoint, Usage: llm.Usage{InputTokens: 9, OutputTokens: 4}, ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence}},
 	}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", CompactionMode: "native"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CompactionMode: "native"})
 	request := providerUsageTestRequest(store.Meta().SessionID, false)
 	for index := 0; index < 2; index++ {
 		if _, err := generateTestActiveStep(context.Background(), engine, "before-compaction", client, request); err != nil {
@@ -142,7 +142,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 		}
 		reopened := mustOpenTestSession(t, store.Dir())
 		client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(17)}}
-		engine := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+		engine := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 		if _, err := generateTestActiveStep(context.Background(), engine, "continued", client, providerUsageTestRequest(reopened.Meta().SessionID, false)); err != nil {
 			t.Fatalf("continue old session: %v", err)
 		}
@@ -154,7 +154,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 	t.Run("fork preserves source evidence", func(t *testing.T) {
 		parent := mustCreateTestSession(t)
 		sourceClient := &fakeClient{responses: []llm.Response{providerUsageTestResponse(19)}}
-		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-5", ThinkingLevel: "medium"})
+		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", ThinkingLevel: "medium"})
 		if _, err := generateTestActiveStep(context.Background(), sourceEngine, "fork-source", sourceClient, providerUsageTestRequest(parent.Meta().SessionID, false)); err != nil {
 			t.Fatalf("generate source usage: %v", err)
 		}
@@ -176,7 +176,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 			t.Fatalf("source/copy usage records = %d/%d, want identical one/one", len(parentRecords), len(childRecords))
 		}
 		client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(23)}}
-		engine := mustNewTestEngine(t, child, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+		engine := mustNewTestEngine(t, child, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 		if _, err := generateTestActiveStep(context.Background(), engine, "forked-call", client, providerUsageTestRequest(child.Meta().SessionID, false)); err != nil {
 			t.Fatalf("generate in fork: %v", err)
 		}

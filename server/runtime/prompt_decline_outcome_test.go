@@ -28,7 +28,7 @@ func TestDeclinedQuestionProducesErrorToolCompletionWithoutSyntheticUserMessage(
 			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
 		}),
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 			OnEvent: func(event Event) {
 				eventMu.Lock()
@@ -92,7 +92,7 @@ func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
 		}),
 		Config{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 			AskQuestionBatchSkipped: func(batch tools.AskQuestionBatchMetadata) {
 				skipped = append(skipped, batch)

@@ -159,7 +159,7 @@ func TestLocalToolHandlerStartsAfterAcceptedIntentIsDurable(t *testing.T) {
 				observed: observed,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	if _, err := engine.SubmitUserMessage(t.Context(), "run"); err != nil {
@@ -184,7 +184,7 @@ func TestExecuteToolCallsCommitsHandlerErrorAsHonestResult(t *testing.T) {
 			ID:      toolspec.ToolExecCommand,
 			Handler: failingToolHandler{err: handlerErr},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	stepID := runtimeTestStepID("step")
@@ -229,7 +229,7 @@ func TestToolExecutionDurabilityObservationBaseline(t *testing.T) {
 					ID:      toolspec.ToolExecCommand,
 					Handler: durabilityToolHandler{},
 				}),
-				Config{Model: "gpt-5"},
+				Config{Model: "gpt-6-sol"},
 			)
 			calls := make([]llm.ToolCall, count)
 			for index := range calls {
@@ -308,7 +308,7 @@ func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t
 			ID:      toolspec.ToolExecCommand,
 			Handler: durabilityToolHandler{verifyApprovalAdmission: true},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	calls := []llm.ToolCall{
 		{

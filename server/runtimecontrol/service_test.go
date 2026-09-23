@@ -637,7 +637,7 @@ func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tool
 		registry = tools.NewRegistry()
 	}
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-6-sol"
 	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
@@ -820,7 +820,7 @@ func TestServiceSubmitUserTurnReactivatesRetainedWorkflowSessionBeforeSubmitting
 		t,
 		finalResponseRuntimeControlClient(),
 		nil,
-		runtime.Config{Model: "gpt-5"},
+		runtime.Config{Model: "gpt-6-sol"},
 	)
 	config := runtimeControlExactExecution(t)
 	workflowRef := sessionruntime.WorkflowExecutionRef{
@@ -909,7 +909,7 @@ func TestServiceSubmitUserTurnRejectsMismatchedReactivatedWorkflowExecution(t *t
 		t,
 		finalResponseRuntimeControlClient(),
 		nil,
-		runtime.Config{Model: "gpt-5"},
+		runtime.Config{Model: "gpt-6-sol"},
 	)
 	selected := runtimeControlExactExecution(t)
 	binding, err := engine.BindCurrentNodeExecution(selected)
@@ -2709,7 +2709,7 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 		}},
 	}
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
-		Model:                        "gpt-5",
+		Model:                        "gpt-6-sol",
 		ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
 	if _, err := service.SubmitUserTurn(
@@ -2738,7 +2738,7 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	client := &blockingRuntimeControlClient{}
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	if _, err := service.SubmitUserTurn(
 		t.Context(),
@@ -3276,7 +3276,7 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 	}
 	defer releaseCompaction()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
-		Model:                        "gpt-5",
+		Model:                        "gpt-6-sol",
 		ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
 	if _, err := engine.SubmitUserMessage(context.Background(), "seed compaction"); err != nil {

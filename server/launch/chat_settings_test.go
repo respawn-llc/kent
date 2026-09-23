@@ -17,7 +17,7 @@ import (
 )
 
 func TestSupportedChatThinkingValuesUsesKnownModelContract(t *testing.T) {
-	got := supportedChatThinkingValues("gpt-5", "ultra")
+	got := supportedChatThinkingValues("gpt-6-sol", "ultra")
 	if slices.Contains(got, "ultra") {
 		t.Fatalf("supported thinking values = %v, unexpectedly included configured value outside the known model contract", got)
 	}
@@ -37,15 +37,15 @@ func TestSessionAgentChoicesPreserveOnlyKnownRoleFacts(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
 			declarations := ""
 			if scenario.authored {
-				declarations = "model = \"gpt-5-mini\"\nthinking_level = \"high\""
+				declarations = "model = \"gpt-6-luna\"\nthinking_level = \"high\""
 			}
 			if scenario.environment {
-				t.Setenv("KENT_MODEL", "gpt-5-mini")
+				t.Setenv("KENT_MODEL", "gpt-6-luna")
 				t.Setenv("KENT_THINKING_LEVEL", "high")
 			}
 			if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(fmt.Sprintf(`
 connection = "work"
-model = "gpt-5"
+model = "gpt-6-sol"
 thinking_level = "medium"
 [connections.work]
 protocol = "responses"
@@ -80,9 +80,9 @@ connection = "missing"
 					if available != (entry.SelectionError == nil) || available != (entry.Settings != nil) {
 						t.Fatalf("choice %s availability: %+v", name, entry)
 					}
-					model, thinking := "gpt-5", "medium"
+					model, thinking := "gpt-6-sol", "medium"
 					if scenario.authored || scenario.environment {
-						model, thinking = "gpt-5-mini", "high"
+						model, thinking = "gpt-6-luna", "high"
 					} else if name == "fast" && !available {
 						if entry.Choice.Model != nil || entry.Choice.Thinking != nil {
 							t.Fatalf("unresolved built-in defaults became facts: %+v", entry.Choice)
@@ -107,7 +107,7 @@ func TestSupportedChatThinkingValuesPreservesConfiguredUnknownModelValue(t *test
 
 func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testing.T) {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = "medium"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolExecCommand: true,
@@ -115,7 +115,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	}
 	settings.Subagents = map[string]config.SubagentRole{
 		"equivalent": {
-			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "medium"},
+			Settings: config.Settings{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"worker": {
@@ -160,8 +160,11 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	}
 
 	settings.Subagents["broken"] = config.SubagentRole{
-		Settings: config.Settings{ThinkingLevel: " "},
-		Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
+		Settings: config.Settings{Model: "gpt-6-astra", ThinkingLevel: " "},
+		Sources: map[string]config.Origin{
+			"model":          {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+			"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
+		},
 	}
 	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
 	var typed *serverapi.ChatSettingsAgentPreparationError

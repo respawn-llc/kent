@@ -40,7 +40,7 @@ func TestSemanticCloseDoesNotRereportCompletedCellAndLeavesNoEmptySlot(t *testin
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: "step",
@@ -128,7 +128,7 @@ func TestSemanticCloseSteeringFailureAbortsResultGroupWithoutPanicking(t *testin
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	call := llm.ToolCall{
 		ID:    "semantic-close-steer-failure",

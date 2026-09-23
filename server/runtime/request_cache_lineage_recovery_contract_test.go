@@ -24,7 +24,7 @@ func TestCommittedCacheResponseObserverFailureRetainsLineage(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
 	baselineSequence := store.Meta().LastSequence
@@ -62,7 +62,7 @@ func TestVerboseCacheReuseDropPersistsTypedWarning(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeVerbose,
 	})
 
@@ -98,7 +98,7 @@ func TestReviewerCacheLineagePersistsScopedWarning(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeVerbose,
 	})
 	requests := []llm.Request{
@@ -125,7 +125,7 @@ func cacheLineageRequest(cacheKey string, scope transcript.CacheWarningScope, co
 		}})...)
 	}
 	return llm.Request{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		PromptCacheKey:   cacheKey,
 		PromptCacheScope: scope,
 		Items:            items,
