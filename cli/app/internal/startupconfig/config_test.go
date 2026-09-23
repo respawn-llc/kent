@@ -118,7 +118,7 @@ func TestResolveSessionConfigAppliesLoadOptions(t *testing.T) {
 	resolved, err := ResolveSessionConfig(Request{
 		WorkspaceRoot: workspace,
 		LoadOptions: config.LoadOptions{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "high",
 		},
 	})
@@ -126,8 +126,8 @@ func TestResolveSessionConfigAppliesLoadOptions(t *testing.T) {
 		t.Fatalf("ResolveSessionConfig: %v", err)
 	}
 	cfg := resolved.Config
-	if cfg.Settings.Model != "gpt-5" {
-		t.Fatalf("model = %q, want gpt-5", cfg.Settings.Model)
+	if cfg.Settings.Model != "gpt-6-sol" {
+		t.Fatalf("model = %q, want gpt-6-sol", cfg.Settings.Model)
 	}
 	if cfg.Settings.ThinkingLevel != "high" {
 		t.Fatalf("thinking level = %q, want high", cfg.Settings.ThinkingLevel)

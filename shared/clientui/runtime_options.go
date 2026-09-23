@@ -3,6 +3,7 @@ package clientui
 import "strings"
 
 var supportedThinkingLevels = map[string]struct{}{
+	"none":   {},
 	"low":    {},
 	"medium": {},
 	"high":   {},

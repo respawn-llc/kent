@@ -30,7 +30,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 		cfg.Settings.Reviewer.Frequency = "off"
 		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-			Settings: config.Settings{Model: "gpt-5-mini"},
+			Settings: config.Settings{Model: "gpt-6-luna"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		}
 		cfg.Settings.Subagents["worker"] = config.SubagentRole{}

@@ -245,15 +245,15 @@ func TestOnboardingSpinnerSchedulingTracksScreenState(t *testing.T) {
 
 func TestApplyOnboardingModelUpdatesKnownContextWindow(t *testing.T) {
 	state := testOnboardingFlowStatePtr(t, func(cfg *config.App) {
-		cfg.Settings.Model = "gpt-5.3-codex"
+		cfg.Settings.Model = "gpt-6-luna"
 	})
-	if err := state.submitPrimaryModel("gpt-5.6-sol"); err != nil {
+	if err := state.submitPrimaryModel("gpt-6-sol"); err != nil {
 		t.Fatalf("apply onboarding model: %v", err)
 	}
 	if state.selections.contextWindow.kind != onboardingContextDefault {
-		t.Fatalf("expected gpt-5.6-sol default context window, got %+v", state.selections.contextWindow)
+		t.Fatalf("expected gpt-6-sol default context window, got %+v", state.selections.contextWindow)
 	}
-	if state.selections.reviewerModelValue() != "gpt-5.6-sol" {
+	if state.selections.reviewerModelValue() != "gpt-6-sol" {
 		t.Fatalf("expected reviewer model to follow main model, got %q", state.selections.reviewerModelValue())
 	}
 	if state.selections.reviewerThinkingValue() != "medium" {
@@ -297,17 +297,17 @@ func TestMainThinkingChoicePreservesCustomReviewerThinking(t *testing.T) {
 
 func TestApplyOnboardingModelPreservesCustomReviewerOverrides(t *testing.T) {
 	state := testOnboardingFlowStatePtr(t, func(cfg *config.App) {
-		cfg.Settings.Reviewer.Model = "gpt-4.1"
+		cfg.Settings.Reviewer.Model = "gpt-6-astra"
 		cfg.Settings.Reviewer.ThinkingLevel = "low"
 		cfg.Source.Sources["reviewer.model"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model"}}
 
 		cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
 
 	})
-	if err := state.submitPrimaryModel("gpt-5.3-codex"); err != nil {
+	if err := state.submitPrimaryModel("gpt-6-luna"); err != nil {
 		t.Fatalf("apply onboarding model: %v", err)
 	}
-	if state.selections.reviewerModelValue() != "gpt-4.1" {
+	if state.selections.reviewerModelValue() != "gpt-6-astra" {
 		t.Fatalf("expected custom reviewer model to be preserved, got %q", state.selections.reviewerModelValue())
 	}
 	if state.selections.reviewerThinkingValue() != "low" {
@@ -332,9 +332,9 @@ func findWorkflowStep(t *testing.T, state *onboardingFlowState, id onboardingSte
 func testOnboardingCapabilityFacts() *capabilitypb.Facts {
 	contextWindow := uint32(272_000)
 	models := []*capabilitypb.ModelFact{
-		{ModelId: ptrString("gpt-5.6-sol"), Known: true, ContextWindowTokens: &contextWindow, LargeWindow: &capabilitypb.ModelLargeWindowFact{Tokens: 400_000}, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
-		{ModelId: ptrString("gpt-5.3-codex"), Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
-		{ModelId: ptrString("gpt-4.1"), Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
+		{ModelId: ptrString("gpt-6-sol"), Known: true, ContextWindowTokens: &contextWindow, LargeWindow: &capabilitypb.ModelLargeWindowFact{Tokens: 400_000}, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
+		{ModelId: ptrString("gpt-6-luna"), Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
+		{ModelId: ptrString("gpt-6-astra"), Known: true, ContextWindowTokens: &contextWindow, SupportsThinking: true, SupportedThinkingLevels: []string{"low", "medium", "high"}, Verbosity: &capabilitypb.ModelVerbosityFact{Supported: true, Source: "catalog", Levels: []string{"low", "medium", "high"}}},
 	}
 	facts := emptyOnboardingCapabilityFacts()
 	facts.Models = &capabilitypb.ModelFacts{

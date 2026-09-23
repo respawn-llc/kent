@@ -15,7 +15,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	tests := []struct {
 		name           string
@@ -96,7 +96,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 				context.Background(),
 				"",
 				newObservedModelClient(client),
-				llm.Request{Model: "gpt-5", ToolChoiceMode: llm.ToolChoiceModeAutomatic},
+				llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic},
 				nil,
 				nil,
 				nil,

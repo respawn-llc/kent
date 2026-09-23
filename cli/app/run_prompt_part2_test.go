@@ -60,7 +60,7 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 			WorkspaceRoot:         workspace,
 			WorkspaceRootExplicit: true,
 			AgentRole:             agentRole,
-			Model:                 "gpt-5",
+			Model:                 "gpt-6-sol",
 		}, name, 0, nil)
 		if err != nil {
 			t.Fatalf("%s RunPrompt: %v", name, err)
@@ -122,7 +122,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, "hello from user", 0, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
@@ -261,7 +261,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	result, err := RunPrompt(ctx, Options{
 		WorkspaceRoot:             worktreeSubdir,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
-		Model:                     "gpt-5",
+		Model:                     "gpt-6-sol",
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -295,7 +295,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		t.Fatalf("mkdir config dir: %v", err)
 	}
 	contents := strings.Join([]string{
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.fast]",
 		"connection = \"test\"",
@@ -339,8 +339,8 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		t.Fatalf("result = %q, want %q", result.Result, "fast via role provider")
 	}
 	payload := <-requestBodies
-	if got := payload["model"]; got != "gpt-5" {
-		t.Fatalf("model payload = %#v, want startup CLI model gpt-5", got)
+	if got := payload["model"]; got != "gpt-6-sol" {
+		t.Fatalf("model payload = %#v, want startup CLI model gpt-6-sol", got)
 	}
 	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.SessionID)
 	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "test" {

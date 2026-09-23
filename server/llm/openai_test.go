@@ -23,7 +23,7 @@ func (streamingOnlyTransport) Generate(_ context.Context, _ OpenAIRequest, callb
 
 func TestRequestAsOpenAIClonesPreparedSchemaCarriers(t *testing.T) {
 	request := Request{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Tools: []Tool{{
 			Name:   "shell",
@@ -52,7 +52,7 @@ func TestRequestAsOpenAIClonesPreparedSchemaCarriers(t *testing.T) {
 
 func TestOpenAIClientGenerateDoesNotReplayFinalTextAsDelta(t *testing.T) {
 	client := NewOpenAIClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic}
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
 
 	var deltas []string
 	resp, err := client.Generate(context.Background(), req, StreamCallbacks{
@@ -78,7 +78,7 @@ func TestOpenAIClientGeneratePreservesFinalTextThatExtendsStreamWithWhitespace(t
 	var deltas []string
 	resp, err := client.Generate(
 		context.Background(),
-		Request{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic},
+		Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic},
 		StreamCallbacks{
 			OnAssistantDelta: func(delta AssistantDelta) {
 				deltas = append(deltas, delta.Text)
@@ -116,7 +116,7 @@ func (trailingWhitespaceStreamingTransport) Generate(
 
 func TestOpenAIClientGenerateEmitsUnknownDeltaPhase(t *testing.T) {
 	client := NewOpenAIClient(streamingOnlyTransport{})
-	req := Request{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeAutomatic}
+	req := Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeAutomatic}
 
 	var deltas []AssistantDelta
 	_, err := client.Generate(context.Background(), req, StreamCallbacks{

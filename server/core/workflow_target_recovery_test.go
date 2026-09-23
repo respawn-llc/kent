@@ -52,7 +52,7 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved.Config.Settings.Model = "gpt-5"
+	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings.Reviewer.Frequency = "off"
 	resolved.Config.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeStructuredOutput
 	binding, err := metadata.RegisterBinding(ctx, resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)

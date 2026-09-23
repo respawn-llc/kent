@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"slices"
 	"strings"
 
 	"core/shared/config"
@@ -10,6 +11,15 @@ import (
 type ModelMetadata = modelcontract.ModelMetadata
 
 var defaultSupportedThinkingLevels = []string{"low", "medium", "high"}
+
+// ProviderThinkingEffort resolves disabled Thinking to an explicit effort only
+// when the model supports it, before request or settings materialization.
+func ProviderThinkingEffort(model, desired string) string {
+	if desired == "" && slices.Contains(SupportedThinkingLevelsModel(model), "none") {
+		return "none"
+	}
+	return desired
+}
 
 func SupportsNativeThinkingUpdates(model string, capabilities ProviderCapabilities) bool {
 	contract, ok := LookupModelCapabilityContract(model)
@@ -102,10 +112,7 @@ func LookupModelMetadata(model string) (ModelMetadata, bool) {
 	if !ok {
 		return ModelMetadata{}, false
 	}
-	return ModelMetadata{
-		ContextWindowTokens:      contract.ContextWindowTokens,
-		LargeContextWindowTokens: contract.LargeContextWindowTokens,
-	}, contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
+	return contract.ContextMetadata(ProviderCapabilities{}), contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
 }
 
 func ApplyDerivedModelContextBudget(settings *config.Settings, model string, fallbackWindow, fallbackThreshold int) {

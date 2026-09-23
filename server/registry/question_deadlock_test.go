@@ -123,7 +123,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		t.Fatal(err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	settings = testsetup.WriteProviderSettings(t, root, settings)

@@ -78,7 +78,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	}
 
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings = testsetup.WriteProviderSettings(t, persistenceRoot, settings)
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspaceRoot,

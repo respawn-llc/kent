@@ -35,7 +35,7 @@ func TestSkillToggleChangesOnlySkillContext(t *testing.T) {
 			newTestToolRegistry(t, tools.HandlerRegistration{
 				ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
 			}), Config{
-				Model:           "gpt-5",
+				Model:           "gpt-6-sol",
 				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
 				SkillPolicy:     policy,
 				SubagentCatalog: testsetup.ProgrammaticConfig(t, catalog),
@@ -75,7 +75,7 @@ func TestSkillToggleChangesOnlySkillContext(t *testing.T) {
 		}
 		contexts = append(contexts, otherContext)
 
-		builder := newMetaContextBuilder(workspace, "gpt-5", "", policy, time.Unix(0, 0)).
+		builder := newMetaContextBuilder(workspace, "gpt-6-sol", "", policy, time.Unix(0, 0)).
 			withSubagents(testsetup.ProgrammaticConfig(t, catalog), []toolspec.ID{toolspec.ToolExecCommand})
 		projection, err := builder.Build(baseMetaContextBuildOptions(false))
 		if err != nil {

@@ -376,7 +376,7 @@ func mustOpenTestSession(t *testing.T, dir string) *session.Store {
 func mustNewTestEngine(t *testing.T, store *session.Store, client llm.Client, registry *tools.Registry, cfg Config) *Engine {
 	t.Helper()
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-6-sol"
 	}
 	if cfg.ContextWindowTokens <= 0 {
 		settings := config.DefaultOnboardingSettings()

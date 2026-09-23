@@ -20,7 +20,7 @@ func TestShouldCompactBeforeUserMessageUsesLocalEstimateWithProviderOverride(t *
 
 	client := &contextWindowClient{contextWindow: 1000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		AutoCompactTokenLimit: 950,
 		ContextWindowTokens:   1000,
 		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
@@ -52,7 +52,7 @@ func TestShouldCompactBeforeUserMessageUsesLocalEstimateWithLockedContract(t *te
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		ProviderContract: session.LockedProviderCapabilities{
 			ProviderID: "openai",
 		},
@@ -62,7 +62,7 @@ func TestShouldCompactBeforeUserMessageUsesLocalEstimateWithLockedContract(t *te
 
 	client := &contextWindowClient{contextWindow: 1000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		AutoCompactTokenLimit:         950,
 		ContextWindowTokens:           1000,
 		PreSubmitCompactionLeadTokens: 50,
@@ -85,7 +85,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -177,7 +177,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -194,7 +194,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 		t.Fatalf("re-open store: %v", err)
 	}
 	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -219,7 +219,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -239,7 +239,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 		t.Fatal("expected fork before reminder to clear reminder-issued state")
 	}
 	forked := mustNewTestEngine(t, forkedStore, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -266,7 +266,7 @@ func TestForkedSessionDoesNotCopyPersistedUsageState(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 410_000})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestForkedSessionAfterReminderPreservesCompactionSoonReminderIssuedState(t 
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -335,7 +335,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 
 			client := &contextWindowClient{contextWindow: 2_000}
 			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-				Model:                 "gpt-5",
+				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,
 				AutoCompactTokenLimit: 1_000,
 				CompactionMode:        tt.compactionMode,
@@ -387,7 +387,7 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   20_000,
 		AutoCompactTokenLimit: 10_000,
 		MaxTokens:             20,
@@ -436,7 +436,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -508,7 +508,7 @@ func TestRunStepLoopAppendsCompactionSoonReminderImmediatelyAfterToolOutputBound
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",

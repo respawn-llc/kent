@@ -560,7 +560,7 @@ func TestPersistenceSnapshotsAreImmutable(t *testing.T) {
 	}
 	verbosity := true
 	if err := store.MarkModelDispatchLocked(LockedContract{
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		SystemPrompt: "original prompt",
 		ProviderContract: LockedProviderCapabilities{
 			SupportsProviderVerbosity: &verbosity,
@@ -597,7 +597,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5"}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol"}); err != nil {
 		t.Fatal(err)
 	}
 

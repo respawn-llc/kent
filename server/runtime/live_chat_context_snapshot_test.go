@@ -22,7 +22,7 @@ func TestLiveChatContextSnapshotUsesRuntimeFactsBehindPersistencePresenceGates(t
 		}},
 		newTestToolRegistry(t),
 		Config{
-			Model:                 "gpt-5",
+			Model:                 "gpt-6-sol",
 			ContextWindowTokens:   100_000,
 			AutoCompactTokenLimit: 75_000,
 			CompactionMode:        string(config.CompactionModeNative),

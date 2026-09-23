@@ -10,8 +10,8 @@ import (
 )
 
 func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testing.T) {
-	base := config.Settings{Model: "gpt-5", ThinkingLevel: "high"}
-	locked := &session.LockedContract{Model: "gpt-5"}
+	base := config.Settings{Model: "gpt-6-sol", ThinkingLevel: "high"}
+	locked := &session.LockedContract{Model: "gpt-6-sol"}
 
 	effective := launch.EffectiveSettings(base, locked)
 	if effective.ThinkingLevel != "high" {
@@ -21,7 +21,7 @@ func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testi
 
 func TestActiveToolIDs_UsesLockedEnabledToolsVerbatim(t *testing.T) {
 	locked := &session.LockedContract{EnabledTools: []string{string(toolspec.ToolExecCommand)}}
-	ids, err := launch.ActiveToolIDsForPlan(config.Settings{Model: "gpt-5.4"}, config.SourceReport{}, locked)
+	ids, err := launch.ActiveToolIDsForPlan(config.Settings{Model: "gpt-6-sol"}, config.SourceReport{}, locked)
 	if err != nil {
 		t.Fatalf("activeToolIDs: %v", err)
 	}

@@ -176,7 +176,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		store,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	customInput := "later custom input"
 	calls := []llm.ToolCall{
@@ -246,7 +246,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		firstStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[0].ID)
 	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[1].ID)
@@ -289,7 +289,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		secondStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	for _, call := range calls {
 		assertFreshResourceRepairOnEngine(t, second, secondStore, call.ID)
@@ -326,7 +326,7 @@ func TestPersistedSessionGroupCommitPrecedesNextProviderAndStepCompletion(t *tes
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				eventsMu.Lock()
 				events = append(events, event)
@@ -444,7 +444,7 @@ func runPersistedEffectRecoveryCase(
 			ID:      toolID,
 			Handler: fixture.handler,
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepID := runtimeTestStepID("effect-step")
 	restoreStep := setTestActiveStep(engine, stepID)

@@ -59,7 +59,7 @@ const target = {
 
 function runtimePlanResult(planSessionID: string) {
   const settings = create(SettingsSchema, {
-    model: "gpt-5",
+    model: "gpt-6-sol",
     thinkingLevel: "medium",
     modelVerbosity: ModelVerbosity.MEDIUM,
     modelCapabilities: { supportsReasoningEffort: true, supportsVisionInputs: false },
@@ -97,7 +97,7 @@ function runtimePlanResult(planSessionID: string) {
     },
     reviewer: {
       frequency: "off",
-      model: "gpt-5",
+      model: "gpt-6-sol",
       thinkingLevel: "medium",
       modelVerbosity: ModelVerbosity.MEDIUM,
       connection: "test",

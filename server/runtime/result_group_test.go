@@ -265,7 +265,7 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)

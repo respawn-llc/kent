@@ -33,12 +33,13 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 	}
 }
 
-func TestStartupMissingConnectionCredentialsOpensLogin(t *testing.T) {
+func TestSelectedConnectionMissingCredentialsOpensLogin(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), []byte("connection = \"subscription\"\n[connections.subscription]\nprotocol = \"chatgpt-codex\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	cfg = loadAppTestConfig(t, workspace, config.LoadOptions{})
 	daemon, err := serverstartup.StartServeServer(t.Context(), serverstartup.Request{})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +52,13 @@ func TestStartupMissingConnectionCredentialsOpensLogin(t *testing.T) {
 		opened = true
 		return authMethodPickerResult{Canceled: true}, nil
 	}}
-	_, err = startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, interactor, true)
+	remote, err := attachConfiguredStartupRemote(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = remote.Close() })
+	server := newRemoteAppServerWithAuth(remote, cfg)
+	err = server.EnsureAuthReady(context.Background(), cfg.Settings, interactor, true)
 	if !opened || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("login opened = %t, startup error = %v", opened, err)
 	}

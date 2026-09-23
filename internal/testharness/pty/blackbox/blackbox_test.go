@@ -216,7 +216,7 @@ func TestResponsesStubAcceptsLosslessResponseDTOAndStaticAdaptiveDefaults(t *tes
 		path   string
 		body   string
 	}{
-		{method: http.MethodGet, path: "/models/gpt-5", body: ""},
+		{method: http.MethodGet, path: "/models/gpt-6-sol", body: ""},
 	} {
 		httpRequest, err := http.NewRequest(request.method, stub.URL()+request.path, bytes.NewBufferString(request.body))
 		if err != nil {
@@ -608,7 +608,7 @@ func TestResponsesStubRejectsRequiredQueueExhaustionAndProvidesProviderFailuresF
 		path   string
 		body   string
 	}{
-		{route: blackbox.RouteModel, method: http.MethodGet, path: "/models/gpt-5"},
+		{route: blackbox.RouteModel, method: http.MethodGet, path: "/models/gpt-6-sol"},
 	} {
 		stub, err := blackbox.StartResponsesStub([]blackbox.RequiredOperation{{
 			ID: uuid.New(), Route: failure.route, Outcome: blackbox.OutcomeProviderFailure,
@@ -652,7 +652,7 @@ func TestResponsesStubStreamsRequiredOperationToHTTPTransport(t *testing.T) {
 	transport.Client = &http.Client{Transport: &http.Transport{Proxy: nil}}
 	var deltas []string
 	response, err := transport.Generate(context.Background(), llm.OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("session-1"),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(probe)}}),
@@ -689,7 +689,7 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 	compactTransport.BaseURLExplicit = true
 	compactTransport.Client = newCanonicalOAuthStubClient(t, compact)
 	if _, err := compactTransport.Compact(context.Background(), llm.OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("session-1"),
 		CodexDispatch:  testCodexDispatch(t, "session-1", llm.CodexRequestKindCompaction),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
@@ -712,7 +712,7 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 	t.Cleanup(model.Close)
 	modelTransport := newStubTransport(model)
 	modelTransport.ContextWindowTokens = 0
-	window, err := modelTransport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := modelTransport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("ResolveModelContextWindow: %v", err)
 	}

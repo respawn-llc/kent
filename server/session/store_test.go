@@ -35,7 +35,7 @@ func sessionTestLockedContract() LockedContract {
 	toolPreambles := true
 	workflowCompletionMode := sessioncontract.WorkflowCompletionModeTool
 	return LockedContract{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		SystemPrompt:           "prompt",
 		HasSystemPrompt:        true,
 		ReviewerPrompt:         "reviewer",
@@ -308,7 +308,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	store := newSessionTestStore(t)
 	toolPreambles := true
-	markSessionTestLocked(t, store, LockedContract{Model: "gpt-5"})
+	markSessionTestLocked(t, store, LockedContract{Model: "gpt-6-sol"})
 	refreshed, err := store.RefreshLockedMainPromptSnapshot(LockedMainPromptSnapshot{
 		SystemPrompt:    "prompt B",
 		HasSystemPrompt: true,
@@ -331,7 +331,7 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 
 func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 	parent := newSessionTestStore(t)
-	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
 	store := newSessionTestLazyStore(t)
@@ -360,7 +360,7 @@ func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 
 func TestLockedWorkflowCompletionModeBackfillPersists(t *testing.T) {
 	store := newSessionTestStore(t)
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
 	result, err := store.BackfillLockedWorkflowCompletionMode(sessioncontract.WorkflowCompletionModeShellCommand)
@@ -387,7 +387,7 @@ func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt A", HasSystemPrompt: true}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt A", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("initial lock: %v", err)
 	}
 	before := store.Meta().Locked

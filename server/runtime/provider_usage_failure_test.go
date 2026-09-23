@@ -22,7 +22,7 @@ func TestProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testin
 		errors:    []error{errors.New("temporary provider failure")},
 		responses: []llm.Response{providerUsageTestResponse(29)},
 	}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := generateTestActiveStep(
 		context.Background(),
@@ -49,7 +49,7 @@ func TestProviderUsagePersistenceFailureDoesNotRetryProviderAndRetainsCommittedF
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(31)}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	gate.FailNext(observerErr)
 
 	_, err := generateTestActiveStep(

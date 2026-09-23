@@ -22,7 +22,7 @@ func TestGenerateHostedSearchIdentityDoesNotDependOnJSONFieldOrder(t *testing.T)
 	response, err := transport.Generate(context.Background(), OpenAIRequest{
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 			response, err := transport.Generate(context.Background(), OpenAIRequest{
 				SessionID:      textutil.Value("test-session"),
 				ToolChoiceMode: ToolChoiceModeAutomatic,
-				Model:          "gpt-5",
+				Model:          "gpt-6-sol",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatal(err)

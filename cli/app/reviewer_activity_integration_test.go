@@ -38,7 +38,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			activity := registry.NewRuntimeRegistry()
 			var engine *runtime.Engine
 			store, engine := newAppRuntimeEngine(t, reviewerActivityMainClient{}, runtime.Config{
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "medium",
 				OnEvent: func(event runtime.Event) {
 					if event.Kind == runtime.EventRuntimeActivityChanged {
@@ -47,7 +47,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 				},
 				Reviewer: runtime.ReviewerConfig{
 					Frequency: "all",
-					Model:     "gpt-5",
+					Model:     "gpt-6-sol",
 					Client:    reviewer,
 				},
 			})
@@ -161,7 +161,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 					t,
 					store,
 					reviewerActivityMainClient{},
-					runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"},
+					runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 				)
 				if err := reopened.Close(); err != nil {
 					t.Fatalf("close reopened Runtime: %v", err)

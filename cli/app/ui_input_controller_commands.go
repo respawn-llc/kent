@@ -214,7 +214,7 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 
 	normalized, ok := clientui.NormalizeThinkingLevel(requested)
 	if !ok {
-		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected low|medium|high|xhigh|max|ultra)"
+		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected none|low|medium|high|xhigh|max|ultra)"
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	return m, m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{

@@ -14,11 +14,11 @@ import (
 const DefaultMaxConcurrentShells = 100
 
 const (
-	defaultModel                         = "gpt-5.6-sol"
+	defaultModel                         = "gpt-6-sol"
 	defaultThinkingLevel                 = "medium"
 	defaultModelVerbosity                = ModelVerbosityLow
 	defaultTheme                         = theme.Auto
-	defaultModelContextWindow            = 372_000
+	defaultModelContextWindow            = 272_000
 	minimumModelContextWindow            = 40_000
 	defaultModelTimeoutSeconds           = 400
 	defaultMinimumExecToBgSec            = 15
@@ -130,7 +130,7 @@ func writeBuiltInSubagentSections(builder *strings.Builder) {
 	builder.WriteString("# inherits all main settings unless overridden\n")
 	builder.WriteString("# agent_callable = true # set false to hide/block this role from Kent-session subagent calls\n")
 	builder.WriteString("# description = \"\" # model-visible role description for future/catalog uses\n")
-	builder.WriteString("# model = \"gpt-5.6-terra\" # built-in heuristic on exact OpenAI first-party setups\n")
+	builder.WriteString("# model = \"gpt-6-luna\" # built-in heuristic on exact OpenAI first-party setups\n")
 	builder.WriteString("# thinking_level = \"low\" # built-in heuristic on exact OpenAI first-party setups\n")
 	builder.WriteString("# priority_request_mode = true # built-in heuristic on exact OpenAI first-party setups\n")
 	builder.WriteString("# model_context_window = 372000 # built-in heuristic on exact OpenAI first-party setups\n")

@@ -20,7 +20,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 	client.compactionResponses[0].Checkpoint.Raw = json.RawMessage(`{"type":"compaction","id":"compaction-checkpoint","encrypted_content":"encrypted","provider_extension":{"retained":true}}`)
 	checkpoint := llm.CloneResponseItems([]llm.ResponseItem{client.compactionResponses[0].Checkpoint})[0]
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
 	})
 	if _, err := engine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
@@ -92,7 +92,7 @@ func TestCompactionReplacementAtomicallyEmbedsReinjectedMetaAndPreservedUserMess
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		GlobalConfigDir: globalConfigDir,
 	})
 	for range 2 {

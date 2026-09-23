@@ -33,7 +33,7 @@ func TestSelectedPendingInputTriggersCompactionBeforeCommit(t *testing.T) {
 
 func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 	store := mustCreateTestSession(t)
-	configuration := Config{Model: "gpt-5", ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native"}
+	configuration := Config{Model: "gpt-6-sol", ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native"}
 	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{InputTokens: 95000, WindowTokens: 200000},
@@ -117,7 +117,7 @@ func testSelectedPendingInputBudget(t *testing.T, toolContinuation bool) {
 		client.responses[0].ToolCalls = []llm.ToolCall{{ID: "budget-tool", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, registry, Config{
-		Model: "gpt-5", EnabledTools: enabled, ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native",
+		Model: "gpt-6-sol", EnabledTools: enabled, ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native",
 	})
 	pending := strings.Repeat("pending ", 6000)
 	if toolContinuation {

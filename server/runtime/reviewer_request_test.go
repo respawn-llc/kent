@@ -61,7 +61,7 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
 		},
 	}
-	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), eng, "step-1", reviewerClient); err != nil {
 		t.Fatalf("first reviewer suggestions: %v", err)
@@ -87,7 +87,7 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Model: "local-reviewer",
 			ModelCapabilities: session.LockedModelCapabilities{
@@ -110,8 +110,8 @@ func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 	seedContent := "review raw \x1b[31mansi\x1b[0m"
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:    "gpt-5",
-		Reviewer: ReviewerConfig{Model: "gpt-5"},
+		Model:    "gpt-6-sol",
+		Reviewer: ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if err := steerTestActiveStep(eng, "seed-step", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(seedContent)}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -151,7 +151,7 @@ func TestReviewerRebuildRetainsGenerationSkillsWithoutMutatingMainTranscript(t *
 	disabledPolicy := config.ResolveSkillPolicy(config.Settings{SkillToggles: map[string]bool{"review-skill": false}})
 	rebuilt, err := buildReviewerRequestItemsWithBuilder(
 		items,
-		newMetaContextBuilder(workspace, "gpt-5", "medium", disabledPolicy, time.Now()),
+		newMetaContextBuilder(workspace, "gpt-6-sol", "medium", disabledPolicy, time.Now()),
 		false,
 	)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
 		},
 	}
-	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 	t.Cleanup(func() { _ = eng.Close() })
 	if err := steerTestActiveStep(eng, "prep-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("first request")}})); err != nil {
 		t.Fatalf("append first message: %v", err)
@@ -193,7 +193,7 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 	t.Cleanup(func() { _ = reopenedEng.Close() })
 	if err := steerTestActiveStep(reopenedEng, "prep-2", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("second request")}})); err != nil {
 		t.Fatalf("append second message: %v", err)

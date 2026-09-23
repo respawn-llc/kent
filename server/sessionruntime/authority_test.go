@@ -1726,7 +1726,7 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 		toolResponse("call-scoped"), done, toolResponse("call-idle"), done,
 	}}
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.MinimumExecToBgSeconds = 1
 	settings.ShellOutputMaxChars = 16_000
@@ -2118,7 +2118,7 @@ func TestCompletedWorkflowSessionDoesNotStartBackgroundContinuation(t *testing.T
 	sessionID := lifecycleSessionID(t, fixture)
 	mode := sessioncontract.WorkflowCompletionModeTool
 	if err := fixture.store.MarkModelDispatchLocked(session.LockedContract{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		Temperature:            1,
 		EnabledTools:           []string{string(toolspec.ToolAskQuestion)},
 		HasEnabledTools:        true,
@@ -3291,7 +3291,7 @@ func authorityTestRuntimePlan(t *testing.T, fixture sessionRuntimeFixture, clien
 	filesystem := runtimeTestFilesystemContext(t, fixture.config.WorkspaceRoot)
 	filesystem.Access.ProjectID = projectID
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	options := AgentRuntimePlanOptions{
