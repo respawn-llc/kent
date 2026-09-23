@@ -25,6 +25,32 @@ func hydrationSnapshot(t *testing.T, engine *Engine) TranscriptHydrationSnapshot
 	return snapshot
 }
 
+func TestTranscriptHydrationSnapshotProjectsLiveAssistantStream(t *testing.T) {
+	engine := newTranscriptHydrationSnapshotTestEngine(t, &fakeClient{})
+	stepID := runtimeTestStepID("streaming-assistant")
+	restoreStep := setTestActiveStep(engine, stepID)
+	defer restoreStep()
+
+	engine.transcriptRuntimeState().AppendStreamingDelta(
+		stepID,
+		4,
+		2,
+		"hello",
+		llm.MessagePhaseFinal,
+	)
+
+	snapshot := hydrationSnapshot(t, engine)
+	if snapshot.ActiveAssistantText != "hello" ||
+		snapshot.ActiveAssistantMetadata == nil ||
+		snapshot.ActiveAssistantMetadata.StepID != stepID ||
+		snapshot.ActiveAssistantMetadata.BaseRevision != 4 ||
+		snapshot.ActiveAssistantMetadata.BaseCommittedEntryCount != 2 ||
+		snapshot.ActiveAssistantStreamID == nil ||
+		snapshot.ActiveAssistantPhase != llm.MessagePhaseFinal {
+		t.Fatalf("live assistant stream = %+v", snapshot)
+	}
+}
+
 func TestTranscriptHydrationSnapshotProjectsAndResetsOwnerLiveFacts(t *testing.T) {
 	engine := newTranscriptHydrationSnapshotTestEngine(t, &fakeClient{})
 	stepID := runtimeTestStepID("step-current")

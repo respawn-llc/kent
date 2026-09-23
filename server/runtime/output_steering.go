@@ -843,7 +843,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			return errors.New("assistant commit steering item requires a result destination")
 		}
 		if committedAssistantMessageFinalizesStreaming(commit.message) {
-			streamed, _, _ := e.transcriptRuntimeState().StreamingSnapshot()
+			streamed, _, _, _, _ := e.transcriptRuntimeState().StreamingSnapshot()
 			finalText := ""
 			if commit.message.Content != nil {
 				finalText = *commit.message.Content

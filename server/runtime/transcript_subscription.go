@@ -72,19 +72,15 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 	if e == nil {
 		return TranscriptHydrationSnapshot{}
 	}
-	chat := e.transcriptRuntimeState().chatProjection()
-	if chat == nil {
-		return TranscriptHydrationSnapshot{}
-	}
-	snapshot := chat.deliverySnapshot()
+	streaming, _, streamingMetadata, streamingStreamID, streamingPhase := e.transcriptRuntimeState().StreamingSnapshot()
 	thinkingStatus, reasoningTraces := e.transcriptRuntimeState().ReasoningSnapshot()
 	usage := e.ContextUsage()
 	return TranscriptHydrationSnapshot{
 		ConnectionReplacement:   e.transcriptRuntimeState().ConnectionReplacement(),
-		ActiveAssistantText:     snapshot.Streaming,
-		ActiveAssistantMetadata: cloneAssistantStreamMetadata(snapshot.StreamingMetadata),
-		ActiveAssistantStreamID: cloneTranscriptStreamID(snapshot.StreamingStreamID),
-		ActiveAssistantPhase:    snapshot.StreamingPhase,
+		ActiveAssistantText:     streaming,
+		ActiveAssistantMetadata: streamingMetadata,
+		ActiveAssistantStreamID: streamingStreamID,
+		ActiveAssistantPhase:    streamingPhase,
 		ActiveThinkingStatus:    thinkingStatus,
 		ActiveReasoningTraces:   reasoningTraces,
 		InFlightTools:           e.transcriptRuntimeState().LiveToolSnapshot(),

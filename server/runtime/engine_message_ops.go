@@ -878,9 +878,6 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 	clearedMetadata, clearedStreamID := e.clearStreamingAssistantStateRaw()
 	if instruction.kind == completedResponseResolutionInstructionFinalize {
 		committed := instruction.committedAssistant
-		if clearedStreamID != nil {
-			e.transcriptRuntimeState().RecordAssistantStreamFinalization(committed.coordinate.start, clearedStreamID)
-		}
 		if err := e.emitCommittedAssistantMessageEventRaw(stepID, steeringCommittedAssistantMessage{
 			message:    committed.message,
 			coordinate: cloneCommittedAssistantCoordinate(committed.coordinate),

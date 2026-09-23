@@ -447,11 +447,11 @@ func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	return 0
 }
 
-func (s *transcriptRuntimeState) StreamingSnapshot() (string, string, *AssistantStreamMetadata) {
+func (s *transcriptRuntimeState) StreamingSnapshot() (string, string, *AssistantStreamMetadata, *uuid.UUID, llm.MessagePhase) {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.streamingSnapshot()
 	}
-	return "", "", nil
+	return "", "", nil, nil, ""
 }
 
 func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() *string {
@@ -535,10 +535,6 @@ func (s *transcriptRuntimeState) AppendCommittedCacheWarning(warning transcript.
 
 func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
 	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta, phase)
-}
-
-func (s *transcriptRuntimeState) RecordAssistantStreamFinalization(committedEntryStart int, streamID *uuid.UUID) {
-	s.chatProjection().recordAssistantStreamFinalization(committedEntryStart, streamID)
 }
 
 func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToolCompletion, provenance *TranscriptCommittedRowProvenance) {
