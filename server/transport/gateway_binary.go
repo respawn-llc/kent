@@ -686,13 +686,6 @@ func (g *Gateway) dispatchBinary(
 			return fail(err)
 		}
 	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		binding.operation.Options.AuthenticationStage,
-	); err != nil {
-		return fail(err)
-	}
 	payloadField := request.call.ProtoReflect().Descriptor().Fields().ByName("payload")
 	if !request.call.ProtoReflect().Has(payloadField) {
 		return nil, nil, invalidPayloadFailure(request.call.Correlation)

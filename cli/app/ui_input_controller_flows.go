@@ -91,7 +91,7 @@ func (c uiInputController) normalizePendingCSIShiftEnterOnEnter() {
 	}
 	if strings.HasSuffix(m.mainEditor.Text(), "\n") {
 		m.mainEditor.Replace(strings.TrimSuffix(m.mainEditor.Text(), "\n"))
-		m.refreshSlashCommandFilterFromInputWithAuth(true)
+		m.refreshSlashCommandFilterFromInput()
 	}
 	c.clearPendingCSIShiftEnter()
 }

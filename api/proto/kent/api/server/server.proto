@@ -44,8 +44,6 @@ message Readiness {
   string server_id = 2 [(buf.validate.field).string.min_len = 1];
   string server_version = 3 [(buf.validate.field).string.min_len = 1];
   string protocol_version = 5 [(buf.validate.field).string.min_len = 1];
-  bool auth_ready = 6;
-  bool auth_required = 7;
   string endpoint = 8;
   repeated SubagentRoleSummary subagent_roles = 9;
   repeated ReadinessCause causes = 10;

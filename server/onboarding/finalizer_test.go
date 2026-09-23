@@ -8,13 +8,17 @@ import (
 	"sync"
 	"testing"
 
+	"core/server/auth"
+	"core/server/authservice"
 	"core/server/onboarding"
 	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestFinalizerDefaultEqualChoicesRenderLikeDefaults(t *testing.T) {
@@ -38,6 +42,98 @@ func TestFinalizerDefaultEqualChoicesRenderLikeDefaults(t *testing.T) {
 	defaultConfig := readSettingsFile(t, defaultRoot)
 	if string(nullConfig) != string(defaultConfig) {
 		t.Fatalf("default-equal choices should render exactly like omitted choices")
+	}
+}
+
+func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, HomeDir: t.TempDir(), Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("setup wrote configuration before Finish: %v", err)
+	}
+	observer, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := finalizer.Finalize(observer, &onboardingpb.FinalizeRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	app := loadFinalizedConfig(t, root)
+	connection, err := app.Settings.SelectedConnection()
+	if err != nil || *app.Settings.Connection != "first" || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
+		t.Fatalf("Finish did not persist the pending selection: %+v %v", connection, err)
+	}
+	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+	if err != nil || catalog.PendingSetup != nil {
+		t.Fatalf("successful Finish retained a pending setup: %+v %v", catalog, err)
+	}
+}
+
+func TestFinalizerCustomModelUsesPendingProviderCapabilities(t *testing.T) {
+	root := t.TempDir()
+	finalizer := newTestFinalizer(t, root, t.TempDir())
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+		Model:      &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
+		Verbosity:  ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
+		Compaction: ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app := loadFinalizedConfig(t, root)
+	if app.Settings.ModelVerbosity != config.ModelVerbosityHigh || app.Settings.CompactionMode != config.CompactionModeNative {
+		t.Fatal("custom model lost the selected provider's verbosity or native compaction")
+	}
+}
+
+func TestFailedFinishLeavesPendingSetupAvailable(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(root, 0o755); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigWriteFailed) {
+		t.Fatalf("failed write result: %v", err)
+	}
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+	if err != nil || catalog.PendingSetup == nil {
+		t.Fatalf("failed write discarded setup: %+v %v", catalog, err)
+	}
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); err != nil {
+		t.Fatalf("explicit retry could not finish setup: %v", err)
+	}
+}
+
+func TestExplicitDiscardPreventsFinishPersistence(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_DiscardSetup{DiscardSetup: &emptypb.Empty{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); err == nil {
+		t.Fatal("discarded setup finished")
+	}
+	for _, path := range []string{filepath.Join(root, "config.toml"), config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("discarded setup persisted %s: %v", path, err)
+		}
 	}
 }
 
@@ -69,11 +165,12 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 		want want
 	}{
 		{
-			name: "known model large context level thinking true ask supervisor override local compaction",
+			name: "known model large context level thinking true ask supervisor override native compaction",
 			req: &onboardingpb.FinalizeRequest{
 				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4-mini")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE},
 				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")},
+				Verbosity:     ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
 				AskQuestion:   &trueValue,
 				ToolOverrides: []*onboardingpb.ToolOverride{
 					{Id: onboardingpb.ToolID_TOOL_ID_EDIT, Enabled: true},
@@ -84,7 +181,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 					Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4")},
 					Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("xhigh")},
 				},
-				Compaction:          ptr(onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL),
+				Compaction:          ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
 				ModelTimeoutSeconds: &requestModelTimeout,
 				DisabledSkillNames:  []string{" API   Result "},
 			},
@@ -93,12 +190,12 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				window:           400_000,
 				threshold:        380_000,
 				thinking:         "high",
-				verbosity:        config.ModelVerbosityLow,
+				verbosity:        config.ModelVerbosityHigh,
 				enabledTools:     map[toolspec.ID]bool{toolspec.ToolAskQuestion: true, toolspec.ToolEdit: true, toolspec.ToolPatch: false},
 				supervisor:       "all",
 				reviewerModel:    &reviewerModel,
 				reviewerThinking: &reviewerThinking,
-				compaction:       config.CompactionModeLocal,
+				compaction:       config.CompactionModeNative,
 				modelTimeout:     &modelTimeout,
 				disabledSkill:    &disabledSkill,
 			},
@@ -203,10 +300,10 @@ func TestFinalizerAcceptsKnownModelWithoutContextMetadata(t *testing.T) {
 	}
 }
 
-func TestFinalizerRejectsUnsupportedVerbosityForSelectedModel(t *testing.T) {
+func TestFinalizerRejectsUnsupportedVerbosityForSelectedConnection(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	_, err := newTestFinalizerAtEndpoint(t, root, home, "http://localhost:1234/v1").Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("claude-3-7-sonnet")},
 		Verbosity: ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
 	})
@@ -303,6 +400,7 @@ func TestFinalizerRollsBackImportsWhenConfigWriteFails(t *testing.T) {
 		PersistenceRoot: root,
 		HomeDir:         home,
 		SettingsPath:    filepath.Join(blocker, "config.toml"),
+		Connections:     newPendingConnection(t, root, "https://api.openai.com/v1"),
 	})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
@@ -396,7 +494,7 @@ func TestFinalizerSkipsImportDiscoveryWhenNoImportsRequested(t *testing.T) {
 func TestFinalizerMissingHomeMakesRequestedImportUnavailable(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", "")
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, SettingsPath: filepath.Join(root, "config.toml")})
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, SettingsPath: filepath.Join(root, "config.toml"), Connections: newPendingConnection(t, root, "https://api.openai.com/v1")})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
@@ -569,10 +667,10 @@ func TestFinalizerRejectsDuplicateNormalizedDisabledSkillNames(t *testing.T) {
 	}
 }
 
-func TestFinalizerRejectsNativeCompactionForSelectedNonOpenAIModel(t *testing.T) {
+func TestFinalizerRejectsNativeCompactionForSelectedConnection(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	finalizer := newTestFinalizer(t, root, home)
+	finalizer := newTestFinalizerAtEndpoint(t, root, home, "http://localhost:1234/v1")
 	native := onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE
 
 	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
@@ -634,11 +732,31 @@ func TestProductionProviderCatalogUUIDsAreStableV4Values(t *testing.T) {
 
 func newTestFinalizer(t *testing.T, root string, home string) *onboarding.Finalizer {
 	t.Helper()
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, HomeDir: home})
+	return newTestFinalizerAtEndpoint(t, root, home, "https://api.openai.com/v1")
+}
+
+func newTestFinalizerAtEndpoint(t *testing.T, root string, home string, endpoint string) *onboarding.Finalizer {
+	t.Helper()
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, HomeDir: home, Connections: newPendingConnection(t, root, endpoint)})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
 	return finalizer
+}
+
+func newPendingConnection(t *testing.T, root string, endpoint string) *authservice.BootstrapService {
+	t.Helper()
+	owner := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(root, auth.NewManager(auth.NewFileStore(config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})), nil), nil), auth.OpenAIOAuthOptions{})
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); err == nil {
+		return owner
+	}
+	_, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "first", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owner
 }
 
 func createProviderSkillSource(t *testing.T, home string, entry string) uuid.UUID {

@@ -177,7 +177,6 @@ func TestWorkflowBinaryAuthenticationAndReadiness(t *testing.T) {
 		readiness error
 		want      error
 	}{
-		{name: "active unauthenticated", want: serverapi.ErrServerAuthRequired},
 		{name: "onboarding required", readiness: serverapi.NewServerNotReadyError(serverapi.ServerNotReadyOnboardingRequired, nil, nil), want: serverapi.ErrServerNotReadyOnboardingRequired},
 		{name: "activation failed", readiness: serverapi.NewServerNotReadyError(serverapi.ServerNotReadyActivationFailed, nil, errors.New("activation failed")), want: serverapi.ErrServerNotReadyActivationFailed},
 	} {
@@ -204,11 +203,7 @@ func TestWorkflowBinaryAuthenticationAndReadiness(t *testing.T) {
 				t.Fatalf("Task label update failure = %v, want %v", err, test.want)
 			}
 			list, err := remote.ListWorkflows(t.Context(), &pb.ListRequest{})
-			if test.readiness == nil {
-				if err != nil || list == nil {
-					t.Fatalf("active unauthenticated List = %v, %v", list, err)
-				}
-			} else if !errors.Is(err, test.want) {
+			if !errors.Is(err, test.want) || list != nil {
 				t.Fatalf("List failure = %v, want %v", err, test.want)
 			}
 		})

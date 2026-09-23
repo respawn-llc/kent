@@ -15,6 +15,7 @@ import (
 )
 
 func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T) {
+	useStartupTestTerminal(t)
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
@@ -55,7 +56,8 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 			if authPickerCalls > 1 {
 				t.Fatal("remote no-auth binding flow must not re-enter auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, interactor, true)
