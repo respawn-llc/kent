@@ -72,12 +72,6 @@ type AssistantStreamMetadata struct {
 	BaseCommittedEntryCount int
 }
 
-type TranscriptWindowSnapshot struct {
-	Snapshot     ChatSnapshot
-	TotalEntries int
-	Offset       int
-}
-
 type storedToolCompletion struct {
 	CallID         string                   `json:"call_id"`
 	Name           string                   `json:"name"`

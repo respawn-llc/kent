@@ -15,7 +15,7 @@ import (
 	"core/shared/transcript"
 )
 
-func TestPersistedTranscriptScanReconstructsTypedReviewerFactsInBoundedWindows(t *testing.T) {
+func TestPersistedTranscriptScanReconstructsTypedReviewerFacts(t *testing.T) {
 	feedback := session.ReviewerFeedbackRecord{
 		ID:          runtimeids.NewReviewerFeedbackID(),
 		Suggestions: []string{"  **first**  ", "second\nline"},
@@ -34,34 +34,37 @@ func TestPersistedTranscriptScanReconstructsTypedReviewerFactsInBoundedWindows(t
 		t.Fatalf("create error event: %v", err)
 	}
 
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 1, Limit: 1, TrackRecentTail: true, TailLimit: 1})
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
 	for _, event := range []session.EventRecord{feedbackEvent, errorEvent} {
 		if err := scan.ApplyPersistedEvent(event); err != nil {
 			t.Fatalf("apply typed Reviewer event: %v", err)
 		}
 	}
 
-	if got := scan.TotalEntries(); got != 2 {
-		t.Fatalf("total entries = %d, want 2", got)
-	}
 	page := scan.CollectedPageSnapshot()
-	if len(page.Entries) != 1 || page.Entries[0].ReviewerError == nil {
-		t.Fatalf("bounded page = %+v, want only Reviewer error", page.Entries)
+	if len(page.Entries) != 2 || page.Entries[0].ReviewerFeedback == nil || page.Entries[1].ReviewerError == nil {
+		t.Fatalf("projected entries = %+v, want Reviewer feedback and error", page.Entries)
 	}
-	if page.Entries[0].ReviewerError.ID != reviewerError.ID ||
-		page.Entries[0].ReviewerError.Detail != reviewerError.Detail ||
+	if page.Entries[0].ReviewerFeedback.ID != feedback.ID ||
+		!reflect.DeepEqual(page.Entries[0].ReviewerFeedback.Suggestions, feedback.Suggestions) ||
 		page.Entries[0].StepID == nil ||
-		*page.Entries[0].StepID != "22222222-2222-4222-8222-222222222222" ||
-		page.Entries[0].Visibility != transcript.EntryVisibilityOngoing {
-		t.Fatalf("projected Reviewer error = %+v", page.Entries[0])
+		*page.Entries[0].StepID != "11111111-1111-4111-8111-111111111111" ||
+		page.Entries[0].Visibility != transcript.EntryVisibilityOngoingCollapsed {
+		t.Fatalf("projected Reviewer feedback = %+v", page.Entries[0])
 	}
-	tail := scan.RecentTailSnapshot()
-	if len(tail.Snapshot.Entries) != 1 || tail.Snapshot.Entries[0].ReviewerError == nil {
-		t.Fatalf("bounded tail = %+v, want only Reviewer error", tail.Snapshot.Entries)
+	if page.Entries[1].ReviewerError.ID != reviewerError.ID ||
+		page.Entries[1].ReviewerError.Detail != reviewerError.Detail ||
+		page.Entries[1].StepID == nil ||
+		*page.Entries[1].StepID != "22222222-2222-4222-8222-222222222222" ||
+		page.Entries[1].Visibility != transcript.EntryVisibilityOngoing {
+		t.Fatalf("projected Reviewer error = %+v", page.Entries[1])
 	}
 	facts := TranscriptCommittedRowFactsFromSnapshot(page)
-	if len(facts) != 1 || facts[0].Kind != TranscriptCommittedRowFactReviewerError ||
-		facts[0].ReviewerError == nil || facts[0].ReviewerError.ID != reviewerError.ID {
+	if len(facts) != 2 ||
+		facts[0].Kind != TranscriptCommittedRowFactReviewerFeedback ||
+		facts[0].ReviewerFeedback == nil || facts[0].ReviewerFeedback.ID != feedback.ID ||
+		facts[1].Kind != TranscriptCommittedRowFactReviewerError ||
+		facts[1].ReviewerError == nil || facts[1].ReviewerError.ID != reviewerError.ID {
 		t.Fatalf("snapshot Reviewer facts = %+v", facts)
 	}
 }

@@ -589,7 +589,7 @@ func capturePersistedProjectionFromStore(t *testing.T, store *session.Store) pro
 	scan := mustScanPersistedActiveSegment(t, store)
 	return promptCacheProjection{
 		MainViewJSON:   mustMarshalCanonicalJSON(t, persistedMainViewComparable(t, store, scan)),
-		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.RecentTailSnapshot().Snapshot),
+		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.CollectedPageSnapshot()),
 	}
 }
 
@@ -640,7 +640,7 @@ func persistedMainViewComparable(t *testing.T, store *session.Store, scan *Persi
 		SessionName:                    meta.Name,
 		ConversationFreshness:          conversationFreshnessLabel(mustEventLogConversationFreshness(eventLog)),
 		Revision:                       mustEventLogRevision(eventLog),
-		CommittedEntryCount:            scan.TotalEntries(),
+		CommittedEntryCount:            len(scan.CollectedPageSnapshot().Entries),
 		PreviousSessionID:              meta.PreviousSessionID,
 		ParentAgentSessionID:           meta.ParentAgentSessionID,
 		NavigationTargetSessionID:      navigationTargetSessionIDForPromptCache(meta),
@@ -672,7 +672,7 @@ func mustScanPersistedActiveSegment(t *testing.T, store *session.Store) *Persist
 	if matchErr != nil {
 		t.Fatalf("match newest persisted transcript segment: %v", matchErr)
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 500})
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
 	for _, record := range window.Records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
 			t.Fatalf("project newest persisted transcript segment: %v", err)

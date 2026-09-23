@@ -157,7 +157,7 @@ func TestStreamingTranscriptScanSeedsLastFinalAnswerFromCompactionBoundary(t *te
 			}),
 		}),
 	}
-	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
 	applyEventsToStreaming(t, scan, events)
 	if got, want := scan.LastCommittedAssistantFinalAnswer(), "retained final answer"; got == nil || *got != want {
 		t.Fatalf("scan last final answer = %v, want boundary-seeded %q", got, want)
@@ -179,12 +179,9 @@ func TestStreamingTranscriptScanProjectsLegacyCompactionWithoutNumber(t *testing
 			}),
 		}),
 	}
-	scan := newStreamingTranscriptScan(
-		inMemoryTranscriptScanRequest{Offset: 0, Limit: 10},
-		config.CacheWarningModeDefault,
-	)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
 	applyEventsToStreaming(t, scan, events)
-	entries := scan.PageSnapshot().Snapshot.Entries
+	entries := scan.PageSnapshot().Entries
 	if len(entries) != 4 {
 		t.Fatalf("projected entries = %+v, want summary, two preserved messages, and environment", entries)
 	}
@@ -230,7 +227,7 @@ func TestStreamingTranscriptScanBoundarySeedOverriddenByLaterFinalAnswer(t *test
 		}),
 		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("newer final answer")}),
 	}
-	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
 	applyEventsToStreaming(t, scan, events)
 	if got, want := scan.LastCommittedAssistantFinalAnswer(), "newer final answer"; got == nil || *got != want {
 		t.Fatalf("scan last final answer = %v, want later final %q", got, want)
@@ -336,52 +333,12 @@ func applyEventsToStreaming(t *testing.T, scan *streamingTranscriptScan, events 
 
 func fullStreamingProjection(t *testing.T, events []session.EventRecord) ChatSnapshot {
 	t.Helper()
-	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
 	applyEventsToStreaming(t, scan, events)
-	return scan.PageSnapshot().Snapshot
+	return scan.PageSnapshot()
 }
 
-func TestStreamingTranscriptScanPagesAreWindowsOfFullProjection(t *testing.T) {
-	t.Parallel()
-	events := streamScanRepresentativeEvents(t)
-	full := fullStreamingProjection(t, events).Entries
-	total := len(full)
-
-	pageRequests := []struct {
-		offset int
-		limit  int
-	}{
-		{0, 0},
-		{0, 3},
-		{2, 4},
-		{5, 2},
-		{100, 5},
-	}
-	for _, req := range pageRequests {
-		scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: req.offset, Limit: req.limit}, config.CacheWarningModeDefault)
-		applyEventsToStreaming(t, scan, events)
-		got := scan.PageSnapshot()
-
-		wantOffset := req.offset
-		if wantOffset > total {
-			wantOffset = total
-		}
-		wantEnd := total
-		if req.limit > 0 && wantOffset+req.limit < wantEnd {
-			wantEnd = wantOffset + req.limit
-		}
-		want := full[wantOffset:wantEnd]
-
-		if got.TotalEntries != total || got.Offset != wantOffset {
-			t.Fatalf("page(%d,%d) totals: got {total=%d off=%d} want {total=%d off=%d}", req.offset, req.limit, got.TotalEntries, got.Offset, total, wantOffset)
-		}
-		if len(got.Snapshot.Entries) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got.Snapshot.Entries, want)) {
-			t.Fatalf("page(%d,%d) entries diverged from full-projection window: got %d want %d entries", req.offset, req.limit, len(got.Snapshot.Entries), len(want))
-		}
-	}
-}
-
-func TestStreamingTranscriptScanPagesOrderMaterializedToolsByCompletionProvenance(t *testing.T) {
+func TestStreamingTranscriptScanOrdersMaterializedToolsByCompletionProvenance(t *testing.T) {
 	t.Parallel()
 	events := []session.EventRecord{
 		streamScanTestEventAtSequence(t, 1, "message", llm.Message{
@@ -420,78 +377,31 @@ func TestStreamingTranscriptScanPagesOrderMaterializedToolsByCompletionProvenanc
 		}),
 	}
 
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
+	applyEventsToStreaming(t, scan, events)
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 5 {
+		t.Fatalf("projected entries = %+v, want two tool calls, two results, and assistant answer", page.Entries)
+	}
 	for _, test := range []struct {
-		offset int
+		index  int
 		callID string
 		seq    int64
 	}{
-		{offset: 2, callID: "call-b", seq: 2},
-		{offset: 3, callID: "call-a", seq: 3},
+		{index: 2, callID: "call-b", seq: 2},
+		{index: 3, callID: "call-a", seq: 3},
 	} {
-		scan := newStreamingTranscriptScan(
-			inMemoryTranscriptScanRequest{Offset: test.offset, Limit: 1},
-			config.CacheWarningModeDefault,
-		)
-		applyEventsToStreaming(t, scan, events)
-		page := scan.PageSnapshot()
-		if page.TotalEntries != 5 {
-			t.Fatalf("page at offset %d total entries = %d, want 5", test.offset, page.TotalEntries)
-		}
-		if len(page.Snapshot.Entries) != 1 {
-			t.Fatalf("page at offset %d entries = %+v, want one row", test.offset, page.Snapshot.Entries)
-		}
-		entry := page.Snapshot.Entries[0]
+		entry := page.Entries[test.index]
 		if entry.Role != "tool_result_ok" || entry.ToolCallID != test.callID {
-			t.Fatalf("page at offset %d entry = %+v, want tool result for %s", test.offset, entry, test.callID)
+			t.Fatalf("entry %d = %+v, want tool result for %s", test.index, entry, test.callID)
 		}
 		if entry.CommittedProvenance == nil || entry.CommittedProvenance.EventSequence != test.seq {
 			t.Fatalf(
-				"page at offset %d entry provenance = %+v, want event sequence %d",
-				test.offset,
+				"entry %d provenance = %+v, want event sequence %d",
+				test.index,
 				entry.CommittedProvenance,
 				test.seq,
 			)
-		}
-	}
-
-	tail := newStreamingTranscriptScan(
-		inMemoryTranscriptScanRequest{TrackRecentTail: true, TailLimit: 1},
-		config.CacheWarningModeDefault,
-	)
-	applyEventsToStreaming(t, tail, events[:5])
-	window := tail.RecentTailSnapshot()
-	if len(window.Snapshot.Entries) != 1 {
-		t.Fatalf("recent tail entries = %+v, want one row", window.Snapshot.Entries)
-	}
-	if entry := window.Snapshot.Entries[0]; entry.Role != "tool_result_ok" ||
-		entry.ToolCallID != "call-a" ||
-		entry.CommittedProvenance == nil ||
-		entry.CommittedProvenance.EventSequence != 3 {
-		t.Fatalf("recent tail entry = %+v, want latest completion for call-a", entry)
-	}
-}
-
-func TestStreamingTranscriptScanRecentTailIsSuffixOfFullProjection(t *testing.T) {
-	t.Parallel()
-	events := streamScanRepresentativeEvents(t)
-	full := fullStreamingProjection(t, events).Entries
-	total := len(full)
-
-	for _, tailLimit := range []int{1, 3, 100} {
-		scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{TrackRecentTail: true, TailLimit: tailLimit}, config.CacheWarningModeDefault)
-		applyEventsToStreaming(t, scan, events)
-		got := scan.RecentTailSnapshot()
-
-		if got.TotalEntries != total {
-			t.Fatalf("tail(%d) total: got %d want %d", tailLimit, got.TotalEntries, total)
-		}
-		if got.Offset < 0 || got.Offset > total {
-			t.Fatalf("tail(%d) offset %d out of range (total=%d)", tailLimit, got.Offset, total)
-		}
-		// The recent tail is always a contiguous suffix of the full projection.
-		want := full[got.Offset:]
-		if len(got.Snapshot.Entries) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got.Snapshot.Entries, want)) {
-			t.Fatalf("tail(%d) entries are not the suffix at offset %d: got %d want %d entries", tailLimit, got.Offset, len(got.Snapshot.Entries), len(want))
 		}
 	}
 }
@@ -499,48 +409,10 @@ func TestStreamingTranscriptScanRecentTailIsSuffixOfFullProjection(t *testing.T)
 func TestStreamingTranscriptScanMetadata(t *testing.T) {
 	t.Parallel()
 	events := streamScanRepresentativeEvents(t)
-	full := fullStreamingProjection(t, events).Entries
-
-	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
 	applyEventsToStreaming(t, scan, events)
 
-	if got := scan.TotalEntries(); got != len(full) {
-		t.Fatalf("total entries: got %d want %d", got, len(full))
-	}
 	if got, want := scan.LastCommittedAssistantFinalAnswer(), "final answer"; got == nil || *got != want {
 		t.Fatalf("last committed final answer: got %v want %q", got, want)
-	}
-}
-
-func TestStreamingTranscriptScanRetainsOnlyWindow(t *testing.T) {
-	t.Parallel()
-	const (
-		messages  = 5000
-		tailLimit = 12
-		pageLimit = 8
-	)
-	events := make([]session.EventRecord, 0, messages*2)
-	for i := 0; i < messages; i++ {
-		events = append(events, streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("u")}))
-		events = append(events, streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("a")}))
-	}
-
-	tail := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{TrackRecentTail: true, TailLimit: tailLimit}, config.CacheWarningModeDefault)
-	applyEventsToStreaming(t, tail, events)
-	snap := tail.RecentTailSnapshot()
-	if snap.TotalEntries != messages*2 {
-		t.Fatalf("tail total entries = %d, want %d", snap.TotalEntries, messages*2)
-	}
-	if len(tail.scan.tailEntries) > tailLimit {
-		t.Fatalf("tail retained %d entries, exceeds window %d", len(tail.scan.tailEntries), tailLimit)
-	}
-
-	page := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 10, Limit: pageLimit}, config.CacheWarningModeDefault)
-	applyEventsToStreaming(t, page, events)
-	if got := page.PageSnapshot(); got.TotalEntries != messages*2 {
-		t.Fatalf("page total entries = %d, want %d", got.TotalEntries, messages*2)
-	}
-	if len(page.scan.pageEntries) > pageLimit {
-		t.Fatalf("page retained %d entries, exceeds window %d", len(page.scan.pageEntries), pageLimit)
 	}
 }

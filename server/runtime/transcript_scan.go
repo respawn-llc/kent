@@ -12,48 +12,15 @@ import (
 	"core/shared/textutil"
 )
 
-type transcriptPageSnapshot struct {
-	Snapshot     ChatSnapshot
-	TotalEntries int
-	Offset       int
-}
-
-type inMemoryTranscriptScanRequest struct {
-	Offset int
-	Limit  int
-
-	TrackRecentTail      bool
-	TailLimit            int
-	CompactionItemCutoff int
-}
-
 type inMemoryTranscriptScan struct {
-	request      inMemoryTranscriptScanRequest
-	totalEntries int
-	pageEntries  []ChatEntry
-
-	tailEntries             []ChatEntry
-	tailStart               int
-	compactionEntryStart    int
-	hasCompactionCheckpoint bool
+	pageEntries []ChatEntry
 
 	toolCompletions       map[string]tools.Result
 	materializedToolCalls map[string]struct{}
 }
 
-func newInMemoryTranscriptScan(req inMemoryTranscriptScanRequest, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) *inMemoryTranscriptScan {
-	if req.Offset < 0 {
-		req.Offset = 0
-	}
-	if req.Limit < 0 {
-		req.Limit = 0
-	}
-	if req.TailLimit < 0 {
-		req.TailLimit = 0
-	}
+func newInMemoryTranscriptScan(completions map[string]tools.Result, materializedToolCalls map[string]struct{}) *inMemoryTranscriptScan {
 	return &inMemoryTranscriptScan{
-		request:               req,
-		compactionEntryStart:  -1,
 		toolCompletions:       completions,
 		materializedToolCalls: materializedToolCalls,
 	}
@@ -89,82 +56,16 @@ func (s *inMemoryTranscriptScan) ApplyMessage(msg llm.Message, provenance *Trans
 	}
 }
 
-func (s *inMemoryTranscriptScan) PageSnapshot() transcriptPageSnapshot {
+func (s *inMemoryTranscriptScan) PageSnapshot() ChatSnapshot {
 	if s == nil {
-		return transcriptPageSnapshot{}
+		return ChatSnapshot{}
 	}
-	offset := s.request.Offset
-	if offset > s.totalEntries {
-		offset = s.totalEntries
-	}
-	return transcriptPageSnapshot{
-		Snapshot:     ChatSnapshot{Entries: append([]ChatEntry(nil), s.pageEntries...)},
-		TotalEntries: s.totalEntries,
-		Offset:       offset,
-	}
-}
-
-func (s *inMemoryTranscriptScan) RecentTailSnapshot() TranscriptWindowSnapshot {
-	if s == nil {
-		return TranscriptWindowSnapshot{}
-	}
-	return TranscriptWindowSnapshot{
-		Snapshot:     ChatSnapshot{Entries: append([]ChatEntry(nil), s.tailEntries...)},
-		TotalEntries: s.totalEntries,
-		Offset:       s.tailStart,
-	}
-}
-
-func (s *inMemoryTranscriptScan) MarkCompactionBoundary() {
-	if s == nil {
-		return
-	}
-	s.hasCompactionCheckpoint = true
-	s.compactionEntryStart = s.totalEntries
-	if !s.request.TrackRecentTail || s.request.TailLimit <= 0 {
-		return
-	}
-	if s.compactionEntryStart > s.tailStart {
-		drop := s.compactionEntryStart - s.tailStart
-		if drop >= len(s.tailEntries) {
-			s.tailEntries = nil
-		} else {
-			s.tailEntries = append([]ChatEntry(nil), s.tailEntries[drop:]...)
-		}
-	}
-	s.tailStart = s.compactionEntryStart
+	return ChatSnapshot{Entries: append([]ChatEntry(nil), s.pageEntries...)}
 }
 
 func (s *inMemoryTranscriptScan) appendEntry(entry ChatEntry) {
 	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	entryIndex := s.totalEntries
-	if entryIndex >= s.request.Offset && (s.request.Limit == 0 || entryIndex < s.request.Offset+s.request.Limit) {
-		s.pageEntries = append(s.pageEntries, clonePersistedChatEntry(entry))
-	}
-	s.totalEntries++
-	if s.request.TrackRecentTail && s.request.TailLimit > 0 {
-		startLastN := s.totalEntries - s.request.TailLimit
-		if startLastN < 0 {
-			startLastN = 0
-		}
-		start := startLastN
-		if s.hasCompactionCheckpoint && s.compactionEntryStart >= 0 {
-			start = s.compactionEntryStart
-		}
-		if start > s.tailStart {
-			drop := start - s.tailStart
-			if drop >= len(s.tailEntries) {
-				s.tailEntries = nil
-			} else {
-				s.tailEntries = append([]ChatEntry(nil), s.tailEntries[drop:]...)
-			}
-			s.tailStart = start
-		}
-		if s.tailEntries == nil {
-			s.tailStart = start
-		}
-		s.tailEntries = append(s.tailEntries, clonePersistedChatEntry(entry))
-	}
+	s.pageEntries = append(s.pageEntries, clonePersistedChatEntry(entry))
 }
 
 type responseItemMessageWalker struct {

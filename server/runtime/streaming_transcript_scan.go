@@ -15,13 +15,10 @@ import (
 	"core/shared/transcript"
 )
 
-// streamingTranscriptScan projects transcript-visible state from a stream of
-// persisted events while retaining only the requested window plus a single
-// in-flight assistant turn. It never materializes the full event history:
-// committed entries outside the page/tail window are discarded as they stream
-// by (see inMemoryTranscriptScan.appendEntry), and tool completions/materialized
-// tool-result messages are held only until the assistant turn that owns them is
-// flushed.
+// streamingTranscriptScan projects transcript-visible state from a caller-bounded
+// persisted event window. It retains that window's entries and buffers a single
+// in-flight assistant turn. Tool completions and materialized tool-result messages
+// are held only until the assistant turn that owns them is flushed.
 //
 // An assistant turn's tool result can be persisted as a tool_completed event
 // (synthesized at render) and/or a RoleTool message (materialized at render).
@@ -53,11 +50,11 @@ type turnBuffer struct {
 	localEntrySteps        []*string
 }
 
-func newStreamingTranscriptScan(req inMemoryTranscriptScanRequest, cacheWarningMode config.CacheWarningMode) *streamingTranscriptScan {
+func newStreamingTranscriptScan(cacheWarningMode config.CacheWarningMode) *streamingTranscriptScan {
 	completions := make(map[string]tools.Result)
 	materialized := make(map[string]struct{})
 	return &streamingTranscriptScan{
-		scan:                 newInMemoryTranscriptScan(req, completions, materialized),
+		scan:                 newInMemoryTranscriptScan(completions, materialized),
 		completions:          completions,
 		completionProvenance: make(map[string]*TranscriptCommittedRowProvenance),
 		materialized:         materialized,
@@ -199,7 +196,6 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		if err != nil {
 			return fmt.Errorf("restore session history replacement record: %w", err)
 		}
-		s.scan.MarkCompactionBoundary()
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
 			return provenanceErr
@@ -363,19 +359,9 @@ func (s *streamingTranscriptScan) appendLocalEntry(entry storedLocalEntry, stepI
 	s.scan.appendEntry(projected)
 }
 
-func (s *streamingTranscriptScan) PageSnapshot() transcriptPageSnapshot {
+func (s *streamingTranscriptScan) PageSnapshot() ChatSnapshot {
 	s.closeTurn()
 	return s.scan.PageSnapshot()
-}
-
-func (s *streamingTranscriptScan) RecentTailSnapshot() TranscriptWindowSnapshot {
-	s.closeTurn()
-	return s.scan.RecentTailSnapshot()
-}
-
-func (s *streamingTranscriptScan) TotalEntries() int {
-	s.closeTurn()
-	return s.scan.totalEntries
 }
 
 func (s *streamingTranscriptScan) LastCommittedAssistantFinalAnswer() *string {

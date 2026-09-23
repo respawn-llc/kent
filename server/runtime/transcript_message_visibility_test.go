@@ -68,13 +68,13 @@ func TestAssistantMessagesRemainOngoingAcrossCommentaryAndFinalPhases(t *testing
 			if len(facts) != 1 || facts[0].Visibility != test.want {
 				t.Fatalf("assistant facts = %+v, want one %q row", facts, test.want)
 			}
-			scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{Limit: 1}, nil, nil)
+			scan := newInMemoryTranscriptScan(nil, nil)
 			scan.ApplyMessage(llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(test.phase),
 				Content: textutil.Value("assistant content"),
 			}, &TranscriptCommittedRowProvenance{EventSequence: 1}, exactStepIDPointer(runtimeTestStepID(chatStoreTestStepID)))
-			scannedEntries := scan.PageSnapshot().Snapshot.Entries
+			scannedEntries := scan.PageSnapshot().Entries
 			if len(scannedEntries) != 1 || scannedEntries[0].Visibility != test.want {
 				t.Fatalf("scanned assistant entries = %+v, want one %q row", scannedEntries, test.want)
 			}
