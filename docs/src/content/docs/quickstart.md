@@ -75,7 +75,7 @@ The desktop app, due to the asynchronous nature of workflows, needs a [server](.
 Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
 :::
 
-Start Kent CLI with: `kent`. The first run will ask you to pick auth option and walk you through onboarding.
+Start Kent CLI with: `kent`. The first run will ask you to pick an auth option and walk you through onboarding.
 The session picker shows when a newer Kent server release is available; update Kent through the installation channel you used.
 
 Supported auth options:

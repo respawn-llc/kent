@@ -17,9 +17,9 @@ Each explicitly supplied property overrides the same property from earlier layer
 
 The private `config.local.toml` is read from the main workspace when using worktrees. Shared `config.toml`, on the other hand, follows the operation's workspace or working-directory context.
 
-**Connection discovery is an exception** - for Provider connections declarations, Kent does not resolve them from workspace configs for privacy and safety. Place your connections in global configs.
+**Connection discovery is an exception** - for provider connection declarations, Kent does not resolve them from workspace configs for privacy and safety. Place your connections in global configs.
 
-Some cache-affecting settings like prompts, tools, and model IDs, are **snapshot** at session start and re-loaded at **compaction**. This is done to preserve the prompt cache.
+Some cache-affecting settings like prompts, tools, and model IDs are **snapshotted** at session start and re-loaded at **compaction**. This is done to preserve the prompt cache.
 
 ## Locations
 

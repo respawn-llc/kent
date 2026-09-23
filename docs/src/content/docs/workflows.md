@@ -137,14 +137,14 @@ Task details:
 {{.TaskBody}}
 ```
 
-And parameter values produced by earlier transitions:
+They can also use parameter values produced by earlier transitions:
 
 ```md
 Address these review findings:
 {{.Params.findings}}
 ```
 
-Or a transition commentary (default parameter all agents usually provide when they finish the task):
+They can also use transition commentary, a default parameter that agents usually provide when they finish the task:
 
 ```md
 Source transition notes:
@@ -168,7 +168,7 @@ Use a Script node when a workflow step should run a deterministic local executab
 
 Set the script path on the script node. **All paths are resolved on the server machine.** Relative paths resolve against the task's execution root.
 
-The node script receiver JSON as stdin:
+The node script receives JSON as stdin:
 
 ```json
 {
@@ -234,7 +234,7 @@ Continuation modes also have a context source:
 - Previous target uses the latest retained Session associated with this edge's target node. Use it for loops where the workflow returns to a node and should continue that node's prior Session.
 - Previous target, or new session uses the latest retained Session associated with this edge's target node when one exists. Use it for re-review loops where the first pass starts fresh and later passes continue the target's prior Session.
 
-Use `new_session` or `compact_and_continue_session` when you need to change agent roles between sessions or the task benefits from fresh pair of eyes.
+Use `new_session` or `compact_and_continue_session` when you need to change agent roles between sessions or the task benefits from a fresh pair of eyes.
 
 ### Human Approval
 
