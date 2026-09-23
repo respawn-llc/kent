@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 
@@ -94,12 +93,10 @@ type storedToolCompletion struct {
 type chatStore struct {
 	mu sync.RWMutex
 
-	messageRecords []chatMessageRecord
-	compact        *compactionCheckpoint
-	local          []localChatEntry
+	providerItems []llm.ResponseItem
+	compact       *compactionCheckpoint
 
 	toolCompletions                   map[string]tools.Result
-	toolCompletionProvenance          map[string]*TranscriptCommittedRowProvenance
 	toolCompletionProviderItems       map[string][]llm.ResponseItem
 	assistantToolCalls                map[string]struct{}
 	assistantToolCallStepIDs          map[string]string
@@ -113,22 +110,6 @@ type chatStore struct {
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
-}
-
-type chatMessageRecord struct {
-	StepID        *string
-	Message       *llm.Message
-	ProviderItems []llm.ResponseItem
-	Provenance    *TranscriptCommittedRowProvenance
-}
-
-type localChatEntry struct {
-	Entry             ChatEntry
-	AfterMessageCount int
-	AfterToolCallID   *string
-	MarksBoundary     bool
-	Projected         bool
-	Provenance        *TranscriptCommittedRowProvenance
 }
 
 type assistantStreamingState struct {
@@ -157,7 +138,6 @@ func newChatStore() *chatStore {
 func newChatStoreWithCWD(cwd string) *chatStore {
 	return &chatStore{
 		toolCompletions:             make(map[string]tools.Result, 16),
-		toolCompletionProvenance:    make(map[string]*TranscriptCommittedRowProvenance, 16),
 		toolCompletionProviderItems: make(map[string][]llm.ResponseItem, 16),
 		assistantToolCalls:          make(map[string]struct{}, 16),
 		assistantToolCallStepIDs:    make(map[string]string, 16),
@@ -179,11 +159,7 @@ func (s *chatStore) validateMessage(stepID *string, msg llm.Message) error {
 	return s.validateMessageLocked(stepID, msg)
 }
 
-func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances ...*TranscriptCommittedRowProvenance) error {
-	var provenance *TranscriptCommittedRowProvenance
-	if len(provenances) > 0 {
-		provenance = provenances[0]
-	}
+func (s *chatStore) appendMessage(stepID *string, msg llm.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var err error
@@ -194,14 +170,8 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances .
 	if err := s.validateMessageLocked(stepID, msg); err != nil {
 		return err
 	}
-	s.messageRecords = append(s.messageRecords, chatMessageRecord{
-		StepID:        textutil.Pointer(stepID),
-		Message:       textutil.Value(cloneChatStoreMessage(msg)),
-		ProviderItems: llm.ItemsFromMessages([]llm.Message{msg}),
-		Provenance:    cloneTranscriptCommittedRowProvenance(provenance),
-	})
+	s.providerItems = append(s.providerItems, llm.ItemsFromMessages([]llm.Message{msg})...)
 	s.applyMessageStatsLocked(stepID, msg)
-	s.placeAttachedLocalEntriesAfterMaterializedToolLocked(msg)
 	s.providerTokenEstimateDirty = true
 	return nil
 }
@@ -229,25 +199,17 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
-	projectedStart := len(s.local)
-	if stepID != nil {
-		for index := range projectedEntries {
-			projectedEntries[index].StepID = cloneOptionalStepID(stepID)
-		}
-	}
-	s.appendProjectedHistoryReplacementEntriesLocked(projectedEntries)
-	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
+	s.transcriptEntryCount += len(projectedEntries)
 	s.compact = &compactionCheckpoint{
 		Items: llm.CloneResponseItems(preparedItems),
 	}
-	s.messageRecords = nil
+	s.providerItems = nil
 	s.pruneToolCompletionsToWorkingSetLocked()
 	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 	if len(s.toolCompletions) == 0 &&
-		len(s.toolCompletionProvenance) == 0 &&
 		len(s.toolCompletionProviderItems) == 0 &&
 		len(s.assistantToolCalls) == 0 &&
 		len(s.assistantToolCallStepIDs) == 0 &&
@@ -265,7 +227,6 @@ func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 		}
 	}
 	pruneCallIDMapToReferenced(s.toolCompletions, referenced)
-	pruneCallIDMapToReferenced(s.toolCompletionProvenance, referenced)
 	pruneCallIDMapToReferenced(s.toolCompletionProviderItems, referenced)
 	pruneCallIDMapToReferenced(s.assistantToolCalls, referenced)
 	pruneCallIDMapToReferenced(s.assistantToolCallStepIDs, referenced)
@@ -347,7 +308,7 @@ func toolCallSnapshotFromItems(items []llm.ResponseItem, callID string) (llm.Too
 	return llm.ToolCall{}, false
 }
 
-func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRecord, provenances ...*TranscriptCommittedRowProvenance) error {
+func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRecord) error {
 	completion, err := storedToolCompletionFromSessionRecord(record)
 	if err != nil {
 		return fmt.Errorf("restore session tool completion record: %w", err)
@@ -361,11 +322,11 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		CondensedText:  completion.CondensedText,
 		Presentation:   completion.Presentation,
 		QuestionAnswer: completion.QuestionAnswer,
-	}, completion.ProviderItems, provenances...)
+	}, completion.ProviderItems)
 	return nil
 }
 
-func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem, provenances ...*TranscriptCommittedRowProvenance) {
+func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem) {
 	callID := strings.TrimSpace(res.CallID)
 	if callID == "" {
 		return
@@ -373,9 +334,6 @@ func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, prov
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.toolCompletions[callID] = res
-	if len(provenances) > 0 {
-		s.toolCompletionProvenance[callID] = cloneTranscriptCommittedRowProvenance(provenances[0])
-	}
 	if len(providerItems) > 0 {
 		s.toolCompletionProviderItems[callID] = llm.CloneResponseItems(providerItems)
 	} else {
@@ -521,89 +479,12 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 	return &copied
 }
 
-func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
+func (s *chatStore) countLocalEntry(entry ChatEntry) {
 	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
-	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	entry.CondensedText = strings.TrimSpace(entry.CondensedText)
-	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
-	entry.CacheWarning = copyCacheWarning(entry.CacheWarning)
-	entry.ToolOutputRepair = textutil.Pointer(entry.ToolOutputRepair)
-	entry.ProviderModelMismatch = textutil.Pointer(entry.ProviderModelMismatch)
-	if entry.ReviewerFeedback != nil {
-		feedback := *entry.ReviewerFeedback
-		feedback.Suggestions = append([]string(nil), entry.ReviewerFeedback.Suggestions...)
-		entry.ReviewerFeedback = &feedback
-	}
-	if entry.ReviewerError != nil {
-		reviewerError := *entry.ReviewerError
-		entry.ReviewerError = &reviewerError
-	}
-	if afterToolCallID != nil {
-		callID := strings.TrimSpace(*afterToolCallID)
-		if callID == "" {
-			panic("append local transcript entry: after-tool call identity is empty")
-		}
-		afterToolCallID = &callID
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.local = append(s.local, localChatEntry{
-		Entry:             entry,
-		AfterMessageCount: len(s.messageRecords),
-		AfterToolCallID:   afterToolCallID,
-		Provenance: func() *TranscriptCommittedRowProvenance {
-			if len(provenances) == 0 {
-				return cloneTranscriptCommittedRowProvenance(entry.CommittedProvenance)
-			}
-			return cloneTranscriptCommittedRowProvenance(provenances[0])
-		}(),
-		Projected: entry.ReviewerFeedback != nil || entry.ReviewerError != nil,
-	})
-	s.transcriptEntryCount++
-}
-
-func (s *chatStore) placeAttachedLocalEntriesAfterMaterializedToolLocked(msg llm.Message) {
-	if msg.Role != llm.RoleTool {
-		return
-	}
-	callID, present := textutil.OptionalTrimmed(msg.ToolCallID)
-	if !present {
-		return
-	}
-	changed := false
-	for index := range s.local {
-		attachedCallID := s.local[index].AfterToolCallID
-		if attachedCallID == nil || strings.TrimSpace(*attachedCallID) != callID {
-			continue
-		}
-		s.local[index].AfterMessageCount = len(s.messageRecords)
-		changed = true
-	}
-	if changed {
-		sort.SliceStable(s.local, func(left, right int) bool {
-			return s.local[left].AfterMessageCount < s.local[right].AfterMessageCount
-		})
-	}
-}
-
-func (s *chatStore) appendProjectedHistoryReplacementEntriesLocked(entries []ChatEntry) {
-	for idx, entry := range entries {
-		s.appendProjectedEntryLocked(entry, idx == 0)
-	}
-}
-
-func (s *chatStore) appendProjectedEntryLocked(entry ChatEntry, marksBoundary bool) {
-	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	entry.ToolCallID = strings.TrimSpace(entry.ToolCallID)
-	s.local = append(s.local, localChatEntry{
-		Entry:             entry,
-		AfterMessageCount: 0,
-		MarksBoundary:     marksBoundary,
-		Projected:         true,
-		Provenance:        cloneTranscriptCommittedRowProvenance(entry.CommittedProvenance),
-	})
 	s.transcriptEntryCount++
 }
 
@@ -754,7 +635,7 @@ func isToolOutputItem(itemType llm.ResponseItemType) bool {
 }
 
 func (s *chatStore) providerItemsSourceLocked() []llm.ResponseItem {
-	active := s.activeProviderItemsLocked()
+	active := llm.CloneResponseItems(s.providerItems)
 	if s.compact == nil {
 		return active
 	}
@@ -763,44 +644,6 @@ func (s *chatStore) providerItemsSourceLocked() []llm.ResponseItem {
 	out = append(out, base...)
 	out = append(out, active...)
 	return out
-}
-
-func (s *chatStore) activeProviderItemsLocked() []llm.ResponseItem {
-	itemCount := 0
-	for _, record := range s.messageRecords {
-		itemCount += len(record.ProviderItems)
-	}
-	items := make([]llm.ResponseItem, 0, itemCount)
-	for _, record := range s.messageRecords {
-		items = append(items, record.ProviderItems...)
-	}
-	return llm.CloneResponseItems(items)
-}
-
-func cloneChatStoreMessage(msg llm.Message) llm.Message {
-	cloned := msg
-	cloned.MessageType = textutil.Pointer(msg.MessageType)
-	cloned.SourcePath = textutil.Pointer(msg.SourcePath)
-	cloned.WorktreeContext = session.CloneWorktreeContext(msg.WorktreeContext)
-	cloned.Content = textutil.Pointer(msg.Content)
-	cloned.CompactContent = textutil.Pointer(msg.CompactContent)
-	cloned.Name = textutil.Pointer(msg.Name)
-	cloned.ToolCallID = textutil.Pointer(msg.ToolCallID)
-	cloned.Phase = textutil.Pointer(msg.Phase)
-	cloned.BackgroundActivityID = textutil.Pointer(msg.BackgroundActivityID)
-	cloned.BackgroundExitCode = textutil.Pointer(msg.BackgroundExitCode)
-	if len(msg.ToolCalls) > 0 {
-		cloned.ToolCalls = append([]llm.ToolCall(nil), msg.ToolCalls...)
-		for index := range cloned.ToolCalls {
-			cloned.ToolCalls[index].Presentation = append(json.RawMessage(nil), msg.ToolCalls[index].Presentation...)
-			cloned.ToolCalls[index].Input = append(json.RawMessage(nil), msg.ToolCalls[index].Input...)
-			cloned.ToolCalls[index].CustomInput = textutil.Pointer(msg.ToolCalls[index].CustomInput)
-		}
-	}
-	if len(msg.ReasoningItems) > 0 {
-		cloned.ReasoningItems = append([]llm.ReasoningItem(nil), msg.ReasoningItems...)
-	}
-	return cloned
 }
 
 func firstNonEmpty(values ...string) string {

@@ -975,7 +975,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				return err
 			}
 			entry := reviewerFeedbackChatEntryFromSessionRecord(record, stepID, &provenance)
-			e.transcriptRuntimeState().chatProjection().appendLocalEntryRecord(entry, nil)
+			e.transcriptRuntimeState().CountLocalEntry(entry)
 			err = errors.Join(err, e.emitRaw(Event{Kind: EventLocalEntryAdded, StepID: exactStepIDPointer(stepID), LocalEntry: &entry, LocalEntryProjected: true, CommittedTranscriptChanged: true, CommittedProvenance: &provenance}))
 		}
 		return err
@@ -996,7 +996,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				return err
 			}
 			entry := reviewerErrorChatEntryFromSessionRecord(record, stepID, &provenance)
-			e.transcriptRuntimeState().chatProjection().appendLocalEntryRecord(entry, nil)
+			e.transcriptRuntimeState().CountLocalEntry(entry)
 			err = errors.Join(err, e.emitRaw(Event{Kind: EventLocalEntryAdded, StepID: exactStepIDPointer(stepID), LocalEntry: &entry, LocalEntryProjected: true, CommittedTranscriptChanged: true, CommittedProvenance: &provenance}))
 		}
 		return err
@@ -1071,7 +1071,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		if provenanceErr != nil {
 			return errors.Join(appendErr, provenanceErr)
 		}
-		e.transcriptRuntimeState().AppendCommittedCacheWarning(warning, visibility, &recordProvenance)
+		e.transcriptRuntimeState().CountCacheWarning(warning)
 		if item.cacheWarning.emit {
 			appendErr = errors.Join(appendErr, e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepIDPointer, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true, CommittedProvenance: &recordProvenance}))
 		}
@@ -1106,7 +1106,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			if warningProvenance == nil {
 				return errors.Join(appendErr, errors.New("cache warning append did not return its warning record"))
 			}
-			e.transcriptRuntimeState().AppendCommittedCacheWarning(warning, visibility, warningProvenance)
+			e.transcriptRuntimeState().CountCacheWarning(warning)
 			if observation.emit {
 				appendErr = errors.Join(appendErr, e.emitRaw(Event{Kind: EventCacheWarning, StepID: provenance.stepID(), CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true, CommittedProvenance: warningProvenance}))
 			}

@@ -500,44 +500,32 @@ func (s *transcriptRuntimeState) ValidateMessage(stepID *string, msg llm.Message
 	return s.chatProjection().validateMessage(stepID, msg)
 }
 
-func (s *transcriptRuntimeState) AppendMessage(stepID *string, msg llm.Message, provenances ...*TranscriptCommittedRowProvenance) error {
-	return s.chatProjection().appendMessage(stepID, msg, provenances...)
+func (s *transcriptRuntimeState) AppendMessage(stepID *string, msg llm.Message) error {
+	return s.chatProjection().appendMessage(stepID, msg)
 }
 
-func (s *transcriptRuntimeState) AppendConfigurationItem(stepID *string, item llm.ResponseItem, provenance *TranscriptCommittedRowProvenance) {
+func (s *transcriptRuntimeState) AppendConfigurationItem(item llm.ResponseItem) {
 	chat := s.chatProjection()
 	chat.mu.Lock()
 	defer chat.mu.Unlock()
-	chat.messageRecords = append(chat.messageRecords, chatMessageRecord{
-		StepID: cloneOptionalStepID(stepID), ProviderItems: llm.CloneResponseItems([]llm.ResponseItem{item}),
-		Provenance: cloneTranscriptCommittedRowProvenance(provenance),
-	})
+	chat.providerItems = append(chat.providerItems, llm.CloneResponseItems([]llm.ResponseItem{item})...)
 	chat.transcriptEntryCount++
 	chat.providerTokenEstimateDirty = true
 }
 
-func (s *transcriptRuntimeState) AppendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
-	s.chatProjection().appendLocalEntryRecord(entry, afterToolCallID, provenances...)
+func (s *transcriptRuntimeState) CountLocalEntry(entry ChatEntry) {
+	s.chatProjection().countLocalEntry(entry)
 }
 
-func (s *transcriptRuntimeState) AppendCommittedEntryWithVisibility(role, text string, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
-	s.chatProjection().appendLocalEntryRecord(ChatEntry{Visibility: visibility, Role: role, Text: text}, nil, provenances...)
-}
-
-func (s *transcriptRuntimeState) AppendCommittedCacheWarning(warning transcript.CacheWarning, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
-	s.chatProjection().appendLocalEntryRecord(ChatEntry{
-		Visibility:   visibility,
-		Role:         cacheWarningTranscriptRole,
-		Text:         transcript.CacheWarningText(warning),
-		CacheWarning: copyCacheWarning(&warning),
-	}, nil, provenances...)
+func (s *transcriptRuntimeState) CountCacheWarning(warning transcript.CacheWarning) {
+	s.CountLocalEntry(ChatEntry{CacheWarning: &warning})
 }
 
 func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
 	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta, phase)
 }
 
-func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToolCompletion, provenance *TranscriptCommittedRowProvenance) {
+func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToolCompletion) {
 	s.chatProjection().recordToolCompletionWithProviderItems(tools.Result{
 		CallID:         completion.CallID,
 		Name:           toolspec.ID(completion.Name),
@@ -547,11 +535,11 @@ func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToo
 		CondensedText:  completion.CondensedText,
 		Presentation:   completion.Presentation,
 		QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
-	}, completion.ProviderItems, provenance)
+	}, completion.ProviderItems)
 }
 
-func (s *transcriptRuntimeState) RestoreToolCompletionRecord(record session.ToolCompletionRecord, provenances ...*TranscriptCommittedRowProvenance) error {
-	return s.chatProjection().restoreToolCompletionRecord(record, provenances...)
+func (s *transcriptRuntimeState) RestoreToolCompletionRecord(record session.ToolCompletionRecord) error {
+	return s.chatProjection().restoreToolCompletionRecord(record)
 }
 
 func (s *transcriptRuntimeState) ReplaceHistoryAtCommittedEntryStart(
@@ -581,9 +569,4 @@ func (s *transcriptRuntimeState) SetStreamingError(text string) {
 
 func (s *transcriptRuntimeState) ClearStreamingError() {
 	s.chatProjection().clearStreamingError()
-}
-
-func applyPersistedCacheWarningToTranscript(state *transcriptRuntimeState, record session.CacheWarningRecord, mode config.CacheWarningMode, provenance ...*TranscriptCommittedRowProvenance) {
-	warning := cacheWarningFromSessionRecord(record)
-	state.AppendCommittedCacheWarning(warning, cacheWarningEntryVisibility(mode), provenance...)
 }

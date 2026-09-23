@@ -58,11 +58,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 		}
 		switch payload := payload.(type) {
 		case session.ConfigurationUpdateRecord:
-			provenance, err := transcriptProvenanceFromRecord(record)
-			if err != nil {
-				return err
-			}
-			e.transcriptRuntimeState().AppendConfigurationItem(stepIDPointer, llmResponseItemFromSessionHistory(payload.Item), &provenance)
+			e.transcriptRuntimeState().AppendConfigurationItem(llmResponseItemFromSessionHistory(payload.Item))
 		case session.MessageRecord:
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {
@@ -71,11 +67,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if err := rollbackLocator.ObserveMessage(record.Seq(), msg); err != nil {
 				return err
 			}
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session message provenance: %w", provenanceErr)
-			}
-			if err := e.transcriptRuntimeState().AppendMessage(stepIDPointer, msg, &provenance); err != nil {
+			if err := e.transcriptRuntimeState().AppendMessage(stepIDPointer, msg); err != nil {
 				return fmt.Errorf("restore session message projection: %w", err)
 			}
 			if msg.Role == llm.RoleAssistant && len(msg.ToolCalls) > 0 {
@@ -104,11 +96,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				reminderIssued = true
 			}
 		case session.ToolCompletionRecord:
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session tool completion provenance: %w", provenanceErr)
-			}
-			if err := e.transcriptRuntimeState().RestoreToolCompletionRecord(payload, &provenance); err != nil {
+			if err := e.transcriptRuntimeState().RestoreToolCompletionRecord(payload); err != nil {
 				return err
 			}
 			for _, generation := range generationsByStep[stepID] {
@@ -132,33 +120,17 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				e.diagnosticDedupeStore().RestoreLocal(*entry.DiagnosticKey)
 			}
 			restored := *localEntryChatEntryForStep(entry, stepIDPointer)
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session local entry provenance: %w", provenanceErr)
-			}
-			e.transcriptRuntimeState().AppendLocalEntryRecord(restored, entry.AfterToolCallID, &provenance)
+			e.transcriptRuntimeState().CountLocalEntry(restored)
 		case session.ReviewerFeedbackRecord:
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore Reviewer feedback provenance: %w", provenanceErr)
-			}
-			e.transcriptRuntimeState().AppendLocalEntryRecord(
-				reviewerFeedbackChatEntryFromSessionRecord(payload, stepID, &provenance), nil,
+			e.transcriptRuntimeState().CountLocalEntry(
+				reviewerFeedbackChatEntryFromSessionRecord(payload, stepID, nil),
 			)
 		case session.ReviewerErrorRecord:
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore Reviewer error provenance: %w", provenanceErr)
-			}
-			e.transcriptRuntimeState().AppendLocalEntryRecord(
-				reviewerErrorChatEntryFromSessionRecord(payload, stepID, &provenance), nil,
+			e.transcriptRuntimeState().CountLocalEntry(
+				reviewerErrorChatEntryFromSessionRecord(payload, stepID, nil),
 			)
 		case session.CacheWarningRecord:
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session cache warning provenance: %w", provenanceErr)
-			}
-			applyPersistedCacheWarningToTranscript(e.transcriptRuntimeState(), payload, e.cfg.CacheWarningMode, &provenance)
+			e.transcriptRuntimeState().CountCacheWarning(cacheWarningFromSessionRecord(payload))
 		case session.CacheRequestObservationRecord:
 			// Cache requests are observational. The following response record
 			// reconstructs the cache tracker state.
@@ -173,18 +145,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.resetLocalDiagnostics()
 			manualEligible = false
-			provenance, provenanceErr := transcriptProvenanceFromRecord(record)
-			if provenanceErr != nil {
-				return fmt.Errorf("restore session history replacement provenance: %w", provenanceErr)
-			}
 			projectedEntries := transcriptEntriesFromHistoryReplacement(
 				replacement.Items,
 				replacement.CompactionNumber,
 			)
-			for index := range projectedEntries {
-				projectedEntries[index].StepID = exactStepIDPointer(stepID)
-			}
-			projectedEntries = assignHistoryReplacementEntryProvenance(projectedEntries, &provenance)
 			e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
 				record.StepID(),
 				replacement.Items,
