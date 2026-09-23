@@ -50,7 +50,7 @@ func TestTaskResumeCommandReportsNoOpWithoutRetry(t *testing.T) {
 	fixture := newWorktreeCommandFixture(t)
 	service := fixture.core.WorkflowClient()
 	created, err := service.CreateAndLinkWorkflowToProject(t.Context(), &workflowpb.CreateAndLinkProjectRequest{
-		ProjectId: fixture.a.ProjectID, Name: "Resume", DefaultPolicy: workflowpb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS,
+		ProjectId: fixture.a.ProjectID, Name: "Resume", DefaultPolicy: workflowpb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_ALWAYS.Enum(),
 	})
 	if err != nil {
 		t.Fatal(err)

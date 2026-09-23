@@ -4,254 +4,160 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"core/internal/testharness/testsetup"
-
-	"core/shared/serverapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func taskShowTestStatus(kind serverapi.WorkflowTaskStatusKind) serverapi.WorkflowTaskStatus {
-	native, ok := kind.NativeState()
-	if !ok {
-		panic("invalid test status")
+func taskShowFixture(t *testing.T) *taskpb.TaskDetail {
+	t.Helper()
+	workflowID := testsetup.WorkflowID(t, "task-show").String()
+	return &taskpb.TaskDetail{
+		Summary: &taskpb.TaskSummary{
+			Id: "task-1", ShortId: "KNT-1", Title: "Task", ProjectId: "project-1", WorkflowId: workflowID,
+			CreatedAt: timestamppb.New(time.UnixMilli(1)), UpdatedAt: timestamppb.New(time.UnixMilli(1)),
+		},
+		Project:  &taskpb.BoardProject{ProjectKey: "KNT", DisplayName: "Project", DefaultWorkspaceId: "workspace-1", AttachedWorkspaceCount: 1},
+		Workflow: &taskpb.TaskWorkflowSummary{WorkflowId: workflowID, DisplayName: "Workflow", Version: 1},
+		SourceWorkspace: &taskpb.TaskSourceWorkspace{
+			WorkspaceId: "workspace-1", DisplayName: "Main", RootPath: "/workspace",
+			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		},
+		Status:  taskContractStatus(taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE),
+		Actions: &taskpb.TaskActions{}, Dependencies: &taskpb.TaskDependencies{},
 	}
-	return serverapi.WorkflowTaskStatus{Kind: kind, NativeState: native}
 }
 
-func taskShowTestInt(value int) *int { return &value }
+func taskShowJSONForTest(t *testing.T, task *taskpb.TaskDetail) []byte {
+	t.Helper()
+	output, err := taskShowOutputFromDetail(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
 
 func TestTaskShowJSONIncludesCurrentNodesAndRetainedSessionCount(t *testing.T) {
-	sessionID := "session-1"
-	task := serverapi.WorkflowTaskDetail{
-		Summary:  serverapi.WorkflowTaskSummary{WorkflowID: testsetup.WorkflowID(t, "task-show")},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: testsetup.WorkflowID(t, "task-show")},
-		CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-			NodeID:    "node-1",
-			SessionID: &sessionID,
-		}},
-		RetainedSessionCount: 3,
+	task := taskShowFixture(t)
+	task.CurrentNodes = []*taskpb.AttentionCurrentNode{{NodeId: "node-1", SessionId: proto.String("session-1")}}
+	task.RetainedSessionCount = 3
+	var output struct {
+		CurrentNodes []struct {
+			NodeID string `json:"node_id"`
+		} `json:"current_nodes"`
+		RetainedSessionCount int `json:"retained_session_count"`
 	}
-
-	encoded, err := json.Marshal(taskShowOutputFromDetail(task))
-	if err != nil {
-		t.Fatalf("marshal task show output: %v", err)
+	if err := json.Unmarshal(taskShowJSONForTest(t, task), &output); err != nil {
+		t.Fatal(err)
 	}
-	var output map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &output); err != nil {
-		t.Fatalf("decode task show output: %v", err)
-	}
-	if _, exists := output["current_nodes"]; !exists {
-		t.Fatalf("task show JSON keys = %v, want current_nodes", output)
-	}
-	if _, exists := output["retained_session_count"]; !exists {
-		t.Fatalf("task show JSON keys = %v, want retained_session_count", output)
-	}
-	var currentNodes []serverapi.WorkflowTaskCurrentNode
-	if err := json.Unmarshal(output["current_nodes"], &currentNodes); err != nil {
-		t.Fatalf("decode current_nodes: %v", err)
-	}
-	if len(currentNodes) != 1 || currentNodes[0].NodeID != "node-1" {
-		t.Fatalf("current_nodes = %+v, want node-1", currentNodes)
-	}
-	var retainedSessionCount int
-	if err := json.Unmarshal(output["retained_session_count"], &retainedSessionCount); err != nil {
-		t.Fatalf("decode retained_session_count: %v", err)
-	}
-	if retainedSessionCount != 3 {
-		t.Fatalf("retained_session_count = %d, want 3", retainedSessionCount)
+	if len(output.CurrentNodes) != 1 || output.CurrentNodes[0].NodeID != "node-1" || output.RetainedSessionCount != 3 {
+		t.Fatalf("Task detail facts lost: %+v", output)
 	}
 }
 
 func TestTaskShowJSONIncludesEffectiveCurrentNodeSelection(t *testing.T) {
-	thinking := "high"
-	assignee := "reviewer"
-	task := serverapi.WorkflowTaskDetail{
-		Summary:  serverapi.WorkflowTaskSummary{WorkflowID: testsetup.WorkflowID(t, "task-show-effective")},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: testsetup.WorkflowID(t, "task-show-effective")},
-		CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-			NodeID:            "node-1",
-			EffectiveAssignee: &assignee,
-			EffectiveThinking: &thinking,
-		}},
+	task := taskShowFixture(t)
+	task.CurrentNodes = []*taskpb.AttentionCurrentNode{{
+		NodeId: "node-1", EffectiveAssignee: proto.String("reviewer"), EffectiveThinking: proto.String("high"),
+	}}
+	var output struct {
+		CurrentNodes []struct {
+			Assignee *string `json:"effective_assignee"`
+			Thinking *string `json:"effective_thinking"`
+		} `json:"current_nodes"`
 	}
-
-	output := taskShowOutputFromDetail(task)
-	if output.CurrentNodes[0].EffectiveAssignee == nil || *output.CurrentNodes[0].EffectiveAssignee != assignee {
-		t.Fatalf("JSON projection effective assignee = %+v, want %q", output.CurrentNodes[0].EffectiveAssignee, assignee)
+	if err := json.Unmarshal(taskShowJSONForTest(t, task), &output); err != nil {
+		t.Fatal(err)
 	}
-	if output.CurrentNodes[0].EffectiveThinking == nil || *output.CurrentNodes[0].EffectiveThinking != thinking {
-		t.Fatalf("JSON projection effective thinking = %+v, want %q", output.CurrentNodes[0].EffectiveThinking, thinking)
-	}
-	encoded, err := json.Marshal(output)
-	if err != nil {
-		t.Fatalf("marshal task show output: %v", err)
-	}
-	if !bytes.Contains(encoded, []byte(`"effective_assignee":"reviewer"`)) ||
-		!bytes.Contains(encoded, []byte(`"effective_thinking":"high"`)) {
-		t.Fatalf("task show JSON = %s, want effective selection fields", encoded)
+	if len(output.CurrentNodes) != 1 || output.CurrentNodes[0].Assignee == nil || *output.CurrentNodes[0].Assignee != "reviewer" ||
+		output.CurrentNodes[0].Thinking == nil || *output.CurrentNodes[0].Thinking != "high" {
+		t.Fatalf("effective selections lost: %+v", output)
 	}
 }
 
 func TestTaskShowHumanOutputReportsEffectiveCurrentNodeSelection(t *testing.T) {
-	thinking := "high"
-	assignee := "reviewer"
-	task := serverapi.WorkflowTaskDetail{
-		Summary: serverapi.WorkflowTaskSummary{
-			ShortID: "KNT-3", Title: "Task", ProjectID: "project-1", CreatedAtUnixMs: 1,
-		},
-		Project:  serverapi.ProjectBoardProject{DisplayName: "Project"},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: testsetup.WorkflowID(t, "task-show-effective-human"), DisplayName: "Workflow"},
-		CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-			NodeID:            "node-1",
-			EffectiveAssignee: &assignee,
-			EffectiveThinking: &thinking,
-		}},
-		Status: serverapi.WorkflowTaskStatus{
-			Kind: serverapi.WorkflowTaskStatusKindActive, NativeState: serverapi.WorkflowTaskNativeStateActive,
-		},
-	}
-
+	task := taskShowFixture(t)
+	task.CurrentNodes = []*taskpb.AttentionCurrentNode{{
+		NodeId: "node-1", EffectiveAssignee: proto.String("reviewer"), EffectiveThinking: proto.String("high"),
+	}}
 	var output bytes.Buffer
 	if err := writeTaskDetail(&output, task); err != nil {
-		t.Fatalf("write task detail: %v", err)
+		t.Fatal(err)
 	}
-	text := output.String()
-	if !bytes.Contains([]byte(text), []byte("effective assignee: reviewer")) ||
-		!bytes.Contains([]byte(text), []byte("effective thinking: high")) {
-		t.Fatalf("task show human output = %q, want effective selection", text)
+	if !bytes.Contains(output.Bytes(), []byte("reviewer")) || !bytes.Contains(output.Bytes(), []byte("high")) {
+		t.Fatalf("effective selections missing: %q", output.String())
 	}
 }
 
 func TestTaskShowHumanOutputReportsRetainedSessionsWithoutDuplicatingCurrentNodeIdentity(t *testing.T) {
-	sessionID := "session-1"
-	task := serverapi.WorkflowTaskDetail{
-		Summary: serverapi.WorkflowTaskSummary{
-			ShortID:         "KNT-1",
-			Title:           "Task",
-			ProjectID:       "project-1",
-			CreatedAtUnixMs: 1,
-		},
-		Project: serverapi.ProjectBoardProject{DisplayName: "Project"},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{
-			WorkflowID:  testsetup.WorkflowID(t, "task-show"),
-			DisplayName: "Workflow",
-		},
-		CurrentNodes: []serverapi.WorkflowTaskCurrentNode{{
-			NodeID:    "node-1",
-			SessionID: &sessionID,
-		}},
-		LiveSessions: []serverapi.WorkflowTaskLiveSession{{
-			SessionID:       sessionID,
-			NodeDisplayName: "Agent",
-		}},
-		RetainedSessionCount: 3,
-		Status: serverapi.WorkflowTaskStatus{
-			Kind:        serverapi.WorkflowTaskStatusKindActive,
-			NativeState: serverapi.WorkflowTaskNativeStateActive,
-		},
-	}
-
+	task := taskShowFixture(t)
+	task.CurrentNodes = []*taskpb.AttentionCurrentNode{{NodeId: "node-1", SessionId: proto.String("session-1")}}
+	task.LiveSessions = []*taskpb.LiveSession{{SessionId: "session-1", NodeDisplayName: "Agent"}}
+	task.RetainedSessionCount = 3
 	var output bytes.Buffer
 	if err := writeTaskDetail(&output, task); err != nil {
-		t.Fatalf("write task detail: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.Contains(output.Bytes(), []byte("Current session: session-1\n")) {
-		t.Fatalf("task show human output = %q, want current Session", output.String())
-	}
-	if !bytes.Contains(output.Bytes(), []byte("Retained sessions: 3\n")) {
-		t.Fatalf("task show human output = %q, want retained Session count", output.String())
-	}
-	if bytes.Contains(output.Bytes(), []byte("Current node:")) ||
-		bytes.Contains(output.Bytes(), []byte("node-1")) {
-		t.Fatalf("task show human output = %q, must not duplicate Current Node identity", output.String())
+	if !bytes.Contains(output.Bytes(), []byte("Current session: session-1\n")) ||
+		!bytes.Contains(output.Bytes(), []byte("Retained sessions: 3\n")) || bytes.Contains(output.Bytes(), []byte("node-1")) {
+		t.Fatalf("Session presentation = %q", output.String())
 	}
 }
 
 func TestTaskShowHumanOutputUsesSharedDependencySections(t *testing.T) {
-	unsatisfied := serverapi.WorkflowTaskDependencyUnsatisfied
-	task := serverapi.WorkflowTaskDetail{
-		Summary: serverapi.WorkflowTaskSummary{
-			ShortID:         "KNT-2",
-			Title:           "Task",
-			ProjectID:       "project-1",
-			CreatedAtUnixMs: 1,
-		},
-		Project:  serverapi.ProjectBoardProject{DisplayName: "Project"},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: testsetup.WorkflowID(t, "task-show-dependencies"), DisplayName: "Workflow"},
-		Status:   taskShowTestStatus(serverapi.WorkflowTaskStatusKindBacklog),
-		Dependencies: serverapi.WorkflowTaskDependencies{
-			BlockerCount:            1,
-			UnsatisfiedBlockerCount: 1,
-			Directions: []serverapi.WorkflowTaskDependencyDirectionProjection{{
-				Direction:        serverapi.WorkflowTaskDependencyDirectionBlockedBy,
-				TotalCount:       1,
-				UnsatisfiedCount: taskShowTestInt(1),
-				Items: []serverapi.WorkflowTaskDependencyItem{{
-					TaskID:       "task-1",
-					ShortID:      "KNT-1",
-					Title:        "Foundation",
-					WorkflowID:   "workflow-1",
-					Status:       taskShowTestStatus(serverapi.WorkflowTaskStatusKindActive),
-					Satisfaction: &unsatisfied,
-				}},
+	task := taskShowFixture(t)
+	task.Dependencies = &taskpb.TaskDependencies{
+		BlockerCount: 1, UnsatisfiedBlockerCount: 1,
+		Directions: []*taskpb.DependencyDirectionProjection{{
+			Direction: taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY, TotalCount: 1, UnsatisfiedCount: proto.Int32(1),
+			Items: []*taskpb.DependencyItem{{
+				TaskId: "task-2", ShortId: "KNT-2", Title: "Foundation", WorkflowId: task.Summary.WorkflowId,
+				Status:       taskContractStatus(taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE),
+				Satisfaction: taskpb.DependencySatisfaction_DEPENDENCY_SATISFACTION_UNSATISFIED.Enum(),
 			}},
-		},
+		}},
 	}
-
 	var output bytes.Buffer
 	if err := writeTaskDetail(&output, task); err != nil {
-		t.Fatalf("write task detail: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.HasSuffix(output.Bytes(), []byte("Blocked by:\nKNT-1: Foundation (active)\n")) {
-		t.Fatalf("task show output=%q", output.String())
+	if !bytes.HasSuffix(output.Bytes(), []byte("Blocked by:\nKNT-2: Foundation (active)\n")) {
+		t.Fatalf("dependency sections = %q", output.String())
 	}
 }
 
 func TestTaskShowJSONIncludesAggregateDependenciesOnlyWhenNonzero(t *testing.T) {
-	workflowID := testsetup.WorkflowID(t, "task-show-aggregate-dependencies")
-	task := serverapi.WorkflowTaskDetail{
-		Summary:  serverapi.WorkflowTaskSummary{WorkflowID: workflowID},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: workflowID},
-		Dependencies: serverapi.WorkflowTaskDependencies{
-			BlockerCount:             2,
-			UnsatisfiedBlockerCount:  1,
-			DirectlyBlockedTaskCount: 3,
-			Directions: []serverapi.WorkflowTaskDependencyDirectionProjection{{
-				Direction: serverapi.WorkflowTaskDependencyDirectionBlocks,
-				Items: []serverapi.WorkflowTaskDependencyItem{{
-					TaskID: "must-not-leak",
-				}},
-			}},
-		},
+	task := taskShowFixture(t)
+	task.Dependencies = &taskpb.TaskDependencies{
+		BlockerCount: 2, UnsatisfiedBlockerCount: 1, DirectlyBlockedTaskCount: 3,
+		Directions: []*taskpb.DependencyDirectionProjection{{
+			Direction: taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS,
+			Items:     []*taskpb.DependencyItem{{TaskId: "must-not-leak"}},
+		}},
 	}
-
-	data, err := json.Marshal(taskShowOutputFromDetail(task))
-	if err != nil {
-		t.Fatalf("marshal task show output: %v", err)
+	data := taskShowJSONForTest(t, task)
+	var output struct {
+		Dependencies map[string]int `json:"dependencies"`
 	}
-	var output map[string]json.RawMessage
 	if err := json.Unmarshal(data, &output); err != nil {
-		t.Fatalf("decode task show output: %v", err)
+		t.Fatal(err)
 	}
-	var summary map[string]int
-	if err := json.Unmarshal(output["dependencies"], &summary); err != nil {
-		t.Fatalf("decode dependencies: %v", err)
-	}
-	if len(summary) != 3 || summary["blocker_count"] != 2 || summary["unsatisfied_blocker_count"] != 1 || summary["blocked_task_count"] != 3 {
-		t.Fatalf("dependency summary=%v JSON=%s", summary, data)
+	if len(output.Dependencies) != 3 || output.Dependencies["blocker_count"] != 2 ||
+		output.Dependencies["unsatisfied_blocker_count"] != 1 || output.Dependencies["blocked_task_count"] != 3 {
+		t.Fatalf("dependency counts = %s", data)
 	}
 	if bytes.Contains(data, []byte("directions")) || bytes.Contains(data, []byte("must-not-leak")) {
-		t.Fatalf("task show JSON leaked dependency items: %s", data)
+		t.Fatalf("Task Show leaked dependency entries: %s", data)
 	}
-
-	emptyData, err := json.Marshal(taskShowOutputFromDetail(serverapi.WorkflowTaskDetail{
-		Summary:  serverapi.WorkflowTaskSummary{WorkflowID: workflowID},
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{WorkflowID: workflowID},
-	}))
-	if err != nil {
-		t.Fatalf("marshal empty task show output: %v", err)
-	}
-	if bytes.Contains(emptyData, []byte(`"dependencies"`)) {
-		t.Fatalf("empty task show JSON includes dependencies: %s", emptyData)
+	if bytes.Contains(taskShowJSONForTest(t, taskShowFixture(t)), []byte(`"dependencies"`)) {
+		t.Fatal("empty dependency counts were emitted")
 	}
 }

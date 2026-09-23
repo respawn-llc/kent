@@ -12,21 +12,23 @@ import (
 	"testing"
 
 	"core/shared/config"
+	"core/shared/client"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 type projectDeleteTestOperations struct {
-	listResponse   serverapi.WorkflowTaskListResponse
+	listResponse   *taskpb.ListSuccess
 	listErr        error
 	deleteResponse *projectpb.DeleteProjectSuccess
 	deleteErr      error
-	listRequests   []serverapi.WorkflowTaskListRequest
+	listRequests   []*taskpb.ListRequest
 	deleteRequests []*projectpb.DeleteProjectRequest
 }
 
-func (r *projectDeleteTestOperations) ListWorkflowTasks(_ context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+func (r *projectDeleteTestOperations) ListWorkflowTasks(_ context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
 	r.listRequests = append(r.listRequests, req)
 	return r.listResponse, r.listErr
 }
@@ -39,9 +41,9 @@ func (r *projectDeleteTestOperations) DeleteProject(_ context.Context, req *proj
 func TestProjectDeleteWithoutConfirmPreflightsAndReturnsJSONError(t *testing.T) {
 	const projectID = "project-123"
 	remote := &projectDeleteTestOperations{
-		listResponse: serverapi.WorkflowTaskListResponse{
-			Scope: serverapi.WorkflowTaskListScope{ProjectID: projectID},
-			Tasks: []serverapi.WorkflowTaskListItem{},
+		listResponse: &taskpb.ListSuccess{
+			Scope: &taskpb.ListScope{ProjectId: projectID},
+			Tasks: []*taskpb.ListItem{},
 		},
 	}
 
@@ -111,9 +113,9 @@ func TestProjectDeleteOutcomeRejectsAmbiguousSuccessState(t *testing.T) {
 func TestProjectDeleteAgentWithBacklogIsDeniedBeforeConfirmation(t *testing.T) {
 	const projectID = "project-123"
 	remote := &projectDeleteTestOperations{
-		listResponse: projectDeleteTaskListResponse(projectID, serverapi.WorkflowTaskStatus{
-			Kind:        serverapi.WorkflowTaskStatusKindBacklog,
-			NativeState: serverapi.WorkflowTaskNativeStateActive,
+		listResponse: projectDeleteTaskListResponse(projectID, &taskpb.TaskStatus{
+			Kind:        taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
+			NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE,
 		}),
 	}
 
@@ -129,9 +131,9 @@ func TestProjectDeleteAgentWithBacklogIsDeniedBeforeConfirmation(t *testing.T) {
 func TestProjectDeleteHumanWithBacklogContinuesToConfirmation(t *testing.T) {
 	const projectID = "project-123"
 	remote := &projectDeleteTestOperations{
-		listResponse: projectDeleteTaskListResponse(projectID, serverapi.WorkflowTaskStatus{
-			Kind:        serverapi.WorkflowTaskStatusKindBacklog,
-			NativeState: serverapi.WorkflowTaskNativeStateActive,
+		listResponse: projectDeleteTaskListResponse(projectID, &taskpb.TaskStatus{
+			Kind:        taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
+			NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE,
 		}),
 	}
 
@@ -157,10 +159,11 @@ func TestProjectDeleteAgentWithoutUnfinishedWorkContinuesToConfirmation(t *testi
 func TestProjectDeleteTreatsCorrectlyScopedNoLinkedWorkflowsAsEmpty(t *testing.T) {
 	const projectID = "project-123"
 	remote := &projectDeleteTestOperations{
-		listErr: &serverapi.WorkflowTaskListScopeError{
-			Reason:    serverapi.WorkflowTaskListScopeReasonNoLinkedWorkflows,
-			ProjectID: stringPointer(projectID),
-		},
+		listErr: &client.TaskListError{Failure: &taskpb.ListError{
+			Code: "scope_error", Detail: &taskpb.ListError_ScopeError{ScopeError: &taskpb.ListScopeErrorDetails{
+				Reason: taskpb.ListScopeErrorReason_LIST_SCOPE_ERROR_REASON_NO_LINKED_WORKFLOWS, ProjectId: projectID,
+			}},
+		}},
 	}
 
 	outcome := runProjectDeleteUseCase(context.Background(), remote, projectID, false, true)
@@ -172,36 +175,36 @@ func TestProjectDeleteRejectsInvalidPreflightScopesAndStatuses(t *testing.T) {
 	const projectID = "project-123"
 	tests := []struct {
 		name     string
-		response serverapi.WorkflowTaskListResponse
+		response *taskpb.ListSuccess
 		err      error
 	}{
 		{
 			name: "mismatched project",
-			response: serverapi.WorkflowTaskListResponse{
-				Scope: serverapi.WorkflowTaskListScope{ProjectID: "other-project"},
+			response: &taskpb.ListSuccess{
+				Scope: &taskpb.ListScope{ProjectId: "other-project"},
 			},
 		},
 		{
 			name: "workflow scope",
-			response: serverapi.WorkflowTaskListResponse{
-				Scope: serverapi.WorkflowTaskListScope{
-					ProjectID:  projectID,
-					WorkflowID: workflowIDPointer(t),
+			response: &taskpb.ListSuccess{
+				Scope: &taskpb.ListScope{
+					ProjectId:  projectID,
+					WorkflowId: workflowIDPointer(t),
 				},
 			},
 		},
 		{
 			name: "terminal task",
-			response: projectDeleteTaskListResponse(projectID, serverapi.WorkflowTaskStatus{
-				Kind:        serverapi.WorkflowTaskStatusKindDone,
-				NativeState: serverapi.WorkflowTaskNativeStateTerminal,
+			response: projectDeleteTaskListResponse(projectID, &taskpb.TaskStatus{
+				Kind:        taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE,
+				NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL,
 			}),
 		},
 		{
 			name: "malformed status",
-			response: projectDeleteTaskListResponse(projectID, serverapi.WorkflowTaskStatus{
-				Kind:        "unknown",
-				NativeState: serverapi.WorkflowTaskNativeStateActive,
+			response: projectDeleteTaskListResponse(projectID, &taskpb.TaskStatus{
+				Kind:        taskpb.TaskStatusKind(999),
+				NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE,
 			}),
 		},
 		{
@@ -209,7 +212,7 @@ func TestProjectDeleteRejectsInvalidPreflightScopesAndStatuses(t *testing.T) {
 			err: &serverapi.WorkflowTaskListScopeError{
 				Reason:     serverapi.WorkflowTaskListScopeReasonNoLinkedWorkflows,
 				ProjectID:  stringPointer(projectID),
-				WorkflowID: workflowIDPointer(t),
+				WorkflowID: func() *runtimeids.WorkflowID { id := runtimeids.NewWorkflowID(); return &id }(),
 			},
 		},
 		{
@@ -571,12 +574,12 @@ func TestProjectDeleteOpenerFailureUsesOperationalJSONEnvelope(t *testing.T) {
 	}
 }
 
-func projectDeleteTaskListResponse(projectID string, statuses ...serverapi.WorkflowTaskStatus) serverapi.WorkflowTaskListResponse {
-	response := serverapi.WorkflowTaskListResponse{
-		Scope: serverapi.WorkflowTaskListScope{ProjectID: projectID},
+func projectDeleteTaskListResponse(projectID string, statuses ...*taskpb.TaskStatus) *taskpb.ListSuccess {
+	response := &taskpb.ListSuccess{
+		Scope: &taskpb.ListScope{ProjectId: projectID},
 	}
 	for _, status := range statuses {
-		response.Tasks = append(response.Tasks, serverapi.WorkflowTaskListItem{Status: status})
+		response.Tasks = append(response.Tasks, &taskpb.ListItem{Status: status})
 	}
 	return response
 }
@@ -591,23 +594,22 @@ func assertProjectDeleteFailure(t *testing.T, outcome projectDeleteOutcome, code
 	}
 }
 
-func assertProjectDeletePreflightRequest(t *testing.T, requests []serverapi.WorkflowTaskListRequest) {
+func assertProjectDeletePreflightRequest(t *testing.T, requests []*taskpb.ListRequest) {
 	t.Helper()
 	if len(requests) != 1 {
 		t.Fatalf("preflight requests = %d, want 1", len(requests))
 	}
 	request := requests[0]
-	if request.ProjectID == nil || *request.ProjectID != "project-123" {
-		t.Fatalf("project id = %v, want project-123", request.ProjectID)
+	if request.GetProjectId() != "project-123" {
+		t.Fatalf("project id = %v, want project-123", request.ProjectId)
 	}
 	limit := 1
-	if request.Limit == nil || *request.Limit != limit {
+	if request.Limit == nil || int(*request.Limit) != limit {
 		t.Fatalf("limit = %v, want %d", request.Limit, limit)
 	}
-	if request.WorkflowID != nil || len(request.ColumnKeys) != 0 || len(request.AttentionKinds) != 0 ||
+	if request.WorkflowId != nil || len(request.ColumnKeys) != 0 || len(request.AttentionKinds) != 0 ||
 		len(request.Sort) != 0 || request.Offset != nil ||
-		request.LabelFilter.Kind != serverapi.WorkflowTaskLabelFilterKindNone ||
-		request.LabelFilter.Named != nil {
+		request.LabelFilter.GetNone() == nil {
 		t.Fatalf("request filters = %+v, want project-wide unfiltered existence query", request)
 	}
 	if !slices.Equal(request.StatusKinds, projectDeleteUnfinishedTaskStatuses()) {
@@ -619,8 +621,8 @@ func stringPointer(value string) *string {
 	return &value
 }
 
-func workflowIDPointer(t *testing.T) *runtimeids.WorkflowID {
+func workflowIDPointer(t *testing.T) *string {
 	t.Helper()
-	value := runtimeids.NewWorkflowID()
+	value := runtimeids.NewWorkflowID().String()
 	return &value
 }

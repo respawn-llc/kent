@@ -14,6 +14,7 @@ import (
 	"core/shared/apicontract"
 	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
@@ -802,8 +803,8 @@ func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
 
 	statuses, err := parseTaskSearchStatusKinds([]string{"done,active", "done"})
 	if err != nil || len(statuses) != 2 ||
-		statuses[0] != serverapi.WorkflowTaskStatusKindActive ||
-		statuses[1] != serverapi.WorkflowTaskStatusKindDone {
+		statuses[0] != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
+		statuses[1] != taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE {
 		t.Fatalf("statuses=%v err=%v", statuses, err)
 	}
 }

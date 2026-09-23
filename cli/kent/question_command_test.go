@@ -17,6 +17,7 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
@@ -54,28 +55,28 @@ type stubPromptFollowUpSubscription struct {
 type stubQuestionTaskRemote struct {
 	apicontract.ProjectViewService
 	apicontract.WorkflowService
-	task               serverapi.WorkflowTaskDetail
-	taskRequests       []serverapi.WorkflowTaskGetRequest
-	attentionResponses []serverapi.WorkflowTaskAttentionListResponse
-	attentionRequests  []serverapi.WorkflowTaskAttentionListRequest
+	task               *taskpb.TaskDetail
+	taskRequests       []*taskpb.GetRequest
+	attentionResponses []*taskpb.TaskAttentionListSuccess
+	attentionRequests  []*taskpb.TaskAttentionListRequest
 	*stubQuestionCommandRemote
 }
 
 func (r *stubQuestionTaskRemote) GetWorkflowTask(
 	_ context.Context,
-	req serverapi.WorkflowTaskGetRequest,
-) (serverapi.WorkflowTaskGetResponse, error) {
+	req *taskpb.GetRequest,
+) (*taskpb.GetSuccess, error) {
 	r.taskRequests = append(r.taskRequests, req)
-	return serverapi.WorkflowTaskGetResponse{Task: r.task}, nil
+	return &taskpb.GetSuccess{Task: r.task}, nil
 }
 
 func (r *stubQuestionTaskRemote) ListWorkflowTaskAttention(
 	_ context.Context,
-	req serverapi.WorkflowTaskAttentionListRequest,
-) (serverapi.WorkflowTaskAttentionListResponse, error) {
+	req *taskpb.TaskAttentionListRequest,
+) (*taskpb.TaskAttentionListSuccess, error) {
 	r.attentionRequests = append(r.attentionRequests, req)
 	if len(r.attentionResponses) == 0 {
-		return serverapi.WorkflowTaskAttentionListResponse{}, nil
+		return &taskpb.TaskAttentionListSuccess{}, nil
 	}
 	response := r.attentionResponses[0]
 	r.attentionResponses = r.attentionResponses[1:]
@@ -262,19 +263,19 @@ func taskQuestionAttention(
 	askID string,
 	question string,
 	occurredAt int64,
-) serverapi.WorkflowAttentionItem {
-	return serverapi.WorkflowAttentionItem{
-		Kind:        "question",
-		TaskID:      taskID,
-		SessionName: &sessionName,
-		Message:     &question,
-		Question: &serverapi.WorkflowAttentionQuestionPrompt{
-			SessionID:  mustQuestionCommandSessionID(sessionID),
-			StepID:     questionCommandStepID(),
-			ToolCallID: clientui.ToolCallID(askID),
-			Kind:       serverapi.WorkflowAttentionQuestionKindOrdinary,
-		},
-		OccurredAtUnixMs: occurredAt,
+) *taskpb.AttentionItem {
+	return &taskpb.AttentionItem{
+		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
+		TaskId: taskID,
+		Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
+			SessionName: &sessionName, Message: &question,
+			Question: &taskpb.AttentionQuestionPrompt{
+				SessionId: sessionID, StepId: questionCommandStepID().String(), ToolCallId: askID,
+				Kind:   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
+				Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{}},
+			},
+		}},
+		OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
 	}
 }
 
@@ -586,11 +587,11 @@ func TestQuestionAnswerByTaskSelectsUniqueSession(t *testing.T) {
 				Questions: []*promptpb.Question{pendingAsk(sessionID, "ask-1", "Continue?")},
 			}},
 		},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: taskID},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{
-			{Items: []serverapi.WorkflowAttentionItem{
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{
+			{Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-1", "Continue?", 1),
 			}},
 			{},
@@ -638,8 +639,10 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	toolCallID := "approval-1"
 	successorQuestion := "Next?"
 	attention := taskQuestionAttention(taskID, sessionID, "Implementer", toolCallID, "Allow access?", 1)
-	attention.Question.Kind = serverapi.WorkflowAttentionQuestionKindApproval
-	attention.Question.ApprovalDecisions = []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce}
+	attention.GetQuestion().Question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
+	attention.GetQuestion().Question.Prompt = &taskpb.AttentionQuestionPrompt_Approval{Approval: &taskpb.ApprovalQuestion{
+		ApprovalDecisions: []promptpb.ApprovalDecision{promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE},
+	}}
 	approval := clientui.PendingApproval{
 		CreatedAt:  time.Unix(1, 0),
 		ToolCallID: clientui.ToolCallID(toolCallID), SessionID: mustQuestionCommandSessionID(sessionID),
@@ -667,13 +670,13 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 				{},
 			},
 		},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: taskID},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{
-			{Items: []serverapi.WorkflowAttentionItem{attention}},
-			{Items: []serverapi.WorkflowAttentionItem{attention}},
-			{Items: []serverapi.WorkflowAttentionItem{
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{
+			{Items: []*taskpb.AttentionItem{attention}},
+			{Items: []*taskpb.AttentionItem{attention}},
+			{Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-next", successorQuestion, 2),
 			}},
 		},
@@ -736,11 +739,11 @@ func TestQuestionByTaskRejectsAmbiguousSessionsWithoutAnswering(t *testing.T) {
 	secondSessionID := uuid.NewString()
 	remote := &stubQuestionTaskRemote{
 		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: taskID},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{{
-			Items: []serverapi.WorkflowAttentionItem{
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{{
+			Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, firstSessionID, "Planner", "ask-1", "Plan?", 1),
 				taskQuestionAttention(taskID, secondSessionID, "Implementer", "ask-2", "Build?", 2),
 			},
@@ -784,11 +787,11 @@ func TestQuestionByTaskRejectsCurrentAgentSession(t *testing.T) {
 	})
 	remote := &stubQuestionTaskRemote{
 		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: taskID},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{{
-			Items: []serverapi.WorkflowAttentionItem{
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{{
+			Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, sessionID, "Current", "ask-1", "Continue?", 1),
 			},
 		}},
@@ -821,11 +824,11 @@ func TestQuestionByTaskUsesOldestQuestionInSelectedSession(t *testing.T) {
 				},
 			}},
 		},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: taskID},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{{
-			Items: []serverapi.WorkflowAttentionItem{
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{{
+			Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-new", "Newer?", 2),
 				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-old", "Older?", 1),
 			},
@@ -870,10 +873,10 @@ func TestTaskQuestionCandidatesPreserveRecommendationAbsence(t *testing.T) {
 		"Second?",
 		2,
 	)
-	recommendedOptionIndex := 2
-	withRecommendation.Question.RecommendedOptionIndex = &recommendedOptionIndex
+	recommendedOptionIndex := int32(2)
+	withRecommendation.GetQuestion().Question.GetOrdinary().RecommendedOptionIndex = &recommendedOptionIndex
 
-	candidates, err := taskQuestionCandidates([]serverapi.WorkflowAttentionItem{
+	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{
 		withoutRecommendation,
 		withRecommendation,
 	})
@@ -896,9 +899,9 @@ func TestTaskQuestionCandidatesPreserveRecommendationAbsence(t *testing.T) {
 
 func TestTaskQuestionCandidatesIgnoreWorkflowTransitionApprovals(t *testing.T) {
 	approvalID := "transition-1"
-	candidates, err := taskQuestionCandidates([]serverapi.WorkflowAttentionItem{{
-		Kind:       "approval",
-		ApprovalID: &approvalID,
+	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{{
+		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL,
+		Detail: &taskpb.AttentionItem_Approval{Approval: &taskpb.ApprovalAttention{ApprovalId: approvalID}},
 	}})
 	if err != nil {
 		t.Fatalf("task question candidates: %v", err)
@@ -912,10 +915,10 @@ func TestQuestionByTaskResolvesProjectScopedShortID(t *testing.T) {
 	unsetSessionIDEnvironmentForTest(t)
 	remote := &stubQuestionTaskRemote{
 		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
-		task: serverapi.WorkflowTaskDetail{
-			Summary: serverapi.WorkflowTaskSummary{ID: "task-1", ShortID: "KENT-335"},
+		task: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{Id: "task-1", ShortId: "KENT-335"},
 		},
-		attentionResponses: []serverapi.WorkflowTaskAttentionListResponse{{}},
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{{}},
 	}
 	command := questionCommandWithTaskRemote(remote)
 	selector := questionTaskSelector("KENT-335")
@@ -943,7 +946,7 @@ func TestQuestionByTaskResolvesProjectScopedShortID(t *testing.T) {
 		t.Fatalf("exit=%d task requests=%+v", exitCode, remote.taskRequests)
 	}
 	request := remote.taskRequests[0]
-	if request.ProjectID != "project-1" || request.ShortID != "KENT-335" {
+	if request.GetProjectId() != "project-1" || request.GetShortId() != "KENT-335" {
 		t.Fatalf("task request = %+v", request)
 	}
 }
