@@ -15,9 +15,9 @@ import (
 func TestDefaultRegistryBusyContract(t *testing.T) {
 	registry := commands.NewDefaultRegistry()
 	want := map[string]commands.ActiveRunPolicy{
-		"exit": commands.ActiveRunPolicyAllowed, "login": commands.ActiveRunPolicyRequiresIdle,
+		"exit": commands.ActiveRunPolicyAllowed, "login": commands.ActiveRunPolicyAllowed,
 		"new": commands.ActiveRunPolicyAllowed, "resume": commands.ActiveRunPolicyAllowed,
-		"logout": commands.ActiveRunPolicyRequiresIdle, "compact": commands.ActiveRunPolicyAllowed,
+		"logout": commands.ActiveRunPolicyAllowed, "compact": commands.ActiveRunPolicyAllowed,
 		"name": commands.ActiveRunPolicyAllowed, "thinking": commands.ActiveRunPolicyAllowed,
 		"fast": commands.ActiveRunPolicyAllowed, "supervisor": commands.ActiveRunPolicyAllowed,
 		"autocompaction": commands.ActiveRunPolicyAllowed, "questions": commands.ActiveRunPolicyAllowed,

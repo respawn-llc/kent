@@ -44,6 +44,11 @@ type AuthBootstrapService interface {
 	CompleteBootstrap(ctx context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error)
 }
 
+type ConnectionManagementService interface {
+	GetConnections(ctx context.Context, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error)
+	ConfigureConnection(ctx context.Context, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error)
+}
+
 type AuthStatusService interface {
 	GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error)
 }

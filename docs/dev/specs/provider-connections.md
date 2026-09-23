@@ -8,6 +8,7 @@
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
+- Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings must retain their defined precedence.
 - Credentials must remain server-owned. Requests must use only the selected connection's credentials.
 - Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive credential failures must open the affected connection's authentication flow; headless failures must return actionable errors.
 
@@ -16,6 +17,7 @@
 - Kent must offer ChatGPT subscription, API-key Responses-compatible, and auth-less Responses-compatible setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error, not select anonymous access.
 - API-key setup must accept an endpoint prefilled with the OpenAI endpoint and an environment-variable name. Auth-less setup must require an endpoint.
+- First-run setup, Add, and reference edits must require a nonempty environment-variable name for API-key access but must not check the variable's value or probe the provider before saving. Credential failures must be reported when the connection is used.
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
 - ChatGPT must retain browser and device sign-in, including browser callback or pasted callback URL/code. OAuth failure must not fall back to an API key. Refresh failures must remain observable and actionable.
@@ -46,11 +48,14 @@
 
 ## Terminal Setup And Login
 
+- When no Provider Connections are defined, every interactive terminal open must enter connection setup. This includes terminal startup and subsequent Session opens. Headless agent launches must return an actionable setup error.
 - First sign-in must be part of onboarding before provider-dependent choices. Kent must defer saving the connection, credentials, and settings until Finish. Slash commands must be unavailable before onboarding.
-- Canceling or restarting before Finish must discard the unsaved sign-in. Finish must write configuration last. A failed configuration write must leave onboarding incomplete and report the failure; unused saved credentials are acceptable.
+- Explicitly canceling setup or restarting the server before Finish must discard the unsaved sign-in. Finish must write configuration last. A failed configuration write must leave onboarding incomplete and report the failure; unused saved credentials are acceptable.
+- Kent must own one shared pending first-run connection per server. Opening another TUI must not reset it. Explicit setup changes or discard, Finish, and server restart must control its lifetime. An OAuth result arriving after explicit discard must not persist the discarded sign-in.
 - First-run onboarding must implicitly select the first connection as default without confirmation.
 - After onboarding, `/login` must list Add connection first and existing connections afterward. With zero connections it must enter Add directly. Config-authored connections must appear in the same flow.
 - Add must save the new connection in global configuration and offer an explicit Make default choice. Make default must change only the global default, explain any overriding workspace default, and preserve existing role assignments and Session bindings.
+- Add for a ChatGPT connection must save its definition only after successful sign-in. Failed sign-in or cancellation before the operation is accepted must leave no definition. Observer disconnect must not cancel accepted work.
 - Selecting an existing ChatGPT connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
 - The API-key field must show: "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from."
 - `/logout` must open the same picker without deleting credentials.

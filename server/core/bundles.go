@@ -51,7 +51,6 @@ type AuthBundle struct {
 	authBootstrap apicontract.AuthBootstrapService
 	authStatus    apicontract.AuthStatusService
 	serverStatus  apicontract.ServerStatusService
-	authRequired  bool
 }
 
 type ChatBundle struct {
@@ -197,7 +196,7 @@ type bundleCompositionInput struct {
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authservice.StartupAuthRequired(in.cfg.Settings)),
+		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
 		Capability: in.capabilityFactsService,
 		Chat:       &ChatBundle{operations: in.chatOperationOwner},
 		cleanup: []lifecycleResource{
@@ -253,13 +252,12 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService, authRequired bool) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: bootstrapService,
 		authStatus:    statusService,
 		serverStatus:  serverStatusService,
-		authRequired:  authRequired,
 	}
 }
 

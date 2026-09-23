@@ -36,14 +36,6 @@ func (g *Gateway) serveSubscription(conn rpcwire.Conn, ctx context.Context, stat
 		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
 		return
 	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		operation.Options.AuthenticationStage,
-	); err != nil {
-		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
-		return
-	}
 	route.Scope = routeScopePolicy(operation.Options.ScopePolicy)
 	if _, resp, failed := g.preflightRouteRequest(ctx, state, route, req); failed {
 		_ = sendResponse(ctx, conn, resp)

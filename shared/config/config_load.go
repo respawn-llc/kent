@@ -70,7 +70,7 @@ func loadAll(roots *workspaceConfigRoots, opts LoadOptions) (loadedConfig, error
 	if err != nil {
 		return loadedConfig{}, err
 	}
-	absPersistenceRoot, err := preparePersistenceRoot(loaded.App.PersistenceRoot)
+	absPersistenceRoot, err := PreparePersistenceRoot(loaded.App.PersistenceRoot)
 	if err != nil {
 		return loadedConfig{}, err
 	}

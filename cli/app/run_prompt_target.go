@@ -46,9 +46,6 @@ func startRunPromptClientWithWorkspaceConfig(ctx context.Context, workspaceConfi
 		DiscoveryTimeout: configuredRemoteWorkspaceDiscoveryTimeout,
 		DialProjectView:  dialConfiguredProjectViewRemote,
 		DialWorkspace:    dialConfiguredRemote,
-		EnsureAuthReady: func(ctx context.Context, auth apicontract.AuthBootstrapService) error {
-			return ensureRemoteAuthReady(ctx, auth, cfg.Settings, newHeadlessAuthInteractor(), false)
-		},
 	})
 	if err != nil {
 		var rootMismatch *serverattach.RootMismatchServerError

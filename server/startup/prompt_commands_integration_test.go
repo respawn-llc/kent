@@ -11,11 +11,14 @@ import (
 
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
+	"core/server/auth"
+	"core/server/authservice"
 	"core/server/metadata"
 	"core/server/onboarding"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -61,7 +64,14 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal("Claude Code provider UUID is missing")
 	}
 	providerUUID := providers[providerIndex].UUID.String()
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path})
+	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(cfg.PersistenceRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
+	endpoint := "http://localhost:1234/v1"
+	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: connections})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
