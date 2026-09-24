@@ -7,7 +7,7 @@ import { emptyWorkflowDerivedWiring, type WorkflowSelectorApplicabilityReason } 
 import { appI18n, initializeI18n } from "@/i18n";
 import { groupableWorkflowDefinition } from "./workflowEditorGraphMutationFixtures";
 import { WorkflowDraftInspectorContent } from "./WorkflowDraftInspector";
-import type { WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import type { WorkflowEditorView } from "./useWorkflowEditorView";
 import { initializeWorkflowEditorDraft } from "./workflowEditorDraft";
 
 beforeAll(async () => {
@@ -28,7 +28,7 @@ function renderEdgeInspector(
     ),
   });
   const dispatch = vi.fn();
-  const controller: WorkflowEditorDraftController = {
+  const controller: WorkflowEditorView = {
     dispatch,
     dirty: { dirty: false, graphDirty: false, metadataDirty: false },
     draft: state.draft,
@@ -59,7 +59,7 @@ function renderEdgeInspector(
       return;
     },
     saveBlockers: [],
-    saveError: "",
+    saveError: null,
     saveValidation: null,
     saving: false,
     state,
