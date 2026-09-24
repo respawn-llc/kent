@@ -1,10 +1,11 @@
-import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 
 import type { ProjectWorkflowLink, WorkflowRecord } from "@/api";
 import { errorMessage, isProjectMissingError } from "@/api";
-import { queryKeys } from "@/app-facade";
+import { useQueryAction, useStatusController } from "@/app-facade";
 import type { SidebarPageNavigator } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useSidebarBackWhen } from "@/app-facade";
@@ -20,6 +21,7 @@ import {
   VirtualizedInfiniteList,
 } from "@/ui";
 import { WorkflowCreateForm } from "./WorkflowCreateForm";
+import { createWorkflowLinkModel, createWorkflowLinksModel } from "./WorkflowLinkModel";
 
 export function LinkWorkflowSidebar({
   creating,
@@ -77,34 +79,15 @@ function LinkWorkflowPicker({
   const queryClient = useQueryClient();
   const normalizedProjectID = projectID.trim();
   const workflowsQuery = useWorkflowPages();
-  const linksQuery = useQuery({
-    queryKey: queryKeys.projectWorkflowLinks(normalizedProjectID),
-    queryFn: async () => api.listProjectWorkflowLinks(normalizedProjectID),
-    enabled: normalizedProjectID.length > 0,
-  });
+  const [model] = useState(() => createWorkflowLinksModel(api, queryClient, normalizedProjectID));
+  const linksQuery = useAtomValue(model.request);
+  const retryLinks = useAtomSet(model.retry);
   const workflows = useMemo(
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
   );
-  const linkedByWorkflowID = useMemo(
-    () => projectLinksByWorkflowID(linksQuery.data ?? []),
-    [linksQuery.data],
-  );
-  const linkMutation = useMutation({
-    mutationFn: async (workflowID: string) => {
-      if (normalizedProjectID.length === 0) {
-        throw new Error("Cannot link a workflow without a project.");
-      }
-      return api.linkWorkflowToProject({ projectID: normalizedProjectID, workflowID });
-    },
-    onSuccess: async (link) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.allProjectWorkflowLinks });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows });
-      onLinked(link.workflowID);
-    },
-  });
-  const projectMissing = [linksQuery.error, linkMutation.error].some(isProjectMissingError);
+  const linkedByWorkflowID = useAtomValue(model.linkedByWorkflowID);
+  const projectMissing = isProjectMissingError(linksQuery.error);
   useSidebarBackWhen(projectMissing, navigator);
 
   if (workflowsQuery.isPending || linksQuery.isPending) {
@@ -128,7 +111,9 @@ function LinkWorkflowPicker({
       <ErrorState
         body={errorMessage(linksQuery.error)}
         fullPage={false}
-        onRetry={() => void linksQuery.refetch()}
+        onRetry={() => {
+          retryLinks();
+        }}
         retryLabel={t("app.retry")}
         title={t("workflowEditor.linkLoadFailed")}
       />
@@ -157,9 +142,8 @@ function LinkWorkflowPicker({
       renderItem={(workflow) => (
         <WorkflowLinkRow
           linked={linkedByWorkflowID.get(workflow.id)}
-          linking={linkMutation.isPending}
-          onLink={() => void linkMutation.mutateAsync(workflow.id)}
-          projectID={projectID}
+          onLinked={onLinked}
+          projectID={normalizedProjectID}
           navigator={navigator}
           selected={workflow.id === selectedWorkflowID}
           workflow={workflow}
@@ -167,40 +151,32 @@ function LinkWorkflowPicker({
       )}
     />
   );
-  if (linkMutation.isError) {
-    return (
-      <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-3)]">
-        <ErrorState
-          body={errorMessage(linkMutation.error)}
-          fullPage={false}
-          reveal={false}
-          title={t("workflowLibrary.linkFailed")}
-        />
-        {list}
-      </div>
-    );
-  }
   return <div className="h-full min-h-0">{list}</div>;
 }
 
 function WorkflowLinkRow({
   linked,
-  linking,
-  onLink,
+  onLinked,
   projectID,
   navigator,
   selected,
   workflow,
 }: Readonly<{
   linked: ProjectWorkflowLink | undefined;
-  linking: boolean;
-  onLink: () => void;
+  onLinked: (workflowID: string) => void;
   projectID: string;
   navigator?: SidebarPageNavigator | undefined;
   selected: boolean;
   workflow: WorkflowRecord;
 }>) {
   const { t } = useTranslation();
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const { push } = useStatusController();
+  const [model] = useState(() =>
+    createWorkflowLinkModel({ api, client, projectID, workflowID: workflow.id, push, t }),
+  );
+  const link = useQueryAction(model);
   const row = (loading: boolean) => (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)] rounded-md border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-3)] py-[var(--space-3)]">
       <ItemContent>
@@ -216,8 +192,14 @@ function WorkflowLinkRow({
         </span>
       </ItemContent>
       <div className="flex items-center gap-[var(--space-2)]">
-        {loading ? <Spinner size="sm" /> : null}
-        <Button disabled={linking} onClick={onLink} variant={linked === undefined ? "primary" : "secondary"}>
+        {loading || link.isPending ? <Spinner size="sm" /> : null}
+        <Button
+          disabled={link.isPending}
+          onClick={() => {
+            link.submit({ onLinked, onProjectMissing: navigator?.back });
+          }}
+          variant={linked === undefined ? "primary" : "secondary"}
+        >
           {linked === undefined ? t("workflowLibrary.link") : t("workflowLibrary.select")}
         </Button>
       </div>
@@ -233,10 +215,4 @@ function WorkflowLinkRow({
       {row}
     </WorkflowActionsContextMenu>
   );
-}
-
-function projectLinksByWorkflowID(
-  links: readonly ProjectWorkflowLink[],
-): ReadonlyMap<string, ProjectWorkflowLink> {
-  return new Map(links.map((link) => [link.workflowID, link]));
 }
