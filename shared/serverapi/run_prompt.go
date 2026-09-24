@@ -8,8 +8,17 @@ import (
 	"time"
 
 	"core/shared/config"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 )
+
+type RunSelectionRejectedError struct {
+	Reason chatsettingspb.MutationRejectionReason
+}
+
+func (*RunSelectionRejectedError) Error() string {
+	return "Run selection rejected"
+}
 
 type RunPromptRequest struct {
 	Intent          SessionLaunchIntent `json:"intent"`

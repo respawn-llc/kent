@@ -121,6 +121,6 @@ func newPlacementFixture(t *testing.T) (config.App, *metadata.Store, *session.St
 	planner := sessionlaunch.NewService(launch.Planner{
 		Config: cfg, ContainerDir: container, StoreOptions: store.AuthoritativeSessionStoreOptions(), PersistedSessions: store,
 		ExecutionTargets: store, SessionProjects: store, ManagedWorktreeRoots: store,
-	})
+	}, sessionlaunch.ChatSettingsOwner{})
 	return cfg, store, source, planner
 }

@@ -22,7 +22,8 @@ import (
 )
 
 type Service struct {
-	planner launch.Planner
+	planner       launch.Planner
+	settingsOwner ChatSettingsOwner
 }
 
 type PlanResult struct {
@@ -31,11 +32,12 @@ type PlanResult struct {
 }
 
 type PlanRequest struct {
-	Mode            launch.Mode
-	Intent          serverapi.SessionLaunchIntent
-	CallerSessionID *string
-	Overrides       serverapi.RunPromptOverrides
-	InitialChat     *InitialChatCreation
+	Mode              launch.Mode
+	Intent            serverapi.SessionLaunchIntent
+	CallerSessionID   *string
+	Overrides         serverapi.RunPromptOverrides
+	InitialChat       *InitialChatCreation
+	preparedSelection *launch.PreparedRunPromptOverrides
 }
 
 func (r PlanRequest) Validate() error {
@@ -58,8 +60,8 @@ func (r PlanRequest) Validate() error {
 	return r.Overrides.ValidateAgentRoleOverride()
 }
 
-func NewService(planner launch.Planner) *Service {
-	return &Service{planner: planner}
+func NewService(planner launch.Planner, settingsOwner ChatSettingsOwner) *Service {
+	return &Service{planner: planner, settingsOwner: settingsOwner}
 }
 
 func (s *Service) PrepareSessionChatSettingsOperation(
@@ -132,14 +134,13 @@ func (s *Service) prepareSessionChatSettings(
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
 	return PreparedChatSettingsOperationInput{
-		Raw:                raw,
-		Effective:          effective,
+		ChatSettingsMutationContext: ChatSettingsMutationContext{
+			Raw: raw, Effective: effective, Locked: meta.Locked,
+			WorkflowLocked: taskIdentity != nil, CompactionMode: planner.Config.Settings.CompactionMode,
+		},
 		PersistedQuestions: persistedQuestions,
 		PersistedThinking:  persistedThinking,
 		Catalog:            catalog,
-		Locked:             meta.Locked,
-		WorkflowLocked:     taskIdentity != nil,
-		CompactionMode:     planner.Config.Settings.CompactionMode,
 	}, taskIdentity, nil
 }
 
@@ -330,26 +331,18 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 		return PlanResult{}, err
 	}
 	meta := *record.Meta
-	if meta.Locked != nil && roleOverride.Present {
-		req.Overrides.AgentRole = nil
-		roleOverride = serverapi.RunPromptAgentRoleOverride{}
-	}
-	if roleOverride.Present {
-		if err := subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.TargetFromOverride(roleOverride)); err != nil {
+	if req.preparedSelection != nil {
+		prepared := *req.preparedSelection
+		if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
 			return PlanResult{}, err
 		}
-	} else if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
-		return PlanResult{}, err
+		plan, warnings, err := planner.PlanPersistedSessionWithPreparedOverrides(ctx, launch.SessionRequest{
+			Mode: req.Mode, Intent: req.Intent,
+			PreparedPromptFacingTarget: prepared.PromptFacingTarget(),
+		}, meta, req.Overrides, prepared, launch.RunPromptOverrideOptions{AgentSelectionPersisted: true})
+		return s.finalizeLaunchPlan(ctx, plan, warnings, err)
 	}
-	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked}
-	if !roleOverride.Present {
-		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		preparation.OmittedTarget = &target
-	}
-	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
+	preparedOverrides, roleOverride, err := prepareExistingSelection(planner, req, meta, roleOverride, caller)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -373,6 +366,30 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	})
 	plan.ActivationAgentSelection = activationAgentSelection
 	return s.finalizeLaunchPlan(ctx, plan, warnings, err)
+}
+
+func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta session.Meta, roleOverride serverapi.RunPromptAgentRoleOverride, caller *subagentpolicy.Caller) (launch.PreparedRunPromptOverrides, serverapi.RunPromptAgentRoleOverride, error) {
+	if meta.Locked != nil && roleOverride.Present {
+		req.Overrides.AgentRole = nil
+		roleOverride = serverapi.RunPromptAgentRoleOverride{}
+	}
+	if roleOverride.Present {
+		if err := subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.TargetFromOverride(roleOverride)); err != nil {
+			return launch.PreparedRunPromptOverrides{}, roleOverride, err
+		}
+	} else if err := authorizePersistedHeadlessRole(planner, req, caller, meta); err != nil {
+		return launch.PreparedRunPromptOverrides{}, roleOverride, err
+	}
+	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked}
+	if !roleOverride.Present {
+		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta)
+		if err != nil {
+			return launch.PreparedRunPromptOverrides{}, roleOverride, err
+		}
+		preparation.OmittedTarget = &target
+	}
+	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
+	return preparedOverrides, roleOverride, err
 }
 
 func authorizePersistedHeadlessRole(

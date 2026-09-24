@@ -21,7 +21,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 
 func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

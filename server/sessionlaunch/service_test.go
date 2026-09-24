@@ -47,7 +47,7 @@ func newSessionLaunchTestService(cfg config.App, containerDir string) *Service {
 		StoreOptions:      serviceTestPersistence.Options(),
 		PersistedSessions: serviceTestPersistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	})
+	}, ChatSettingsOwner{})
 }
 
 type sessionLaunchProjectResolver struct{}
@@ -216,7 +216,7 @@ func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t
 		},
 		PersistedSessions: persistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	})
+	}, ChatSettingsOwner{})
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:   launch.ModeInteractive,
@@ -262,7 +262,7 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: metadataStore,
 		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
-	})
+	}, ChatSettingsOwner{})
 
 	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode:   launch.ModeInteractive,
@@ -328,7 +328,7 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 			reloads++
 			return current, nil
 		},
-	})
+	}, ChatSettingsOwner{})
 	fast := true
 	thinking := "high"
 
@@ -431,7 +431,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 			}
 			return snapshot, nil
 		},
-	})
+	}, ChatSettingsOwner{})
 	role := "worker"
 
 	response, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -555,7 +555,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
-	})
+	}, ChatSettingsOwner{})
 	workflowCallerID := workflowCaller.Meta().SessionID
 	workflowCallerRuntimeID := mustSessionLaunchIntentID(t, workflowCallerID)
 	ordinaryCallerID := ordinaryCaller.Meta().SessionID
@@ -595,7 +595,7 @@ func TestPlanLaunchSessionUsesResolvedCallerWorkflowOrigin(t *testing.T) {
 		service := NewService(launch.Planner{
 			Config: cfg, ContainerDir: containerDir, StoreOptions: meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta, SessionProjects: meta, ManagedWorktreeRoots: meta,
-		})
+		}, ChatSettingsOwner{})
 		intent := serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, removed.Meta().SessionID))
 		_, err := service.PlanLaunchSession(ctx, PlanRequest{
 			Mode: launch.ModeHeadless, Intent: intent, CallerSessionID: &workflowCallerID,

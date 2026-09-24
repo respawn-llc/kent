@@ -782,7 +782,7 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 		registerSessionFlagVars(fs, flags)
 	}
 	fs.StringVar(&flags.Model, "model", "", "model for this session")
-	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort: low|medium|high|xhigh")
+	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort supported by the selected model; saved for --continue/--session even if the run later fails")
 	fs.StringVar(&flags.Theme, "theme", "", "theme: light|dark")
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "comma-separated enabled tool IDs, such as shell,patch")

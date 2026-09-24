@@ -95,9 +95,16 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 	if !ok || entry.Choice.GetModel() != "gpt-5-mini" || entry.Choice.AgentCallable {
 		t.Fatalf("headless default choice=%+v, exists=%t", entry.Choice, ok)
 	}
-	mutation, err := ProjectPreparedChatSettingsOperation(prepared, &chatsettingspb.MutationOperation{
+	resolved, rejected, err := resolveChatSettingsSelection(prepared, &chatsettingspb.MutationOperation{
 		Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "medium"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected != nil {
+		t.Fatalf("Thinking selection rejected: %+v", rejected)
+	}
+	mutation, err := ProjectResolvedChatSettingsOperation(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +178,7 @@ func TestDefaultAgentLaunchAndContinuationEnforceCallability(t *testing.T) {
 	service := NewService(launch.Planner{
 		Config: cfg, ContainerDir: containerDir, StoreOptions: db.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: db, SessionProjects: db, ManagedWorktreeRoots: db,
-	})
+	}, ChatSettingsOwner{})
 	removed, err := session.Create(containerDir, "removed", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, db.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatal(err)
