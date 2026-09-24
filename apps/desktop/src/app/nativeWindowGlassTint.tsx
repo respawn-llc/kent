@@ -1,40 +1,54 @@
-import { useEffect } from "react";
+import { useMemo } from "react";
+import { useAtomSuspense } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import type { NativeBridge, NativeWindowGlassTint } from "@app/native-bridge";
 
 import { errorMessage } from "@/api";
+import { shellObservationDiagnostics, useAppServices } from "@/app-facade";
+import { themeChanges } from "./themeChanges";
 
-const themeAttribute = "data-theme";
 const windowGlassFillClassName = "window-glass-fill";
 
 export function useNativeWindowGlassTintSync(nativeBridge: NativeBridge): void {
-  useEffect(() => {
+  const { logger } = useAppServices();
+  const tint = useMemo(() => {
     const platform = nativeBridge.capabilities.platform;
-    if ((platform !== "macos" && platform !== "windows") || typeof document === "undefined") {
-      return;
-    }
-
-    const syncTint = () => {
-      const tint = readNativeWindowGlassTint();
-      void nativeBridge.window.setCurrentGlassTint(tint).catch((error: unknown) => {
-        logNativeGlassTintSyncError(nativeBridge, tint, error);
-      });
-    };
-    syncTint();
-
-    const observer = new MutationObserver(syncTint);
-    observer.observe(document.documentElement, {
-      attributeFilter: [themeAttribute],
-      attributes: true,
-    });
-
-    const systemTheme =
-      window.matchMedia instanceof Function ? window.matchMedia("(prefers-color-scheme: light)") : null;
-    systemTheme?.addEventListener("change", syncTint);
-    return () => {
-      observer.disconnect();
-      systemTheme?.removeEventListener("change", syncTint);
-    };
-  }, [nativeBridge]);
+    const changes =
+      (platform === "macos" || platform === "windows") && typeof document !== "undefined"
+        ? themeChanges(shellObservationDiagnostics(logger, "theme"))
+        : Stream.empty;
+    return Atom.make(
+      changes.pipe(
+        Stream.runForEach(() =>
+          Effect.gen(function* () {
+            const current = readNativeWindowGlassTint();
+            yield* Effect.tryPromise(async () => nativeBridge.window.setCurrentGlassTint(current)).pipe(
+              Effect.catch((error) =>
+                Effect.promise(async () =>
+                  logger.append("warn", "Native window glass tint sync failed.", {
+                    error: errorMessage(error.cause),
+                    tint: JSON.stringify(current),
+                  }),
+                ),
+              ),
+            );
+          }),
+        ),
+        Effect.catch((error) =>
+          Effect.promise(async () =>
+            logger.append("warn", "Native window theme observation failed.", {
+              error: errorMessage(error),
+            }),
+          ),
+        ),
+        Effect.as(null),
+      ),
+      { initialValue: null },
+    );
+  }, [nativeBridge, logger]);
+  useAtomSuspense(tint);
 }
 
 export function readNativeWindowGlassTint(): NativeWindowGlassTint | null {
@@ -55,21 +69,6 @@ export function readNativeWindowGlassTint(): NativeWindowGlassTint | null {
   } finally {
     probe.remove();
   }
-}
-
-function logNativeGlassTintSyncError(
-  nativeBridge: NativeBridge,
-  tint: NativeWindowGlassTint | null,
-  error: unknown,
-): void {
-  void nativeBridge.logging
-    .append({
-      context: { error: errorMessage(error), tint: JSON.stringify(tint) },
-      level: "warn",
-      message: "Native window glass tint sync failed.",
-      occurredAt: new Date().toISOString(),
-    })
-    .catch(() => undefined);
 }
 
 export function parseCssColorToNativeTint(value: string): NativeWindowGlassTint | null {

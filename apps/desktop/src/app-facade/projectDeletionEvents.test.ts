@@ -1,6 +1,6 @@
 import { createBrowserNativeBridge } from "@app/native-bridge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { isProjectMissingError, RpcError } from "@/api";
@@ -35,8 +35,9 @@ describe("Project deletion owner refresh", () => {
     const unsubscribe = observer.subscribe(() => undefined);
     await observer.refetch();
     let refresh: Promise<void> | undefined;
-    const handler = vi.fn(() => {
+    const handler = vi.fn(async () => {
       refresh = invalidateProjectDeleteQueries(queryClient, "project-1");
+      return refresh;
     });
     const wrapper = ({ children }: Readonly<{ children: ReactNode }>) =>
       createElement(TestAppProviders, { children, services });
@@ -48,7 +49,12 @@ describe("Project deletion owner refresh", () => {
     );
     await Promise.resolve();
 
-    await bridge.projectDeletion.notifyDeleted({ projectID: "project-1" });
+    await act(async () => {
+      await bridge.projectDeletion.notifyDeleted({ projectID: "project-1" });
+    });
+    await waitFor(() => {
+      expect(handler).toHaveBeenCalledOnce();
+    });
     await refresh;
 
     expect(handler).toHaveBeenCalledOnce();

@@ -1,8 +1,15 @@
 import { useRouter } from "@tanstack/react-router";
-import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { useAtomSet, useAtomSuspense, useAtomValue } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { SessionChatCatalogReturnContext, type SessionChatCatalogReturn } from "./sessionChatCatalogReturn";
 import { sessionChatHistoryStateSchema } from "./sessionChatHistory";
+import { NavigationStackContext, navigationHistoryChanges, nextReachableHistoryIndex } from "./navigation";
+import { shellObservationDiagnostics } from "./shellObservationDiagnostics";
+import { useAppServices } from "./useAppServices";
 
 type SessionChatHistoryRead =
   | Readonly<{ kind: "absent" }>
@@ -11,33 +18,72 @@ type SessionChatHistoryRead =
 
 export function SessionChatCatalogReturnProvider({ children }: Readonly<{ children: ReactNode }>) {
   const router = useRouter();
-  const [catalogReturn, setCatalogReturn] = useState<SessionChatCatalogReturn | null>(() => {
+  const { logger } = useAppServices();
+  const model = useMemo(() => {
     const historyRead = readSessionChatHistory(router.history.location.state);
-    return historyRead.kind === "withCatalog" ? historyRead.value : null;
-  });
-
-  useLayoutEffect(() => {
-    return router.history.subscribe(({ location }) => {
-      const historyRead = readSessionChatHistory(location.state);
-      if (historyRead.kind === "withCatalog") {
-        setCatalogReturn(historyRead.value);
-      } else if (historyRead.kind === "withoutCatalog") {
-        setCatalogReturn(null);
-      }
+    const state = Atom.make<
+      Readonly<{
+        currentIndex: number;
+        maxReachableIndex: number;
+        catalogReturn: SessionChatCatalogReturn | null;
+      }>
+    >({
+      currentIndex: router.history.location.state.__TSR_index,
+      maxReachableIndex: router.history.location.state.__TSR_index,
+      catalogReturn: historyRead.kind === "withCatalog" ? historyRead.value : null,
     });
-  }, [router.history]);
+    const observation = Atom.make(
+      (get) =>
+        navigationHistoryChanges(router.history, shellObservationDiagnostics(logger, "history")).pipe(
+          Stream.runForEach(({ location, action }) =>
+            Effect.sync(() => {
+              const previous = get.once(state);
+              const read = readSessionChatHistory(location.state);
+              get.set(state, {
+                currentIndex: location.state.__TSR_index,
+                maxReachableIndex: nextReachableHistoryIndex(
+                  previous.maxReachableIndex,
+                  action.type,
+                  location.state.__TSR_index,
+                ),
+                catalogReturn:
+                  read.kind === "withCatalog"
+                    ? read.value
+                    : read.kind === "withoutCatalog"
+                      ? null
+                      : previous.catalogReturn,
+              });
+            }),
+          ),
+          Effect.as(null),
+        ),
+      { initialValue: null },
+    );
+    return { state, observation };
+  }, [router.history, logger]);
+  useAtomSuspense(model.observation);
+  const state = useAtomValue(model.state);
+  const setState = useAtomSet(model.state);
+  const canGoBack = state.currentIndex > 0;
+  const canGoForward = state.currentIndex < state.maxReachableIndex;
 
   return (
-    <SessionChatCatalogReturnContext.Provider
-      value={{
-        catalogReturn,
-        consume: (projectID) => {
-          setCatalogReturn((current) => (current?.projectID === projectID ? null : current));
-        },
-      }}
+    <NavigationStackContext.Provider
+      value={{ canGoBack, canGoForward, hasHistory: canGoBack || canGoForward }}
     >
-      {children}
-    </SessionChatCatalogReturnContext.Provider>
+      <SessionChatCatalogReturnContext.Provider
+        value={{
+          catalogReturn: state.catalogReturn,
+          consume: (projectID) => {
+            setState((current) =>
+              current.catalogReturn?.projectID === projectID ? { ...current, catalogReturn: null } : current,
+            );
+          },
+        }}
+      >
+        {children}
+      </SessionChatCatalogReturnContext.Provider>
+    </NavigationStackContext.Provider>
   );
 }
 

@@ -1,13 +1,6 @@
-import {
-  createContext,
-  createElement,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
 
@@ -193,26 +186,24 @@ export function useSidebarShell(): SidebarShellController {
 
 export function SidebarRootOwner({ children }: Readonly<{ children: ReactNode }>) {
   const roots = useSidebarRoots();
-  const [handles] = useState(() => new Set<SidebarRootHandle>());
-  const open = useCallback(
-    (destination: SidebarDestination) => {
-      const handle = roots.open(destination);
-      handles.add(handle);
-      void handle.lifecycle.finally(() => {
-        handles.delete(handle);
-      });
-      return handle;
-    },
-    [handles, roots],
+  const owner = useMemo(
+    () =>
+      Atom.make((get) => {
+        let handle: SidebarRootHandle | null = null;
+        get.addFinalizer(() => {
+          handle?.release();
+        });
+        return {
+          open: (destination: SidebarDestination) => {
+            // Opening a root settles its predecessor; only the latest handle can remain owned.
+            handle = roots.open(destination);
+            return handle;
+          },
+        };
+      }),
+    [roots],
   );
-  useEffect(
-    () => () => {
-      for (const handle of handles) handle.release();
-      handles.clear();
-    },
-    [handles],
-  );
-  const value = useMemo(() => ({ open }), [open]);
+  const value = useAtomValue(owner);
   return createElement(SidebarRootOwnerContext.Provider, { value }, children);
 }
 

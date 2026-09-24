@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
 
 import {
   CurrentWindowChromeTitleContext,
@@ -13,16 +15,23 @@ export type WindowChromeTitleProviderProps = Readonly<{
 }>;
 
 export function WindowChromeTitleProvider({ children }: WindowChromeTitleProviderProps) {
-  const [registrations, setRegistrations] = useState<readonly WindowChromeTitleRegistration[]>([]);
-  const title = registrations[registrations.length - 1]?.title ?? null;
-  const setTitle = useCallback((nextTitle: string | null) => {
-    const id = Symbol("window-chrome-title");
-    const registration = { id, title: nextTitle };
-    setRegistrations((current) => current.concat(registration));
-    return () => {
-      setRegistrations((current) => current.filter((item) => item.id !== id));
-    };
+  const model = useMemo(() => {
+    const registrations = Atom.make<readonly WindowChromeTitleRegistration[]>([]);
+    return { registrations, title: Atom.make((get) => get(registrations).at(-1)?.title ?? null) };
   }, []);
+  const setRegistrations = useAtomSet(model.registrations);
+  const title = useAtomValue(model.title);
+  const setTitle = useCallback(
+    (nextTitle: string | null) => {
+      const id = Symbol("window-chrome-title");
+      const registration = { id, title: nextTitle };
+      setRegistrations((current) => current.concat(registration));
+      return () => {
+        setRegistrations((current) => current.filter((item) => item.id !== id));
+      };
+    },
+    [setRegistrations],
+  );
   const controller = useMemo<WindowChromeTitleController>(
     () => ({
       setTitle,

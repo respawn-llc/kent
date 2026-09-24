@@ -3,14 +3,52 @@ import { ApiClient } from "./client";
 import type { AttentionNotificationEvent } from "./attentionNotifications";
 import { ContractError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
+import { createElement, type ReactNode } from "react";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Stream from "effect/Stream";
+import * as Effect from "effect/Effect";
+
+async function observeAttention(
+  client: ApiClient,
+  handler: Readonly<{
+    onEvent(event: AttentionNotificationEvent): void;
+    onError(error: Error): void;
+    onComplete(): void;
+  }>,
+) {
+  const observation = Atom.make(
+    client
+      .subscribeAttentionNotifications(async () => {
+        throw new Error("Unexpected attention overflow");
+      })
+      .pipe(
+        Stream.runForEach((value) =>
+          Effect.sync(() => {
+            if (value.kind === "event") handler.onEvent(value.event);
+            else if (value.kind === "error") handler.onError(value.error);
+            else if (value.kind === "complete") handler.onComplete();
+          }),
+        ),
+        Effect.as(null),
+      ),
+    { initialValue: null },
+  );
+  renderHook(() => useAtomSuspense(observation), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) =>
+      createElement(RegistryProvider, { children }),
+  });
+  await act(async () => undefined);
+}
 
 describe("attention notification API", () => {
-  it("delivers ordinary Session questions and their resolution", () => {
+  it("delivers ordinary Session questions and their resolution", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
     const errors: Error[] = [];
-    client.subscribeAttentionNotifications({
+    await observeAttention(client, {
       onEvent: (event) => events.push(event),
       onError: (error) => errors.push(error),
       onComplete() {
@@ -52,6 +90,9 @@ describe("attention notification API", () => {
         occurred_at: "2026-09-16T17:18:40Z",
       },
     });
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     expect(errors).toEqual([]);
     expect(events).toMatchObject([
       {
@@ -65,13 +106,13 @@ describe("attention notification API", () => {
     ]);
   });
 
-  it("subscribes to typed attention notifications and rejects malformed events at the API boundary", () => {
+  it("subscribes to typed attention notifications and rejects malformed events at the API boundary", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
     const errors: Error[] = [];
 
-    client.subscribeAttentionNotifications({
+    await observeAttention(client, {
       onEvent(event) {
         events.push(event);
       },
@@ -120,7 +161,9 @@ describe("attention notification API", () => {
       },
     });
 
-    expect(events).toHaveLength(1);
+    await waitFor(() => {
+      expect(events).toHaveLength(1);
+    });
     const event = events[0];
     if (event?.type !== "pending") {
       throw new Error("Expected parsed attention pending event.");
@@ -146,7 +189,9 @@ describe("attention notification API", () => {
       },
     });
 
-    expect(errors[0]).toBeInstanceOf(ContractError);
+    await waitFor(() => {
+      expect(errors[0]).toBeInstanceOf(ContractError);
+    });
     const error = errors[0];
     if (!(error instanceof ContractError)) throw new Error("Expected contract diagnostics.");
     expect(error.diagnostics).toContainEqual({
@@ -180,7 +225,9 @@ describe("attention notification API", () => {
         },
       },
     });
-    expect(errors[1]).toBeInstanceOf(ContractError);
+    await waitFor(() => {
+      expect(errors[1]).toBeInstanceOf(ContractError);
+    });
 
     transport.emit("attention.notification", {
       event: {
@@ -197,16 +244,18 @@ describe("attention notification API", () => {
     });
 
     expect(events).toHaveLength(1);
-    expect(errors).toHaveLength(3);
+    await waitFor(() => {
+      expect(errors).toHaveLength(3);
+    });
     expect(errors[2]).toBeInstanceOf(ContractError);
   });
 
-  it("parses generic and Workflow Approvals as distinct payloads", () => {
+  it("parses generic and Workflow Approvals as distinct payloads", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
 
-    client.subscribeAttentionNotifications({
+    await observeAttention(client, {
       onEvent(event) {
         events.push(event);
       },
@@ -256,6 +305,9 @@ describe("attention notification API", () => {
       },
     });
 
+    await waitFor(() => {
+      expect(events).toHaveLength(2);
+    });
     const genericApproval = events[0];
     if (genericApproval?.type !== "pending" || genericApproval.pending.target.kind !== "session_prompt") {
       throw new Error("Expected parsed generic approval attention pending event.");
@@ -279,12 +331,12 @@ describe("attention notification API", () => {
     expect(workflowApproval.pending.target.focus).toEqual({ kind: "approval", approvalID: "approval-1" });
   });
 
-  it("parses interrupted-current-node attention notifications", () => {
+  it("parses interrupted-current-node attention notifications", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const events: AttentionNotificationEvent[] = [];
 
-    client.subscribeAttentionNotifications({
+    await observeAttention(client, {
       onEvent(event) {
         events.push(event);
       },
@@ -320,6 +372,9 @@ describe("attention notification API", () => {
       },
     });
 
+    await waitFor(() => {
+      expect(events).toHaveLength(1);
+    });
     const event = events[0];
     if (event?.type !== "pending" || event.pending.target.kind !== "workflow_task") {
       throw new Error("Expected parsed interrupted-current-node attention pending event.");
@@ -329,12 +384,12 @@ describe("attention notification API", () => {
     expect(event.pending.target.focus).toEqual({ kind: "interrupted_current_node" });
   });
 
-  it("rejects incoherent attention payloads and targets", () => {
+  it("rejects incoherent attention payloads and targets", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const errors: Error[] = [];
 
-    client.subscribeAttentionNotifications({
+    await observeAttention(client, {
       onEvent() {
         throw new Error("Incoherent attention notification must not reach the UI.");
       },
@@ -414,7 +469,9 @@ describe("attention notification API", () => {
       });
     });
 
-    expect(errors).toHaveLength(incoherentNotifications.length);
+    await waitFor(() => {
+      expect(errors).toHaveLength(incoherentNotifications.length);
+    });
     expect(errors.every((error) => error instanceof ContractError)).toBe(true);
   });
 });
