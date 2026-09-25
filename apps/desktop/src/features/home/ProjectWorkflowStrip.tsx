@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { useAppNavigation } from "@/app-facade";
 import {
   autoLoadAvailable,
   InfiniteListBoundary,
@@ -25,7 +24,7 @@ export function ProjectWorkflowStrip({
   onLoadPrevious,
   onSortChange,
   previousBoundary,
-  projectID,
+  onWorkflowSelect,
   sort,
   workflows,
 }: Readonly<{
@@ -40,12 +39,11 @@ export function ProjectWorkflowStrip({
   onLoadPrevious: () => void;
   onSortChange(sort: ProjectTaskSort): void;
   previousBoundary: VirtualizedInfiniteListBoundaryState | undefined;
-  projectID: string;
+  onWorkflowSelect: (workflowID: string) => void;
   sort: ProjectTaskSort;
   workflows: readonly ProjectTaskWorkflowItem[];
 }>) {
   const { t } = useTranslation();
-  const navigation = useAppNavigation();
   return (
     <VirtualizedInfiniteList
       className="shrink-0 overflow-x-auto py-[var(--space-3)] hide-scrollbar"
@@ -83,7 +81,7 @@ export function ProjectWorkflowStrip({
         <InteractiveChip
           className="shrink-0"
           onClick={() => {
-            void navigation.openProject(projectID, workflow.id);
+            onWorkflowSelect(workflow.id);
           }}
           title={workflow.description}
         >

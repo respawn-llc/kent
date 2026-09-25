@@ -3,28 +3,17 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
-import {
-  formatRelativeTime,
-  taskDetailInitialFocusFromAttentionItem,
-  useAppNavigation,
-  type SidebarMode,
-  type SidebarRootController,
-} from "@/app-facade";
+import { formatRelativeTime, type SessionChatTarget } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
 export const AttentionRow = memo(function AttentionRow({
   item,
-  openSidebar,
-  sidebarMode,
-}: Readonly<{
-  item: AttentionItem;
-  openSidebar: SidebarRootController["open"];
-  sidebarMode: SidebarMode;
-}>) {
+  onTaskDetail,
+  onSessionChat,
+}: AttentionRowProps) {
   const { t } = useTranslation();
-  const navigation = useAppNavigation();
   const message =
     item.message ??
     (item.kind === "approval"
@@ -39,7 +28,7 @@ export const AttentionRow = memo(function AttentionRow({
         className="min-w-0 flex-1 px-[var(--space-2)] py-[var(--space-3)]"
         aria-label={`${item.taskShortID} ${item.taskTitle}`}
         onClick={() => {
-          openTaskDetail(item, openSidebar, sidebarMode);
+          onTaskDetail(item);
         }}
       >
         <ItemContent className="min-w-0">
@@ -52,7 +41,7 @@ export const AttentionRow = memo(function AttentionRow({
           className="mt-[var(--space-2)] text-[var(--color-muted)]"
           label={t("task.openChat", { name: item.taskTitle })}
           onClick={() => {
-            void navigation.openSessionChat(chatTarget);
+            onSessionChat(chatTarget);
           }}
         >
           <MessageCircle className="size-4" strokeWidth={1.5} />
@@ -61,6 +50,12 @@ export const AttentionRow = memo(function AttentionRow({
     </div>
   );
 }, attentionRowPropsEqual);
+
+type AttentionRowProps = Readonly<{
+  item: AttentionItem;
+  onTaskDetail: (item: AttentionItem) => void;
+  onSessionChat: (target: SessionChatTarget) => void;
+}>;
 
 function AttentionHeader({ item }: Readonly<{ item: AttentionItem }>) {
   return (
@@ -94,36 +89,10 @@ function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; messag
   );
 }
 
-function openTaskDetail(
-  item: AttentionItem,
-  openSidebar: SidebarRootController["open"],
-  sidebarMode: SidebarMode,
-): void {
-  openSidebar({
-    kind: "taskDetail",
-    initialFocus: taskDetailInitialFocusFromAttentionItem(item),
-    inboxNav: true,
-    mode: sidebarMode,
-    onMutated: undefined,
-    taskID: item.taskID,
-  });
-}
-
-function attentionRowPropsEqual(
-  previous: Readonly<{
-    item: AttentionItem;
-    openSidebar: SidebarRootController["open"];
-    sidebarMode: SidebarMode;
-  }>,
-  next: Readonly<{
-    item: AttentionItem;
-    openSidebar: SidebarRootController["open"];
-    sidebarMode: SidebarMode;
-  }>,
-): boolean {
+function attentionRowPropsEqual(previous: AttentionRowProps, next: AttentionRowProps): boolean {
   return (
-    previous.openSidebar === next.openSidebar &&
-    previous.sidebarMode === next.sidebarMode &&
+    previous.onTaskDetail === next.onTaskDetail &&
+    previous.onSessionChat === next.onSessionChat &&
     attentionItemsEqual(previous.item, next.item)
   );
 }

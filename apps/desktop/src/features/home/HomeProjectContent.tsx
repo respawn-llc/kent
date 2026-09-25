@@ -1,21 +1,15 @@
 import { useEffect, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 
 import type { SessionCatalogSummary, SessionCategory } from "@/api";
-import { errorMessage, isProjectMissingError } from "@/api";
+import { errorMessage } from "@/api";
 import {
-  clearLastProjectRoute,
   formatRelativeTime,
-  mainSessionCatalogInfiniteQueryOptions,
   type ProjectContentTab,
-  queryKeys,
-  subagentSessionCatalogInfiniteQueryOptions,
   useSessionChatCatalogReturn,
   useAppNavigation,
-  useAppServices,
   readLastProjectRoute,
   writeLastProjectContentTab,
   type SidebarMode,
@@ -33,6 +27,7 @@ import {
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectTasksSurface } from "./ProjectTasksSurface";
 import { createProjectTasksViewMemory } from "./projectTasksViewMemory";
+import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
@@ -43,22 +38,13 @@ export function HomeProjectContent({
   sessionsVisible: boolean;
   sidebarMode: SidebarMode;
 }>) {
-  const { api } = useAppServices();
   const navigation = useAppNavigation();
   const catalogReturn = useSessionChatCatalogReturn(projectID);
   const [taskListViewMemory] = useState(createProjectTasksViewMemory);
   useEffect(() => {
     catalogReturn?.consume();
   }, [catalogReturn]);
-  const projectQuery = useQuery({
-    queryKey: queryKeys.projectEdit(projectID),
-    queryFn: async () => api.getProjectEdit(projectID),
-  });
-  useEffect(() => {
-    if (!isProjectMissingError(projectQuery.error)) return;
-    clearLastProjectRoute(projectID);
-    void navigation.selectHomeProject(null);
-  }, [navigation, projectID, projectQuery.error]);
+  useHomeProjectModel(projectID, async () => navigation.selectHomeProject(null));
   return sessionsVisible ? (
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
@@ -84,7 +70,6 @@ function ProjectContentTabs({
 }>) {
   const navigation = useAppNavigation();
   const { t } = useTranslation();
-  const { api } = useAppServices();
   const [tab, setTab] = useState<ProjectContentTab>(() => {
     if (catalogReturn === "main") return "sessions";
     if (catalogReturn === "subagent") return "subagents";
@@ -97,14 +82,8 @@ function ProjectContentTabs({
   useEffect(() => {
     writeLastProjectContentTab(projectID, tab);
   }, [projectID, tab]);
-  const mainSessionsQuery = useInfiniteQuery({
-    ...mainSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "sessions",
-  });
-  const subagentSessionsQuery = useInfiniteQuery({
-    ...subagentSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "subagents",
-  });
+  const mainSessionsQuery = useHomeSessionPages(projectID, "main", tab === "sessions");
+  const subagentSessionsQuery = useHomeSessionPages(projectID, "subagent", tab === "subagents");
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -170,12 +149,12 @@ function SessionList({
         }>
       | undefined;
     error: Error | null;
-    fetchNextPage: () => Promise<unknown>;
+    fetchNextPage: () => void;
     hasNextPage: boolean;
     isError: boolean;
     isFetchingNextPage: boolean;
     isPending: boolean;
-    refetch: () => Promise<unknown>;
+    refetch: () => void;
   }>;
 }>) {
   const { t } = useTranslation();
@@ -187,7 +166,7 @@ function SessionList({
     loadingLabel: t("states.loading"),
     message: query.isError ? errorMessage(query.error) : "",
     onRetry: () => {
-      void query.refetch();
+      query.refetch();
     },
     retryLabel: t("app.retry"),
   });
@@ -212,7 +191,7 @@ function SessionList({
       items={sessions}
       loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
-        void query.fetchNextPage();
+        query.fetchNextPage();
       }}
       paddingEnd={16}
       paddingStart={16}

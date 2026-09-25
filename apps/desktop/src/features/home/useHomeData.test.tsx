@@ -1,17 +1,216 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, type ReactNode } from "react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState, type ReactNode } from "react";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { JsonValue } from "@/api";
-import { SidebarRootContext, type SidebarDestination } from "@/app-facade";
+import { SidebarRootContext, queryKeys, useAppServices, type SidebarDestination } from "@/app-facade";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import type { FakeRpcTransport, FakeRoute } from "@/test-support/api";
 import { flushQueuedWork, installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
 import { workflowAttentionCalls, workflowAttentionRpcMethods } from "@/test-support/workflow-attention";
 import { SidebarInboxNav } from "./SidebarInboxNav";
-import { useGlobalAttentionPages } from "./useHomeData";
+import { createHomeAttentionPages, useGlobalAttentionPages, useProjectPages } from "./useHomeData";
+import { createHomeViewModel } from "./HomeViewModel";
+import { appI18n } from "@/i18n";
+import { useProjectCreationActions } from "./ProjectCreationModel";
+import { deferred } from "@/test-support/chat-runtime";
+
+function catalogFixture() {
+  const services = createTestServices([]);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const list = vi.spyOn(services.api, "listProjects").mockImplementation(async (token) => ({
+    projects: [],
+    nextPageToken: token === null ? "next" : null,
+    generatedAt: 1,
+  }));
+  const model = createHomeViewModel({
+    services,
+    client,
+    t: appI18n.t,
+    push: vi.fn(),
+    openProject: vi.fn(async () => undefined),
+  });
+  const view = renderHook(
+    () => ({
+      catalog: useProjectPages(model.projects),
+      creation: useProjectCreationActions(model.creation),
+    }),
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <TestAppProviders services={services} queryClient={client}>
+          {children}
+        </TestAppProviders>
+      ),
+    },
+  );
+  return { ...view, list, client, services };
+}
+
+it("continues the mounted Projects catalog after completion and refresh", async () => {
+  const view = catalogFixture();
+  await waitFor(() => {
+    expect(view.result.current.catalog.isSuccess).toBe(true);
+  });
+  await act(async () => {
+    view.result.current.catalog.refetch();
+  });
+  await act(async () => {
+    view.result.current.catalog.fetchNextPage();
+  });
+  expect(view.list.mock.calls.map(([token]) => token)).toEqual([null, null, "next"]);
+  expect(view.result.current.catalog.data?.pages).toHaveLength(2);
+  await act(async () => {
+    view.result.current.catalog.fetchNextPage();
+  });
+  expect(view.list).toHaveBeenCalledTimes(3);
+});
+
+it("refreshes the still-mounted Projects catalog after creation", async () => {
+  const view = catalogFixture();
+  await waitFor(() => {
+    expect(view.result.current.catalog.isSuccess).toBe(true);
+  });
+  vi.spyOn(view.services.api, "planWorkspace").mockResolvedValue({
+    kind: "local_unbound",
+    canonicalRoot: "/Kent",
+    binding: null,
+  });
+  vi.spyOn(view.services.api, "createProject").mockImplementation(async () => {
+    view.list.mockResolvedValue({
+      projects: [
+        {
+          id: "created-project",
+          key: "KENT",
+          name: "Kent",
+          primaryWorkspace: {
+            id: "workspace-1",
+            name: "Kent",
+            rootPath: "/Kent",
+            availability: "available",
+            isPrimary: true,
+            updatedAt: 1,
+          },
+          defaultWorkflowID: null,
+          defaultWorkflowName: null,
+          defaultWorkflowValid: false,
+          updatedAt: 1,
+          taskCount: 0,
+          attentionCount: 0,
+          workflowCount: 0,
+        },
+      ],
+      nextPageToken: null,
+      generatedAt: 2,
+    });
+    return {
+      projectID: "created-project",
+      projectKey: "KENT",
+      projectName: "Kent",
+      workspaceID: "workspace-1",
+      canonicalRoot: "/Kent",
+      workspaceName: "Kent",
+      workspaceStatus: "available",
+    };
+  });
+  await act(async () => {
+    view.result.current.creation.submit({
+      draft: { name: "Kent", key: "KENT", workspaceRoot: "/Kent" },
+      complete: vi.fn(async () => undefined),
+      selectionRequired: vi.fn(),
+    });
+  });
+  await waitFor(() => {
+    expect(view.result.current.catalog.data?.pages[0]?.projects[0]?.id).toBe("created-project");
+  });
+  expect(view.list).toHaveBeenCalledTimes(2);
+});
+
+it("releases Projects only after the owning Home binding departs", async () => {
+  const view = catalogFixture();
+  await waitFor(() => {
+    expect(view.result.current.catalog.isSuccess).toBe(true);
+  });
+  expect(view.client.getQueryData(queryKeys.projects)).toBeDefined();
+  view.rerender();
+  expect(view.client.getQueryData(queryKeys.projects)).toBeDefined();
+  view.unmount();
+  await waitFor(() => {
+    expect(view.client.getQueryData(queryKeys.projects)).toBeUndefined();
+  });
+});
+
+it.each(["next", "retry"] as const)(
+  "admits Projects %s once while retained data is fetching",
+  async (action) => {
+    const view = catalogFixture();
+    await waitFor(() => {
+      expect(view.result.current.catalog.isSuccess).toBe(true);
+    });
+    const response = deferred<Awaited<ReturnType<typeof view.services.api.listProjects>>>();
+    view.list.mockReturnValue(response.promise);
+    await act(async () => {
+      if (action === "next") {
+        view.result.current.catalog.fetchNextPage();
+        view.result.current.catalog.fetchNextPage();
+      } else {
+        view.result.current.catalog.refetch();
+        view.result.current.catalog.refetch();
+      }
+    });
+    expect(view.list).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      response.resolve({ projects: [], nextPageToken: null, generatedAt: 2 });
+    });
+  },
+);
+
+it.each(["next", "retry"] as const)(
+  "admits Inbox %s once while retained data is fetching",
+  async (action) => {
+    const services = createTestServices([]);
+    const list = vi.spyOn(services.api, "listAttention").mockResolvedValue({
+      items: [],
+      nextPageToken: "next",
+      generatedAt: 1,
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const model = createHomeAttentionPages(services.api, client, false);
+    const view = renderHook(() => useGlobalAttentionPages(model), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <TestAppProviders services={services} queryClient={client}>
+          {children}
+        </TestAppProviders>
+      ),
+    });
+    await waitFor(() => {
+      expect(view.result.current.isSuccess).toBe(true);
+    });
+    const response = deferred<Awaited<ReturnType<typeof services.api.listAttention>>>();
+    list.mockReturnValue(response.promise);
+    await act(async () => {
+      if (action === "next") {
+        view.result.current.fetchNextPage();
+        view.result.current.fetchNextPage();
+      } else {
+        view.result.current.refetch();
+        view.result.current.refetch();
+      }
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      response.resolve({ items: [], nextPageToken: "", generatedAt: 2 });
+    });
+    await act(async () => {
+      view.result.current.fetchNextPage();
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+  },
+);
 
 describe("Home global attention data", () => {
   beforeEach(() => {
@@ -93,6 +292,7 @@ describe("Home global attention data", () => {
         </SidebarRootContext.Provider>
       </TestAppProviders>,
     );
+    await flushQueuedWork();
     view.rerender(
       <TestAppProviders services={services}>
         <SidebarRootContext.Provider value={controller}>
@@ -144,7 +344,7 @@ describe("Home global attention data", () => {
     }
 
     await act(async () => {
-      await query.fetchNextPage();
+      query.fetchNextPage();
     });
     await expectAttentionCalls(services.transport, 2);
     expect(attentionPageTokens(services.transport)).toEqual(["", "page-2"]);
@@ -164,7 +364,10 @@ function HomeAttentionQueryHarness({
 }: Readonly<{
   onQuery?: (query: ReturnType<typeof useGlobalAttentionPages>) => void;
 }>) {
-  const query = useGlobalAttentionPages();
+  const { api } = useAppServices();
+  const client = useQueryClient();
+  const [model] = useState(() => createHomeAttentionPages(api, client, false));
+  const query = useGlobalAttentionPages(model);
   useEffect(() => {
     onQuery?.(query);
   }, [onQuery, query]);

@@ -1,11 +1,13 @@
 import {
-  useInfiniteQuery,
-  useQuery,
+  InfiniteQueryObserver,
+  QueryObserver,
   useQueryClient,
   type InfiniteData,
-  type UseInfiniteQueryResult,
+  type InfiniteQueryObserverResult,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useReducer } from "react";
+import { useMemo, useState } from "react";
+import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
 
 import {
@@ -16,8 +18,20 @@ import {
   type TaskListItem,
   type TaskListPage,
   type WorkflowProjectEvent,
+  type ProjectObservation,
 } from "@/api";
-import { queryKeys, useAppServices, useProjectObservation } from "@/app-facade";
+import {
+  queryAtom,
+  infiniteQueryReadActions,
+  queryReadActions,
+  queryKeys,
+  useAppServices,
+  useProjectObservation,
+  type QuerySnapshot,
+  type AppServices,
+} from "@/app-facade";
+import { createProjectTaskRefresh } from "./ProjectTaskRefresh";
+import type { QueryClient } from "@tanstack/react-query";
 import { defaultProjectTaskSort, projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
 
 export const projectTaskGroups = ["active", "backlog", "done"] as const satisfies readonly ProjectTaskGroup[];
@@ -30,8 +44,8 @@ export const projectTaskGroupPrefetchPages = 1;
 export type ProjectTaskGroupDisclosure = Readonly<Record<ProjectTaskGroup, boolean>>;
 export type ProjectTaskGroupData = Readonly<{
   error: Error | null;
-  fetchNextPage(): Promise<unknown>;
-  fetchPreviousPage(): Promise<unknown>;
+  fetchNextPage(): void;
+  fetchPreviousPage(): void;
   hasNextPage: boolean;
   hasPreviousPage: boolean;
   isError: boolean;
@@ -45,7 +59,7 @@ export type ProjectTaskGroupData = Readonly<{
   nextRequestGeneration: string;
   pages: readonly TaskListPage[];
   previousRequestGeneration: string;
-  refetch(): Promise<unknown>;
+  refetch(): void;
   tasks: readonly TaskListItem[];
 }>;
 
@@ -84,15 +98,23 @@ export function useProjectTaskListData({
 
 function useProjectTaskGroupCounts(projectID: string) {
   const { api } = useAppServices();
-  return useQuery({
-    queryKey: queryKeys.projectTaskGroupCounts(projectID),
-    queryFn: async (): Promise<ProjectTaskGroupCounts> =>
-      api.getProjectTaskGroupCounts({
-        projectID,
-      }),
-    enabled: projectID.length > 0,
-    placeholderData: (previous) => previous,
-  });
+  const client = useQueryClient();
+  const model = useMemo(() => {
+    const observer = new QueryObserver(client, {
+      queryKey: queryKeys.projectTaskGroupCounts(projectID),
+      queryFn: async (): Promise<ProjectTaskGroupCounts> =>
+        api.getProjectTaskGroupCounts({
+          projectID,
+        }),
+      enabled: projectID.length > 0,
+      placeholderData: (previous) => previous,
+    });
+    return {
+      request: queryAtom(observer),
+      ...queryReadActions(observer),
+    };
+  }, [api, client, projectID]);
+  return { ...useAtomValue(model.request), refetch: useAtomSet(model.retry) };
 }
 
 function useProjectTaskGroupData(
@@ -103,69 +125,90 @@ function useProjectTaskGroupData(
 ): ProjectTaskGroupData {
   const { api } = useAppServices();
   const queryClient = useQueryClient();
-  const queryKey = queryKeys.projectTaskGroup(projectID, group, sort);
-  const queryKeyRoot = queryKeys.projectTaskGroupRoot(projectID, group);
-  const query = useInfiniteQuery<
-    TaskListPage,
-    Error,
-    InfiniteData<TaskListPage, number>,
-    readonly unknown[],
-    number
-  >({
-    queryKey,
-    queryFn: async ({ pageParam }) =>
-      api.listTasks({
-        projectID,
-        group,
-        labelFilter: noTaskLabelFilter,
-        sort: [sort],
-        offset: pageParam,
-        limit: projectTaskGroupPageSize,
-      }),
-    initialPageParam: 0,
-    enabled: enabled && projectID.length > 0,
-    getPreviousPageParam: (_firstPage, _allPages, firstPageParam) =>
-      firstPageParam === 0 ? undefined : Math.max(0, firstPageParam - projectTaskGroupPageSize),
-    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
-    maxPages: projectTaskGroupRetainedPages,
-  });
-  const [generation, dispatchGeneration] = useReducer(projectTaskGenerationReducer, emptyGenerationState);
-  const sortChanged = generation.currentSort !== null && !projectTaskSortsEqual(generation.currentSort, sort);
-  const queryEstablished = !query.isError && query.data !== undefined;
-  const targetEstablished = queryEstablished && query.data.pageParams[0] === 0;
-  const isSortReplacement = projectTaskSortReplacement({
-    hasSource: generation.establishedData !== null,
-    replacementSort: generation.replacementSort,
-    sort,
-    sortChanged,
-    targetEstablished,
-  });
-  const displayedData = query.data ?? (isSortReplacement ? generation.establishedData : undefined);
-  useEffect(() => {
-    if (sortChanged) {
-      dispatchGeneration({ kind: "selected", sort });
-      return;
-    }
-    if (queryEstablished) {
-      dispatchGeneration({ data: query.data, kind: "established", sort });
-    }
-  }, [query.data, queryEstablished, sort, sortChanged]);
-  useEffect(() => {
-    if (enabled) {
-      return;
-    }
-    dispatchGeneration({ kind: "disabled" });
-    queryClient.removeQueries({
-      queryKey: queryKeyRoot,
+  const [retained] = useState(() => Atom.make(emptyGenerationState));
+  useAtomMount(retained);
+  const disclosure = useMemo(
+    () =>
+      Atom.make((get) =>
+        Effect.sync(() => {
+          if (!enabled) {
+            get.set(retained, emptyGenerationState);
+            queryClient.removeQueries({ queryKey: queryKeys.projectTaskGroupRoot(projectID, group) });
+          }
+        }),
+      ),
+    [queryClient, projectID, group, enabled, retained],
+  );
+  useAtomMount(disclosure);
+  const model = useMemo(() => {
+    const observer = new InfiniteQueryObserver<
+      TaskListPage,
+      Error,
+      InfiniteData<TaskListPage, number>,
+      readonly unknown[],
+      number
+    >(queryClient, {
+      queryKey: queryKeys.projectTaskGroup(projectID, group, sort),
+      queryFn: async ({ pageParam }) =>
+        api.listTasks({
+          projectID,
+          group,
+          labelFilter: noTaskLabelFilter,
+          sort: [sort],
+          offset: pageParam,
+          limit: projectTaskGroupPageSize,
+        }),
+      initialPageParam: 0,
+      enabled: enabled && projectID.length > 0,
+      getPreviousPageParam: (_firstPage, _allPages, firstPageParam) =>
+        firstPageParam === 0 ? undefined : Math.max(0, firstPageParam - projectTaskGroupPageSize),
+      getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
+      maxPages: projectTaskGroupRetainedPages,
     });
-  }, [enabled, group, projectID, queryClient]);
-  return projectTaskGroupData({
-    displayedData: displayedData ?? undefined,
-    enabled,
-    isSortReplacement,
-    projectID,
-    query,
-  });
+    const observed = queryAtom(observer);
+    const state = Atom.make((get) => {
+      if (!enabled) {
+        return emptyProjectTaskGroupData;
+      }
+      const query = get(observed);
+      const generation = get.once(retained);
+      const sortChanged =
+        generation.currentSort !== null && !projectTaskSortsEqual(generation.currentSort, sort);
+      const queryEstablished = !query.isError && query.data !== undefined;
+      const targetEstablished = queryEstablished && query.data.pageParams[0] === 0;
+      const isSortReplacement = projectTaskSortReplacement({
+        hasSource: generation.establishedData !== null,
+        replacementSort: generation.replacementSort,
+        sort,
+        sortChanged,
+        targetEstablished,
+      });
+      const displayedData = query.data ?? (isSortReplacement ? generation.establishedData : undefined);
+      const next = queryEstablished
+        ? projectTaskGenerationReducer(generation, { data: query.data, kind: "established", sort })
+        : sortChanged
+          ? projectTaskGenerationReducer(generation, { kind: "selected", sort })
+          : generation;
+      if (next !== generation) get.set(retained, next);
+      return projectTaskGroupData({
+        displayedData: displayedData ?? undefined,
+        enabled,
+        isSortReplacement,
+        projectID,
+        query,
+      });
+    });
+    return {
+      state,
+      ...infiniteQueryReadActions(observer),
+    };
+  }, [api, queryClient, projectID, group, enabled, sort, retained]);
+  return {
+    ...useAtomValue(model.state),
+    fetchNextPage: useAtomSet(model.nextPage),
+    fetchPreviousPage: useAtomSet(model.previousPage),
+    refetch: useAtomSet(model.retry),
+  };
 }
 
 type ProjectTaskGenerationState = Readonly<{
@@ -235,8 +278,8 @@ function projectTaskGroupData({
   enabled: boolean;
   isSortReplacement: boolean;
   projectID: string;
-  query: UseInfiniteQueryResult<InfiniteData<TaskListPage, number>>;
-}>): ProjectTaskGroupData {
+  query: QuerySnapshot<InfiniteQueryObserverResult<InfiniteData<TaskListPage, number>>>;
+}>): Omit<ProjectTaskGroupData, "fetchNextPage" | "fetchPreviousPage" | "refetch"> {
   if (!enabled) {
     return emptyProjectTaskGroupData;
   }
@@ -246,8 +289,6 @@ function projectTaskGroupData({
   const nextPageParam = pages.at(-1)?.nextOffset;
   return {
     error: query.error,
-    fetchNextPage: query.fetchNextPage,
-    fetchPreviousPage: query.fetchPreviousPage,
     hasNextPage: query.hasNextPage,
     hasPreviousPage: query.hasPreviousPage,
     isError: query.isError,
@@ -261,15 +302,14 @@ function projectTaskGroupData({
     nextRequestGeneration: `${projectID}:${nextPageParam?.toString() ?? "end"}`,
     pages,
     previousRequestGeneration: `${projectID}:${firstPageParam.toString()}`,
-    refetch: query.refetch,
     tasks: pages.flatMap((page) => page.tasks),
   };
 }
 
 const emptyProjectTaskGroupData: ProjectTaskGroupData = {
   error: null,
-  fetchNextPage: async () => undefined,
-  fetchPreviousPage: async () => undefined,
+  fetchNextPage: () => undefined,
+  fetchPreviousPage: () => undefined,
   hasNextPage: false,
   hasPreviousPage: false,
   isError: false,
@@ -283,7 +323,7 @@ const emptyProjectTaskGroupData: ProjectTaskGroupData = {
   nextRequestGeneration: "disabled",
   pages: [],
   previousRequestGeneration: "disabled",
-  refetch: async () => undefined,
+  refetch: () => undefined,
   tasks: [],
 };
 
@@ -296,50 +336,30 @@ export function useProjectTaskListEvents({
 }>) {
   const { logger } = useAppServices();
   const queryClient = useQueryClient();
-  const reportBackgroundError = useCallback(
-    (error: unknown): void => {
-      void logger.append("warn", "Project Task-list refresh failed.", {
-        error: errorMessage(error),
-        projectID,
-      });
-    },
-    [logger, projectID],
+  const consume = useMemo(
+    () => createProjectTaskObservation(logger, queryClient, projectID),
+    [logger, queryClient, projectID],
   );
-  const refreshTaskLists = useCallback(async (): Promise<void> => {
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.projectTaskListsRoot(projectID),
-      refetchType: "active",
-    });
-  }, [projectID, queryClient]);
-  const refreshWorkflows = useCallback(async (): Promise<void> => {
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projectWorkflowLinks(projectID),
-        exact: true,
-        refetchType: "active",
-      }),
-      queryClient.resetQueries({
-        queryKey: queryKeys.projectTaskWorkflows(projectID),
-        exact: true,
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projectBoardsRoot(projectID),
-        refetchType: "active",
-      }),
-    ]);
-  }, [projectID, queryClient]);
-  const refreshBoundary = useCallback(async (): Promise<void> => {
-    await Promise.all([refreshWorkflows(), refreshTaskLists()]);
-  }, [refreshTaskLists, refreshWorkflows]);
+  return useProjectObservation(enabled && projectID.length > 0 ? projectID : null, projectID, consume);
+}
 
-  return useProjectObservation(enabled && projectID.length > 0 ? projectID : null, projectID, (observation) =>
-    Effect.promise(async () => {
-      const run = async (operation: Promise<void>): Promise<void> => {
-        await operation.catch(reportBackgroundError);
-      };
+function createProjectTaskObservation(
+  logger: AppServices["logger"],
+  queryClient: QueryClient,
+  projectID: string,
+) {
+  const refresh = createProjectTaskRefresh(queryClient, projectID);
+  const reportBackgroundError = (error: unknown): void => {
+    void logger.append("warn", "Project Task-list refresh failed.", {
+      error: errorMessage(error),
+      projectID,
+    });
+  };
+  return Effect.fn("Home.consumeProjectTasks")(
+    function* (observation: ProjectObservation) {
       switch (observation.kind) {
         case "open":
-          await run(refreshBoundary());
+          yield* Effect.tryPromise(refresh.linked);
           break;
         case "event": {
           const { event } = observation;
@@ -347,26 +367,31 @@ export function useProjectTaskListEvents({
             return;
           }
           if (event.resource === "workflow" || event.resource === "workflow_link") {
-            await run(Promise.all([refreshWorkflows(), refreshTaskLists()]).then(() => undefined));
+            yield* Effect.tryPromise(refresh.linked);
             return;
           }
           if (event.resource === "label") {
-            await run(refreshTaskLists());
+            yield* Effect.tryPromise(refresh.rows);
             return;
           }
           if (projectTaskListEventCanChangeRows(event)) {
-            await run(refreshTaskLists());
+            yield* Effect.tryPromise(refresh.rows);
           }
           break;
         }
         case "complete":
-          if (observation.code === 0) await run(refreshBoundary());
+          if (observation.code === 0) yield* Effect.tryPromise(refresh.linked);
           break;
         case "error":
           reportBackgroundError(observation.error);
           break;
       }
-    }),
+    },
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        reportBackgroundError(error.cause);
+      }),
+    ),
   );
 }
 
