@@ -71,14 +71,16 @@ func resolveClientConfiguration(sharedRoot string, opts LoadOptions, registry se
 	if err := registry.applyCLI(opts, &state, sources); err != nil {
 		return Connection{}, LocalPreferences{}, err
 	}
-	return Connection{
+	connection := Connection{
 		WorkspaceRoot: locations.workspaceRoot, PersistenceRoot: locations.persistenceRoot,
 		ServerHost: state.Settings.ServerHost, ServerPort: state.Settings.ServerPort,
 		Source: SourceReport{Files: locations.files, Sources: sources},
-	}, LocalPreferences{
+	}
+	preferences := LocalPreferences{
 		Theme: state.Settings.Theme, Debug: state.Settings.Debug,
 		NotificationMethod:   state.Settings.NotificationMethod,
 		TUINativeProgressBar: state.Settings.TUINativeProgressBar,
 		Client:               state.Client,
-	}, nil
+	}
+	return connection, preferences, nil
 }
