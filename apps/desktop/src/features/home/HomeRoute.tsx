@@ -10,12 +10,7 @@ import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarMode } from "@/app-
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
-import {
-  ErrorState,
-  LoadingState,
-  VirtualizedInfiniteList,
-  useStableCallback,
-} from "@/ui";
+import { ErrorState, LoadingState, VirtualizedInfiniteList, useStableCallback } from "@/ui";
 import { HomeSidebar } from "./HomeSidebar";
 import { createHomeViewModel, type HomeViewModel } from "./HomeViewModel";
 import { HomeProjectContent } from "./HomeProjectContent";
