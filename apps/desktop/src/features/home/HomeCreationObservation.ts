@@ -40,7 +40,7 @@ export function createHomeCreationObservation({
                       queue,
                       Cause.fail(
                         new ProjectCreationObservationFailure(
-                          new Error("Native Project creation observation exceeded its 1,000-event capacity."),
+                          new Error(t("home.projectCreationObservationOverflow")),
                         ),
                       ),
                     );

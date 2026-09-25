@@ -188,6 +188,8 @@ export const englishResources = {
       workspacePickerError: "Workspace picker failed",
       workspacePlanError: "Workspace check failed",
       projectCreateWindowError: "Project creation window failed",
+      projectCreationObservationOverflow:
+        "Project creation notifications stopped because too many events arrived.",
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
         "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
