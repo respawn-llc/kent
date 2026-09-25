@@ -38,13 +38,6 @@ func ResolveSessionCaller(persistenceRoot string, sessionID string) (subagentpol
 	return subagentpolicy.Caller{Workflow: workflow}, nil
 }
 
-// ValidateSessionExists verifies a session reference without exposing its
-// persisted metadata to callers that only need provenance validation.
-func ValidateSessionExists(persistenceRoot string, sessionID string) error {
-	_, err := openSessionByID(persistenceRoot, sessionID)
-	return err
-}
-
 func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (BootstrapPlan, error) {
 	plan := BootstrapPlan{
 		WorkspaceRoot: strings.TrimSpace(req.WorkspaceRoot),

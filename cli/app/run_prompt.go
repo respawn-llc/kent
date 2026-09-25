@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -21,12 +22,12 @@ type RunPromptResult struct {
 	Warnings    []string
 }
 
-func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Options, caller startupconfig.CallerContext, initialSessionID, prompt string, timeout time.Duration, progress serverapi.RunPromptProgressSink) (RunPromptResult, error) {
+func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Options, initialSessionID, prompt string, timeout time.Duration, progress serverapi.RunPromptProgressSink) (RunPromptResult, error) {
 	intent, err := runPromptLaunchIntent(opts, initialSessionID)
 	if err != nil {
 		return RunPromptResult{}, err
 	}
-	callerSessionID := runPromptCallerSessionID(opts, caller)
+	callerSessionID := runPromptCallerSessionID(opts)
 	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
 		Intent:          intent,
 		CallerSessionID: callerSessionID,
@@ -34,6 +35,10 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		Timeout:         timeout,
 		Overrides:       runPromptOverridesFromOptions(opts),
 	}, progress)
+	var denied *serverapi.SubagentLaunchDeniedError
+	if callerSessionID != nil && errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
+		err = startupconfig.WorkspaceContextSessionError(*callerSessionID, err)
+	}
 	if response == nil && err != nil {
 		return RunPromptResult{}, err
 	}
@@ -47,10 +52,7 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	return result, err
 }
 
-func runPromptCallerSessionID(opts Options, caller startupconfig.CallerContext) *string {
-	if caller.Kind != startupconfig.CallerKindKentSession {
-		return nil
-	}
+func runPromptCallerSessionID(opts Options) *string {
 	sessionID := strings.TrimSpace(opts.WorkspaceContextSessionID)
 	if sessionID == "" {
 		return nil

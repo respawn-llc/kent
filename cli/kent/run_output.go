@@ -72,7 +72,8 @@ func runErrorMessage(err error) string {
 		case serverapi.SubagentLaunchDenialNotCallable:
 			return "the requested subagent launch is not allowed for this Kent session"
 		case serverapi.SubagentLaunchDenialCallerMissing:
-			return "the caller session no longer exists"
+			// Startup supplies inherited-caller remediation context.
+			return err.Error()
 		case serverapi.SubagentLaunchDenialParentMissing:
 			return "the parent session no longer exists"
 		default:

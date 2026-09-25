@@ -103,7 +103,7 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		value := labelMatch
 		recoveryLabelMatch = &value
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)

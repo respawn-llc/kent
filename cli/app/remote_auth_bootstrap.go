@@ -23,14 +23,15 @@ var (
 	ErrOAuthStateMismatch = errors.New("oauth state mismatch")
 )
 
-func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClient, settings config.Settings, interactor authInteractor, interactive bool) error {
+func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClient, connectionID config.ConnectionID, selectedTheme string, interactor authInteractor, interactive bool) error {
 	if remote == nil {
 		return errors.New("auth bootstrap client is required")
 	}
-	if settings.Connection == nil {
+	if connectionID == "" {
 		return &config.ConnectionReferenceError{}
 	}
-	status, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*settings.Connection)})
+	target := protoapi.ExistingConnectionTarget(connectionID)
+	status, err := remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
 	if err != nil {
 		return err
 	}
@@ -55,18 +56,18 @@ func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClien
 					if err != nil {
 						return err
 					}
-					return editConnectionReference(ctx, remote, string(settings.Theme), id, definition)
+					return editConnectionReference(ctx, remote, selectedTheme, id, definition)
 				}
 			}
-			return &config.ConnectionReferenceError{Connection: settings.Connection}
+			return &config.ConnectionReferenceError{Connection: &connectionID}
 		}
-		return ui.completeRemoteAuthBootstrap(ctx, remote, settings, protoapi.ExistingConnectionTarget(*settings.Connection), status, false)
+		return ui.completeRemoteAuthBootstrap(ctx, remote, selectedTheme, target, status, false)
 	}
 	if status.Method != authpb.AuthMethod_AUTH_METHOD_API_KEY {
 		return fmt.Errorf("connection %s requires sign-in: %w", status.ConnectionId, serverapi.ErrServerAuthRequired)
 	}
 	resp, err := remote.CompleteBootstrap(ctx, &authpb.CompleteBootstrapRequest{
-		Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, Target: protoapi.ExistingConnectionTarget(config.ConnectionID(status.ConnectionId)),
+		Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY, Target: target,
 	})
 	if err != nil {
 		return err
@@ -77,12 +78,12 @@ func ensureRemoteAuthReady(ctx context.Context, remote onboardingConnectionClien
 	return nil
 }
 
-func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, settings config.Settings, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool) error {
+func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote apicontract.AuthBootstrapService, selectedTheme string, target *authpb.ConnectionTarget, status *authpb.BootstrapStatus, force bool) error {
 	if i == nil {
 		return errors.New("interactive auth interactor is required")
 	}
 	req := authInteraction{
-		Theme: string(settings.Theme),
+		Theme: selectedTheme,
 	}
 	for {
 		choice, err := i.chooseMethod(req)
@@ -100,7 +101,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 		}
 		completeReq.Force = force
 		completeReq.Target = target
-		resp, err := runConnectionOperation(ctx, req.Theme, "Completing sign-in...", func() (*authpb.BootstrapCompletion, error) {
+		resp, err := runStartupOperation(ctx, req.Theme, "Provider connections", "Completing sign-in...", func() (*authpb.BootstrapCompletion, error) {
 			return remote.CompleteBootstrap(ctx, completeReq)
 		})
 		if err != nil {
@@ -125,7 +126,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 }
 
 func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapService, selectedTheme string, target *authpb.ConnectionTarget, force bool) error {
-	status, err := runConnectionOperation(ctx, selectedTheme, "Checking connection sign-in...", func() (*authpb.BootstrapStatus, error) {
+	status, err := runStartupOperation(ctx, selectedTheme, "Provider connections", "Checking connection sign-in...", func() (*authpb.BootstrapStatus, error) {
 		return remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{Target: target})
 	})
 	if err != nil {
@@ -135,7 +136,7 @@ func signInConnection(ctx context.Context, remote apicontract.AuthBootstrapServi
 		return nil
 	}
 	interactor := newInteractiveAuthInteractor().(*interactiveAuthInteractor)
-	return interactor.completeRemoteAuthBootstrap(ctx, remote, config.Settings{Theme: selectedTheme}, target, status, force)
+	return interactor.completeRemoteAuthBootstrap(ctx, remote, selectedTheme, target, status, force)
 }
 
 func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*authpb.CompleteBootstrapRequest, error) {

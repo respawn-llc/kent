@@ -26,7 +26,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
+func TestLoadRemoteAttachConfigRetainsInvocationWorkspaceForResume(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
@@ -48,12 +48,12 @@ func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *test
 	if err != nil {
 		t.Fatalf("canonical got workspace: %v", err)
 	}
-	wantCanonical, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
+	wantCanonical, err := config.CanonicalWorkspaceRoot(worktree)
 	if err != nil {
 		t.Fatalf("canonical want workspace: %v", err)
 	}
 	if gotCanonical != wantCanonical {
-		t.Fatalf("workspace root = %q, want session workspace %q", got.WorkspaceRoot, cfg.WorkspaceRoot)
+		t.Fatalf("initial targeting root = %q, want invocation workspace %q", got.WorkspaceRoot, worktree)
 	}
 }
 
@@ -98,6 +98,8 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
 	defer fakeResponses.Close()
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
 
 	_, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             workspace,

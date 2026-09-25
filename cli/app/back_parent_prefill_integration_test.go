@@ -120,7 +120,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	sourceServer := boundServer.(*remoteAppServer)
 
-	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Config().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
+	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Connection().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
 	if err := parent.SetInputDraft("target project draft", nil); err != nil {
 		t.Fatalf("set target parent draft: %v", err)
 	}
@@ -187,8 +187,8 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("target server context = rebound %t project %q, want project %q", rebound, targetServer.ProjectID(), bindingB.ProjectID)
 	}
 	defer func() { _ = targetServer.Close() }()
-	if targetServer.Config().WorkspaceRoot != sourceConfig.WorkspaceRoot {
-		t.Fatalf("remote bootstrap workspace root = %q, want retained source root %q", targetServer.Config().WorkspaceRoot, sourceConfig.WorkspaceRoot)
+	if targetServer.Connection().WorkspaceRoot != sourceConfig.WorkspaceRoot {
+		t.Fatalf("remote bootstrap workspace root = %q, want retained source root %q", targetServer.Connection().WorkspaceRoot, sourceConfig.WorkspaceRoot)
 	}
 	remoteRetargetContext := targetServer.(sessionWorkspaceRetargetContextProvider).workspaceRetargetContext()
 	if remoteRetargetContext == nil || comparableWorkspaceChangeRoot(remoteRetargetContext.workspaceRoot) != comparableWorkspaceChangeRoot(workspaceB) {
@@ -263,7 +263,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parent := createAttachedAuthoritativeAppSession(t, server.Config().PersistenceRoot, server.ProjectID(), server.Config().WorkspaceRoot)
+			parent := createAttachedAuthoritativeAppSession(t, server.Connection().PersistenceRoot, server.ProjectID(), server.Connection().WorkspaceRoot)
 			parentLog, err := parent.MaterializeEventLog()
 			if err != nil {
 				t.Fatalf("materialize parent event log: %v", err)

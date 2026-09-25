@@ -8,6 +8,7 @@ import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
+import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -48,6 +49,10 @@ message Error {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_launch.SessionNotFoundDetails caller_session_not_found = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "caller_session_not_found"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"

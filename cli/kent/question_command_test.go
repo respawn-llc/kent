@@ -921,7 +921,7 @@ func TestQuestionByTaskResolvesProjectScopedShortID(t *testing.T) {
 	selector := questionTaskSelector("KENT-335")
 	resolvedTaskID, err := resolveWorkflowTaskID(
 		context.Background(),
-		config.App{WorkspaceRoot: "."},
+		config.Connection{WorkspaceRoot: "."},
 		remote,
 		remote,
 		selector.ProjectRef,

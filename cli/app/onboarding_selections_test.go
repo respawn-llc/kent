@@ -32,7 +32,7 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 
 	cfg.Source.Sources["reviewer.thinking_level"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}}
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -68,13 +68,6 @@ func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 		state.selections.pendingReviewerThinking.kind != onboardingThinkingEditNone {
 		t.Fatalf("pending thinking edits must start explicit none: %+v", state.selections)
 	}
-	if state.selections.preserved.modelTimeoutSeconds == nil || *state.selections.preserved.modelTimeoutSeconds != 123 {
-		t.Fatalf("preserved inputs = %+v", state.selections.preserved)
-	}
-	overrides := onboardingToolOverrides(state.selections.preserved.enabledTools)
-	if len(overrides) != 2 {
-		t.Fatalf("tool overrides = %+v, want edit/patch deviations", overrides)
-	}
 }
 
 func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *testing.T) {
@@ -84,7 +77,7 @@ func TestNewOnboardingFlowStateDistinguishesDefaultAndInheritedSeedIntent(t *tes
 	cfg.Settings.Reviewer.Model = cfg.Settings.Model
 	cfg.Settings.Reviewer.ThinkingLevel = defaultThinking
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -109,7 +102,7 @@ func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testi
 			return &value
 		}()}
 
-	state, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, cfg, testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -122,10 +115,9 @@ func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testi
 func TestNewOnboardingFlowStateRejectsMalformedStructuralInputsInBothModes(t *testing.T) {
 	for _, debug := range []bool{false, true} {
 		t.Run(map[bool]string{false: "release", true: "debug"}[debug], func(t *testing.T) {
-			cfg := onboardingSeedConfig()
-			cfg.Settings.Debug = debug
-			cfg.Settings.Model = " "
-			_, err := newOnboardingFlowState(cfg, testOnboardingCapabilityFacts())
+			facts := testOnboardingCapabilityFacts()
+			facts.Defaults.PrimaryModelId = " "
+			_, err := newOnboardingFlowState(config.LocalPreferences{Theme: theme.Dark, Debug: debug}, facts)
 			var conversionErr *onboardingSelectionConversionError
 			if !errors.As(err, &conversionErr) {
 				t.Fatalf("error = %T %v, want typed conversion error", err, err)
@@ -134,17 +126,11 @@ func TestNewOnboardingFlowStateRejectsMalformedStructuralInputsInBothModes(t *te
 	}
 }
 
-func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *testing.T) {
+func TestNewOnboardingFlowStateRejectsMalformedCapabilityFacts(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*config.App, *capabilitypb.Facts)
 	}{
-		{
-			name: "unknown provenance",
-			mutate: func(cfg *config.App, _ *capabilitypb.Facts) {
-				cfg.Source.Sources["thinking_level"] = config.Origin{Kind: "mystery", Property: config.PropertyAddress{Key: "thinking_level"}}
-			},
-		},
 		{
 			name: "non-positive model fact",
 			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
@@ -174,7 +160,7 @@ func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *t
 			cfg := onboardingSeedConfig()
 			facts := testOnboardingCapabilityFacts()
 			tt.mutate(&cfg, facts)
-			_, err := newOnboardingFlowState(cfg, facts)
+			_, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 			var conversionErr *onboardingSelectionConversionError
 			if !errors.As(err, &conversionErr) {
 				t.Fatalf("error = %T %v, want typed conversion error", err, err)
@@ -184,7 +170,7 @@ func TestNewOnboardingFlowStateRejectsMalformedProvenanceAndCapabilityFacts(t *t
 }
 
 func TestOnboardingSelectionInvariantFailurePanicsWithTypedDiagnosticsInDebug(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -207,7 +193,7 @@ func TestOnboardingSelectionInvariantFailurePanicsWithTypedDiagnosticsInDebug(t 
 }
 
 func TestOnboardingSelectionInvariantFailureReturnsTypedErrorInRelease(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -238,7 +224,7 @@ func TestOnboardingSelectionInvariantDiagnosticReportsInvalidImportReferenceValu
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+			state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 			if err != nil {
 				t.Fatalf("construct onboarding state: %v", err)
 			}
@@ -260,7 +246,7 @@ func TestOnboardingSelectionInvariantDiagnosticReportsInvalidImportReferenceValu
 }
 
 func TestOnboardingSelectionInvariantFailureCannotSubmitFinalizationInRelease(t *testing.T) {
-	state, err := newOnboardingFlowState(onboardingSeedConfig(), testOnboardingCapabilityFacts())
+	state, err := testOnboardingStateFromServerConfig(t, onboardingSeedConfig(), testOnboardingCapabilityFacts())
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}
@@ -317,7 +303,7 @@ func TestNewOnboardingFlowStateDoesNotApplyProviderCompatibilityPolicy(t *testin
 	facts.Providers = &capabilitypb.ProviderFacts{
 		CurrentEffective: &capabilitypb.ProviderFact{LlmProviderId: "openai"},
 	}
-	if _, err := newOnboardingFlowState(cfg, facts); err != nil {
+	if _, err := testOnboardingStateFromServerConfig(t, cfg, facts); err != nil {
 		t.Fatalf("constructor must not reject pre-existing provider/facts drift: %v", err)
 	}
 }

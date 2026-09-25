@@ -14,7 +14,6 @@ import (
 	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -200,8 +199,10 @@ func TestSessionPickerIgnoresMouseSGRRunes(t *testing.T) {
 func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	repoRoot := initStatusLineGitRepo(t, "picker-branch")
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-		Version:    "1.2.3",
-		ModelFacts: sessionPickerTestModelFacts("gpt-5", "high"),
+		Version: "1.2.3",
+		loadModelFacts: func(context.Context) (*sessionPickerModelFacts, error) {
+			return sessionPickerTestModelFacts("gpt-5", "high"), nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -215,8 +216,9 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 
 	next, _ := m.Update(cmd())
 	updated := next.(*sessionPickerModel)
+	updated.Update(updated.collectModelFactsCmd()())
 	plain := stripANSIAndTrimRight(updated.renderHeader())
-	for _, want := range []string{"git picker-branch", "No auth · gpt-5 high"} {
+	for _, want := range []string{"git picker-branch", "gpt-5 high"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("expected async status value %q in header, got %q", want, plain)
 		}
@@ -228,7 +230,9 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version:       "1.2.3",
 		ServerAddress: "127.0.0.1:53082",
-		ModelFacts:    sessionPickerTestModelFacts("gpt-5", "high"),
+		loadModelFacts: func(context.Context) (*sessionPickerModelFacts, error) {
+			return sessionPickerTestModelFacts("gpt-5", "high"), nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -247,34 +251,12 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
 		}
 	}
-	if height := lipgloss.Height(m.renderHeader()); height != 4 {
-		t.Fatalf("initial header height = %d, want static shell height 4", height)
-	}
-}
-
-func TestSessionPickerHeaderLoadsRemoteAuthStatus(t *testing.T) {
-	m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-		Version: "1.2.3",
-		StatusRequest: uiStatusRequest{
-			AuthStatus: &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_OAUTH)},
-		},
-	})
-	cmd := collectSessionPickerStatusCmd(m.header)
-	if cmd == nil {
-		t.Fatal("expected async status command")
-	}
-
-	next, _ := m.Update(cmd())
-	updated := next.(*sessionPickerModel)
-	plain := stripANSIAndTrimRight(updated.renderHeader())
-	if !strings.Contains(plain, "OpenAI Subscription") {
-		t.Fatalf("expected fast auth display in header, got %q", plain)
-	}
 }
 
 func TestSessionPickerStatusOmitsAbsentModel(t *testing.T) {
 	header := sessionPickerHeaderInfo{
 		StatusRequest: uiStatusRequest{
+			WorkspaceRoot: t.TempDir(),
 			Settings: config.Settings{
 				Model:          "server-default",
 				ThinkingLevel:  "high",
@@ -287,47 +269,10 @@ func TestSessionPickerStatusOmitsAbsentModel(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected async status command")
 	}
-	message, ok := cmd().(sessionPickerStatusMsg)
-	if !ok {
-		t.Fatalf("status message = %T", message)
-	}
-	if message.auth == nil {
-		t.Fatal("auth status is absent")
-	}
-	if message.model != nil {
-		t.Fatalf("absent model projected as %q", *message.model)
-	}
-}
-
-func TestSessionPickerHeaderLoadsAuthStatusVariants(t *testing.T) {
-	tests := []struct {
-		name   string
-		method authpb.AuthMethod
-		want   string
-	}{
-		{name: "no auth", method: authpb.AuthMethod_AUTH_METHOD_NONE, want: "No auth"},
-		{name: "api key", method: authpb.AuthMethod_AUTH_METHOD_API_KEY, want: "OpenAI API Key"},
-		{name: "oauth", method: authpb.AuthMethod_AUTH_METHOD_OAUTH, want: "OpenAI Subscription"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-				Version: "1.2.3",
-				StatusRequest: uiStatusRequest{
-					AuthStatus: &staticAuthStatusClient{response: authStatusResponse(tt.method)},
-				},
-			})
-			cmd := collectSessionPickerStatusCmd(m.header)
-			if cmd == nil {
-				t.Fatal("expected async status command")
-			}
-
-			next, _ := m.Update(cmd())
-			plain := stripANSIAndTrimRight(next.(*sessionPickerModel).renderHeader())
-			if !strings.Contains(plain, tt.want) {
-				t.Fatalf("expected %q in header, got %q", tt.want, plain)
-			}
-		})
+	model := newTestSessionPickerModel(t, nil, header)
+	model.Update(cmd())
+	if model.header.Model != "" {
+		t.Fatalf("absent model projected as %q", model.header.Model)
 	}
 }
 
@@ -344,20 +289,18 @@ func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
 		CWD:           "~/very/long/repository/path",
 		Branch:        "main",
 		Model:         "gpt-5.1-ultra high",
-		Auth:          "OpenAI API Key",
 		ServerAddress: "127.0.0.1:53082",
 	})
 	m.width = 24
 
 	plain := stripANSIAndTrimRight(m.renderHeader())
-	if strings.Contains(plain, "git main · ~/very/long/repository/path") || strings.Contains(plain, "OpenAI API Key · gpt-5.1-ultra high") {
+	if strings.Contains(plain, "git main · ~/very/long/repository/path") {
 		t.Fatalf("expected narrow header to reflow main info, got %q", plain)
 	}
 	for _, want := range []string{
 		"Kent v1.2.3",
 		"git main",
 		"…",
-		"OpenAI API Key",
 		"gpt-5.1-ultra high",
 	} {
 		if !strings.Contains(plain, want) {
@@ -370,7 +313,6 @@ func TestSessionPickerHeaderRendersMissingRemoteAddressFallback(t *testing.T) {
 	m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version: "1.2.3",
 		CWD:     "~/repo",
-		Auth:    "No auth",
 		Model:   "gpt-5 high",
 	})
 	m.width = 80

@@ -79,7 +79,8 @@ func TestRunOnboardingFlowHonorsPreSubmissionParentCancellation(t *testing.T) {
 	finalizer := &recordingOnboardingFinalizer{}
 	_, err := runOnboardingFlow(
 		ctx,
-		config.App{},
+		config.Connection{},
+		config.LocalPreferences{},
 		onboardingCapabilityFactsClientFunc(func(context.Context, *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
 			return testOnboardingCapabilityFacts(), nil
 		}),
@@ -261,16 +262,6 @@ func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
 	if request.Model == nil || request.Model.Kind != onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		t.Fatalf("model = %+v", request.Model)
 	}
-	toolOverrides := map[onboardingpb.ToolID]bool{}
-	for _, override := range request.ToolOverrides {
-		toolOverrides[override.Id] = override.Enabled
-	}
-	if len(toolOverrides) != 2 || !toolOverrides[onboardingpb.ToolID_TOOL_ID_EDIT] || toolOverrides[onboardingpb.ToolID_TOOL_ID_PATCH] {
-		t.Fatalf("tool overrides = %+v", request.ToolOverrides)
-	}
-	if request.ModelTimeoutSeconds == nil || *request.ModelTimeoutSeconds != 123 {
-		t.Fatalf("model timeout = %+v", request.ModelTimeoutSeconds)
-	}
 	if request.ContextWindow == nil || request.ContextWindow.Kind != onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE {
 		t.Fatalf("context window = %+v", request.ContextWindow)
 	}
@@ -335,6 +326,29 @@ func TestOnboardingFinalizeProjectionPreservesPrimaryThinkingVariants(t *testing
 }
 
 func TestOnboardingFinalizeProjectionPreservesReviewerInheritanceOverridesAndOff(t *testing.T) {
+	t.Run("reset-baseline-overrides", func(t *testing.T) {
+		facts := testOnboardingCapabilityFacts()
+		state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
+			cfg.Settings.Reviewer.Model = "gpt-5.4"
+			cfg.Settings.Reviewer.ThinkingLevel = "low"
+			for _, key := range []string{"reviewer.model", "reviewer.thinking_level"} {
+				cfg.Source.Sources[key] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: key}}
+			}
+		}, facts)
+		if err := state.selections.submitReviewerModel(state.selections.model.value, facts); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.selections.chooseReviewerThinking(state.selections.thinkingValue(), facts); err != nil {
+			t.Fatal(err)
+		}
+		request, err := onboardingFinalizeRequest(state, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Supervisor == nil || request.Supervisor.Model != nil || request.Supervisor.Thinking != nil {
+			t.Fatalf("reset should project inheritance: %+v", request.Supervisor)
+		}
+	})
 	t.Run("inherited", func(t *testing.T) {
 		state := newOnboardingFinalizeProjectionState(t, nil, testOnboardingCapabilityFacts())
 		request, err := onboardingFinalizeRequest(state, false)
@@ -527,7 +541,7 @@ func newOnboardingFinalizeProjectionState(t *testing.T, configure func(*config.A
 		configure(&cfg)
 	}
 	normalizeOnboardingReviewerSeedInheritance(&cfg)
-	state, err := newOnboardingFlowState(cfg, facts)
+	state, err := testOnboardingStateFromServerConfig(t, cfg, facts)
 	if err != nil {
 		t.Fatalf("construct onboarding state: %v", err)
 	}

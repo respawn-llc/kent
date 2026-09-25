@@ -173,7 +173,7 @@ func writeBindingMutationPlainResult(stdout io.Writer, stderr io.Writer, result 
 	return 0
 }
 
-func bindingMutationSelector(cfg config.App, arguments bindingMutationArguments) (serverapi.ProjectWorkspaceSelector, error) {
+func bindingMutationSelector(cfg config.Connection, arguments bindingMutationArguments) (serverapi.ProjectWorkspaceSelector, error) {
 	if arguments.WorkspaceID != nil {
 		selector, err := serverapi.NewProjectWorkspaceSelectorForID(*arguments.WorkspaceID)
 		return selector, err

@@ -172,35 +172,6 @@ message SupervisorChoice {
   ThinkingChoice thinking = 3;
 }
 
-enum ToolID {
-  TOOL_ID_UNSPECIFIED = 0;
-  TOOL_ID_EXEC_COMMAND = 1;
-  TOOL_ID_WRITE_STDIN = 2;
-  TOOL_ID_VIEW_IMAGE = 3;
-  TOOL_ID_PATCH = 4;
-  TOOL_ID_EDIT = 5;
-  TOOL_ID_ASK_QUESTION = 6;
-  TOOL_ID_COMPLETE_NODE = 7;
-  TOOL_ID_TRIGGER_HANDOFF = 8;
-  TOOL_ID_WEB_SEARCH = 9;
-}
-
-message ToolOverride {
-  ToolID id = 1 [
-    (buf.validate.field).enum = {
-      defined_only: true
-      not_in: [0]
-    }
-  ];
-  bool enabled = 2;
-
-  option (buf.validate.message).cel = {
-    id: "kent.onboarding.tool_override.ask_question"
-    message: "ask_question cannot be overridden"
-    expression: "this.id != 6"
-  };
-}
-
 message ImportSelection {
   ImportMode mode = 1 [
     (buf.validate.field).enum = {
@@ -227,6 +198,8 @@ message ImportSelection {
 }
 
 message FinalizeRequest {
+  reserved 7, 9;
+  reserved "model_timeout_seconds", "tool_overrides";
   optional Theme theme = 1 [
     (buf.validate.field).enum = {
       defined_only: true
@@ -242,9 +215,7 @@ message FinalizeRequest {
       not_in: [0]
     }
   ];
-  optional uint32 model_timeout_seconds = 7 [(buf.validate.field).uint32.gt = 0];
   optional bool ask_question = 8;
-  repeated ToolOverride tool_overrides = 9;
   SupervisorChoice supervisor = 10;
   optional CompactionMode compaction = 11 [
     (buf.validate.field).enum = {
@@ -256,11 +227,6 @@ message FinalizeRequest {
   ImportSelection commands_import = 13;
   repeated string disabled_skill_names = 14 [(buf.validate.field).repeated.items.string.min_len = 1];
 
-  option (buf.validate.message).cel = {
-    id: "kent.onboarding.tool_overrides.unique"
-    message: "tool_overrides must not contain duplicate tool IDs"
-    expression: "this.tool_overrides.map(override, override.id).unique()"
-  };
 }
 
 message FinalizeSuccess {

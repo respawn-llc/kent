@@ -144,6 +144,9 @@ func newSessionPickerModel(
 	if header.Notice != nil {
 		startupStatus.notice = *header.Notice
 	}
+	if header.loadModelFacts != nil {
+		header.Model = "Loading Chat settings..."
+	}
 	return &sessionPickerModel{
 		loader:         loader,
 		requestContext: requestContext,
@@ -165,6 +168,7 @@ func (m *sessionPickerModel) Init() tea.Cmd {
 		m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestInitial),
 		m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestInitial),
 		collectSessionPickerStatusCmd(m.header),
+		m.collectModelFactsCmd(),
 	}
 	if updateStatus := m.collectUpdateStatusCmd(); updateStatus != nil {
 		commands = append(commands, updateStatus)
@@ -201,8 +205,15 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPickerStatusMsg:
 		m.header.CWD = sessionPickerStatusText(message.cwd)
 		m.header.Branch = sessionPickerStatusText(message.branch)
-		m.header.Auth = sessionPickerStatusText(message.auth)
-		m.header.Model = sessionPickerStatusText(message.model)
+		m.ensureSelectedVisible(m.tab(m.activeTab))
+		return m, nil
+	case sessionPickerModelFactsMsg:
+		m.header.Model = sessionPickerStatusText(sessionPickerModelSummary(message.facts))
+		if message.err != nil && !errors.Is(message.err, context.Canceled) {
+			m.startupStatus.notice = startupPickerNotice{
+				Text: "Could not load Chat settings.", Kind: startupPickerNoticeError, Diagnostic: message.err,
+			}
+		}
 		m.ensureSelectedVisible(m.tab(m.activeTab))
 		return m, nil
 	case sessionPickerUpdateStatusMsg:
@@ -555,7 +566,7 @@ func (m *sessionPickerModel) applyPageLoaded(message sessionPickerPageLoadedMsg)
 			directional.generation,
 			directional.offset,
 		)
-		if m.header.StatusRequest.Settings.Debug {
+		if m.header.Debug {
 			panic(err)
 		}
 		tab.resetForFreshLoad()

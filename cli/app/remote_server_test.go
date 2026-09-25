@@ -43,14 +43,14 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFi
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	t.Cleanup(func() { _ = remote.Close() })
-	return remoteAuthTestFixture{daemon: daemon, server: newRemoteAppServerWithAuth(remote, cfg), config: cfg}
+	return remoteAuthTestFixture{daemon: daemon, server: newRemoteAppServerWithAuth(remote, cfg.Connection(), config.LocalPreferences{Theme: cfg.Settings.Theme}), config: cfg}
 }
 
 func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
 	fixture := startRemoteAuthTestFixture(t, workspace)
-	if err := fixture.server.Reauthenticate(context.Background(), newHeadlessAuthInteractor(), false); err != nil {
+	if err := fixture.server.EnsureAuthReady(context.Background(), *fixture.config.Settings.Connection, newHeadlessAuthInteractor(), false); err != nil {
 		t.Fatalf("Reauthenticate: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 		},
 	}
 
-	if err := fixture.server.EnsureAuthReady(context.Background(), fixture.config.Settings, interactor, true); err != nil {
+	if err := fixture.server.EnsureAuthReady(context.Background(), *fixture.config.Settings.Connection, interactor, true); err != nil {
 		t.Fatalf("EnsureAuthReady: %v", err)
 	}
 

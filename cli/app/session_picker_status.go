@@ -13,14 +13,27 @@ import (
 type sessionPickerStatusMsg struct {
 	cwd    *string
 	branch *string
-	auth   *string
-	model  *string
+}
+
+type sessionPickerModelFactsMsg struct {
+	facts *sessionPickerModelFacts
+	err   error
+}
+
+func (m *sessionPickerModel) collectModelFactsCmd() tea.Cmd {
+	if m.header.loadModelFacts == nil {
+		return nil
+	}
+	load, ctx := m.header.loadModelFacts, m.requestContext
+	return func() tea.Msg {
+		facts, err := load(ctx)
+		return sessionPickerModelFactsMsg{facts: facts, err: err}
+	}
 }
 
 func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 	req := populateStatusRequestCacheKeys(header.StatusRequest)
-	model := sessionPickerModelSummary(header.ModelFacts)
-	if strings.TrimSpace(req.WorkspaceRoot) == "" && model == nil && req.AuthStatus == nil {
+	if strings.TrimSpace(req.WorkspaceRoot) == "" {
 		return nil
 	}
 	return func() tea.Msg {
@@ -30,7 +43,6 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		collector := defaultUIStatusCollector()
 		base := collector.CollectBase(req)
 		gitResult := collector.CollectGit(ctx, req, base)
-		authInfo := collector.CollectAuth(ctx, req, base).Auth
 
 		branch := textutil.OptionalTrimmedString(gitResult.Git.Branch)
 		if !gitResult.Git.Visible || strings.TrimSpace(gitResult.Git.Error) != "" ||
@@ -40,8 +52,6 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		return sessionPickerStatusMsg{
 			cwd:    textutil.OptionalTrimmedString(statusDisplayPath(base.Workdir, "")),
 			branch: branch,
-			auth:   textutil.OptionalTrimmedString(status.AuthDisplayLabel(authInfo)),
-			model:  model,
 		}
 	}
 }

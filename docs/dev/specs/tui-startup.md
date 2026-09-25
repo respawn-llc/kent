@@ -8,6 +8,7 @@
 - Text fields use the native terminal cursor.
 - Every asynchronous gate appears immediately with a loading state. Startup never leaves the terminal blank or frozen while it waits.
 - The authentication picker and Session picker use the same status-line treatment for operation errors and notices. This also applies when `/resume` reopens the Session picker.
+- The Session picker must not display authentication status.
 - Startup remembers the previous visible surface. `Esc` returns to it unless the active surface defines another key behavior.
 
 ## Startup Sequence

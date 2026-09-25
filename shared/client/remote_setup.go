@@ -9,6 +9,7 @@ import (
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -206,6 +207,12 @@ func attachProjectGeneratedError(failure *connectionpb.AttachProjectError) error
 
 func attachSessionGeneratedError(failure *connectionpb.AttachSessionError) error {
 	switch failure.Code {
+	case "session_not_found":
+		details := failure.GetSessionNotFound()
+		if err := protoapi.Validate(details); err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: session %q", sessioncontract.ErrSessionNotFound, details.SessionId)
 	case "project_not_found":
 		details := failure.GetProjectNotFound()
 		if err := protoapi.Validate(details); err != nil {

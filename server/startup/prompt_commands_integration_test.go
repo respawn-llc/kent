@@ -71,7 +71,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: connections})
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: connections})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}

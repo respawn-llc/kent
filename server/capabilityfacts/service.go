@@ -13,8 +13,10 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 const (
@@ -63,7 +65,7 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 	if err != nil {
 		return nil, err
 	}
-	defaults, err := defaultFacts(settings)
+	defaults, err := defaultFacts(settings, s.cfg.Source.Sources)
 	if err != nil {
 		return nil, err
 	}
@@ -196,17 +198,66 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 	}
 }
 
-func defaultFacts(settings config.Settings) (*capabilitypb.DefaultFacts, error) {
+func defaultFacts(settings config.Settings, sources map[string]config.Origin) (*capabilitypb.DefaultFacts, error) {
 	modelID := strings.TrimSpace(settings.Model)
 	if modelID == "" {
 		return nil, errors.New("capability facts require a non-blank primary model")
 	}
+	supervisor, err := supervisorDefaults(settings, sources)
+	if err != nil {
+		return nil, err
+	}
+	window, err := positiveUint32Ptr(settings.ModelContextWindow, "default context window")
+	if err != nil {
+		return nil, err
+	}
+	thinking := thinkingDefaultFact(settings.ThinkingLevel)
+	if source, present := sources["thinking_level"]; present && source.Kind == config.SourceDefault {
+		thinking = &capabilitypb.ThinkingDefaultFact{Mode: "default"}
+	}
 	return &capabilitypb.DefaultFacts{
-		PrimaryModelId: modelID,
-		Thinking:       thinkingDefaultFact(settings.ThinkingLevel),
-		Verbosity:      verbosityDefaultFact(settings.ModelVerbosity),
-		CompactionMode: strings.TrimSpace(string(settings.CompactionMode)),
+		PrimaryModelId:      modelID,
+		Thinking:            thinking,
+		Verbosity:           verbosityDefaultFact(settings.ModelVerbosity),
+		CompactionMode:      strings.TrimSpace(string(settings.CompactionMode)),
+		ContextWindowTokens: window,
+		AskQuestion:         settings.EnabledTools[toolspec.ToolAskQuestion],
+		Supervisor:          supervisor,
 	}, nil
+}
+
+func supervisorDefaults(settings config.Settings, sources map[string]config.Origin) (*onboardingpb.SupervisorChoice, error) {
+	choice := &onboardingpb.SupervisorChoice{}
+	switch settings.Reviewer.Frequency {
+	case "", "off":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF
+	case "edits":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS
+	case "all":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL
+	default:
+		return nil, fmt.Errorf("unsupported supervisor frequency %q", settings.Reviewer.Frequency)
+	}
+	if sources["reviewer.model"].Declares("reviewer.model") {
+		model := settings.Reviewer.Model
+		if _, known := llm.LookupModelCapabilityContract(model); known {
+			choice.Model = &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model}
+		} else {
+			choice.Model = &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: &model}
+		}
+	}
+	if sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") {
+		fact := thinkingDefaultFact(settings.Reviewer.ThinkingLevel)
+		switch fact.Mode {
+		case thinkingModeDisabled:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED}
+		case thinkingModeLevel:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: fact.Level}
+		case thinkingModeCustom:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: fact.Value}
+		}
+	}
+	return choice, nil
 }
 
 func verbosityDefaultFact(raw config.ModelVerbosity) *capabilitypb.VerbosityDefaultFact {
