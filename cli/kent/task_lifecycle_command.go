@@ -1243,7 +1243,7 @@ func projectRetainedSetupGuidance(base []string, target *taskpb.ExecutionTargetS
 	}
 	var selector *string
 	if target != nil {
-		value, err := taskExecutionTargetSelector(*target)
+		value, err := taskExecutionTargetSelector(target)
 		if err != nil {
 			return taskSetupGuidance{}, err
 		}
@@ -1297,7 +1297,7 @@ func taskSetupDiagnostic(value string) (*string, error) {
 	return &value, nil
 }
 
-func taskExecutionTargetSelector(target taskpb.ExecutionTargetSelection) (string, error) {
+func taskExecutionTargetSelector(target *taskpb.ExecutionTargetSelection) (string, error) {
 	switch target.Mode {
 	case workflowpb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE:
 		return "none", nil

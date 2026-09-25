@@ -105,7 +105,11 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 	if code := writeTaskSessionsResponse(&stdout, &stderr, controlResponse, true); code != 0 {
 		t.Fatalf("JSON exit=%d stderr=%q", code, stderr.String())
 	}
-	var decoded *taskpb.SessionListSuccess
+	var decoded struct {
+		Items []struct {
+			SessionName *string `json:"session_name"`
+		} `json:"items"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil ||
 		decoded.Items[0].SessionName == nil || *decoded.Items[0].SessionName != controlName {
 		t.Fatalf("decoded=%+v err=%v", decoded, err)

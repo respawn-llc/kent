@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/workflowstore"
+	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -24,6 +27,43 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
+
+type taskCreateConflictService struct {
+	apicontract.WorkflowService
+}
+
+func (s *taskCreateConflictService) CreateWorkflowTask(context.Context, *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	return nil, workflowstore.TaskCreateConflictError{Reason: workflowstore.TaskCreateConflictSerialization}
+}
+
+func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
+	app, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = app.Close() }()
+	gateway, err := NewGateway(&gatewayCloseDependencies{
+		GatewayDependencies: app,
+		workflow:            &taskCreateConflictService{WorkflowService: app.WorkflowClient()},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	result, err := remote.CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Concurrent creation",
+	})
+	var conflict *remoteclient.TaskCreateError
+	if result != nil || !errors.As(err, &conflict) {
+		t.Fatalf("Create = %v, %T %v; want typed conflict", result, err, err)
+	}
+	if conflict.Failure.GetCreateConflict().GetReason() != taskpb.CreateConflictReason_CREATE_CONFLICT_REASON_SERIALIZATION {
+		t.Fatalf("Create lost serialization conflict detail: %v", conflict.Failure)
+	}
+}
 
 func TestTaskDeleteBlockedWorktreeRoundTrip(t *testing.T) {
 	app, server := newGatewayTestServer(t)

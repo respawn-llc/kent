@@ -140,8 +140,9 @@ export const questionAttentionItem = create(pb.AttentionItemSchema, {
 
 export function attentionEventsFixture(transport: FakeRpcTransport) {
   const service = pb.AttentionNotificationService.method;
-  const emit = (event: pb.AttentionNotificationEvent) =>
-    { transport.emitDescriptor(service.subscribe, service.event, event); };
+  const emit = (event: pb.AttentionNotificationEvent) => {
+    transport.emitDescriptor(service.subscribe, service.event, event);
+  };
   return {
     get activeCount() {
       return transport.descriptorSubscriptions.filter((descriptor) => descriptor === service.subscribe)

@@ -41,7 +41,9 @@ describe("open Inbox attention refresh", () => {
       expect(globalAttentionRequests(services.transport)).toHaveLength(1);
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
     });
-    act(() => { attentionEventsFixture(services.transport).pendingTaskQuestion(); });
+    act(() => {
+      attentionEventsFixture(services.transport).pendingTaskQuestion();
+    });
     await waitFor(() => {
       expect(globalAttentionRequests(services.transport)).toHaveLength(2);
       expect(screen.getByTestId("attention-row")).toBeInTheDocument();
@@ -60,7 +62,9 @@ describe("open Inbox attention refresh", () => {
       expect(screen.getByTestId("attention-row")).toBeInTheDocument();
       expect(globalAttentionRequests(services.transport)).toHaveLength(1);
     });
-    act(() => { attentionEventsFixture(services.transport).resolveQuestion(); });
+    act(() => {
+      attentionEventsFixture(services.transport).resolveQuestion();
+    });
     await waitFor(() => {
       expect(globalAttentionRequests(services.transport)).toHaveLength(2);
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
@@ -80,7 +84,9 @@ describe("open Inbox attention refresh", () => {
     });
     const notices = toast.getToasts();
     const logs = services.logger.entries();
-    await act(async () => { attentionEventsFixture(services.transport).pendingSessionQuestion(); });
+    await act(async () => {
+      attentionEventsFixture(services.transport).pendingSessionQuestion();
+    });
     expect(toast.getToasts()).toEqual(notices);
     expect(services.logger.entries()).toEqual(logs);
     expect(notify).not.toHaveBeenCalled();

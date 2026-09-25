@@ -1213,16 +1213,18 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 	if err := registration.Validate(); err != nil {
 		t.Fatalf("validate production Gateway registration: %v", err)
 	}
+	if len(registration.legacy) != 0 {
+		t.Fatalf("production Gateway retains %d legacy business registrations", len(registration.legacy))
+	}
 	executor := newRoutePolicyExecutor(&Gateway{registration: registration})
 	for name, operation := range registration.operations {
-		activeIdentity := name
-		if route, legacy := registration.legacy[name]; legacy {
-			activeIdentity = route.Method
+		if operation.LegacyWireName != nil {
+			t.Fatalf("operation %q retains legacy provenance", name)
 		}
-		got := executor.requiresServerAuth(activeIdentity)
+		got := executor.requiresServerAuth(name)
 		want := operation.Options.AuthenticationStage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
 		if got != want {
-			t.Fatalf("requiresServerAuth(%q) = %t, want %t from descriptor", activeIdentity, got, want)
+			t.Fatalf("requiresServerAuth(%q) = %t, want %t from descriptor", name, got, want)
 		}
 	}
 }

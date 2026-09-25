@@ -11,8 +11,8 @@ import (
 	"slices"
 	"testing"
 
-	"core/shared/config"
 	"core/shared/client"
+	"core/shared/config"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"

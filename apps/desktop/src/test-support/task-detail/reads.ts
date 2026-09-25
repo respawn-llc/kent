@@ -97,23 +97,25 @@ export function taskCommentRoute(
 
 export function taskActivityPage(taskID: string, count: number) {
   return create(lifecycle.ActivityListSuccessSchema, {
-    items: Array.from({ length: count }, (_value, index) => create(lifecycle.ActivityItemSchema, {
-      activityId: `activity-${taskID}-${index.toString()}`,
-      taskId: taskID,
-      occurredAt: timestamp(1000 - index),
-      updatedAt: timestamp(1000 - index),
-      activity: {
-        case: "comment",
-        value: {
-          id: `comment-activity-${taskID}-${index.toString()}`,
-          taskId: taskID,
-          body: `Activity item ${index.toString()}`,
-          author: lifecycle.CommentAuthorKind.USER,
-          createdAt: timestamp(1000 - index),
-          updatedAt: timestamp(1000 - index),
+    items: Array.from({ length: count }, (_value, index) =>
+      create(lifecycle.ActivityItemSchema, {
+        activityId: `activity-${taskID}-${index.toString()}`,
+        taskId: taskID,
+        occurredAt: timestamp(1000 - index),
+        updatedAt: timestamp(1000 - index),
+        activity: {
+          case: "comment",
+          value: {
+            id: `comment-activity-${taskID}-${index.toString()}`,
+            taskId: taskID,
+            body: `Activity item ${index.toString()}`,
+            author: lifecycle.CommentAuthorKind.USER,
+            createdAt: timestamp(1000 - index),
+            updatedAt: timestamp(1000 - index),
+          },
         },
-      },
-    })),
+      }),
+    ),
   });
 }
 

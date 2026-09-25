@@ -132,8 +132,7 @@ func implementsValidator(t reflect.Type) bool {
 	return t != nil && t.Implements(validator)
 }
 
-var routeContracts = []Route{
-}
+var routeContracts = []Route{}
 
 func Routes() []Route {
 	routes := append([]Route(nil), routeContracts...)

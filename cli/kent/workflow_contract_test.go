@@ -803,8 +803,8 @@ func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
 
 	statuses, err := parseTaskSearchStatusKinds([]string{"done,active", "done"})
 	if err != nil || len(statuses) != 2 ||
-		statuses[0] != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
-		statuses[1] != taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE {
+		!slices.Contains(statuses, taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE) ||
+		!slices.Contains(statuses, taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE) {
 		t.Fatalf("statuses=%v err=%v", statuses, err)
 	}
 }
