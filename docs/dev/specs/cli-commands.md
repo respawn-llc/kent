@@ -439,7 +439,7 @@
 - These commands expose neither page tokens nor page numbers.
 - An omitted offset starts at the beginning. A negative offset is invalid.
 - Workflow pagination must accept offsets from 0 through 9,007,199,254,740,991 and reject larger values. Workflow continuation offsets must remain within this range.
-- Task pagination accepts any non-negative offset.
+- Task pagination must accept offsets within the [API-defined Task pagination range](server-api-contract.md#task-requests) and reject larger values.
 - `--limit` defaults to 100 and accepts 1 through 100.
 - Callers may change the limit between requests.
 - An offset at or beyond the current end succeeds with the command's empty-result output and no next offset.

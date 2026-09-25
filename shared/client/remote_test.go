@@ -407,9 +407,30 @@ func TestRemoteObserveWorkflowTaskRejectsMalformedResponse(t *testing.T) {
 	_, err = remote.ObserveWorkflowTask(context.Background(), &taskpb.ObserveRequest{
 		TaskId: "task-1", ProjectId: "project-1", Mode: taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	})
-	var invalidResponse *protovalidate.ValidationError
+	var invalidResponse *InvalidResponseError
 	if err == nil || !errors.As(err, &invalidResponse) {
 		t.Fatalf("ObserveWorkflowTask error = %v, want InvalidResponseError", err)
+	}
+}
+
+func TestRemoteObserveWorkflowTaskInvalidRequestIsNotInvalidResponse(t *testing.T) {
+	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskObservationService").Methods().ByName("Observe")
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		acceptRemoteHandshake(t, ws)
+		if correlation := receiveRemoteDescriptorCallIfOpen(t, ws, method, &taskpb.ObserveRequest{}); correlation != nil {
+			t.Error("invalid Observe request reached server")
+		}
+	})
+	remote, err := DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.ObserveWorkflowTask(t.Context(), &taskpb.ObserveRequest{})
+	var responseError *InvalidResponseError
+	var validationError *protovalidate.ValidationError
+	if errors.As(err, &responseError) || !errors.As(err, &validationError) {
+		t.Fatalf("invalid request = %T %v, want request validation", err, err)
 	}
 }
 

@@ -407,24 +407,12 @@ func (c *Remote) RemoveWorkflowTaskDependency(ctx context.Context, req *taskpb.D
 
 func (c *Remote) ListWorkflowTaskDependencies(ctx context.Context, req *taskpb.DependencyListRequest) (*taskpb.DependencyListSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskDependencyService").Methods().ByName("List")
-	return callGeneratedBinary(c, ctx, method, req, &taskpb.DependencyListResult{},
-		func(failure *taskpb.DependencyListError) error {
-			if failure.GetTaskNotFound() != nil {
-				return serverapi.ErrWorkflowTaskNotFound
-			}
-			return generatedOperationFailure(failure.Code)
-		})
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.DependencyListResult{}, taskEntityGeneratedError[*taskpb.DependencyListError])
 }
 
 func (c *Remote) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Update")
-	return callGeneratedBinary(c, ctx, method, req, &taskpb.UpdateResult{},
-		func(failure *taskpb.UpdateError) error {
-			if failure.GetTaskNotFound() != nil {
-				return serverapi.ErrWorkflowTaskNotFound
-			}
-			return generatedOperationFailure(failure.Code)
-		})
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.UpdateResult{}, taskEntityGeneratedError[*taskpb.UpdateError])
 }
 
 func (c *Remote) StartWorkflowTask(ctx context.Context, req *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
@@ -473,13 +461,7 @@ func (c *Remote) ApproveWorkflowTask(ctx context.Context, req *taskpb.ApproveReq
 
 func (c *Remote) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("PreviewMove")
-	return callGeneratedBinary(c, ctx, method, req, &taskpb.MovePreviewResult{},
-		func(failure *taskpb.MovePreviewError) error {
-			if failure.GetTaskNotFound() != nil {
-				return serverapi.ErrWorkflowTaskNotFound
-			}
-			return generatedOperationFailure(failure.Code)
-		})
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.MovePreviewResult{}, taskEntityGeneratedError[*taskpb.MovePreviewError])
 }
 
 func (c *Remote) MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest) (*taskpb.MoveSuccess, error) {
@@ -633,13 +615,7 @@ func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.Boa
 
 func (c *Remote) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get")
-	return callGeneratedBinary(c, ctx, method, req, &taskpb.GetResult{},
-		func(failure *taskpb.GetError) error {
-			if failure.GetTaskNotFound() != nil {
-				return serverapi.ErrWorkflowTaskNotFound
-			}
-			return generatedOperationFailure(failure.Code)
-		})
+	return callGeneratedBinary(c, ctx, method, req, &taskpb.GetResult{}, taskEntityGeneratedError[*taskpb.GetError])
 }
 
 func (c *Remote) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {

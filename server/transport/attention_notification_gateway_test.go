@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -17,9 +18,44 @@ import (
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestGatewayAttentionSubscriptionRequiresAuthentication(t *testing.T) {
+	app, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = app.Close() }()
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("Subscribe attention = %v, want authentication required", err)
+	}
+}
+
+func TestGatewayAttentionReadsRequireAuthentication(t *testing.T) {
+	app, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = app.Close() }()
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.ListWorkflowAttention(t.Context(), &taskpb.AttentionListRequest{})
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("List attention = %v, want authentication required", err)
+	}
+	_, err = remote.ListWorkflowTaskAttention(t.Context(), &taskpb.TaskAttentionListRequest{TaskId: "task-1"})
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("List Task attention = %v, want authentication required", err)
+	}
+}
 
 func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly(t *testing.T) {
 	appCore, _, broker, server := newGatewayAttentionTestServer(t)

@@ -122,7 +122,11 @@ func registerGatewayBinarySubscription[
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}
-			return gatewayBinaryFailureResult(method, failure(message.(Request), err))
+			var request Request
+			if message != nil {
+				request = message.(Request)
+			}
+			return gatewayBinaryFailureResult(method, failure(request, err))
 		},
 		start: start, complete: binaryStreamCompletion,
 	}

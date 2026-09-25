@@ -123,11 +123,11 @@ func binaryTaskAttentionFailure[Request proto.Message](_ Request, err error) pro
 		case serverapi.WorkflowRequestErrorInvalidMode:
 			code = taskpb.AttentionRequestValidationCode_ATTENTION_REQUEST_VALIDATION_CODE_INVALID_MODE
 		default:
-			return nil
+			return binaryInternalFailure(err)
 		}
 		return &taskpb.AttentionRequestValidationDetails{Code: code, Field: validation.Field}
 	}
-	return nil
+	return binaryAuthFailure(err)
 }
 
 func binaryTaskDependencyMutationFailure[Request proto.Message](request Request, err error) proto.Message {
