@@ -5,7 +5,7 @@ import { ArrowDown, Loader2 } from "lucide-react";
 import { errorMessage } from "@/api";
 import { useChatRuntimeOwner, useChatRuntimeSnapshot, useStatusController } from "@/app-facade";
 import { TranscriptWindowView, type TranscriptWindowViewProps } from "@/shared/transcript-window";
-import { ErrorState, IconTooltipButton, LoadingState, useOpacityExit } from "@/ui";
+import { ErrorState, IconTooltipButton, InfiniteListBoundary, LoadingState, useOpacityExit } from "@/ui";
 
 import "./chatTail.css";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
@@ -14,7 +14,9 @@ export function ChatTranscriptTail({
   slots,
   estimateSize,
   openingVisible = true,
-}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize"> & Readonly<{ openingVisible?: boolean }>) {
+  bottomInset,
+}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset"> &
+  Readonly<{ openingVisible?: boolean }>) {
   const { t } = useTranslation();
   const owner = useChatRuntimeOwner();
   const { transcript, transcriptPresentationUpdate, jumpPending, observation } = useChatRuntimeSnapshot();
@@ -64,10 +66,25 @@ export function ChatTranscriptTail({
       error ?? (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null)
     );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {error}
+    <div className="chat-transcript flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
         <TranscriptWindowView
+          tailFailure={
+            failure === null ? undefined : (
+              <InfiniteListBoundary
+                direction="replacement"
+                state={{
+                  state: "error",
+                  message: errorMessage(failure),
+                  retryLabel: t("app.retry"),
+                  onRetry: () => {
+                    owner.retryTranscriptObservation();
+                  },
+                }}
+              />
+            )
+          }
+          bottomInset={bottomInset}
           snapshot={transcript}
           presentationUpdate={transcriptPresentationUpdate}
           scrollRequest={scrollRequest}
@@ -81,6 +98,7 @@ export function ChatTranscriptTail({
           }}
           overlay={(following) => (
             <JumpToLatest
+              bottomInset={bottomInset ?? 0}
               visible={!following || jumpPending}
               pending={jumpPending}
               onClick={() => {
@@ -98,16 +116,18 @@ function JumpToLatest({
   visible,
   pending,
   onClick,
+  bottomInset,
 }: Readonly<{
   visible: boolean;
   pending: boolean;
   onClick(): void;
+  bottomInset: number;
 }>) {
   const { t } = useTranslation();
   const phase = useOpacityExit(visible);
   if (phase === "hidden") return null;
   return (
-    <div className="chat-tail-control" data-phase={phase}>
+    <div className="chat-tail-control" data-phase={phase} style={{ marginBottom: bottomInset }}>
       <IconTooltipButton
         className="chat-tail-button island-glass"
         label={t("chat.tail.jump")}

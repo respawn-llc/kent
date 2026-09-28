@@ -1,5 +1,5 @@
 import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -19,6 +19,8 @@ import {
 import { question, approval } from "@/test-support/chat-prompts";
 import { approvalDecisionLabel } from "@/shared/prompt-presentation";
 import { row } from "@/test-support/transcript-window";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
+import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { appI18n } from "@/i18n";
 
 import {
@@ -312,7 +314,12 @@ it("retains committed history and input during explicit observation Retry withou
     }),
   );
   const priorRows = screen.getAllByText("Message 1");
-  act(() => view.handlers[0]?.onError(new Error("observation lost")));
+  const failure = new Error("observation lost");
+  act(() => view.handlers[0]?.onError(failure));
+  const finalRow = within(screen.getByRole("list")).getAllByRole("listitem").at(-1);
+  if (finalRow === undefined) throw new Error("Expected an inline transcript error.");
+  expect(within(finalRow).getByText(failure.message)).toBeInTheDocument();
+  expect(screen.getAllByText(failure.message)).toHaveLength(1);
   expect(screen.getByRole("textbox")).toHaveValue("unsent");
   expect(screen.getAllByText("Message 1")).toHaveLength(priorRows.length);
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
@@ -344,6 +351,227 @@ it("retries the failed opening page and observation independently once per activ
   expect(screen.getByRole("textbox")).toHaveValue("keep input");
 });
 
+it.each(["page-first", "hydration-first"] as const)(
+  "opens mounted Chat at the newest content through %s startup",
+  async (order) => {
+    installAnimationFrameTestSupport();
+    const geometry = installVirtualizedScrollGeometry(600);
+    const pageRead = deferred<ReturnType<typeof transcriptPage>>();
+    const entries = Array.from({ length: 100 }, (_, index) => row(index + 1));
+    const view = sessionWithPrompts((services) => {
+      vi.mocked(services.api.chat.getTranscriptPage).mockReturnValue(pageRead.promise);
+    });
+    try {
+      await waitFor(() => {
+        expect(view.handlers).toHaveLength(1);
+      });
+      const admitPage = async () => {
+        await act(async () => {
+          pageRead.resolve({ ...transcriptPage(null), entries });
+          await pageRead.promise;
+        });
+      };
+      const admitHydration = async () => {
+        await act(async () => {
+          view.handlers[0]?.onEvent({
+            sequence: 1,
+            kind: "hydration",
+            payload: {
+              ...hydration(),
+              TailSegment: { Entries: entries, OlderCursor: null, HasMoreAbove: false },
+            },
+          });
+        });
+      };
+      if (order === "page-first") {
+        await admitPage();
+        await admitHydration();
+      } else {
+        await admitHydration();
+        await admitPage();
+      }
+      const list = await screen.findByRole("list");
+      expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
+      await waitFor(() => {
+        expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
+      });
+      const latestText = entries.at(-1)?.User?.Text;
+      if (latestText === undefined) throw new Error("Latest message is missing.");
+      expect(await screen.findByText(latestText)).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      geometry.restore();
+    }
+  },
+);
+
+it("shows a newly arriving question in the open Chat without a notification click", async () => {
+  const view = sessionWithPrompts();
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+  });
+  const editor = screen.getByRole("textbox");
+  const user = userEvent.setup();
+  await user.type(editor, "unsent draft");
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 2,
+      kind: "prompt",
+      payload: { state: "pending", prompt: question() },
+    });
+  });
+  expect(await screen.findByRole("radio", { name: "one" })).toBeInTheDocument();
+  expect(editor).not.toBeVisible();
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 3,
+      kind: "prompt",
+      payload: { state: "resolved", toolCallID: question().toolCallID },
+    });
+  });
+  expect(await screen.findByRole("textbox")).toHaveValue("unsent draft");
+  view.unmount();
+});
+
+it("shows every accepted Pending Work item and restores only a discarded item", async () => {
+  const accepted = Array.from({ length: 105 }, (_, index) => ({
+    id: parsePendingWorkItemID(crypto.randomUUID()),
+    kind: "message" as const,
+    state: "pending" as const,
+    lane: "steer" as const,
+    canonicalInput: `Pending input ${String(index)}`,
+    message: { text: `Pending input ${String(index)}` },
+  }));
+  let pending = accepted;
+  const view = sessionWithPrompts((services) => {
+    vi.mocked(services.api.chat.listPendingWork).mockImplementation(async () => ({ items: pending }));
+    vi.spyOn(services.api.chat, "removePendingWork").mockImplementation(async (_, id) => {
+      const item = pending.find((entry) => entry.id.toJSONValue() === id.toJSONValue());
+      if (item === undefined) throw new Error("Pending item is missing.");
+      pending = pending.filter((entry) => entry !== item);
+      return { kind: "message", canonicalInput: item.canonicalInput };
+    });
+  });
+  const discard = await screen.findAllByRole("button", { name: appI18n.t("chatComposer.discard") });
+  expect(discard).toHaveLength(accepted.length);
+  const last = accepted.at(-1);
+  const button = discard.at(-1);
+  if (last === undefined || button === undefined) throw new Error("Missing accepted item.");
+  await userEvent.setup().click(button);
+  await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput));
+  await waitFor(() => expect(button).not.toBeInTheDocument());
+  expect(screen.getAllByRole("button", { name: appI18n.t("chatComposer.discard") })).toHaveLength(104);
+  view.unmount();
+});
+
+it.each(["radio", "label"] as const)(
+  "confirms an option with one %s click when commentary is empty",
+  async (surface) => {
+    const view = sessionWithPrompts();
+    const prompt = question("quick-answer", { recommendedOptionIndex: 1 });
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      });
+    });
+    const option = await screen.findByRole("radio", { name: "one" });
+    await userEvent.setup().click(surface === "radio" ? option : screen.getByText("one"));
+    await waitFor(() => {
+      expect(view.answer).toHaveBeenCalledOnce();
+    });
+    expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
+      { selectedOptionNumber: 1, freeform: null },
+    ]);
+    view.unmount();
+  },
+);
+
+it.each(["enter", "send"] as const)(
+  "Neither focuses commentary and waits for explicit %s",
+  async (method) => {
+    const view = sessionWithPrompts();
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox"), "unsent message draft");
+    const prompt = question("neither-test");
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      });
+    });
+    const commentary = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
+    await user.type(commentary, "unfinished");
+    const neither = screen.getByRole("radio", { name: appI18n.t("task.neitherOption") });
+    await user.click(neither);
+    expect(commentary).toHaveFocus();
+    await user.click(neither);
+    expect(view.answer).not.toHaveBeenCalled();
+    await user.type(commentary, " answer");
+    if (method === "enter") await user.keyboard("{Enter}");
+    else await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    await waitFor(() => {
+      expect(view.answer).toHaveBeenCalledOnce();
+    });
+    expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+      {
+        kind: "question",
+        toolCallID: prompt.toolCallID,
+        selectedOptionNumber: null,
+        freeform: "unfinished answer",
+      },
+    ]);
+    await act(async () => {
+      view.response.resolve({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
+    });
+    expect(await screen.findByRole("textbox")).toHaveValue("unsent message draft");
+    view.unmount();
+  },
+);
+
+it("protects typed commentary even for the preselected recommendation and resets protection after more typing", async () => {
+  const view = sessionWithPrompts();
+  const prompt = question("recommended-test", { recommendedOptionIndex: 1 });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    });
+  });
+  const user = userEvent.setup();
+  const field = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.type(field, "still writing");
+  await user.click(option);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.type(field, " commentary");
+  await user.click(option);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.click(option);
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledOnce();
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
+    { selectedOptionNumber: 1, freeform: "still writing commentary" },
+  ]);
+  view.unmount();
+});
+
 it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
   const failure = new RpcError({ code: -32603, method: "answer_batch", message: crypto.randomUUID() });
   const view = sessionWithPrompts();
@@ -364,6 +592,8 @@ it("preserves failed answer diagnostics separately while retaining answers for e
     "retained answer",
   );
   await user.click(screen.getByRole("radio", { name: "one" }));
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("radio", { name: "one" }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -381,7 +611,7 @@ it("preserves failed answer diagnostics separately while retaining answers for e
   expect(screen.getByDisplayValue("retained answer")).toBeInTheDocument();
   expect(view.answer).toHaveBeenCalledOnce();
   view.answer.mockResolvedValue({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(2);
   });
@@ -404,6 +634,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   const user = userEvent.setup();
   await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
   await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.click(screen.getByRole("radio", { name: "one" }));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
   await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
   view.settings.mockRejectedValueOnce(new Error("offline"));
@@ -414,6 +645,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByDisplayValue("last draft")).toBeInTheDocument();
   expect(view.answer).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("radio", { name: "two" }));
   await user.click(screen.getByRole("radio", { name: "two" }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
@@ -449,6 +681,7 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
     "approval commentary",
   );
   const option = approvalDecisionLabel("allow_once", appI18n.t);
+  await user.click(screen.getByRole("radio", { name: option }));
   await user.click(screen.getByRole("radio", { name: option }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();

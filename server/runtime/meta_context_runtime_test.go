@@ -27,7 +27,7 @@ func TestFreshHeadlessRequestMatchesPostCompactionMetaOrder(t *testing.T) {
 		t,
 		store,
 		&fakeClient{},
-		Config{Model: "gpt-5", HeadlessMode: true, GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", HeadlessMode: true, GlobalConfigDir: globalConfigDir},
 	)
 	assertFreshRequestMatchesCompactionProjection(t, engine, []llm.MessageType{
 		llm.MessageTypeHeadlessMode,
@@ -50,7 +50,7 @@ func TestFreshWorkflowRequestMatchesPostCompactionMetaOrder(t *testing.T) {
 			Controller:     &externallyCompletedWorkflowController{},
 			Instructions:   workflowruntime.TaskInstructions{CurrentNode: currentNode},
 		},
-		Config{Model: "gpt-5", GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", GlobalConfigDir: globalConfigDir},
 	)
 	assertFreshRequestMatchesCompactionProjection(t, engine, []llm.MessageType{
 		llm.MessageTypeSkills,
@@ -73,7 +73,7 @@ func TestFreshHeadlessWorkflowRequestMatchesPostCompactionMetaOrder(t *testing.T
 			Controller:     &externallyCompletedWorkflowController{},
 			Instructions:   workflowruntime.TaskInstructions{CurrentNode: currentNode},
 		},
-		Config{Model: "gpt-5", HeadlessMode: true, GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", HeadlessMode: true, GlobalConfigDir: globalConfigDir},
 	)
 	assertFreshRequestMatchesCompactionProjection(t, engine, []llm.MessageType{
 		llm.MessageTypeSkills,
@@ -118,7 +118,7 @@ func TestFreshWorkflowMetaContextRetriesCommittedObserverFailureWithoutDuplicate
 			Controller:     &externallyCompletedWorkflowController{},
 			Instructions:   workflowruntime.TaskInstructions{CurrentNode: currentNode},
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	gate.FailNext(observerErr)
 

@@ -143,8 +143,8 @@ func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
 		defaultValue = root.defaultDocValue(configRegistry.defaultState())
 		break
 	}
-	if defaultValue != 247380 {
-		t.Fatalf("default registry pre-compaction threshold = %#v, want 247380", defaultValue)
+	if defaultValue != 180880 {
+		t.Fatalf("default registry pre-compaction threshold = %#v, want 180880", defaultValue)
 	}
 	if _, ok := values["workflow.max_final_answer_violations"]; ok {
 		t.Fatal("default registry should not contain removed final-answer cap")

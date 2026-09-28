@@ -107,9 +107,10 @@ function ChatDestinationShell({
         selectedSession={destination.target}
         sessionName={sessionName}
         state={state}
-        content={() =>
+        content={(_, bottomInset) =>
           target === null ? null : (
             <ChatTranscriptContent
+              bottomInset={bottomInset}
               openingVisible={openingVisible}
               edit={{
                 onEdit: (item) => {

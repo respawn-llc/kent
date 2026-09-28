@@ -129,7 +129,7 @@ func runSecondClientLiveControlsActiveRun(
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	resolved.Config.Settings.Model = "gpt-5"
+	resolved.Config.Settings.Model = "gpt-6-sol"
 	resolved.Config.Settings = testsetup.WriteProviderSettings(t, resolved.Config.PersistenceRoot, testsetup.WithResponsesProvider(resolved.Config.Settings, server.URL))
 	binding, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
 	if err != nil {
@@ -147,7 +147,7 @@ func runSecondClientLiveControlsActiveRun(
 
 	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, background, Options{
 		WorkspaceConfigLoadOptions: config.LoadOptions{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	})
 	if err != nil {

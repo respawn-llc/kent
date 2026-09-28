@@ -8,8 +8,8 @@ import { taskDetailAttentionRowKey } from "./TaskDetailAttentionRowKey";
 import { emptyQuestionSelection, type QuestionSelectionState } from "./TaskDetailQuestionState";
 import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from "./PromptAnswerState";
 import { PromptPrimaryControlRegistry, type PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
-import type { useTaskMutations } from "./useTaskDetailData";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 
 export function TaskInbox({
   answerQuestion,
@@ -22,12 +22,12 @@ export function TaskInbox({
   promptAnswerState,
   onQuestionSelectionChange,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
   currentVersion: number;
   detail: TaskDetail;
   initialFocus?: TaskDetailInitialFocus | undefined;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
   promptAnswerState: PromptAnswerState;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
@@ -127,11 +127,11 @@ function InboxItem({
   promptAnswerState,
   task,
 }: Readonly<{
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   attention: AttentionItem;
   currentVersion: number;
   focusOnMount: boolean;
-  mutations: ReturnType<typeof useTaskMutations>;
+  mutations: TaskDetailLifecycle;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
   primaryControls: PromptPrimaryControlRegistry;
   promptAnswerState: PromptAnswerState;

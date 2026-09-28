@@ -107,13 +107,13 @@ func TestConfigTargetAgentCatalogUsesEffectiveQuestionsForFallbackButSelectionFo
 
 func TestConfigTargetAgentCatalogResolvesFiniteAndOpenThinkingContracts(t *testing.T) {
 	settings := config.Settings{
-		Model:         "gpt-5.6-luna",
+		Model:         "gpt-6-luna",
 		ThinkingLevel: "medium",
 		Subagents: map[string]config.SubagentRole{
 			"finite": {
 				AgentCallable: true,
 
-				Settings: config.Settings{Model: "gpt-5.6-luna", ThinkingLevel: "high"},
+				Settings: config.Settings{Model: "gpt-6-luna", ThinkingLevel: "high"},
 				Sources: map[string]config.Origin{"model": {
 					Kind:     config.SourceInput,
 					Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {

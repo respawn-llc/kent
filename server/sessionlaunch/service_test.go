@@ -107,7 +107,7 @@ func TestPlanLaunchSessionReturnsPlanWithoutRegisteringStore(t *testing.T) {
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: persistenceRoot,
-		Settings:        testsetup.WithResponsesProvider(config.Settings{Model: "gpt-5"}, "http://config.local/v1"),
+		Settings:        testsetup.WithResponsesProvider(config.Settings{Model: "gpt-6-sol"}, "http://config.local/v1"),
 	}, containerDir)
 
 	resp, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -131,7 +131,7 @@ func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *t
 	persistenceRoot := t.TempDir()
 	containerDir := t.TempDir()
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.Reviewer.Frequency = "edits"
 	cfg.Settings.ThinkingLevel = "medium"
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}
@@ -201,7 +201,7 @@ func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *t
 func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	persistence := sessiontest.NewPersistence()
 	gate := sessiontest.NewPersistenceGate(persistence)
 	persistenceErr := errors.New("ordinary creation persistence failed")
@@ -242,7 +242,7 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	metadataStore, err := metadata.Open(persistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -300,7 +300,7 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 	containerDir := t.TempDir()
 	stale := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	workerSettings := stale.Settings
-	workerSettings.Model = "gpt-5.6-sol"
+	workerSettings.Model = "gpt-6-sol"
 	workerSettings.ThinkingLevel = "high"
 	stale.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
@@ -310,7 +310,7 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 	}
 	current := stale
 	current.Settings.Subagents = nil
-	current.Settings.Model = "gpt-5.4"
+	current.Settings.Model = "gpt-6-luna"
 	current.Settings.Reviewer.Frequency = "off"
 	current.Settings.ThinkingLevel = "low"
 	current.Settings.PriorityRequestMode = false
@@ -403,7 +403,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	workspace := t.TempDir()
 	snapshot := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	roleSettings := snapshot.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.Model = "gpt-6-luna"
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings:      roleSettings,
@@ -439,7 +439,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		Overrides: serverapi.RunPromptOverrides{
 			AgentRole: &role,
-			Model:     "gpt-5.4",
+			Model:     "gpt-6-sol",
 		},
 	})
 	if err != nil {
@@ -448,7 +448,7 @@ func TestPlanLaunchSessionUsesOneConfigSnapshotForNamedRole(t *testing.T) {
 	if reloads != 1 {
 		t.Fatalf("ReloadConfig called %d times, want exactly once", reloads)
 	}
-	if response.Plan.ActiveSettings.Model != "gpt-5.4" {
+	if response.Plan.ActiveSettings.Model != "gpt-6-sol" {
 		t.Fatalf("model = %q, want request override from the captured snapshot", response.Plan.ActiveSettings.Model)
 	}
 }
@@ -458,7 +458,7 @@ func TestPlanLaunchSessionRejectsInvalidPreparedNamedTargetBeforeCreatingSession
 	workspace := t.TempDir()
 	snapshot := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
 	roleSettings := snapshot.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.Model = "gpt-6-luna"
 	roleSettings.ModelContextWindow = 100
 	roleSettings.ContextCompactionThresholdTokens = 101
 	snapshot.Settings.Subagents = map[string]config.SubagentRole{
@@ -498,7 +498,7 @@ func TestPlanLaunchSessionRejectsUnknownParentBeforeRegisteringStore(t *testing.
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   t.TempDir(),
 		PersistenceRoot: t.TempDir(),
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, t.TempDir())
 	unknownParent := mustSessionLaunchIntentID(t, "unknown-parent")
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -749,7 +749,7 @@ func TestPlanLaunchSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) 
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: t.TempDir(),
-		Settings:        config.Settings{Model: "gpt-5.6-sol"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, containerDir)
 
 	if _, err := service.PlanLaunchSession(context.Background(), PlanRequest{
@@ -772,8 +772,8 @@ func TestPlanLaunchSessionCanProjectDefaultRoleBeforeValidation(t *testing.T) {
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
@@ -1000,8 +1000,8 @@ func TestPlanLaunchSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValid
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,
@@ -1013,7 +1013,7 @@ func TestPlanLaunchSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValid
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:      launch.ModeInteractive,
 		Intent:    serverapi.OpenExistingSessionLaunchIntent(mustSessionLaunchIntentID(t, store.Meta().SessionID)),
-		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5.6-sol"},
+		Overrides: serverapi.RunPromptOverrides{Model: "gpt-6-sol"},
 	})
 	if err == nil {
 		t.Fatal("expected invalid persisted role validation to fail")
@@ -1103,8 +1103,8 @@ func TestPlanLaunchSessionInvalidRoleOverridePrecedesPersistedRoleValidation(t *
 	}
 	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
 	roleSettings := cfg.Settings
-	roleSettings.Model = "gpt-5.3-codex-spark"
-	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Model = "gpt-6-luna"
+	roleSettings.ContextCompactionThresholdTokens = 300_000
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
 			Settings: roleSettings,

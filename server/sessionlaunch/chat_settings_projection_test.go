@@ -131,7 +131,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 			AutoCompaction: true,
 		},
 		Locked: &session.LockedContract{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []string{},
 			ProviderContract: session.LockedProviderCapabilities{
 				ProviderID: "anthropic",
@@ -142,7 +142,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		t.Fatalf("project caching lock: %v", err)
 	}
 	if locked.SelectedAgent.Role != "historical" ||
-		locked.SelectedAgent.Model != "gpt-5" ||
+		locked.SelectedAgent.Model != "gpt-6-sol" ||
 		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
 		!locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
@@ -184,7 +184,7 @@ func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 
 func testChatSettingsApp(t *testing.T) config.App {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = "medium"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolAskQuestion: true,
@@ -192,7 +192,7 @@ func testChatSettingsApp(t *testing.T) config.App {
 	}
 	settings.Subagents = map[string]config.SubagentRole{
 		config.BuiltInSubagentRoleFast: {
-			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "low"},
+			Settings: config.Settings{Model: "gpt-6-sol", ThinkingLevel: "low"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"no-questions": {

@@ -20,7 +20,7 @@ func TestDefaultHeadlessAgentSettingsAndInteractiveIsolation(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
 		Settings: config.Settings{
-			Model: "gpt-5-mini", ThinkingLevel: "low",
+			Model: "gpt-6-luna", ThinkingLevel: "low",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: false},
 		},
 		Sources: map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "tools.shell": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "tools.shell"}}},
@@ -41,7 +41,7 @@ func TestDefaultHeadlessAgentSettingsAndInteractiveIsolation(t *testing.T) {
 			}
 			wantModel := cfg.Settings.Model
 			if mode == launch.ModeHeadless {
-				wantModel = "gpt-5-mini"
+				wantModel = "gpt-6-luna"
 			}
 			if result.Plan.ActiveSettings.Model != wantModel {
 				t.Fatalf("mode=%s explicit=%t model=%s, want %s", mode, explicit, result.Plan.ActiveSettings.Model, wantModel)
@@ -72,7 +72,7 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.ThinkingLevel = "high"
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-		Settings: config.Settings{Model: "gpt-5-mini", ThinkingLevel: "low"},
+		Settings: config.Settings{Model: "gpt-6-luna", ThinkingLevel: "low"},
 		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 
 		AgentCallable: false,
@@ -92,7 +92,7 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 		t.Fatalf("headless thinking=%s, want low", prepared.Effective.Thinking)
 	}
 	entry, ok := prepared.Catalog.Lookup(config.DefaultSubagentRole)
-	if !ok || entry.Choice.GetModel() != "gpt-5-mini" || entry.Choice.AgentCallable {
+	if !ok || entry.Choice.GetModel() != "gpt-6-luna" || entry.Choice.AgentCallable {
 		t.Fatalf("headless default choice=%+v, exists=%t", entry.Choice, ok)
 	}
 	mutation, err := ProjectPreparedChatSettingsOperation(prepared, &chatsettingspb.MutationOperation{
@@ -115,7 +115,7 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 func TestExplicitDefaultSelectionPersistsLaunchMode(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-		Settings: config.Settings{Model: "gpt-5-mini"},
+		Settings: config.Settings{Model: "gpt-6-luna"},
 		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())

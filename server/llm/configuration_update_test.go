@@ -27,8 +27,8 @@ func TestNativeThinkingSupport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, model := range []string{"gpt-6-astra", "gpt-5", "unknown"} {
-				want := !custom && model == "gpt-6-astra"
+			for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "unknown"} {
+				want := !custom && (model == "gpt-6-astra" || model == "gpt-6-sol" || model == "gpt-6-luna")
 				if got := SupportsNativeThinkingUpdates(model, caps); got != want {
 					t.Fatalf("oauth=%v custom=%v model=%s: support=%v, want %v", oauth, custom, model, got, want)
 				}

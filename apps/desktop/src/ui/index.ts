@@ -16,6 +16,8 @@ export type {
   InteractiveChipTone,
 } from "./InteractiveChip";
 export { AnimatedChipSummary } from "./AnimatedChipSummary";
+export { AnimatedReveal } from "./AnimatedReveal";
+export { AnimatedSize } from "./AnimatedSize";
 export { ProgressChip, ProgressInteractiveChip } from "./ProgressChip";
 export type { ProgressChipProps, ProgressInteractiveChipProps } from "./ProgressChip";
 export { ActionableListRow } from "./ActionableListRow";
@@ -62,13 +64,6 @@ export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTa
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
-export {
-  HomeListCard,
-  homeListCardButtonClassName,
-  homeListCardListMaxWidthClassName,
-  homeListCardMaxWidthClassName,
-  homeListCardShellClassName,
-} from "./HomeListCard";
 export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
 export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";

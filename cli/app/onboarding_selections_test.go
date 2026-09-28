@@ -14,7 +14,7 @@ import (
 func TestNewOnboardingFlowStatePreservesTypedSeedIntent(t *testing.T) {
 	cfg := onboardingSeedConfig()
 	cfg.Settings.Theme = theme.Auto
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.ThinkingLevel = config.DefaultOnboardingSettings().ThinkingLevel
 	cfg.Settings.ModelVerbosity = config.ModelVerbosityHigh
 	cfg.Settings.Timeouts.ModelRequestSeconds = 123
@@ -284,7 +284,7 @@ func TestOnboardingSelectionInvariantFailureCannotSubmitFinalizationInRelease(t 
 
 func onboardingSeedConfig() config.App {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5.6-sol"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 272_000
 	settings.ContextCompactionThresholdTokens = 272_000 * 95 / 100
 	settings.Reviewer.Model = settings.Model

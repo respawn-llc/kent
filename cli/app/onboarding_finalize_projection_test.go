@@ -218,7 +218,7 @@ func TestOnboardingTerminalActivationFailureKeepsCommittedOutcomeContext(t *test
 }
 
 func TestOnboardingCustomProjectionPreservesTypedChoices(t *testing.T) {
-	modelID := "gpt-5"
+	modelID := "gpt-6-sol"
 	contextWindow := uint32(272_000)
 	facts := emptyOnboardingCapabilityFacts()
 	facts.Models.KnownModels = []*capabilitypb.ModelFact{{

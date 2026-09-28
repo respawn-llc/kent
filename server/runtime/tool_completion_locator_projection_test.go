@@ -16,7 +16,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	restoreStep := setTestActiveStep(engine, "step-1")
@@ -94,7 +94,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
 	}
-	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	assertToolFactsFollowLocatorOrder(t, reopenedFacts, "reopened page")
 	assertToolFactsFollowLocatorOrder(t, hydrationSnapshot(t, reopened).CommittedRows, "reopened hydration")

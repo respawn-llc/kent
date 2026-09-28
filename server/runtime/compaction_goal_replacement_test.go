@@ -20,7 +20,7 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 		remoteCompactionReplacement(1_000, 100, 200_000),
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	inputStepID := runtimeTestStepID("inactive-goal-compaction-input")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: inputStepID,
@@ -67,7 +67,7 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 				CompletionMode: workflowruntime.CompletionModeTool,
 				Controller:     &externallyCompletedWorkflowController{},
 			},
-			Config{Model: "gpt-5"},
+			Config{Model: "gpt-6-sol"},
 		)
 		workflowInputStepID := runtimeTestStepID("inactive-workflow-goal-compaction-input")
 		workflowEngine.stepLifecycle = &stubExclusiveStepLifecycle{

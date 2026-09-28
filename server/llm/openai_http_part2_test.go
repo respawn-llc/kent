@@ -20,7 +20,7 @@ import (
 func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
@@ -54,7 +54,7 @@ func TestBuildPayload_ForwardsPreparedStructuredOutputSchemaUnchanged(t *testing
 	transport := NewHTTPTransport(staticAuth{})
 	prepared := mustTestStructuredSchema(t, testWorkflowStructuredOutput{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "workflow_completion",
 			Schema: prepared,
@@ -100,7 +100,7 @@ func mustDecodeSchemaObject(t *testing.T, raw []byte) map[string]any {
 func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.ModelVerbosity = "high"
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 	transport := NewHTTPTransport(staticAuth{})
 	transport.ModelVerbosity = "low"
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
@@ -145,7 +145,7 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		ReasoningEffort: "xhigh",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -194,7 +194,7 @@ func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
 func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:    "gpt-5.3-codex",
+		Model:    "gpt-6-sol",
 		FastMode: true,
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -244,7 +244,7 @@ func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	prepared := mustTestFunctionSchema(t, testNestedFunctionInput{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Tools: []Tool{
 			{
 				Name:   "ask_question",
@@ -431,7 +431,7 @@ func TestAPIKeyCompactRequestTargetsStreamingResponsesV2(t *testing.T) {
 	transport.Client = newRewritingHTTPClient(t, server)
 
 	resp, err := transport.Compact(context.Background(), OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items: PrepareOpenAIInputItems([]ResponseItem{
@@ -815,11 +815,11 @@ func TestOpenAIRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testin
 		}
 	}
 
-	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
+	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
 	_, err = transport.requestPayloadBuilder(caps).BuildCompactV2(OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		Items:          unpreparedItems,
 	}, OpenAIAuthMode{})
@@ -837,7 +837,7 @@ func unmaterializedViewImageInputFileOutput() ResponseItem {
 
 func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -847,7 +847,7 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -861,7 +861,7 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	transport.Client = server.Client()
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}
@@ -872,13 +872,13 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 
 func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -892,7 +892,7 @@ func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) 
 	transport.Client = server.Client()
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}

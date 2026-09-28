@@ -1,4 +1,4 @@
-import { MutationObserver, useQueryClient } from "@tanstack/react-query";
+import { MutationObserver, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import type { CreatedTaskSummary, TaskEditInput, TaskMutationInput } from "@/api";
@@ -8,6 +8,7 @@ import {
   queryKeys,
   useAppServices,
   useQueryAction,
+  type AppServices,
 } from "@/app-facade";
 
 export type CreateTaskSubmission = Readonly<{
@@ -16,7 +17,12 @@ export type CreateTaskSubmission = Readonly<{
   onError(error: unknown): void;
 }>;
 
-export type UpdateTaskSubmission = Readonly<{ input: TaskEditInput; onSuccess(): void }>;
+export type UpdateTaskSubmission = Readonly<{
+  input: TaskEditInput;
+  projectID: string;
+  onSuccess(): void;
+  onError(error: unknown): void;
+}>;
 
 export function useCreateTask(
   projectID: string,
@@ -61,24 +67,20 @@ export function useCreateTask(
   return useQueryAction(model);
 }
 
-export function useUpdateTask(taskID: string, projectID: string) {
-  const { api } = useAppServices();
-  const queryClient = useQueryClient();
-  const model = useMemo(
-    () =>
-      queryAction(
-        new MutationObserver(queryClient, {
-          mutationFn: async ({ input }: UpdateTaskSubmission) => api.updateTask(input),
-          onSuccess: async (_result, submission) => {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID) });
-            await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
-            await queryClient.invalidateQueries({ queryKey: queryKeys.allAttention });
-            await invalidateProjectTaskSearches(queryClient, projectID);
-            submission.onSuccess();
-          },
-        }),
-      ),
-    [api, queryClient, taskID, projectID],
+export function createUpdateTaskAction(api: AppServices["api"], queryClient: QueryClient) {
+  return queryAction(
+    new MutationObserver(queryClient, {
+      mutationFn: async ({ input }: UpdateTaskSubmission) => api.updateTask(input),
+      onError: (error, submission) => {
+        submission.onError(error);
+      },
+      onSuccess: async (_result, submission) => {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.task(submission.input.taskID) });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.allAttention });
+        await invalidateProjectTaskSearches(queryClient, submission.projectID);
+        submission.onSuccess();
+      },
+    }),
   );
-  return useQueryAction(model);
 }

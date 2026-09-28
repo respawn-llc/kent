@@ -31,6 +31,31 @@ function setupOwner() {
   return { fixture, client, owner };
 }
 
+it("opens a question arriving through the live transcript without navigation", async () => {
+  const { owner, client, fixture } = setupOwner();
+  const view = mountPicker({
+    owner,
+    client,
+    onError: vi.fn(),
+    api: { answerPromptBatch: vi.fn() },
+  });
+  act(() => {
+    fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+  });
+  expect(view.result.current.state.current).toBeNull();
+  const prompt = question();
+  act(() => {
+    fixture.handlers[0]?.onEvent({
+      sequence: 2,
+      kind: "prompt",
+      payload: { state: "pending", prompt },
+    });
+  });
+  expect(view.result.current.state.current).toBe(prompt.toolCallID);
+  view.unmount();
+  await owner.dispose();
+});
+
 it("retains drafts on observation loss and discards them on departure without replaying an answer", async () => {
   const { owner, client, fixture } = setupOwner();
   const prompt = question();
@@ -49,6 +74,7 @@ it("retains drafts on observation loss and discards them on departure without re
     view.result.current.dispatch({
       action: { kind: "activate", selection: { kind: "suggested", number: 1 } },
     });
+    view.result.current.dispatch({ action: { kind: "confirm" } });
   });
   expect(send).toHaveBeenCalledOnce();
   act(() => {

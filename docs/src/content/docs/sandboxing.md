@@ -1,25 +1,23 @@
 ---
-title: Sandboxing and Security
+title: Sandboxing and security
 description: Kent's default trust model, outside-workspace edit prompts, and remote/container server setup.
 ---
 
 :::warning
-Kent is YOLO by default: it does not run tools inside a built-in sandbox.
-The agent executes shell commands and file tools in the environment where the Kent server runs.
-If that environment can read secrets, reach networks, or modify files, the agent can do the same.
+Kent is YOLO by default: tools run directly in the environment where the Kent server runs rather than inside a built-in sandbox. The agent executes shell commands and file tools in that environment. If that environment can read secrets, reach networks, or modify files, the agent can do the same.
 :::
 
 However, Kent's [client-server](../server/) architecture makes it easy to run Kent in a **completely isolated, secure container or VM**.
 
-## Outside-Workspace Edits
+## Outside-workspace edits
 
-Kent will ask for your approval for manual edits happening outside its **main workspace** or worktree. **This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched working-directory prevention. To allow all edits, set config:
+Kent will ask for your approval for manual edits happening outside its **main workspace** or worktree. **This approval is a convenience guard, not a security boundary, because the agent can bypass it.** It helps prevent hallucinated paths and mismatched working directories. To allow all edits, set config:
 
 ```toml
 allow_non_cwd_edits = true
 ```
 
-## Container Image Shape
+## Container image shape
 
 A Kent sandbox image should contain:
 
@@ -29,15 +27,13 @@ A Kent sandbox image should contain:
 - Optional tools the agent may need: language toolchains, package managers, `rg`, `fd`, `jq`, `patch`, `curl`, `gh`, `wget`, `python` and project-specific CLIs.
 - An (ideally persistent) workspace directory such as `/workspace`.
 - A writable Kent persistence root, usually under the sandbox user's home.
-- Network policy that matches the task; disable or restrict egress when needed.
+- Network access limited to what the task requires.
 
-Avoid mounting your host home directory, full ~/.kent/, or broad source trees into the sandbox.
-Mount only the workspace, caches, and credentials the task needs.
+Avoid mounting your host home directory, full ~/.kent/, or broad source trees into the sandbox. Mount only the workspace, caches, and credentials the task needs.
 
 ## Example Dockerfile
 
-This is a generic starting point.
-Add the language runtimes and project tools your workflows need.
+This is a generic starting point. Add the language runtimes and project tools your workflows need.
 
 ```dockerfile
 FROM debian:bookworm-slim
@@ -45,7 +41,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/home/kent
 ENV SHELL=/bin/bash
-ENV KENT_VERSION=
+ARG KENT_VERSION=
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -87,9 +83,7 @@ ENTRYPOINT ["tini", "--"]
 CMD ["kent", "serve"]
 ```
 
-The image installs the latest release by default.
-Build with `docker build --build-arg KENT_VERSION=vX.Y.Z -t kent-sandbox .` if you need to pin one Kent release.
-Package-manager cache cleanup is useful for smaller images but omitted here for clarity.
+The image installs the latest release by default. Build with `docker build --build-arg KENT_VERSION=vX.Y.Z -t kent-sandbox .` if you need to pin one Kent release. Package-manager cache cleanup is useful for smaller images but omitted here for clarity.
 
 Run the server so it listens inside the container and is reachable from the host:
 

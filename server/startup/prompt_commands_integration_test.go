@@ -98,7 +98,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspaceConfigDir, "config.toml"), []byte(
-		"model = \"gpt-5\"\n",
+		"model = \"gpt-6-sol\"\n",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		LoadOptions: config.LoadOptions{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	})
 	connection, err := server.Config().Settings.SelectedConnection()

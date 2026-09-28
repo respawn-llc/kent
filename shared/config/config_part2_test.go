@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadCapabilityOverridesFromFile(t *testing.T) {
-	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 
 [model_capabilities]
 supports_reasoning_effort = true
@@ -62,7 +62,7 @@ func TestLoadCapabilityOverridesFromEnv(t *testing.T) {
 }
 
 func TestLoadReviewerCapabilityOverridesFromFileAndEnv(t *testing.T) {
-	_, workspace, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, workspace, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 model_verbosity = "high"
 model_context_window = 372000
 
@@ -109,7 +109,7 @@ supports_vision_inputs = true
 }
 
 func TestLoadReviewerCapabilitiesInheritMainWhenUnset(t *testing.T) {
-	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 model_verbosity = "high"
 model_context_window = 128000
 context_compaction_threshold_tokens = 121600

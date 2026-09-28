@@ -223,8 +223,16 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT:
 		return nil
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
-		meta, ok := llm.LookupModelMetadata(model)
-		if !ok || meta.LargeContextWindowTokens <= 0 {
+		contract, ok := llm.LookupModelCapabilityContract(model)
+		if !ok {
+			return invalidRequest("context_window.kind", "unsupported_for_model")
+		}
+		provider, err := llm.ResolveRuntimeProviderCapabilities(*settings)
+		if err != nil {
+			return err
+		}
+		meta := contract.ContextMetadata(provider)
+		if meta.LargeContextWindowTokens <= 0 {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
 		settings.ModelContextWindow = meta.LargeContextWindowTokens
@@ -254,7 +262,7 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, field strin
 	case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
 		return config.DefaultOnboardingSettings().ThinkingLevel, nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
-		return "", nil
+		return llm.ProviderThinkingEffort(model, ""), nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
 		level := strings.TrimSpace(choice.GetLevel())
 		if !contains(llm.SupportedThinkingLevelsModel(model), level) {

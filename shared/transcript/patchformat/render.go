@@ -1,8 +1,12 @@
 package patchformat
 
 import (
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"core/shared/pathutil"
 )
 
 func Render(src, cwd string) Presentation {
@@ -410,7 +414,6 @@ func resolvePath(path, cwd string) Path {
 	if p == "" {
 		return Path{}
 	}
-	requestedRelative := normalizeRequestedRelativePath(p)
 	var absolute string
 	if filepath.IsAbs(p) {
 		absolute = filepath.Clean(p)
@@ -429,34 +432,10 @@ func resolvePath(path, cwd string) Path {
 			Relative: "./" + filepath.ToSlash(strings.TrimPrefix(p, "./")),
 		}
 	}
-	relative, err := filepath.Rel(cwd, filepath.FromSlash(absolute))
+	home, err := os.UserHomeDir()
 	if err != nil {
+		slog.Error("resolve home for patch display path", "error", err)
 		return Path{Absolute: absolute, Relative: absolute}
 	}
-	relative = filepath.ToSlash(relative)
-	if relative == "." {
-		return Path{Absolute: absolute, Relative: "./"}
-	}
-	if !strings.HasPrefix(relative, "../") && relative != ".." {
-		return Path{Absolute: absolute, Relative: "./" + relative}
-	}
-	if requestedRelative != "" {
-		return Path{Absolute: absolute, Relative: requestedRelative}
-	}
-	return Path{Absolute: absolute, Relative: absolute}
-}
-
-func normalizeRequestedRelativePath(path string) string {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" || filepath.IsAbs(trimmed) {
-		return ""
-	}
-	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
-	if cleaned == "." {
-		return "./"
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return cleaned
-	}
-	return "./" + strings.TrimPrefix(cleaned, "./")
+	return Path{Absolute: absolute, Relative: pathutil.Compact(absolute, cwd, home)}
 }

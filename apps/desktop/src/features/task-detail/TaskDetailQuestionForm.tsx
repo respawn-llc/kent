@@ -9,7 +9,7 @@ import {
   type QuestionSelectionState,
 } from "./TaskDetailQuestionState";
 import { QuestionFormView } from "./TaskDetailQuestionFormView";
-import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
+import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import type { PromptPrimaryControl } from "./PromptPrimaryControlRegistry";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 
@@ -21,7 +21,7 @@ export function QuestionBox({
   registerPrimaryControl,
 }: Readonly<{
   attention: QuestionAttentionItem;
-  answerQuestion: QuestionAnswerMutation;
+  answerQuestion: QuestionAnswerAction;
   selectionState: QuestionSelectionState;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   registerPrimaryControl?: ((control: PromptPrimaryControl) => () => void) | undefined;

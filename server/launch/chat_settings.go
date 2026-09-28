@@ -292,7 +292,7 @@ func prepareChatSettingsTargetForAgent(
 
 func PrepareChatSettingsForPreparedTarget(target PreparedBaseTarget, fastAvailable bool) (PreparedChatSettings, error) {
 	supervisor, valid := runtime.NormalizeReviewerFrequency(target.Settings.Reviewer.Frequency)
-	thinking := strings.TrimSpace(target.Settings.ThinkingLevel)
+	thinking := llm.ProviderThinkingEffort(target.Settings.Model, strings.TrimSpace(target.Settings.ThinkingLevel))
 	if !valid || thinking == "" {
 		return PreparedChatSettings{}, errors.New("prepared Chat settings are invalid")
 	}
@@ -335,7 +335,7 @@ func ResolveSessionChatSettings(meta session.Meta, current config.Settings) (ses
 	if supervisor := strings.TrimSpace(current.Reviewer.Frequency); supervisor != "" {
 		currentOverrides.Supervisor = &supervisor
 	}
-	if thinking := strings.TrimSpace(current.ThinkingLevel); thinking != "" {
+	if thinking := llm.ProviderThinkingEffort(current.Model, strings.TrimSpace(current.ThinkingLevel)); thinking != "" {
 		currentOverrides.Thinking = &thinking
 	}
 	return session.ResolveEffectiveChatSettings(

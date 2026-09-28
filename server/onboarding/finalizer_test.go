@@ -3,16 +3,23 @@ package onboarding_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
+	"core/internal/testharness/httpclient"
 	"core/server/auth"
 	"core/server/authservice"
+	"core/server/capabilityfacts"
 	"core/server/onboarding"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -26,7 +33,7 @@ func TestFinalizerDefaultEqualChoicesRenderLikeDefaults(t *testing.T) {
 	nullHome := t.TempDir()
 	defaultRoot := t.TempDir()
 	defaultHome := t.TempDir()
-	defaultModel := onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.6-sol")}
+	defaultModel := onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-sol")}
 	defaultTheme := onboardingpb.Theme_THEME_AUTO
 
 	if _, err := newTestFinalizer(t, nullRoot, nullHome).Finalize(context.Background(), &onboardingpb.FinalizeRequest{}); err != nil {
@@ -84,6 +91,90 @@ func TestFinalizerCustomModelUsesPendingProviderCapabilities(t *testing.T) {
 	app := loadFinalizedConfig(t, root)
 	if app.Settings.ModelVerbosity != config.ModelVerbosityHigh || app.Settings.CompactionMode != config.CompactionModeNative {
 		t.Fatal("custom model lost the selected provider's verbosity or native compaction")
+	}
+}
+
+func TestFinalizerPersistsContextWindowForPendingConnection(t *testing.T) {
+	for _, protocol := range []authpb.ConnectionProtocol{
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT,
+	} {
+		for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6-astra"} {
+			for _, large := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/large=%t", protocol, model, large), func(t *testing.T) {
+					root := t.TempDir()
+					var owner *authservice.BootstrapService
+					wantWindow := 272_000
+					if large {
+						wantWindow = 1_050_000
+					}
+					if protocol == authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT {
+						manager := auth.NewManager(auth.NewFileStore(config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})), nil)
+						owner = authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(root, manager, nil), auth.OpenAIOAuthOptions{
+							HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+								return &http.Response{
+									StatusCode: http.StatusOK,
+									Header:     http.Header{"Content-Type": {"application/json"}},
+									Body:       io.NopCloser(strings.NewReader(`{"access_token":"pending","refresh_token":"refresh","token_type":"Bearer","expires_in":3600}`)),
+								}, nil
+							})},
+						})
+						if _, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+							PendingSetup: &authpb.ConnectionDefinition{Id: "subscription", Protocol: protocol},
+						}}); err != nil {
+							t.Fatal(err)
+						}
+						if _, err := owner.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
+							Target: &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}},
+							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE, DeviceAuthorizationCode: ptr("grant"), DeviceCodeVerifier: ptr("verifier"),
+						}); err != nil {
+							t.Fatal(err)
+						}
+						if large {
+							wantWindow = 872_000
+						}
+					} else {
+						owner = newPendingConnection(t, root, "https://api.openai.com/v1")
+					}
+					finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: root, Connections: owner})
+					if err != nil {
+						t.Fatal(err)
+					}
+					request := &onboardingpb.FinalizeRequest{
+						Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+					}
+					if large {
+						request.ContextWindow = &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE}
+					}
+					facts, err := capabilityfacts.NewService(capabilityfacts.Options{
+						Config: config.App{PersistenceRoot: root, Settings: config.DefaultOnboardingSettings()}, Setup: owner,
+					}).GetFacts(t.Context(), &capabilitypb.GetFactsRequest{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					matched := false
+					for _, fact := range facts.Models.KnownModels {
+						if fact.GetModelId() != model {
+							continue
+						}
+						matched = true
+						if large && fact.GetLargeWindow().GetTokens() != uint32(wantWindow) || !large && fact.GetContextWindowTokens() != uint32(wantWindow) {
+							t.Fatalf("pending setup context facts disagree with selected window: %+v", fact)
+						}
+					}
+					if !matched {
+						t.Fatalf("pending setup facts omit model %s", model)
+					}
+					if _, err := finalizer.Finalize(t.Context(), request); err != nil {
+						t.Fatal(err)
+					}
+					settings := loadFinalizedConfig(t, root).Settings
+					if settings.ModelContextWindow != wantWindow || settings.ContextCompactionThresholdTokens != wantWindow*95/100 {
+						t.Fatalf("persisted window/threshold = %d/%d, want %d/%d", settings.ModelContextWindow, settings.ContextCompactionThresholdTokens, wantWindow, wantWindow*95/100)
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -156,7 +247,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 	falseValue := false
 	modelTimeout := 123
 	requestModelTimeout := uint32(modelTimeout)
-	reviewerModel := "gpt-5.4"
+	reviewerModel := "gpt-6-sol"
 	reviewerThinking := "xhigh"
 	disabledSkill := "api result"
 	tests := []struct {
@@ -167,7 +258,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 		{
 			name: "known model large context level thinking true ask supervisor override native compaction",
 			req: &onboardingpb.FinalizeRequest{
-				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4-mini")},
+				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-luna")},
 				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE},
 				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")},
 				Verbosity:     ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
@@ -178,7 +269,7 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				},
 				Supervisor: &onboardingpb.SupervisorChoice{
 					Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL,
-					Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5.4")},
+					Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-sol")},
 					Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("xhigh")},
 				},
 				Compaction:          ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
@@ -186,9 +277,9 @@ func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndC
 				DisabledSkillNames:  []string{" API   Result "},
 			},
 			want: want{
-				model:            "gpt-5.4-mini",
-				window:           400_000,
-				threshold:        380_000,
+				model:            "gpt-6-luna",
+				window:           1_050_000,
+				threshold:        997_500,
 				thinking:         "high",
 				verbosity:        config.ModelVerbosityHigh,
 				enabledTools:     map[toolspec.ID]bool{toolspec.ToolAskQuestion: true, toolspec.ToolEdit: true, toolspec.ToolPatch: false},
@@ -283,20 +374,20 @@ func TestFinalizerAcceptsMinimumCustomContextWindow(t *testing.T) {
 	}
 }
 
-func TestFinalizerAcceptsKnownModelWithoutContextMetadata(t *testing.T) {
+func TestFinalizerDerivesContextBudgetForKnownModel(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
 	if _, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
-		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-5")},
+		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-sol")},
 	}); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
 	cfg := loadFinalizedConfig(t, root)
-	if cfg.Settings.Model != "gpt-5" {
-		t.Fatalf("model = %q, want gpt-5", cfg.Settings.Model)
+	if cfg.Settings.Model != "gpt-6-sol" {
+		t.Fatalf("model = %q, want gpt-6-sol", cfg.Settings.Model)
 	}
-	if cfg.Settings.ModelContextWindow <= 0 || cfg.Settings.ContextCompactionThresholdTokens <= 0 {
-		t.Fatalf("context budget should fall back to defaults: %+v", cfg.Settings)
+	if cfg.Settings.ModelContextWindow != 272_000 || cfg.Settings.ContextCompactionThresholdTokens != 258_400 {
+		t.Fatalf("context budget should derive from the selected model: %+v", cfg.Settings)
 	}
 }
 

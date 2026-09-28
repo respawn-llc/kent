@@ -29,7 +29,7 @@ func TestImportErrorFactsPreserveItemKind(t *testing.T) {
 }
 
 func TestServiceProjectsModelCatalogAndUnknownFallback(t *testing.T) {
-	service := NewService(Options{Config: testConfig(t, config.Settings{Model: "gpt-5.6-sol"})})
+	service := NewService(Options{Config: testConfig(t, config.Settings{Model: "gpt-6-sol"})})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
 	if err != nil {
@@ -43,12 +43,12 @@ func TestServiceProjectsModelCatalogAndUnknownFallback(t *testing.T) {
 	if gpt56 == nil || !gpt56.Known || gpt56.LargeWindow != nil {
 		t.Fatalf("gpt-5.6-sol fact = %+v, want known without a redundant large-window choice", gpt56)
 	}
-	gpt54 := knownModelFact(resp.Models.KnownModels, "gpt-5.4")
-	if gpt54 == nil || gpt54.ContextWindowTokens == nil || gpt54.LargeWindow == nil || gpt54.LargeWindow.Tokens <= *gpt54.ContextWindowTokens {
-		t.Fatalf("gpt-5.4 fact = %+v, want a strictly larger optional window", gpt54)
+	sol := knownModelFact(resp.Models.KnownModels, "gpt-6-sol")
+	if sol == nil || sol.ContextWindowTokens == nil || sol.LargeWindow == nil || sol.LargeWindow.Tokens <= *sol.ContextWindowTokens {
+		t.Fatalf("gpt-6-sol fact = %+v, want a strictly larger optional window", sol)
 	}
-	if gpt54.DefaultContextWindowMode == nil || *gpt54.DefaultContextWindowMode != "standard" {
-		t.Fatalf("gpt-5.4 default context mode = %#v, want standard", gpt54.DefaultContextWindowMode)
+	if sol.DefaultContextWindowMode == nil || *sol.DefaultContextWindowMode != "standard" {
+		t.Fatalf("gpt-6-sol default context mode = %#v, want standard", sol.DefaultContextWindowMode)
 	}
 
 	fallback := resp.Models.UnknownFallback
@@ -59,9 +59,41 @@ func TestServiceProjectsModelCatalogAndUnknownFallback(t *testing.T) {
 	}
 }
 
+func TestServiceProjectsContextWindowsForSelectedConnection(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		connection config.ProviderConnection
+		large      uint32
+	}{
+		{name: "API", connection: config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: ptr("https://api.openai.com/v1")}, large: 1_050_000},
+		{name: "subscription", connection: config.ProviderConnection{Protocol: config.ConnectionChatGPT}, large: 872_000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := config.ConnectionID("selected")
+			service := NewService(Options{Config: testConfig(t, config.Settings{
+				Model: "gpt-6-sol", Connection: &id,
+				Connections: map[config.ConnectionID]config.ProviderConnection{id: tc.connection},
+			})})
+			facts, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6-astra"} {
+				fact := knownModelFact(facts.Models.KnownModels, model)
+				if fact == nil || fact.ContextWindowTokens == nil || fact.LargeWindow == nil {
+					t.Fatalf("%s missing context window choices: %+v", model, fact)
+				}
+				if *fact.ContextWindowTokens != 272_000 || fact.LargeWindow.Tokens != tc.large {
+					t.Errorf("%s context windows = %d/%d, want %d/%d", model, *fact.ContextWindowTokens, fact.LargeWindow.Tokens, 272_000, tc.large)
+				}
+			}
+		})
+	}
+}
+
 func TestServiceProjectsProviderFactsAndExplicitProviders(t *testing.T) {
 	settings := testsetup.WithResponsesProvider(config.Settings{
-		Model: "gpt-5.6-sol",
+		Model: "gpt-6-sol",
 	}, "https://api.compatible.example/v1")
 	service := NewService(Options{Config: testConfig(t, settings)})
 
@@ -130,7 +162,7 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 }
 
 func TestServiceRejectsUnsupportedExplicitProvider(t *testing.T) {
-	service := NewService(Options{Config: testConfig(t, config.Settings{Model: "gpt-5.6-sol"})})
+	service := NewService(Options{Config: testConfig(t, config.Settings{Model: "gpt-6-sol"})})
 
 	_, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{ExplicitLlmProviderIds: []string{"missing-provider"}})
 	if !errors.Is(err, serverapi.ErrUnsupportedProvider) {
@@ -180,7 +212,7 @@ func TestServiceProjectsImportDomainFacts(t *testing.T) {
 	configRoot := t.TempDir()
 	writeProviderSkill(t, home, ".claude", "skills", "helper", "Helper")
 	service := NewService(Options{
-		Config:  testConfigAt(configRoot, config.Settings{Model: "gpt-5.6-sol"}),
+		Config:  testConfigAt(configRoot, config.Settings{Model: "gpt-6-sol"}),
 		HomeDir: home,
 	})
 
@@ -221,7 +253,7 @@ func TestServiceProjectsImportDomainFacts(t *testing.T) {
 
 func TestServiceProjectsHomeResolutionFailureAsImportErrorFact(t *testing.T) {
 	t.Setenv("HOME", "")
-	service := NewService(Options{Config: testConfigAt(t.TempDir(), config.Settings{Model: "gpt-5.6-sol"})})
+	service := NewService(Options{Config: testConfigAt(t.TempDir(), config.Settings{Model: "gpt-6-sol"})})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
 	if err != nil {

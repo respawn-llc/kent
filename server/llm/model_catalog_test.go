@@ -16,12 +16,6 @@ func TestLookupModelKnowledgeCutoff(t *testing.T) {
 		{model: "gpt-5.6-sol", month: time.February, year: 2026},
 		{model: "gpt-5.6-terra", month: time.February, year: 2026},
 		{model: "gpt-5.6-luna", month: time.February, year: 2026},
-		{model: "gpt-5.4", month: time.August, year: 2025},
-		{model: "gpt-5.4-mini", month: time.August, year: 2025},
-		{model: "gpt-5.4-nano", month: time.August, year: 2025},
-		{model: "gpt-5.3-codex", month: time.August, year: 2025},
-		{model: "gpt-5.3-codex-spark", month: time.August, year: 2025},
-		{model: "gpt-5", month: time.September, year: 2024},
 	}
 
 	for _, test := range tests {
@@ -36,12 +30,12 @@ func TestLookupModelKnowledgeCutoff(t *testing.T) {
 }
 
 func TestLookupModelKnowledgeCutoffNormalizesModelAndOmitsUnknown(t *testing.T) {
-	cutoff, ok := LookupModelKnowledgeCutoff(" GPT-5.3-CODEX ")
+	cutoff, ok := LookupModelKnowledgeCutoff(" GPT-6-SOL ")
 	if !ok {
 		t.Fatal("expected normalized model knowledge cutoff")
 	}
-	if cutoff.Month != time.August || cutoff.Year != 2025 {
-		t.Fatalf("normalized knowledge cutoff = %+v, want month %d year %d", cutoff, time.August, 2025)
+	if cutoff.Month != time.April || cutoff.Year != 2026 {
+		t.Fatalf("normalized knowledge cutoff = %+v, want month %d year %d", cutoff, time.April, 2026)
 	}
 	if _, ok := LookupModelKnowledgeCutoff("custom-alias"); ok {
 		t.Fatal("expected unknown model to have no knowledge cutoff")
@@ -71,23 +65,9 @@ func requireModelSupport(t *testing.T, name string, supports func(string) bool, 
 	}
 }
 
-func TestLookupModelMetadata(t *testing.T) {
-	meta := requireModelMetadata(t, "gpt-5.3-codex")
-	if meta.ContextWindowTokens != 400_000 {
-		t.Fatalf("unexpected context window: %d", meta.ContextWindowTokens)
-	}
-}
-
 func TestLookupModelMetadataCaseInsensitive(t *testing.T) {
-	meta := requireModelMetadata(t, " GPT-5.3-CODEX ")
-	if meta.ContextWindowTokens != 400_000 {
-		t.Fatalf("unexpected context window: %d", meta.ContextWindowTokens)
-	}
-}
-
-func TestLookupModelMetadataForCodexSpark(t *testing.T) {
-	meta := requireModelMetadata(t, "gpt-5.3-codex-spark")
-	if meta.ContextWindowTokens != 128_000 {
+	meta := requireModelMetadata(t, " GPT-6-SOL ")
+	if meta.ContextWindowTokens != 272_000 {
 		t.Fatalf("unexpected context window: %d", meta.ContextWindowTokens)
 	}
 }
@@ -98,26 +78,6 @@ func TestLookupModelMetadataForGPT56SolContextWindow(t *testing.T) {
 		t.Fatalf("unexpected default context window: %d", meta.ContextWindowTokens)
 	}
 	if meta.LargeContextWindowTokens != 372_000 {
-		t.Fatalf("unexpected large context window: %d", meta.LargeContextWindowTokens)
-	}
-}
-
-func TestLookupModelMetadataForGPT54LargeContext(t *testing.T) {
-	meta := requireModelMetadata(t, "gpt-5.4")
-	if meta.ContextWindowTokens != 272_000 {
-		t.Fatalf("unexpected default context window: %d", meta.ContextWindowTokens)
-	}
-	if meta.LargeContextWindowTokens != 1_000_000 {
-		t.Fatalf("unexpected large context window: %d", meta.LargeContextWindowTokens)
-	}
-}
-
-func TestLookupModelMetadataForGPT54MiniLargeContext(t *testing.T) {
-	meta := requireModelMetadata(t, "gpt-5.4-mini")
-	if meta.ContextWindowTokens != 272_000 {
-		t.Fatalf("unexpected default context window: %d", meta.ContextWindowTokens)
-	}
-	if meta.LargeContextWindowTokens != 400_000 {
 		t.Fatalf("unexpected large context window: %d", meta.LargeContextWindowTokens)
 	}
 }
@@ -139,11 +99,7 @@ func TestSupportedThinkingLevelsModel(t *testing.T) {
 func TestSupportsReasoningEffortModel(t *testing.T) {
 	tests := []modelSupportCase{
 		{model: "gpt-5.6-sol", want: true},
-		{model: "gpt-5.4", want: true},
-		{model: "gpt-5.4-mini", want: true},
-		{model: "gpt-5.4-nano", want: true},
-		{model: "gpt-5.3-codex", want: true},
-		{model: "gpt-5.3-codex-spark", want: true},
+		{model: "gpt-6-sol", want: true},
 		{model: "claude-3-7-sonnet", want: true},
 		{model: "custom-alias", want: true},
 		{model: "", want: false},
@@ -154,11 +110,7 @@ func TestSupportsReasoningEffortModel(t *testing.T) {
 func TestSupportsReasoningSummaryModel(t *testing.T) {
 	tests := []modelSupportCase{
 		{model: "gpt-5.6-sol", want: true},
-		{model: "gpt-5.4", want: true},
-		{model: "gpt-5.4-mini", want: true},
-		{model: "gpt-5.4-nano", want: true},
-		{model: "gpt-5.3-codex", want: true},
-		{model: "gpt-5.3-codex-spark", want: false},
+		{model: "gpt-6-sol", want: true},
 		{model: "custom-alias", want: false},
 		{model: "", want: false},
 	}
@@ -168,11 +120,8 @@ func TestSupportsReasoningSummaryModel(t *testing.T) {
 func TestSupportsVisionInputsModel(t *testing.T) {
 	tests := []modelSupportCase{
 		{model: "gpt-5.6-sol", want: true},
-		{model: "gpt-5.3-codex", want: true},
-		{model: "gpt-5.3-codex-spark", want: false},
-		{model: " GPT-4.1 ", want: false},
-		{model: "gpt-5.4-mini", want: true},
-		{model: "gpt-5.4-nano", want: false},
+		{model: "gpt-6-sol", want: true},
+		{model: " CUSTOM-ALIAS ", want: false},
 		{model: "claude-3-7-sonnet", want: false},
 		{model: "", want: false},
 	}
@@ -195,8 +144,6 @@ func TestVisionDefaultsRespectProviderAndCatalog(t *testing.T) {
 				{model: "custom-alias", want: false},
 				{model: "claude-future", want: false},
 				{model: "", want: false},
-				{model: "gpt-5.4-nano", want: false},
-				{model: "gpt-5.3-codex-spark", want: false},
 			} {
 				if got := LockedModelCapabilitiesForModel(test.model, provider).SupportsVisionInputs; got != test.want {
 					t.Errorf("vision for %q = %t, want %t", test.model, got, test.want)
@@ -218,16 +165,13 @@ func TestVerbositySupportForModelAndProvider(t *testing.T) {
 		SupportsProviderVerbosity: false,
 	}
 
-	if support := VerbositySupportForModelAndProvider("gpt-5-preview", providerEnabled); !support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
+	if support := VerbositySupportForModelAndProvider("custom-preview", providerEnabled); !support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
 		t.Fatalf("unknown provider-enabled support = %+v, want provider default support", support)
 	}
-	if support := VerbositySupportForModelAndProvider("gpt-5-preview", providerDisabled); support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
+	if support := VerbositySupportForModelAndProvider("custom-preview", providerDisabled); support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
 		t.Fatalf("unknown provider-disabled support = %+v, want provider default unsupported", support)
 	}
-	if support := VerbositySupportForModelAndProvider("gpt-4.1", providerEnabled); !support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
-		t.Fatalf("unknown provider-enabled support = %+v, want provider default support", support)
-	}
-	if support := VerbositySupportForModelAndProvider("gpt-5", providerDisabled); !support.Supported || support.Source != ModelVerbositySupportSourceModelCatalog {
+	if support := VerbositySupportForModelAndProvider("gpt-6-sol", providerDisabled); !support.Supported || support.Source != ModelVerbositySupportSourceModelCatalog {
 		t.Fatalf("known supported support = %+v, want model catalog support", support)
 	}
 	if support := VerbositySupportForModelAndProvider("", providerEnabled); support.Supported || support.Source != ModelVerbositySupportSourceProviderDefault {
@@ -265,10 +209,10 @@ func TestModelDisplayLabel(t *testing.T) {
 		thinkingLevel string
 		want          string
 	}{
-		{model: "gpt-5.3-codex", thinkingLevel: "high", want: "gpt-5.3-codex high"},
+		{model: "gpt-6-sol", thinkingLevel: "high", want: "gpt-6-sol high"},
 		{model: "claude-3-7-sonnet", thinkingLevel: "high", want: "claude-3-7-sonnet high"},
 		{model: "custom-alias", thinkingLevel: "high", want: "custom-alias high"},
-		{model: "", thinkingLevel: "", want: "gpt-5.6-sol"},
+		{model: "", thinkingLevel: "", want: "gpt-6-sol"},
 	}
 
 	for _, tc := range tests {
@@ -279,7 +223,7 @@ func TestModelDisplayLabel(t *testing.T) {
 }
 
 func TestLockedContractCapabilityFallbackForLegacySessions(t *testing.T) {
-	legacy := &session.LockedContract{Model: "gpt-5.3-codex"}
+	legacy := &session.LockedContract{Model: "gpt-6-sol"}
 	if !LockedContractSupportsReasoningEffort(legacy, legacy.Model) {
 		t.Fatal("expected legacy locked session to fall back to registry reasoning support")
 	}
@@ -290,7 +234,7 @@ func TestLockedContractCapabilityFallbackForLegacySessions(t *testing.T) {
 
 func TestLockedContractCapabilityFallbackIgnoresProviderOnlySnapshot(t *testing.T) {
 	locked := &session.LockedContract{
-		Model: "gpt-5.4",
+		Model: "gpt-6-astra",
 		ProviderContract: session.LockedProviderCapabilities{
 			ProviderID: "chatgpt-codex",
 		},

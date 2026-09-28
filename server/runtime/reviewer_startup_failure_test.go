@@ -11,7 +11,7 @@ import (
 )
 
 func TestReviewerStartupFailureSurfacesWithoutReenteringProtectedRuntimeFIFO(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	startupErr := errors.New("publish Reviewer activity")
 	done := make(chan error, 1)
 	go func() {
@@ -45,7 +45,7 @@ func TestReviewerStartupFailureSurfacesWithoutReenteringProtectedRuntimeFIFO(t *
 }
 
 func TestReviewerPreparationFailureLeavesActivityInactive(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	pipeline := reviewerPipelineWithPreparationError{err: errors.New("prepare Reviewer request")}
 	stepID := runtimeTestStepID("reviewer-preparation-failure")
 
@@ -59,7 +59,7 @@ func TestReviewerPreparationFailureLeavesActivityInactive(t *testing.T) {
 }
 
 func TestPreparedReviewerReservationBlocksRetirementBeforeInvocation(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("reviewer-reservation")
 
 	if !engine.reserveReviewerActivity(stepID) {

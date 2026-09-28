@@ -201,10 +201,10 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	repoRoot := initStatusLineGitRepo(t, "picker-branch")
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version:    "1.2.3",
-		ModelFacts: sessionPickerTestModelFacts("gpt-5", "high"),
+		ModelFacts: sessionPickerTestModelFacts("gpt-6-sol", "high"),
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
+			Settings:      config.Settings{Model: "gpt-6-sol", ThinkingLevel: "high"},
 			AuthStatus:    &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)},
 		},
 	})
@@ -216,7 +216,7 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	next, _ := m.Update(cmd())
 	updated := next.(*sessionPickerModel)
 	plain := stripANSIAndTrimRight(updated.renderHeader())
-	for _, want := range []string{"git picker-branch", "No auth · gpt-5 high"} {
+	for _, want := range []string{"git picker-branch", "No auth · gpt-6-sol high"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("expected async status value %q in header, got %q", want, plain)
 		}
@@ -228,10 +228,10 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version:       "1.2.3",
 		ServerAddress: "127.0.0.1:53082",
-		ModelFacts:    sessionPickerTestModelFacts("gpt-5", "high"),
+		ModelFacts:    sessionPickerTestModelFacts("gpt-6-sol", "high"),
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
+			Settings:      config.Settings{Model: "gpt-6-sol", ThinkingLevel: "high"},
 			AuthStatus:    &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)},
 		},
 	})
@@ -242,7 +242,7 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	}
 
 	before := stripANSIAndTrimRight(m.View())
-	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-5 high", repoRoot} {
+	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-6-sol high", repoRoot} {
 		if strings.Contains(before, unexpected) {
 			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
 		}
@@ -343,14 +343,14 @@ func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
 		Version:       "1.2.3",
 		CWD:           "~/very/long/repository/path",
 		Branch:        "main",
-		Model:         "gpt-5.1-ultra high",
+		Model:         "custom-model high",
 		Auth:          "OpenAI API Key",
 		ServerAddress: "127.0.0.1:53082",
 	})
 	m.width = 24
 
 	plain := stripANSIAndTrimRight(m.renderHeader())
-	if strings.Contains(plain, "git main · ~/very/long/repository/path") || strings.Contains(plain, "OpenAI API Key · gpt-5.1-ultra high") {
+	if strings.Contains(plain, "git main · ~/very/long/repository/path") || strings.Contains(plain, "OpenAI API Key · custom-model high") {
 		t.Fatalf("expected narrow header to reflow main info, got %q", plain)
 	}
 	for _, want := range []string{
@@ -358,7 +358,7 @@ func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
 		"git main",
 		"…",
 		"OpenAI API Key",
-		"gpt-5.1-ultra high",
+		"custom-model high",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("expected narrow header to contain %q, got %q", want, plain)
@@ -371,7 +371,7 @@ func TestSessionPickerHeaderRendersMissingRemoteAddressFallback(t *testing.T) {
 		Version: "1.2.3",
 		CWD:     "~/repo",
 		Auth:    "No auth",
-		Model:   "gpt-5 high",
+		Model:   "gpt-6-sol high",
 	})
 	m.width = 80
 
@@ -386,7 +386,7 @@ func TestSessionPickerHeaderTinyWidthKeepsRowsVisible(t *testing.T) {
 		Version:       "1.2.3",
 		CWD:           "~/very/long/path/to/repo",
 		Branch:        "feature/very-long-branch",
-		Model:         "gpt-5.1-ultra high",
+		Model:         "custom-model high",
 		ServerAddress: "127.0.0.1:53082",
 	})
 	m.width = 8

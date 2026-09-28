@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { initializeI18n, appI18n } from "@/i18n";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { TranscriptAskQuestionRow } from "./TranscriptAskQuestionRow";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 
@@ -8,7 +13,46 @@ import {
   type TranscriptAskQuestionToolRow,
 } from "./transcriptAskQuestionPolicy";
 
+beforeAll(initializeI18n);
+
 describe("Chat Ask Question policy", () => {
+  it("shows a completed question once with immutable radio selection and no collapse control", async () => {
+    const row = questionRow("ongoing_collapsed");
+    render(
+      <TestAppProviders services={createTestServices([])}>
+        <TranscriptAskQuestionRow row={row} />
+      </TestAppProviders>,
+    );
+    expect(screen.getAllByText(row.Tool.Presentation.Question)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: appI18n.t("app.collapse") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("app.expand") })).not.toBeInTheDocument();
+    expect(screen.getByRole("radiogroup")).toBeVisible();
+    const options = screen.getAllByRole("radio");
+    expect(options).toHaveLength(2);
+    expect(options[0]).not.toBeChecked();
+    expect(options[1]).toBeChecked();
+    for (const option of options) expect(option).toBeDisabled();
+    await userEvent.click(screen.getByRole("radio", { name: "first" }));
+    expect(options[0]).not.toBeChecked();
+    expect(options[1]).toBeChecked();
+    expect(screen.getByText("commentary")).toBeVisible();
+  });
+
+  it("shows failed questions and their suggestions without inventing an answer", async () => {
+    const row = questionRow("ongoing_collapsed", true, null, "diagnostic");
+    render(
+      <TestAppProviders services={createTestServices([])}>
+        <TranscriptAskQuestionRow row={row} />
+      </TestAppProviders>,
+    );
+    expect(screen.getAllByText(row.Tool.Presentation.Question)).toHaveLength(1);
+    expect(await screen.findByText(row.Tool.Text)).toBeVisible();
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option).not.toBeChecked();
+      expect(option).toBeDisabled();
+    }
+  });
+
   it("claims typed Questions even when the server marks them hidden", () => {
     expect(isAskQuestionToolRow(questionRow("hidden"))).toBe(true);
   });
