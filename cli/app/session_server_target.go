@@ -32,9 +32,6 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 	}()
 	remoteServer := newRemoteAppServerWithAuth(remote, cfg)
 	server = remoteServer
-	if err := server.EnsureAuthReady(ctx, interactor, interactive); err != nil {
-		return nil, err
-	}
 	readinessResponse, err := remote.GetReadiness(ctx, &emptypb.Empty{})
 	if err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "probe server readiness", err)
@@ -44,7 +41,7 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		if !serverRequiresOnboarding(readiness) {
 			return nil, newConfiguredServerPreflightError(cfg, "server is not ready", errors.New(readinessReason(readiness)))
 		}
-		result, err := runOnboardingFlow(ctx, cfg, remote, remote)
+		result, err := runOnboardingFlow(ctx, cfg, remote, remote, remote)
 		if err != nil {
 			return nil, err
 		}
@@ -56,6 +53,11 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		readiness = readinessResponse.GetReadiness()
 		if !readiness.GetReady() {
 			return nil, newConfiguredServerPreflightError(cfg, "activate completed onboarding", errors.New(readinessReason(readiness)))
+		}
+	}
+	if interactive {
+		if err := remoteServer.EnsureConnectionSetup(ctx); err != nil {
+			return nil, err
 		}
 	}
 	closeRemote = false

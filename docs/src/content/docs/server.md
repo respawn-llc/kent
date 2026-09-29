@@ -1,5 +1,5 @@
 ---
-title: Kent Server
+title: Kent server
 description: Kent's local client-server architecture and background service management.
 ---
 
@@ -15,9 +15,9 @@ While annoying at times, this:
 - Allows spawning agents on schedule and periodically.
 - Uses only about 25 MB of RAM while idle.
 
-## Background Service
+## Background service
 
-To use Kent on your local machine more easily, consider installing a system service that will run `kent serve` for you at login:
+Install a system service to run `kent serve` at login:
 
 ```bash
 kent service status
@@ -30,6 +30,10 @@ kent service uninstall
 
 All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
 
+## Provider environment
+
+See [API keys and background services](../authentication/#api-keys-and-background-services) for provider credentials and the server's `.env` file.
+
 ## Backends
 
 | OS           | Service          |
@@ -38,10 +42,10 @@ All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROO
 | Linux / WSL2 | `systemd --user` |
 | Windows      | Windows Service  |
 
-- On windows, `uninstall --keep-running` is not supported; the server is bound to the service and stops with it.
+- On Windows, uninstalling the service stops the server.
 - Linux headless machines may need lingering enabled so the server survives logout `loginctl enable-linger "$USER"`.
 
-## Port Conflicts
+## Port conflicts
 
 Service install/start commands refuse to change the service when Kent's configured server endpoint is already owned by a manual `kent serve` process or by a non-Kent listener.
 If you started `kent serve` manually, stop that process before installing or starting the background service.

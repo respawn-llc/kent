@@ -1,12 +1,14 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"time"
 
 	"core/server/auth"
+	"core/server/authservice"
 	"core/server/chatcontext"
 	"core/server/launch"
 	shelltool "core/server/tools/shell"
@@ -36,6 +38,7 @@ type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
 	Environment  func(string) (string, bool)
+	Connections  *authservice.BootstrapService
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
@@ -68,7 +71,7 @@ func resolveConfig(req Request, load func(config.LoadOptions, string, launch.Boo
 	return load(opts, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
+func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
@@ -83,13 +86,13 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool), n
 		Issuer:   auth.DefaultOpenAIIssuer,
 		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
+	manager := auth.NewManager(store, auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute))
+	connections := authservice.NewBootstrapService(ctx, authservice.NewConnectionResolver(root, manager, lookupEnv), oauthOpts)
 	return AuthSupport{
 		OAuthOptions: oauthOpts,
 		Environment:  lookupEnv,
-		AuthManager: auth.NewManager(
-			store,
-			auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
-		),
+		AuthManager:  manager,
+		Connections:  connections,
 	}, nil
 }
 

@@ -44,7 +44,7 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	authSupport := newGatewayTestAuthSupport(t, true)
+	authSupport := newGatewayTestAuthSupport(t, cfg.PersistenceRoot, true)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)

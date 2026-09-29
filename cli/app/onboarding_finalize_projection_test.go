@@ -84,6 +84,7 @@ func TestRunOnboardingFlowHonorsPreSubmissionParentCancellation(t *testing.T) {
 			return testOnboardingCapabilityFacts(), nil
 		}),
 		finalizer,
+		nil,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run onboarding error = %v, want context canceled", err)

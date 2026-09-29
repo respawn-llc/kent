@@ -1,6 +1,7 @@
 package workflowrunner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,6 +48,7 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/worktreecontract"
+	"github.com/BurntSushi/toml"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -127,30 +129,37 @@ func (s currentNodeRunnerStepLifecycle) StepEnded(
 }
 
 func newCurrentNodeRunnerFixture(t *testing.T, steps ...ScriptedRuntimeStep) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClient(
+	return newCurrentNodeRunnerFixtureWithLoadOptions(t, config.LoadOptions{}, steps...)
+}
+
+func newCurrentNodeRunnerFixtureWithLoadOptions(t *testing.T, options config.LoadOptions, steps ...ScriptedRuntimeStep) *currentNodeRunnerFixture {
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t,
 		NewScriptedClient(
 			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 			steps...,
 		),
+		false,
+		options,
 	)
 }
 
 func newCurrentNodeRunnerFixtureWithClient(t *testing.T, client currentNodeRunnerClient) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, config.LoadOptions{})
 }
 
 func newCurrentNodeRunnerFixtureWithPersistenceGate(
 	t *testing.T,
 	client currentNodeRunnerClient,
 ) *currentNodeRunnerFixture {
-	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true)
+	return newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, true, config.LoadOptions{})
 }
 
 func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	t *testing.T,
 	client currentNodeRunnerClient,
 	withPersistenceGate bool,
+	loadOptions config.LoadOptions,
 ) *currentNodeRunnerFixture {
 	t.Helper()
 	home := t.TempDir()
@@ -174,6 +183,11 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		Description: "Reviewer",
 		Settings:    config.Settings{Model: "workflow-reviewer"},
 		Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
+	}
+	writeCurrentNodeConfig(t, cfg)
+	cfg, err = config.ApplyLoadOptionsToSnapshot(cfg, loadOptions)
+	if err != nil {
+		t.Fatal(err)
 	}
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
@@ -250,8 +264,9 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new Task dependency counter: %v", err)
 	}
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, StarterOptions{
-		RuntimeAuthority: fixture.authority,
-		TaskDependencies: dependencyCounter,
+		WorkspaceConfigLoadOptions: loadOptions,
+		RuntimeAuthority:           fixture.authority,
+		TaskDependencies:           dependencyCounter,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(_ context.Context, request runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			fixture.mu.Lock()
 			fixture.clientRequests = append(fixture.clientRequests, request)
@@ -289,6 +304,60 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	}
 	fixture.dependencies = dependencies
 	return fixture
+}
+
+func writeCurrentNodeConfig(t testing.TB, cfg config.App) {
+	t.Helper()
+	rendered, err := config.RenderSettingsTOMLForOnboarding(cfg.Settings, config.OnboardingWriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if _, err := toml.Decode(rendered, &document); err != nil {
+		t.Fatal(err)
+	}
+	if threshold := cfg.Settings.Workflow.PreCompactionTokens; threshold != nil {
+		document["workflow"].(map[string]any)["pre_compaction_tokens"] = *threshold
+	}
+	roles := map[string]any{}
+	for name, role := range cfg.Settings.Subagents {
+		values := map[string]any{}
+		toolSettings := map[string]any{}
+		toolKeys := map[string]toolspec.ID{}
+		for _, id := range toolspec.CatalogIDs() {
+			toolKeys["tools."+toolspec.ConfigName(id)] = id
+		}
+		for key := range role.Sources {
+			switch key {
+			case "model":
+				values[key] = role.Settings.Model
+			case "thinking_level":
+				values[key] = role.Settings.ThinkingLevel
+			case "connection":
+				values[key] = string(*role.Settings.Connection)
+			case "model_capabilities":
+				values[key] = map[string]any{"supports_reasoning_effort": role.Settings.ModelCapabilities.SupportsReasoningEffort, "supports_vision_inputs": role.Settings.ModelCapabilities.SupportsVisionInputs}
+			default:
+				id, supported := toolKeys[key]
+				if !supported {
+					t.Fatalf("fixture setting %s needs an authored TOML declaration", key)
+				}
+				toolSettings[toolspec.ConfigName(id)] = role.Settings.EnabledTools[id]
+			}
+		}
+		if len(toolSettings) > 0 {
+			values["tools"] = toolSettings
+		}
+		roles[name] = values
+	}
+	document["subagents"] = roles
+	var contents bytes.Buffer
+	if err := toml.NewEncoder(&contents).Encode(document); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), contents.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *currentNodeRunnerFixture) createTask(t *testing.T, workflowID runtimeids.WorkflowID) workflowstore.TaskRecord {
@@ -1370,8 +1439,8 @@ func TestCurrentNodeAgentWritesToSiblingWorkspaceThroughCreatedRuntime(t *testin
 	if err != nil {
 		t.Fatalf("marshal sibling edit input: %v", err)
 	}
-	f := newCurrentNodeRunnerFixture(
-		t,
+	f := newCurrentNodeRunnerFixtureWithLoadOptions(
+		t, config.LoadOptions{Tools: "edit"},
 		ScriptedToolBatch("write sibling", llm.ToolCall{
 			ID:    "sibling-patch",
 			Name:  string(toolspec.ToolEdit),
@@ -2082,6 +2151,7 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	configureCompactionThinking(t, f)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
@@ -2155,6 +2225,7 @@ func TestWorkflowPostCompletionCompactionReachesCACTargetWithoutSecondSummary(t 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflow(
 		t,
 		f.store,
@@ -2201,8 +2272,10 @@ func TestPostCommitDiagnosticPreservesApprovalAndCACBoundary(t *testing.T) {
 	)
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	threshold := 1
 	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	var observed atomic.Bool
 	f.persistenceGate.FailWhen(func(session.PersistedStoreSnapshot) bool {
 		return len(client.CompactionCalls()) > 0 && observed.Swap(true)
@@ -2282,6 +2355,7 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflow(
 		t,
 		f.store,
@@ -2310,6 +2384,7 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 		f.openRetainedRuntime(t, *interrupted.SessionID)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume disabled CAC target: %v", err)
 	}
@@ -2364,8 +2439,10 @@ func TestWorkflowPostCompletionCompactionPreservesOrdinaryContinueReplacementKey
 	)
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	threshold := 1
 	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeThreeStepWorkflowWithTransition(
 		t,
 		f.store,
@@ -3019,6 +3096,7 @@ func newActualManualCompactionRecoveryWithOptions(
 		f = newCurrentNodeRunnerFixtureWithClient(t, client)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
 	currentNode := f.startTask(t, task)
@@ -3090,6 +3168,7 @@ func TestResumeRestoresAssignmentBeforeOpenRuntimeReplacement(t *testing.T) {
 		t.Fatalf("retained runtime compaction mode before replacement = %q, want native", got)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, f.starter.cfg)
 
 	if _, err := f.controller.ResumeTask(context.Background(), recovery.task.ID, nil); err != nil {
 		t.Fatalf("resume retained Session with replacement: %v", err)
@@ -3112,6 +3191,7 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 	t.Cleanup(recovery.responseGate.releaseResponse)
 	f := recovery.fixture
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	identity := workflowruntime.CurrentNodePromptIdentity(recovery.currentNode)
 	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
 
@@ -3176,6 +3256,7 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 	)
 	f := newCurrentNodeRunnerFixtureWithPersistenceGate(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
 		f.store,
@@ -3657,10 +3738,12 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 				ScriptedFinalAnswer(`{"commentary":"branch a"}`),
 				ScriptedFinalAnswer(`{"commentary":"branch b"}`),
 			)
-			f := newCurrentNodeRunnerFixtureWithClient(t, client)
+			f := newCurrentNodeRunnerFixtureWithClientAndPersistence(t, client, false, config.LoadOptions{Tools: "patch"})
 			f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+			writeCurrentNodeConfig(t, f.starter.cfg)
 			threshold := 1
 			f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
+			writeCurrentNodeConfig(t, f.starter.cfg)
 			incoming := f.starter.cfg
 			var file strings.Builder
 			file.WriteString("model = \"workflow-base\"\ncompaction_mode = \"native\"\n[workflow]\ncompletion_mode = \"structured_output\"\npre_compaction_tokens = 1\n[reviewer]\nfrequency = \"off\"\n")
@@ -3688,6 +3771,7 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 			}
 			if !committed {
 				f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+				writeCurrentNodeConfig(t, f.starter.cfg)
 			}
 			workflowID, branchNodeIDs := createCurrentNodeFanoutWorkflow(t, f.store, true, workflow.ContextModeCompactAndContinueSession)
 			workflowfixture.SaveStoreGraph(t, t.Context(), f.store, workflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
@@ -3710,6 +3794,9 @@ func TestWorkflowPostCompletionCompactsFanoutSourceBeforeBranchClones(t *testing
 				t.Fatalf("fan-out source post-completion compactions = %d, want %d", len(client.CompactionCalls()), sourceCalls)
 			}
 			f.starter.cfg = incoming
+			f.cfg = incoming
+			writeCurrentNodeConfig(t, incoming)
+			f.restartRuntime(t)
 			if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
 				t.Fatalf("apply fan-out Approval: %v", err)
 			}

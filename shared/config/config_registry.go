@@ -634,6 +634,11 @@ func (r settingsRegistry) defaultSourceMap() map[string]Origin {
 }
 
 func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer FileLayer, state *settingsState, sources map[string]Origin) error {
+	if layer != FileGlobal {
+		if err := rejectWorkspaceLegacyAccess(raw, settingsPath); err != nil {
+			return err
+		}
+	}
 	for _, setting := range r.settings {
 		if settingAppliesToFileLayer(setting, layer) {
 			continue

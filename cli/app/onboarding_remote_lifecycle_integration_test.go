@@ -14,20 +14,19 @@ import (
 	"time"
 
 	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/driver"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
-	"core/server/bootstrap"
-	"core/server/core"
-	"core/server/onboarding"
-	"core/server/transport"
-	"core/shared/apicontract"
+	"core/server/startup"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
-	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/theme"
+
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 const onboardingRemoteLifecycleConfigEnv = "KENT_ONBOARDING_REMOTE_LIFECYCLE_CONFIG"
@@ -84,7 +83,7 @@ func runOnboardingRemoteLifecycleHelper(configPath string) error {
 
 			"reviewer.thinking_level": {Kind: config.SourceDefault, Property: config.PropertyAddress{Key: "reviewer.thinking_level"}},
 		}},
-	}, remote, remote)
+	}, remote, remote, remote)
 	output := onboardingRemoteLifecycleProcessResult{
 		Completed: result.Completed,
 		Canceled:  errors.Is(err, context.Canceled) || errors.Is(err, ErrOnboardingCanceled),
@@ -225,55 +224,40 @@ type gatedOnboardingServer struct {
 	server *httptest.Server
 }
 
-type onboardingLifecycleDependencies struct {
-	*core.Core
-	finalizer *onboarding.Finalizer
-}
-
-func (d onboardingLifecycleDependencies) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
-	return d.finalizer
-}
-
 func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	t.Helper()
 	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
-	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	server, err := startup.StartServeServer(ctx, startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	background, err := bootstrap.BuildShellManager(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := core.New(cfg, authSupport, background)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = appCore.Close() })
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
-		PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspace,
-		SettingsPath: cfg.Source.File(config.FileGlobal).Path, HomeDir: os.Getenv("HOME"),
+	cfg := server.Config()
+	testsetup.ReleaseLoopbackPort(cfg.Settings.ServerHost, cfg.Settings.ServerPort)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-served; err != nil && !errors.Is(err, context.Canceled) {
+			t.Error(err)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
+	endpoint := config.ServerRPCURL(cfg)
+	if !testsetup.Until(time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
+		remote, err := client.DialRemoteURL(ctx, endpoint)
+		if err != nil {
+			return false
+		}
+		return remote.Close() == nil
+	}) {
+		t.Fatal("onboarding server did not start")
 	}
-	gateway, err := transport.NewGateway(onboardingLifecycleDependencies{Core: appCore, finalizer: finalizer}, protocol.ServerIdentity{
-		ProtocolVersion: protocol.Version, ServerID: "onboarding-lifecycle-test", PID: os.Getpid(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	upstream := httptest.NewServer(gateway.Handler())
-	t.Cleanup(upstream.Close)
-	gate := newOnboardingRPCGate("ws" + upstream.URL[len("http"):])
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gate.Handler))
-	t.Cleanup(server.Close)
+	gate := newOnboardingRPCGate(endpoint)
+	proxy := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gate.Handler))
+	t.Cleanup(proxy.Close)
 	return &gatedOnboardingServer{
 		gate:   gate,
-		server: server,
+		server: proxy,
 	}
 }
 
@@ -313,15 +297,12 @@ func TestOnboardingRemoteLifecycleKeepsSubmittedRPCAliveAfterParentCancellation(
 		}
 	}()
 
-	capture, err := pty.RunCommand(context.Background(), pty.CommandSpec{
-		Path:       binary,
-		Args:       []string{onboardingRemoteLifecycleTestRunArgument},
-		Env:        []string{onboardingRemoteLifecycleConfigEnv + "=" + processConfigPath},
-		Dimensions: pty.MustDimensions(24, 80),
-		ParseableInputs: []pty.ParseableInputEvent{
-			{Bytes: []byte("\r\x1b[B\r")},
-		},
-		Timeout: 5 * time.Second,
+	capture, err := runOnboardingLifecycleTerminal(binary, processConfigPath, []onboardingTerminalInput{
+		{restored: 1, bytes: []byte("\r")},
+		{restored: 1, bytes: []byte("\x1b[B\x1b[B\r")},
+		{restored: 1, bytes: []byte("\r")},
+		{restored: 1, bytes: []byte("http://localhost:1234/v1\r")},
+		{restored: 4, bytes: []byte("\x1b[B\r")},
 	})
 	if err != nil {
 		t.Fatalf("run onboarding lifecycle helper: %v raw=%q", err, string(capture.Raw))
@@ -345,16 +326,7 @@ func TestOnboardingRemoteLifecycleEscapeCancelsBeforeFinalization(t *testing.T) 
 		Endpoint:   server.endpoint(),
 		ResultPath: resultPath,
 	})
-	capture, err := pty.RunCommand(context.Background(), pty.CommandSpec{
-		Path:       binary,
-		Args:       []string{onboardingRemoteLifecycleTestRunArgument},
-		Env:        []string{onboardingRemoteLifecycleConfigEnv + "=" + processConfigPath},
-		Dimensions: pty.MustDimensions(24, 80),
-		ParseableInputs: []pty.ParseableInputEvent{
-			{Bytes: []byte{0x1b}},
-		},
-		Timeout: 5 * time.Second,
-	})
+	capture, err := runOnboardingLifecycleTerminal(binary, processConfigPath, []onboardingTerminalInput{{restored: 1, bytes: []byte{0x1b}}})
 	if err != nil {
 		t.Fatalf("run onboarding escape helper: %v raw=%q", err, string(capture.Raw))
 	}
@@ -370,11 +342,94 @@ func TestOnboardingRemoteLifecycleEscapeCancelsBeforeFinalization(t *testing.T) 
 	waitForOnboardingGateClose(t, server.gate.closed)
 }
 
+// Coordinate the existing lifecycle scenarios from terminal mode/frame facts,
+// never from product copy or a delay that assumes an RPC has completed.
+type onboardingTerminalInput struct {
+	restored int
+	bytes    []byte
+}
+
+func runOnboardingLifecycleTerminal(binary, processConfigPath string, inputs []onboardingTerminalInput) (pty.Capture, error) {
+	dimensions := pty.MustDimensions(24, 80)
+	session, err := driver.StartSession(driver.SessionSpec{
+		Path: binary, Args: []string{onboardingRemoteLifecycleTestRunArgument},
+		Env:        append(os.Environ(), onboardingRemoteLifecycleConfigEnv+"="+processConfigPath),
+		Dimensions: dimensions,
+	})
+	if err != nil {
+		return pty.Capture{}, err
+	}
+	defer session.Close()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	var after int64
+	next := 0
+	var runErr error
+	for {
+		select {
+		case event, open := <-session.Events():
+			if !open {
+				<-session.Done()
+				capture, err := session.Capture()
+				if capture.ProcessExit != nil && capture.ProcessExit.Code != 0 {
+					runErr = errors.Join(runErr, fmt.Errorf("helper exited with code %d", capture.ProcessExit.Code))
+				}
+				return capture, errors.Join(runErr, err)
+			}
+			if event.Err != nil {
+				runErr = errors.Join(runErr, event.Err)
+			}
+			if event.Analysis == nil || next == len(inputs) {
+				continue
+			}
+			restored := 0
+			boundaryOffset := after
+			for _, mode := range event.Analysis.PrivateModeChanges {
+				if mode.Mode == 1049 && !mode.Enabled {
+					restored++
+					boundaryOffset = max(boundaryOffset, mode.ByteRange.End)
+				}
+			}
+			if restored < inputs[next].restored {
+				continue
+			}
+			analysis := *event.Analysis
+			analysis.Operations = nil
+			for _, operation := range event.Analysis.Operations {
+				analysis.Operations = append(analysis.Operations, pty.OperationRecords(operation)...)
+			}
+			boundary, ready := pty.LatestReadinessBoundaryAfter(analysis, dimensions, pty.ReadinessRendererFrame, boundaryOffset)
+			if !ready {
+				continue
+			}
+			after = boundary.ByteRange.End
+			if err := session.Enqueue(driver.SessionCommand{ID: uuid.New(), Kind: driver.SessionCommandWrite, Bytes: inputs[next].bytes}); err != nil {
+				runErr = errors.Join(runErr, err)
+				if err := session.ForceKill(); err != nil {
+					runErr = errors.Join(runErr, err)
+				}
+				continue
+			}
+			next++
+		case <-timeout.C:
+			runErr = errors.Join(runErr, fmt.Errorf("onboarding terminal did not complete before the fixture deadline: dispatched=%d, after=%d", next, after))
+			if err := session.ForceKill(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}
+	}
+}
+
 func TestOnboardingFinalizationRemoteDeadlineIsIndeterminateUntilCallerClosesRemote(t *testing.T) {
 	server := newGatedOnboardingServer(t)
 	remote, err := client.DialRemoteURL(context.Background(), server.endpoint())
 	if err != nil {
 		t.Fatalf("dial gated remote: %v", err)
+	}
+	if _, err := remote.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: proto.String("http://localhost:1234/v1")},
+	}}); err != nil {
+		t.Fatal(err)
 	}
 	finalization := newOnboardingFinalization(remote, context.Background())
 	finalization.timeout = time.Second

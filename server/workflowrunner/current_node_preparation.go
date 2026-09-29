@@ -68,8 +68,10 @@ func (s *Starter) PrepareCurrentNode(
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	execution := launch.PreparedExecutionContext{ExecutionTarget: target, ProjectID: input.Task.ProjectID, ManagedWorktreeRoots: roots}
-	cfg := s.cfg
-	cfg.WorkspaceRoot = root.SourceWorkspaceRoot
+	cfg, err := s.workspaceConfig.Resolve(root.SourceWorkspaceRoot)
+	if err != nil {
+		return workflowexecution.CurrentNodePreparation{}, err
+	}
 	planner := launch.Planner{
 		Config: cfg, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", input.Task.ProjectID, "sessions"),
 		StoreOptions: s.storeOptions, PersistedSessions: s.metadata,
@@ -135,7 +137,7 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	if err := s.validateRole(selection.Assignee); err != nil {
+	if err := validateRole(cfg.Settings, selection.Assignee); err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	if selection.Origin == workflow.AssigneeOriginTransitionSelected {
@@ -244,7 +246,7 @@ func (s *Starter) prepareCurrentNodeClone(ctx context.Context, planner launch.Pl
 	if err != nil {
 		return session.CreationPlan{}, err
 	}
-	thinking, err := launch.ResolveForkThinking(s.cfg, *source.Meta, true)
+	thinking, err := launch.ResolveForkThinking(planner.Config, *source.Meta, true)
 	if err != nil {
 		return session.CreationPlan{}, err
 	}

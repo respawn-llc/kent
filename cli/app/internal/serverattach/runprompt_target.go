@@ -18,7 +18,6 @@ type AttachRunPromptRequest struct {
 	DiscoveryTimeout time.Duration
 	DialProjectView  remoteattach.DialProjectView
 	DialWorkspace    remoteattach.DialWorkspace
-	EnsureAuthReady  func(context.Context, apicontract.AuthBootstrapService) error
 }
 
 func AttachRunPrompt(ctx context.Context, req AttachRunPromptRequest) (apicontract.RunPromptService, func() error, error) {
@@ -33,11 +32,6 @@ func AttachRunPrompt(ctx context.Context, req AttachRunPromptRequest) (apicontra
 }
 
 func validateRunPromptRemote(ctx context.Context, req AttachRunPromptRequest, remote *client.Remote) error {
-	if req.EnsureAuthReady != nil {
-		if err := req.EnsureAuthReady(ctx, remote); err != nil {
-			return err
-		}
-	}
 	if strings.TrimSpace(remote.ProjectID()) == "" {
 		return remoteattach.HeadlessWorkspaceRegistrationError(req.Config.WorkspaceRoot)
 	}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
@@ -67,34 +66,6 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 	}
 }
 
-func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
-
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-
-	if err := fixture.server.Reauthenticate(context.Background(), interactor, true); err != nil {
-		t.Fatalf("Reauthenticate: %v", err)
-	}
-	if pickerCalls != 1 {
-		t.Fatalf("expected remote /login to open auth picker once, got %d", pickerCalls)
-	}
-	state, err := fixture.daemon.AuthManager().Load(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState: %v", err)
-	}
-	if len(state.Connections) != 0 {
-		t.Fatalf("environment key was persisted: %+v", state)
-	}
-}
-
 func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
@@ -107,59 +78,8 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 		},
 	}
 
-	if err := fixture.server.EnsureAuthReady(context.Background(), interactor, true); err != nil {
+	if err := fixture.server.EnsureAuthReady(context.Background(), fixture.config.Settings, interactor, true); err != nil {
 		t.Fatalf("EnsureAuthReady: %v", err)
-	}
-
-	state, err := fixture.daemon.AuthManager().Load(context.Background())
-	if err != nil {
-		t.Fatalf("StoredState: %v", err)
-	}
-	if len(state.Connections) != 0 {
-		t.Fatalf("environment key was persisted: %+v", state)
-	}
-}
-
-func TestRemoteLoginTransitionWaitsForAuthChoiceWhenServerAuthAlreadyReady(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
-
-	pickerEntered := make(chan struct{})
-	releasePicker := make(chan struct{})
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			close(pickerEntered)
-			<-releasePicker
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := resolveSessionAction(context.Background(), fixture.server, interactor, "", UITransition{Action: UIActionLogout})
-		done <- err
-	}()
-
-	select {
-	case <-pickerEntered:
-	case err := <-done:
-		t.Fatalf("login transition returned before auth picker opened: %v", err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("auth picker did not open")
-	}
-	select {
-	case err := <-done:
-		t.Fatalf("login transition returned while auth picker was waiting: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	close(releasePicker)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("login transition after auth choice: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("login transition did not finish after auth choice")
 	}
 
 	state, err := fixture.daemon.AuthManager().Load(context.Background())

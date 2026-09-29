@@ -29,6 +29,9 @@ func (state *onboardingFlowState) updateSelections(
 }
 
 func (state *onboardingFlowState) chooseTheme(choiceID string) error {
+	if state.facts == nil {
+		return state.selections.chooseTheme(choiceID)
+	}
 	return state.updateSelections("apply_choice", onboardingStepTheme, func(selections *onboardingSelections) error {
 		return selections.chooseTheme(choiceID)
 	})

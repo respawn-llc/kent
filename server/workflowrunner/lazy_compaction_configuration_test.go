@@ -80,6 +80,7 @@ func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *
 	}
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	configureCompactionThinking(t, f)
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(client.release) }) }
@@ -154,6 +155,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	// Enable compaction only after outgoing completion to exercise an
 	// un-precompacted Session at the lazy continuation boundary.
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	configureCompactionThinking(t, f)
 	task := f.createTask(t, createCurrentNodeThreeStepWorkflow(
 		t, f.store, "Lazy compaction configuration",
@@ -165,6 +167,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	approval := f.waitForPendingApproval(t, task.ID)
 	f.waitForTaskQuiescence(t, task.ID)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	return f, approval
 }
 
@@ -188,6 +191,7 @@ func configureCompactionThinking(t *testing.T, f *currentNodeRunnerFixture) {
 		f.starter.cfg.Settings.Subagents[role] = settings
 	}
 	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
+	writeCurrentNodeConfig(t, f.starter.cfg)
 }
 
 func TestLazyCompactAndContinueFailureRetainsOutgoingConfiguration(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"core/cli/app/internal/authui"
-	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
 
@@ -61,66 +60,6 @@ func (l *stubOAuthCallbackListener) Close() error {
 	return nil
 }
 
-func TestRemoteAuthBootstrapRetriesUnsupportedSelectedMode(t *testing.T) {
-	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthRequired:   true,
-		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY},
-	}}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(string) string { return "api-key" },
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls == 1 {
-				return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
-			}
-			if req.FlowErr == nil {
-				t.Fatal("unsupported mode must be surfaced on retry")
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if pickerCalls != 2 || remote.completeCalls != 1 {
-		t.Fatalf("picker calls=%d complete calls=%d, want 2 and 1", pickerCalls, remote.completeCalls)
-	}
-}
-
-func TestRemoteAuthBootstrapSurfacesCompletionFailureThenRetries(t *testing.T) {
-	completeErr := errors.New("remote completion failed")
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthRequired:   true,
-			SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY},
-		},
-		completeErr: completeErr,
-	}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(string) string { return "api-key" },
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls == 1 && req.FlowErr != nil {
-				t.Fatalf("initial flow error = %v", req.FlowErr)
-			}
-			if pickerCalls == 2 && !errors.Is(req.FlowErr, completeErr) {
-				t.Fatalf("retry flow error = %v, want completion failure", req.FlowErr)
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if pickerCalls != 2 || remote.completeCalls != 2 {
-		t.Fatalf("picker calls=%d complete calls=%d, want 2 and 2", pickerCalls, remote.completeCalls)
-	}
-}
-
 func TestRemoteAuthBootstrapMapsProviderDeviceGrantToCompletion(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -148,13 +87,14 @@ func TestRemoteAuthBootstrapMapsProviderDeviceGrantToCompletion(t *testing.T) {
 		},
 	}
 
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	request, err := interactor.collectRemoteBootstrapRequest(t.Context(), "dark", authMethodChoiceDevice, remote.status)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if remote.completeReq.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE ||
-		remote.completeReq.GetDeviceAuthorizationCode() != "authorization-1" ||
-		remote.completeReq.GetDeviceCodeVerifier() != "verifier-1" {
-		t.Fatalf("unexpected completion request: %+v", remote.completeReq)
+	if request.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE ||
+		request.GetDeviceAuthorizationCode() != "authorization-1" ||
+		request.GetDeviceCodeVerifier() != "verifier-1" {
+		t.Fatalf("unexpected completion request: %+v", request)
 	}
 }
 
@@ -204,11 +144,12 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 				runCallbackPage:       tt.runPage,
 			}
 
-			if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-				t.Fatalf("ensureRemoteAuthReady: %v", err)
+			request, err := interactor.collectRemoteBootstrapRequest(t.Context(), "dark", authMethodChoiceBrowserAuto, remote.status)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if remote.completeReq.GetCallbackInput() != tt.wantInput {
-				t.Fatalf("callback input=%q, want %q", remote.completeReq.GetCallbackInput(), tt.wantInput)
+			if request.GetCallbackInput() != tt.wantInput {
+				t.Fatalf("callback input=%q, want %q", request.GetCallbackInput(), tt.wantInput)
 			}
 			if listener.closed == 0 {
 				t.Fatal("expected listener to close")
@@ -242,7 +183,7 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 		},
 	}
 
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true)
+	_, err := interactor.collectRemoteBootstrapRequest(t.Context(), "dark", authMethodChoiceBrowserAuto, remote.status)
 	if err == nil || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("expected auth cancel, got %v", err)
 	}
@@ -260,17 +201,7 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 		},
 	}}
-	pickCalls := 0
-	var flowErr error
 	interactor := &interactiveAuthInteractor{
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickCalls++
-			if pickCalls > 1 {
-				flowErr = req.FlowErr
-				return authMethodPickerResult{Canceled: true}, nil
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
-		},
 		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
 		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) error) (authCallbackPageResult, error) {
@@ -279,11 +210,8 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 		},
 	}
 
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true)
-	if err == nil || !errors.Is(err, ErrAuthCanceledByUser) {
-		t.Fatalf("expected auth cancel, got %v", err)
-	}
-	if flowErr == nil || !errors.Is(flowErr, ErrOAuthStateMismatch) {
-		t.Fatalf("flow error = %v, want oauth state mismatch", flowErr)
+	_, err := interactor.collectRemoteBootstrapRequest(t.Context(), "dark", authMethodChoiceBrowserAuto, remote.status)
+	if !errors.Is(err, ErrOAuthStateMismatch) {
+		t.Fatalf("flow error = %v, want oauth state mismatch", err)
 	}
 }
