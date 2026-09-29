@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { queryKeys } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
+import { projectEventsFixture } from "@/test-support/project-events";
 import {
   createTaskDetailViewModel,
   useTaskDetailReads,
@@ -13,6 +14,7 @@ import {
 
 it("releases Task observation and disables reads while inactive, and releases observation on disposal", async () => {
   const services = createTaskDetailTestServices(taskDetailResponse);
+  const events = projectEventsFixture(services.transport);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const model = createTaskDetailViewModel({
     services,
@@ -33,13 +35,13 @@ it("releases Task observation and disables reads while inactive, and releases ob
     },
   );
   await waitFor(() => {
-    expect(services.transport.subscriptions).toHaveLength(1);
+    expect(events.activeCount).toBe(1);
   });
   view.rerender({ enabled: false });
   await waitFor(() => {
-    expect(services.transport.subscriptions).toHaveLength(0);
+    expect(events.activeCount).toBe(0);
   });
-  const readCount = services.transport.calls.length;
+  const readCount = services.transport.descriptorCalls.length;
   await act(async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: queryKeys.task("task-1") }),
@@ -48,13 +50,13 @@ it("releases Task observation and disables reads while inactive, and releases ob
       client.invalidateQueries({ queryKey: queryKeys.comments("task-1") }),
     ]);
   });
-  expect(services.transport.calls).toHaveLength(readCount);
+  expect(services.transport.descriptorCalls).toHaveLength(readCount);
   view.rerender({ enabled: true });
   await waitFor(() => {
-    expect(services.transport.subscriptions).toHaveLength(1);
+    expect(events.activeCount).toBe(1);
   });
   view.unmount();
   await waitFor(() => {
-    expect(services.transport.subscriptions).toHaveLength(0);
+    expect(events.activeCount).toBe(0);
   });
 });

@@ -567,6 +567,21 @@ export function taskGetRoute(
   };
 }
 
+export function taskMissingRoute(taskID: string): FakeRoute {
+  return {
+    descriptor: taskRead.TaskReadService.method.get,
+    result: create(taskRead.GetResultSchema, {
+      outcome: {
+        case: "error",
+        value: {
+          code: "task_not_found",
+          detail: { case: "taskNotFound", value: { taskId: taskID } },
+        },
+      },
+    }),
+  };
+}
+
 export function taskUpdateRoute(
   result: () => typeof taskUpdateResponse | Promise<typeof taskUpdateResponse> = () => taskUpdateResponse,
 ): FakeRoute {
