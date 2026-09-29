@@ -377,7 +377,7 @@ func decodeBinaryResponse(
 		return fmt.Errorf("operation %s result payload is required", operation.Name)
 	}
 	if err := protoapi.Decode(response.result.Payload, result); err != nil {
-		return fmt.Errorf("decode %s result: %w", operation.Name, err)
+		return invalidResponseError(operation.Name, err)
 	}
 	return nil
 }

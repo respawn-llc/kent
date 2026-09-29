@@ -1,3 +1,4 @@
+import { recordProjectObservers } from "@/test-support/project-events";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
@@ -11,7 +12,7 @@ import {
   type SidebarDestination,
   type SidebarRootController,
 } from "@/app-facade";
-import { createTestServices } from "@/test-support/app-services";
+import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import type * as ProjectTaskListData from "./projectTaskListData";
 
 import { appI18n, initializeI18n } from "@/i18n";
@@ -762,18 +763,16 @@ function surface(memory = createProjectTasksViewMemory(), sidebarMode: "overlay"
 }
 
 function withQueryClient(children: React.ReactNode) {
-  const services = createTestServices([]);
-  const subscribe = services.transport.subscribe.bind(services.transport);
-  vi.spyOn(services.transport, "subscribe").mockImplementation((method, params, handler) => {
-    fixture.projectSubscriptions += 1;
-    const subscription = subscribe(method, params, handler);
-    return {
-      close() {
-        fixture.projectSubscriptions -= 1;
-        subscription.close();
-      },
-    };
-  });
+  const services = createTestServices(startupRoutes);
+  recordProjectObservers(
+    services.transport,
+    () => {
+      fixture.projectSubscriptions += 1;
+    },
+    () => {
+      fixture.projectSubscriptions -= 1;
+    },
+  );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });

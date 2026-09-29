@@ -161,7 +161,7 @@ export interface ApiService {
   deleteWorkflow(input: WorkflowDeleteInput): Promise<WorkflowDeleteResponse>;
   listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]>;
   listBoardNodeCards(input: BoardNodeCardsInput): Promise<BoardNodeCardsPage>;
-  listAttention(pageToken: string): Promise<AttentionPage>;
+  listAttention(pageToken: string | null): Promise<AttentionPage>;
   listTaskAttention(taskID: string): Promise<TaskAttention>;
   createTask(input: TaskMutationInput): Promise<CreatedTaskSummary>;
   addTaskDependency(blockerTaskID: string, blockedTaskID: string): Promise<TaskDependencyMutationResponse>;

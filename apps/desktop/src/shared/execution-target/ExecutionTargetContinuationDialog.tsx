@@ -5,7 +5,7 @@ import type {
   WorkflowExecutionTargetSelection,
   WorkflowExecutionTargetSelectionMode,
   WorkflowExecutionTargetSelectionRequirement,
-  WorktreeSetupRetainedError,
+  WorktreeSetupRecovery,
   ExecutionTargetChoiceFailure,
 } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
@@ -39,7 +39,7 @@ export function TaskSetupRecoveryDialog({
   onSubmit(selection?: WorkflowExecutionTargetSelection, branchName?: string): void;
   choiceFailure: ExecutionTargetChoiceFailure | null;
   open: boolean;
-  recovery: WorktreeSetupRetainedError;
+  recovery: WorktreeSetupRecovery;
   retrySelection?: WorkflowExecutionTargetSelection;
   running: boolean;
 }>) {

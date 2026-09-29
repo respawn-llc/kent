@@ -1,72 +1,84 @@
-import { unexpectedProjectOverflow } from "@/test-support/api";
-import { ApiClient } from "./client";
+import { create } from "@app/server-api-contract";
+import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
-  taskApproveResponseSchema,
-  taskMovePreviewResponseSchema,
-  taskMoveResponseSchema,
-  taskResumeResponseSchema,
-  taskStartResponseSchema,
-} from "./schemas/workflowBoard";
-import { FakeRpcTransport } from "@/test-support/api";
+  ExecutionTargetUnavailableCause,
+  LockedExecutionTargetCause,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ApiClient } from "./client";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
+
+function moveClient(response: lifecycle.MoveSuccess) {
+  return new ApiClient(
+    new FakeRpcTransport([
+      {
+        descriptor: lifecycle.TaskLifecycleService.method.move,
+        result: create(lifecycle.MoveResultSchema, { outcome: { case: "success", value: response } }),
+      },
+    ]),
+    unexpectedProjectOverflow,
+  );
+}
+
+function previewClient(response: lifecycle.MovePreviewSuccess) {
+  return new ApiClient(
+    new FakeRpcTransport([
+      {
+        descriptor: lifecycle.TaskLifecycleService.method.previewMove,
+        result: create(lifecycle.MovePreviewResultSchema, { outcome: { case: "success", value: response } }),
+      },
+    ]),
+    unexpectedProjectOverflow,
+  );
+}
 
 describe("task lifecycle client", () => {
-  it("uses Current Node responses and does not emit board-only lifecycle flags", async () => {
+  it("uses Current Node responses and sends move selections", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.start",
-        result: {
-          outcome: "applied",
-          applied: {
-            current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: "session-1" }],
-          },
-        },
-      },
-      {
-        method: "workflow.task.move",
-        result: {
-          outcome: "applied",
-          applied: {
-            current_nodes: [{ node_id: "node-2", transition_branch_key: null, session_id: null }],
-            retained_previous_worktree: null,
-          },
-        },
-      },
-      {
-        method: "workflow.task.move.preview",
-        result: {
-          outcome: "transition",
-          transition: {
-            choices: [
-              {
-                transition_key: "next",
-                label: "Next",
-                source_node_display_name: "Plan",
-                required_values: [
-                  {
-                    node_key: "plan",
-                    output_name: "summary",
-                    description: "Summary",
-                    resolved_value: "prefilled",
-                  },
-                ],
+        descriptor: lifecycle.TaskLifecycleService.method.start,
+        result: create(lifecycle.StartResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              outcome: {
+                case: "applied",
+                value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] },
               },
-            ],
+            },
           },
-        },
+        }),
       },
       {
-        method: "workflow.task.approve",
-        result: {
-          outcome: "applied",
-          applied: {
-            task_id: "task-1",
-            current_nodes: [{ node_id: "node-3", transition_branch_key: "branch-a", session_id: null }],
+        descriptor: lifecycle.TaskLifecycleService.method.move,
+        result: create(lifecycle.MoveResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              outcome: { case: "applied", value: { currentNodes: [{ nodeId: "node-2" }] } },
+            },
           },
-        },
+        }),
+      },
+      {
+        descriptor: lifecycle.TaskLifecycleService.method.approve,
+        result: create(lifecycle.ApproveResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              outcome: {
+                case: "applied",
+                value: {
+                  taskId: "task-1",
+                  currentNodes: [{ nodeId: "node-3", transitionBranchKey: "branch-a" }],
+                },
+              },
+            },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-
     await expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-1" }] },
@@ -77,206 +89,169 @@ describe("task lifecycle client", () => {
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-2" }] },
     });
-    await expect(client.previewMoveTask("task-1", "node-2")).resolves.toEqual({
-      outcome: "transition",
-      transition: {
-        choices: [
-          {
-            transitionKey: "next",
-            label: "Next",
-            sourceNodeDisplayName: "Plan",
-            requiredValues: [
-              { nodeKey: "plan", outputName: "summary", description: "Summary", resolvedValue: "prefilled" },
-            ],
-          },
-        ],
-      },
-    });
     await expect(client.approveApproval("approval-1")).resolves.toMatchObject({
       outcome: "applied",
       applied: { taskID: "task-1", currentNodes: [{ nodeID: "node-3" }] },
     });
-
-    expect(transport.calls).toContainEqual({
-      method: "workflow.task.approve",
-      options: { timeoutMs: null },
-      params: { approval_id: "approval-1" },
+    expect(transport.descriptorCalls[1]?.request).toMatchObject({
+      branchName: "task-reopened",
+      targetNodeId: "node-2",
     });
-    expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).not.toHaveProperty(
-      "allow_missing_edge",
-    );
-    expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).toMatchObject({
-      branch_name: "task-reopened",
-    });
-    expect(transport.calls.find((call) => call.method === "workflow.task.move")?.params).not.toHaveProperty(
-      "auto_approve",
-    );
-    expect(transport.calls.find((call) => call.method === "workflow.task.move.preview")).toEqual({
-      method: "workflow.task.move.preview",
+    expect(transport.descriptorCalls[2]).toMatchObject({
+      descriptor: lifecycle.TaskLifecycleService.method.approve,
+      request: create(lifecycle.ApproveRequestSchema, { approvalId: "approval-1" }),
       options: { timeoutMs: null },
-      params: { task_id: "task-1", target_node_id: "node-2" },
     });
   });
 
-  it("maps typed execution-target selection requirements", () => {
-    expect(
-      taskMoveResponseSchema.safeParse({
-        outcome: "selection_required",
-        selection_required: {
-          reason: "configured_target_unavailable",
-          configured_target: { mode: "none" },
-          unavailable_cause: "git_failure",
-        },
-      }).success,
-    ).toBe(false);
-    for (const mode of ["head", "default_branch"]) {
-      expect(
-        taskMoveResponseSchema.parse({
-          outcome: "selection_required",
-          selection_required: {
-            reason: "configured_target_unavailable",
-            configured_target: { mode },
-            unavailable_cause: "git_failure",
+  it("maps typed execution-target selection requirements", async () => {
+    for (const mode of [
+      ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
+      ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+    ]) {
+      const client = moveClient(
+        create(lifecycle.MoveSuccessSchema, {
+          outcome: {
+            case: "selectionRequired",
+            value: {
+              reason: {
+                case: "configuredTargetUnavailable",
+                value: { mode, cause: ExecutionTargetUnavailableCause.GIT_FAILURE },
+              },
+            },
           },
         }),
-      ).toMatchObject({
-        selectionRequired: { configuredTarget: { mode, requestedRef: null } },
+      );
+      await expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toMatchObject({
+        selectionRequired: { configuredTarget: { requestedRef: null }, unavailableCause: "git_failure" },
       });
     }
-    expect(
-      taskMoveResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: {
-          reason: "original_target_unavailable",
-          original_target_cause: "missing_branch",
+    const original = moveClient(
+      create(lifecycle.MoveSuccessSchema, {
+        outcome: {
+          case: "selectionRequired",
+          value: {
+            reason: {
+              case: "originalTargetUnavailable",
+              value: { cause: LockedExecutionTargetCause.MISSING_BRANCH },
+            },
+          },
         },
       }),
-    ).toEqual({
+    );
+    await expect(original.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
       outcome: "selection_required",
-      selectionRequired: {
-        reason: "original_target_unavailable",
-        originalTargetCause: "missing_branch",
-      },
+      selectionRequired: { reason: "original_target_unavailable", originalTargetCause: "missing_branch" },
     });
-    expect(
-      taskStartResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: { reason: "policy_requires_selection" },
+    const confirmation = moveClient(
+      create(lifecycle.MoveSuccessSchema, {
+        outcome: { case: "dependencyConfirmationRequired", value: { unsatisfiedDependencyCount: 2 } },
       }),
-    ).toEqual({
-      outcome: "selection_required",
-      selectionRequired: { reason: "policy_requires_selection" },
-    });
-    expect(
-      taskMoveResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: {
-          reason: "configured_target_unavailable",
-          configured_target: { mode: "custom_ref", requested_ref: "release/v1" },
-          unavailable_cause: "non_commit",
-        },
-      }),
-    ).toEqual({
-      outcome: "selection_required",
-      selectionRequired: {
-        reason: "configured_target_unavailable",
-        configuredTarget: { mode: "custom_ref", requestedRef: "release/v1" },
-        unavailableCause: "non_commit",
-      },
-    });
-    expect(
-      taskMoveResponseSchema.parse({
-        outcome: "dependency_confirmation_required",
-        unsatisfied_dependency_count: 2,
-      }),
-    ).toEqual({
+    );
+    await expect(confirmation.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
       outcome: "dependency_confirmation_required",
       unsatisfiedDependencyCount: 2,
     });
-    expect(
-      taskApproveResponseSchema.parse({
-        outcome: "selection_required",
-        selection_required: { reason: "policy_requires_selection" },
-      }),
-    ).toEqual({
-      outcome: "selection_required",
-      selectionRequired: { reason: "policy_requires_selection" },
-    });
   });
 
-  it("maps an already-resumed Task response as a no-op", () => {
-    expect(
-      taskResumeResponseSchema.parse({
-        outcome: "no_op",
-        no_op: {
-          current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: "session-1" }],
+  it("maps an already-resumed Task response as a no-op", async () => {
+    const client = new ApiClient(
+      new FakeRpcTransport([
+        {
+          descriptor: lifecycle.TaskLifecycleService.method.resume,
+          result: create(lifecycle.ResumeResultSchema, {
+            outcome: {
+              case: "success",
+              value: {
+                outcome: {
+                  case: "noOp",
+                  value: { currentNodes: [{ nodeId: "node-1", sessionId: "session-1" }] },
+                },
+              },
+            },
+          }),
         },
-      }),
-    ).toMatchObject({
+      ]),
+      unexpectedProjectOverflow,
+    );
+    await expect(client.resumeTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "no_op",
       noOp: { currentNodes: [{ nodeID: "node-1", sessionID: "session-1" }] },
     });
   });
 
-  it("parses every Manual Move preview outcome and same-current no-op", () => {
-    expect(
-      taskMoveResponseSchema.parse({
-        outcome: "no_op",
-        no_op: {
-          current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-          retained_previous_worktree: null,
-        },
+  it("maps Manual Move preview outcomes and same-current no-op", async () => {
+    const unchanged = moveClient(
+      create(lifecycle.MoveSuccessSchema, {
+        outcome: { case: "noOp", value: { currentNodes: [{ nodeId: "node-1" }] } },
       }),
-    ).toMatchObject({ outcome: "no_op", noOp: { retainedPreviousWorktree: null } });
-    expect(
-      taskMovePreviewResponseSchema.parse({
-        outcome: "no_op",
-        no_op: { current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }] },
-      }),
-    ).toEqual({
+    );
+    await expect(unchanged.moveTask({ taskID: "task-1", targetNodeID: "node-1" })).resolves.toMatchObject({
       outcome: "no_op",
-      noOp: {
-        currentNodes: [
-          {
-            effectiveAssignee: null,
-            effectiveThinking: null,
-            nodeID: "node-1",
-            transitionBranchKey: null,
-            sessionID: null,
-          },
-        ],
-      },
+      noOp: { currentNodes: [{ nodeID: "node-1" }] },
     });
-    expect(taskMovePreviewResponseSchema.parse({ outcome: "direct", direct: {} })).toEqual({
-      outcome: "direct",
-      direct: {},
-    });
-    expect(
-      taskMovePreviewResponseSchema.parse({
-        outcome: "blocked",
-        blocked: { reason: "lifecycle_conflict" },
+    for (const response of [
+      create(lifecycle.MovePreviewSuccessSchema, { outcome: { case: "direct", value: {} } }),
+      create(lifecycle.MovePreviewSuccessSchema, {
+        outcome: { case: "blocked", value: { reason: lifecycle.MovePreviewBlocker.LIFECYCLE_CONFLICT } },
       }),
-    ).toEqual({ outcome: "blocked", blocked: { reason: "lifecycle_conflict" } });
+    ]) {
+      const result = await previewClient(response).previewMoveTask("task-1", "node-2");
+      expect(result.outcome).toBe(response.outcome.case);
+    }
   });
 
-  it("rejects malformed lifecycle responses and empty applied Current Nodes", () => {
-    const schemas = [taskStartResponseSchema, taskMoveResponseSchema, taskApproveResponseSchema];
-    for (const schema of schemas) {
-      expect(() =>
-        schema.parse({
-          outcome: "applied",
-          applied:
-            schema === taskApproveResponseSchema
-              ? { task_id: "task-1", current_nodes: [] }
-              : { current_nodes: [] },
-        }),
-      ).toThrow();
-      expect(() =>
-        schema.parse({
-          outcome: "selection_required",
-          selection_required: { reason: "policy_requires_selection", extra: true },
-        }),
-      ).toThrow();
-    }
+  it("preserves whitespace in resolved Manual Move values", async () => {
+    const resolvedValue = "  indented code\n ";
+    const client = previewClient(
+      create(lifecycle.MovePreviewSuccessSchema, {
+        outcome: {
+          case: "transition",
+          value: {
+            choices: [
+              {
+                transitionKey: "next",
+                label: "Next",
+                sourceNodeDisplayName: "Plan",
+                requiredValues: [
+                  { nodeKey: "plan", outputName: "summary", description: "Summary", resolvedValue },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    await expect(client.previewMoveTask("task-1", "node-2")).resolves.toMatchObject({
+      transition: { choices: [{ requiredValues: [{ resolvedValue }] }] },
+    });
+  });
+
+  it("rejects blank Manual Move descriptions", async () => {
+    const client = previewClient(
+      create(lifecycle.MovePreviewSuccessSchema, {
+        outcome: {
+          case: "transition",
+          value: {
+            choices: [
+              {
+                transitionKey: "next",
+                label: "Next",
+                sourceNodeDisplayName: "Plan",
+                requiredValues: [{ nodeKey: "plan", outputName: "summary", description: " \t" }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    await expect(client.previewMoveTask("task-1", "node-2")).rejects.toThrow();
+  });
+
+  it("rejects empty applied Current Nodes", async () => {
+    const client = moveClient(
+      create(lifecycle.MoveSuccessSchema, { outcome: { case: "applied", value: {} } }),
+    );
+    await expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).rejects.toThrow();
   });
 });

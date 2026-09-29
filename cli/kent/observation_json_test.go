@@ -13,6 +13,7 @@ import (
 	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -59,8 +60,7 @@ func TestTaskObservationJSONUsageWritesExactlyOneObjectAndNoStderr(t *testing.T)
 	if code := taskObservationSubcommand(
 		[]string{"--json", "--unknown", "task-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
 		&stdout,
-		&stderr,
-		serverapi.WorkflowTaskObservationWait,
+		&stderr, taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	); code != 2 || stderr.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -136,16 +136,18 @@ func TestProjectTaskObservationJSONPreservesQuestionNodeAndKeepsDoneEmpty(t *tes
 	typedSessionID := runtimeids.NewSessionID()
 	sessionID := typedSessionID.String()
 	nodeKey := "build"
-	envelope, _, err := projectTaskObservationJSON("task-id", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "response-task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{
-			{Kind: serverapi.WorkflowTaskObservationDone, SessionID: &sessionID, NodeKey: &nodeKey},
-			{Kind: serverapi.WorkflowTaskObservationQuestion, SessionID: &sessionID, NodeKey: &nodeKey,
-				Question: &serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
+	envelope, _, err := projectTaskObservationJSON("task-id", &taskpb.ObserveSuccess{
+		TaskId: "response-task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{
+			{Outcome: &taskpb.ObserveOutcome_Done{Done: &taskpb.ObserveDone{SessionId: &sessionID, NodeKey: &nodeKey}}},
+			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{SessionId: &sessionID, NodeKey: &nodeKey,
+				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
 					ToolCallID: "ask", SessionID: typedSessionID, StepID: questionCommandStepID(),
 					Options:       []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
 					AccessTargets: []clientui.FileAccessTarget{{RequestedPath: "/alias/file", ResolvedPath: "/real/file"}},
-				}}},
+					CreatedAt:     time.UnixMilli(1),
+				}}),
+			}}},
 		},
 	})
 	if err != nil {
@@ -190,12 +192,12 @@ func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T
 	if err := json.Unmarshal(rawNoFinal, &noFinalJSON); err != nil || noFinalJSON["status"] != "success" {
 		t.Fatalf("no-final JSON = %s, err=%v", rawNoFinal, err)
 	}
-	task, code, err := projectTaskObservationJSON("task-id", serverapi.WorkflowTaskObservationResponse{
-		TaskID:      "response-task",
-		TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{
-			{Kind: serverapi.WorkflowTaskObservationInterrupted, Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "stopped"}},
-			{Kind: serverapi.WorkflowTaskObservationExecutionError, Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "failed"}},
+	task, code, err := projectTaskObservationJSON("task-id", &taskpb.ObserveSuccess{
+		TaskId:      "response-task",
+		TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{
+			{Outcome: &taskpb.ObserveOutcome_Interrupted{Interrupted: &taskpb.ObserveFailure{Failure: &promptpb.LiveWatchFailure{Reason: "stopped"}}}},
+			{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{Failure: &promptpb.LiveWatchFailure{Reason: "failed"}}}},
 		},
 	})
 	if err != nil || code != 1 || task.Status != "error" {
@@ -250,13 +252,12 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 
 func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 	sessionID, scriptPath, nodeKey := "session", "script.sh", "build"
-	envelope, _, err := projectTaskObservationJSON("task", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{{
-			Kind:      serverapi.WorkflowTaskObservationExecutionError,
-			SessionID: &sessionID, ScriptPath: &scriptPath, NodeKey: &nodeKey,
-			Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "failed"},
-		}},
+	envelope, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
+		TaskId: "task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{
+			SessionId: &sessionID, ScriptPath: &scriptPath, NodeKey: &nodeKey,
+			Failure: &promptpb.LiveWatchFailure{Reason: "failed"},
+		}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -281,11 +282,9 @@ func TestMalformedObservationProjectionReturnsError(t *testing.T) {
 	if _, _, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_Question{Question: nil}}}); err == nil {
 		t.Fatal("Run malformed question unexpectedly projected successfully")
 	}
-	if _, _, err := projectTaskObservationJSON("task", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{{
-			Kind: serverapi.WorkflowTaskObservationExecutionError,
-		}},
+	if _, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
+		TaskId: "task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{}}}},
 	}); err == nil {
 		t.Fatal("Task malformed failure unexpectedly projected successfully")
 	}

@@ -33,7 +33,7 @@ func TestWorkflowCurrentNodeProjectsMaterializedAgentSelection(t *testing.T) {
 	if projected.EffectiveThinking == nil || *projected.EffectiveThinking != "max" {
 		t.Fatalf("effective thinking = %v, want max", projected.EffectiveThinking)
 	}
-	if projected.NodeID == "" {
+	if projected.NodeId == "" {
 		t.Fatal("projected node id is blank")
 	}
 }

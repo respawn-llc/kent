@@ -792,7 +792,7 @@ describe("Desktop Chat mutation adapter", () => {
     await chat.steer(sessionTarget, { kind: "text", text: "continue" });
     await chat.queue(newChatTarget, {
       kind: "command",
-      catalogIdentity: "builtin:review",
+      catalogIdentity: "prompt:review",
       token: "/review",
       separatorWhitespace: "\t",
       arguments: "working tree",
@@ -826,7 +826,7 @@ describe("Desktop Chat mutation adapter", () => {
           input: {
             case: "command",
             value: {
-              catalogIdentity: "builtin:review",
+              catalogIdentity: "prompt:review",
               token: "/review",
               separatorWhitespace: "\t",
               arguments: "working tree",
@@ -865,7 +865,7 @@ describe("Desktop Chat mutation adapter", () => {
           input: {
             case: "command",
             value: {
-              catalogIdentity: "builtin:review",
+              catalogIdentity: "prompt:review",
               token: "/review",
               separatorWhitespace: "\t",
               arguments: "working tree",

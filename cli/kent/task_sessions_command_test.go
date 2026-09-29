@@ -8,29 +8,29 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type taskSessionsCommandStub struct {
 	apicontract.ProjectViewService
 	apicontract.WorkflowService
-	getRequests  []serverapi.WorkflowTaskGetRequest
-	listRequests []serverapi.WorkflowTaskOffsetPageRequest
-	response     serverapi.WorkflowTaskSessionListResponse
+	getRequests  []*taskpb.GetRequest
+	listRequests []*taskpb.TaskOffsetPageRequest
+	response     *taskpb.SessionListSuccess
 }
 
-func (s *taskSessionsCommandStub) GetWorkflowTask(_ context.Context, request serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+func (s *taskSessionsCommandStub) GetWorkflowTask(_ context.Context, request *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
 	s.getRequests = append(s.getRequests, request)
-	taskID := request.TaskID
-	if taskID == "" {
-		taskID = s.response.TaskID
+	taskID := s.response.TaskId
+	if request.TaskId != nil {
+		taskID = *request.TaskId
 	}
-	return serverapi.WorkflowTaskGetResponse{
-		Task: serverapi.WorkflowTaskDetail{Summary: serverapi.WorkflowTaskSummary{ID: taskID}},
+	return &taskpb.GetSuccess{
+		Task: &taskpb.TaskDetail{Summary: &taskpb.TaskSummary{Id: taskID}},
 	}, nil
 }
 
-func (s *taskSessionsCommandStub) ListWorkflowTaskSessions(_ context.Context, request serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskSessionListResponse, error) {
+func (s *taskSessionsCommandStub) ListWorkflowTaskSessions(_ context.Context, request *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
 	s.listRequests = append(s.listRequests, request)
 	return s.response, nil
 }
@@ -40,11 +40,11 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 	nodeName := "Review"
 	exactID := "session-4"
 	nextOffset := 4
-	response := taskSessionsResponse([]serverapi.WorkflowTaskSessionItem{
-		{SessionID: "session-1", SessionName: &sessionName, AgentRole: "coder", Status: serverapi.WorkflowTaskSessionStatusRunning},
-		{SessionID: "session-2", NodeName: &nodeName, AgentRole: "reviewer", Status: serverapi.WorkflowTaskSessionStatusQuestion},
-		{SessionID: "session-3", AgentRole: "coder", Status: serverapi.WorkflowTaskSessionStatusIdle},
-		{SessionID: exactID, SessionName: &exactID, AgentRole: "coder", Status: serverapi.WorkflowTaskSessionStatusIdle},
+	response := taskSessionsResponse([]*taskpb.SessionItem{
+		{SessionId: "session-1", SessionName: &sessionName, AgentRole: "coder", Status: taskpb.SessionStatus_SESSION_STATUS_RUNNING},
+		{SessionId: "session-2", NodeName: &nodeName, AgentRole: "reviewer", Status: taskpb.SessionStatus_SESSION_STATUS_QUESTION},
+		{SessionId: "session-3", AgentRole: "coder", Status: taskpb.SessionStatus_SESSION_STATUS_IDLE},
+		{SessionId: exactID, SessionName: &exactID, AgentRole: "coder", Status: taskpb.SessionStatus_SESSION_STATUS_IDLE},
 	}, &nextOffset)
 	var stdout, stderr bytes.Buffer
 	if code := writeTaskSessionsResponse(&stdout, &stderr, response, false); code != 0 {
@@ -64,11 +64,7 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 			t.Fatalf("row %d = %q, want selected label %q", index, lines[index], required)
 		}
 	}
-	for _, status := range []serverapi.WorkflowTaskSessionStatus{
-		serverapi.WorkflowTaskSessionStatusRunning,
-		serverapi.WorkflowTaskSessionStatusQuestion,
-		serverapi.WorkflowTaskSessionStatusIdle,
-	} {
+	for _, status := range []taskpb.SessionStatus{taskpb.SessionStatus_SESSION_STATUS_RUNNING, taskpb.SessionStatus_SESSION_STATUS_QUESTION, taskpb.SessionStatus_SESSION_STATUS_IDLE} {
 		label, err := taskSessionStatusText(status)
 		if err != nil || label == "" {
 			t.Fatalf("status %q mapped to %q, error=%v", status, label, err)
@@ -82,15 +78,15 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := writeTaskSessionsResponse(&stdout, &stderr, taskSessionsResponse([]serverapi.WorkflowTaskSessionItem{}, nil), false); code != 0 ||
+	if code := writeTaskSessionsResponse(&stdout, &stderr, taskSessionsResponse([]*taskpb.SessionItem{}, nil), false); code != 0 ||
 		stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("empty human exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 
 	controlName := "Review\nLine\r\t\x1b\u2028"
-	controlResponse := taskSessionsResponse([]serverapi.WorkflowTaskSessionItem{{
-		SessionID: "session-1", SessionName: &controlName, AgentRole: "coder",
-		Status: serverapi.WorkflowTaskSessionStatusRunning,
+	controlResponse := taskSessionsResponse([]*taskpb.SessionItem{{
+		SessionId: "session-1", SessionName: &controlName, AgentRole: "coder",
+		Status: taskpb.SessionStatus_SESSION_STATUS_RUNNING,
 	}}, nil)
 	if code := writeTaskSessionsResponse(&stdout, &stderr, controlResponse, false); code != 0 ||
 		bytes.Count(stdout.Bytes(), []byte{'\n'}) != 1 ||
@@ -109,7 +105,11 @@ func TestWriteTaskSessionsResponse(t *testing.T) {
 	if code := writeTaskSessionsResponse(&stdout, &stderr, controlResponse, true); code != 0 {
 		t.Fatalf("JSON exit=%d stderr=%q", code, stderr.String())
 	}
-	var decoded serverapi.WorkflowTaskSessionListResponse
+	var decoded struct {
+		Items []struct {
+			SessionName *string `json:"session_name"`
+		} `json:"items"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil ||
 		decoded.Items[0].SessionName == nil || *decoded.Items[0].SessionName != controlName {
 		t.Fatalf("decoded=%+v err=%v", decoded, err)
@@ -130,8 +130,8 @@ func TestRunTaskSessionsResolvesSelectors(t *testing.T) {
 		{name: "internal ID", selector: "task-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", projectRef: "ignored", taskID: "task-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			stub := &taskSessionsCommandStub{response: taskSessionsResponse([]serverapi.WorkflowTaskSessionItem{}, nil)}
-			stub.response.TaskID = test.taskID
+			stub := &taskSessionsCommandStub{response: taskSessionsResponse([]*taskpb.SessionItem{}, nil)}
+			stub.response.TaskId = test.taskID
 			var stdout, stderr bytes.Buffer
 			if code := runTaskSessions(
 				t.Context(), config.App{}, stub, stub, test.projectRef, test.selector, 3, 7, false, &stdout, &stderr,
@@ -139,15 +139,15 @@ func TestRunTaskSessionsResolvesSelectors(t *testing.T) {
 				t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 			}
 			request := stub.listRequests[0]
-			if request.TaskID != test.taskID || request.Offset == nil || *request.Offset != 3 ||
+			if request.TaskId != test.taskID || request.Offset == nil || *request.Offset != 3 ||
 				request.Limit == nil || *request.Limit != 7 {
 				t.Fatalf("get=%+v list=%+v", stub.getRequests, stub.listRequests)
 			}
 			get := stub.getRequests[0]
-			if test.name == "short ID" && (get.ProjectID != "project-1" || get.ShortID != "KENT-1") {
+			if test.name == "short ID" && (get.GetProjectId() != "project-1" || get.GetShortId() != "KENT-1") {
 				t.Fatalf("short-ID request=%+v", get)
 			}
-			if test.name == "internal ID" && get.TaskID != test.taskID {
+			if test.name == "internal ID" && get.GetTaskId() != test.taskID {
 				t.Fatalf("internal-ID request=%+v", get)
 			}
 		})
@@ -185,13 +185,13 @@ func TestTaskSessionsCommandValidationAndHelp(t *testing.T) {
 }
 
 func taskSessionsResponse(
-	items []serverapi.WorkflowTaskSessionItem,
+	items []*taskpb.SessionItem,
 	nextOffset *int,
-) serverapi.WorkflowTaskSessionListResponse {
-	return serverapi.WorkflowTaskSessionListResponse{
-		TaskID: "task-1",
-		WorkflowOffsetPage: serverapi.WorkflowOffsetPage[serverapi.WorkflowTaskSessionItem]{
-			Items: items, NextOffset: nextOffset,
-		},
+) *taskpb.SessionListSuccess {
+	var next *int32
+	if nextOffset != nil {
+		value := int32(*nextOffset)
+		next = &value
 	}
+	return &taskpb.SessionListSuccess{TaskId: "task-1", Items: items, NextOffset: next}
 }

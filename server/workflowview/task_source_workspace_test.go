@@ -5,7 +5,8 @@ import (
 
 	"core/internal/testharness/workflowfixture"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestTaskSourceReadsAttachedWorkspaceBeyondFormerLimit(t *testing.T) {
@@ -85,9 +86,9 @@ func TestTaskSourceRejectsInvalidHistoricalFacts(t *testing.T) {
 		if _, err := f.detail.GetTask(f.ctx, string(started.task.ID)); err == nil {
 			t.Error("Task Detail accepted invalid historical facts")
 		}
-		if _, err := f.board.ListNodeCards(f.ctx, serverapi.WorkflowBoardNodeCardsListRequest{
-			ProjectID: f.binding.ProjectID, WorkflowID: f.workflowID, NodeID: string(f.agentNodeID), PageSize: 20,
-			LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+		if _, err := f.board.ListNodeCards(f.ctx, &taskpb.BoardNodeCardsListRequest{
+			ProjectId: f.binding.ProjectID, WorkflowId: f.workflowID.String(), NodeId: string(f.agentNodeID), PageSize: 20,
+			LabelFilter: noLabelFilter(),
 		}); err == nil {
 			t.Error("Board accepted invalid historical facts")
 		}
@@ -109,9 +110,9 @@ func assertTaskSource(t *testing.T, f currentNodeViewFixture, task workflowstore
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.board.ListNodeCards(f.ctx, serverapi.WorkflowBoardNodeCardsListRequest{
-		ProjectID: f.binding.ProjectID, WorkflowID: f.workflowID, NodeID: nodeID, PageSize: 20,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
+	page, err := f.board.ListNodeCards(f.ctx, &taskpb.BoardNodeCardsListRequest{
+		ProjectId: f.binding.ProjectID, WorkflowId: f.workflowID.String(), NodeId: nodeID, PageSize: 20,
+		LabelFilter: noLabelFilter(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,12 +120,16 @@ func assertTaskSource(t *testing.T, f currentNodeViewFixture, task workflowstore
 	if len(page.Cards) != 1 {
 		t.Fatalf("cards = %+v", page.Cards)
 	}
-	for _, source := range []serverapi.ProjectWorkspaceSummary{detail.SourceWorkspace, page.Cards[0].SourceWorkspace} {
-		if source.WorkspaceID != workspaceID || source.RootPath != root || source.Availability != availability {
+	for _, source := range []*taskpb.TaskSourceWorkspace{detail.SourceWorkspace, page.Cards[0].SourceWorkspace} {
+		actualAvailability, err := protoapi.ProjectAvailabilityFromProto(source.Availability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source.WorkspaceId != workspaceID || source.RootPath != root || string(actualAvailability) != availability {
 			t.Errorf("source = %+v; want %s %s %s", source, workspaceID, root, availability)
 		}
 	}
-	if detail.Project.DefaultWorkspaceID != f.binding.WorkspaceID {
-		t.Fatalf("default = %s", detail.Project.DefaultWorkspaceID)
+	if detail.Project.DefaultWorkspaceId != f.binding.WorkspaceID {
+		t.Fatalf("default = %s", detail.Project.DefaultWorkspaceId)
 	}
 }

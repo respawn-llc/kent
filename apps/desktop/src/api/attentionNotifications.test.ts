@@ -1,420 +1,259 @@
-import { unexpectedProjectOverflow } from "@/test-support/api";
+import { create } from "@app/server-api-contract";
+import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import type { AttentionNotificationEvent } from "./attentionNotifications";
-import { ContractError } from "./errors";
-import { FakeRpcTransport } from "@/test-support/api";
+
+const service = pb.AttentionNotificationService.method;
+const occurredAt = { seconds: 1_789_578_000n, nanos: 0 };
+const sessionTarget = create(pb.AttentionNotificationTargetSchema, {
+  kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
+  target: { case: "sessionPrompt", value: { projectId: "project-1", sessionId: "session-1" } },
+});
+const question = create(pb.AttentionNotificationSchema, {
+  id: { kind: pb.AttentionNotificationKind.QUESTION, uuid: "batch-1" },
+  kind: pb.AttentionNotificationKind.QUESTION,
+  occurredAt,
+  revision: 1n,
+  target: sessionTarget,
+  state: {
+    case: "question",
+    value: {
+      preparedAskIds: ["ask-1", "ask-2"],
+      materializedAskIds: ["ask-1"],
+      currentUnresolvedAskIds: ["ask-1"],
+      displayCount: 2,
+      materializedCount: 1,
+    },
+  },
+});
+
+function observe() {
+  const transport = new FakeRpcTransport([
+    {
+      subscriptionDescriptor: service.subscribe,
+      startResult: create(pb.AttentionNotificationStartResultSchema, {
+        outcome: { case: "success", value: {} },
+      }),
+    },
+  ]);
+  const events: AttentionNotificationEvent[] = [];
+  const errors: Error[] = [];
+  const subscription = new ApiClient(transport, unexpectedProjectOverflow).subscribeAttentionNotifications({
+    onEvent: (event) => events.push(event),
+    onError: (error) => errors.push(error),
+    onComplete() {
+      return;
+    },
+  });
+  return { transport, events, errors, subscription };
+}
+
+function pending(transport: FakeRpcTransport, value: pb.AttentionNotification) {
+  transport.emitDescriptor(
+    service.subscribe,
+    service.event,
+    create(pb.AttentionNotificationEventSchema, {
+      sequence: 1n,
+      type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_PENDING,
+      payload: { case: "pending", value },
+    }),
+  );
+}
+
+function taskTarget(focus: pb.AttentionNotificationTaskFocus) {
+  return create(pb.AttentionNotificationTargetSchema, {
+    kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
+    target: {
+      case: "workflowTask",
+      value: {
+        projectId: "project-1",
+        workflowId: "11111111-1111-4111-8111-111111111111",
+        taskId: "task-1",
+        taskShortId: "T-1",
+        currentNodeId: "node-1",
+        focus,
+      },
+    },
+  });
+}
 
 describe("attention notification API", () => {
-  it("delivers ordinary Session questions and their resolution", () => {
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const events: AttentionNotificationEvent[] = [];
-    const errors: Error[] = [];
-    client.subscribeAttentionNotifications({
-      onEvent: (event) => events.push(event),
-      onError: (error) => errors.push(error),
-      onComplete() {
-        return;
-      },
-    });
-    const id = { kind: "question", uuid: "session-ask" };
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 1,
-        pending: {
-          id,
-          kind: "question",
-          occurred_at: "2026-09-16T17:17:40Z",
-          revision: 1,
-          question: {
-            prepared_ask_ids: ["session-ask"],
-            materialized_ask_ids: ["session-ask"],
-            current_unresolved_ask_ids: ["session-ask"],
-            skipped_ask_ids: [],
-            display_count: 1,
-            materialized_count: 1,
-          },
-          target: {
-            kind: "session_prompt",
-            project_id: "project-1",
-            session_id: "session-1",
-          },
-        },
-      },
-    });
-    transport.emit("attention.notification", {
-      event: {
-        type: "resolved",
-        sequence: 2,
-        id,
-        kind: "question",
-        occurred_at: "2026-09-16T17:18:40Z",
-      },
-    });
+  it("delivers Session Questions and resolution with Project and Session navigation identity", () => {
+    const { transport, events, errors } = observe();
+    pending(transport, question);
+    transport.emitDescriptor(
+      service.subscribe,
+      service.event,
+      create(pb.AttentionNotificationEventSchema, {
+        sequence: 2n,
+        type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_RESOLVED,
+        payload: { case: "resolved", value: { id: question.id, kind: question.kind, occurredAt } },
+      }),
+    );
     expect(errors).toEqual([]);
     expect(events).toMatchObject([
       {
         type: "pending",
+        sequence: 1,
         pending: {
-          question: { skippedAskIDs: [], currentUnresolvedAskIDs: ["session-ask"] },
+          revision: 1,
+          question: { skippedAskIDs: [], currentUnresolvedAskIDs: ["ask-1"] },
           target: { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" },
         },
       },
-      { type: "resolved", id },
+      { type: "resolved", sequence: 2, id: { kind: "question", uuid: "batch-1" } },
+    ]);
+    expect(() => {
+      pending(
+        transport,
+        create(pb.AttentionNotificationSchema, {
+          ...question,
+          target: create(pb.AttentionNotificationTargetSchema, {
+            kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
+            target: { case: "sessionPrompt", value: { sessionId: "session-1" } },
+          }),
+        }),
+      );
+    }).toThrow();
+  });
+
+  it("delivers Task Question batches and reports malformed binary events", () => {
+    const { transport, events, errors } = observe();
+    pending(
+      transport,
+      create(pb.AttentionNotificationSchema, {
+        ...question,
+        target: taskTarget(
+          create(pb.AttentionNotificationTaskFocusSchema, {
+            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
+            focus: { case: "question", value: { askIds: ["ask-2", "ask-1"] } },
+          }),
+        ),
+      }),
+    );
+    expect(events).toMatchObject([
+      {
+        type: "pending",
+        pending: {
+          question: { displayCount: 2, materializedCount: 1 },
+          target: { kind: "workflow_task", focus: { kind: "question", askIDs: ["ask-2", "ask-1"] } },
+        },
+      },
+    ]);
+    transport.emitDescriptorBytes(service.subscribe, new Uint8Array([0xff]));
+    expect(errors).toHaveLength(1);
+    expect(events).toHaveLength(1);
+  });
+
+  it("preserves structured Approval access targets without inventing a message", () => {
+    const { transport, events } = observe();
+    pending(
+      transport,
+      create(pb.AttentionNotificationSchema, {
+        id: { kind: pb.AttentionNotificationKind.APPROVAL, uuid: "approval-1" },
+        kind: pb.AttentionNotificationKind.APPROVAL,
+        occurredAt,
+        revision: 1n,
+        target: sessionTarget,
+        state: {
+          case: "approval",
+          value: {
+            accessTargets: [
+              { requestedPath: " /alias/a ", resolvedPath: " /real/file " },
+              { requestedPath: "/alias/b", resolvedPath: "/real/file" },
+            ],
+          },
+        },
+      }),
+    );
+    expect(events).toMatchObject([
+      {
+        type: "pending",
+        pending: {
+          approval: {
+            message: undefined,
+            accessTargets: [
+              { requestedPath: " /alias/a ", resolvedPath: " /real/file " },
+              { requestedPath: "/alias/b", resolvedPath: "/real/file" },
+            ],
+          },
+          target: { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" },
+        },
+      },
     ]);
   });
 
-  it("subscribes to typed attention notifications and rejects malformed events at the API boundary", () => {
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const events: AttentionNotificationEvent[] = [];
-    const errors: Error[] = [];
-
-    client.subscribeAttentionNotifications({
-      onEvent(event) {
-        events.push(event);
-      },
-      onComplete() {
-        return;
-      },
-      onError(error) {
-        errors.push(error);
-      },
-    });
-
-    expect(transport.subscriptions).toContainEqual({
-      method: "attention.notification.subscribe",
-      params: {},
-    });
-    transport.emit("attention.notification", {
-      event: {
+  it("keeps Workflow Approval and interrupted Current Node states distinct", () => {
+    const { transport, events } = observe();
+    pending(
+      transport,
+      create(pb.AttentionNotificationSchema, {
+        id: { kind: pb.AttentionNotificationKind.WORKFLOW_APPROVAL, uuid: "approval-1" },
+        kind: pb.AttentionNotificationKind.WORKFLOW_APPROVAL,
+        occurredAt,
+        revision: 1n,
+        state: { case: "workflowApproval", value: { approvalId: "approval-1" } },
+        target: taskTarget(
+          create(pb.AttentionNotificationTaskFocusSchema, {
+            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
+            focus: { case: "approval", value: { approvalId: "approval-1" } },
+          }),
+        ),
+      }),
+    );
+    pending(
+      transport,
+      create(pb.AttentionNotificationSchema, {
+        id: { kind: pb.AttentionNotificationKind.INTERRUPTED_CURRENT_NODE, uuid: "node-1" },
+        kind: pb.AttentionNotificationKind.INTERRUPTED_CURRENT_NODE,
+        occurredAt,
+        revision: 1n,
+        state: { case: "interruptedCurrentNode", value: { reason: "workflow_runtime_failed" } },
+        target: taskTarget(
+          create(pb.AttentionNotificationTaskFocusSchema, {
+            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_INTERRUPTED_CURRENT_NODE,
+            focus: { case: "interruptedCurrentNode", value: {} },
+          }),
+        ),
+      }),
+    );
+    expect(events).toMatchObject([
+      {
         type: "pending",
-        sequence: 1,
         pending: {
-          id: { kind: "question", uuid: "batch-1" },
-          kind: "question",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          question: {
-            prepared_ask_ids: ["ask-1", "ask-2"],
-            materialized_ask_ids: ["ask-1"],
-            current_unresolved_ask_ids: ["ask-1"],
-            skipped_ask_ids: [],
-            preview: "question from agent",
-            display_count: 2,
-            materialized_count: 1,
-          },
-          target: {
-            kind: "workflow_task",
-            project_id: "project-1",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-            task_id: "task-1",
-            task_short_id: "KT-1",
-            task_title: "Needs answer",
-            session_id: "session-1",
-            current_node_id: "node-1",
-            focus: { kind: "question", ask_ids: ["ask-2", "ask-1"] },
-          },
+          approval: null,
+          workflowApproval: { approvalID: "approval-1" },
+          target: { focus: { kind: "approval", approvalID: "approval-1" } },
         },
       },
-    });
-
-    expect(events).toHaveLength(1);
-    const event = events[0];
-    if (event?.type !== "pending") {
-      throw new Error("Expected parsed attention pending event.");
-    }
-    expect(event.pending.id).toEqual({ kind: "question", uuid: "batch-1" });
-    expect(event.pending.question?.displayCount).toBe(2);
-    if (event.pending.target.kind !== "workflow_task") {
-      throw new Error("Expected workflow-task attention target.");
-    }
-    expect(event.pending.target.focus).toEqual({ kind: "question", askIDs: ["ask-2", "ask-1"] });
-
-    transport.emit("attention.notification", {
-      event: {
+      {
         type: "pending",
-        sequence: 2,
         pending: {
-          id: "broken",
-          kind: "question",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          target: { kind: "workflow_task", task_id: "task-1" },
+          question: null,
+          interruptedCurrentNode: { reason: "workflow_runtime_failed" },
+          target: { focus: { kind: "interrupted_current_node" } },
         },
       },
-    });
-
-    expect(errors[0]).toBeInstanceOf(ContractError);
-    const error = errors[0];
-    if (!(error instanceof ContractError)) throw new Error("Expected contract diagnostics.");
-    expect(error.diagnostics).toContainEqual({
-      code: "invalid_type",
-      path: ["event", "pending", "id"],
-    });
-
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 3,
-        pending: {
-          id: { kind: "question", uuid: "prefixed" },
-          kind: "question",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          question: {
-            prepared_ask_ids: ["ask-1"],
-            materialized_ask_ids: ["ask-1"],
-            current_unresolved_ask_ids: ["ask-1"],
-            skipped_ask_ids: [],
-            display_count: 1,
-            materialized_count: 1,
-          },
-          target: {
-            kind: "workflow_task",
-            workflow_id: "workflow-11111111-1111-4111-8111-111111111111",
-            task_id: "task-1",
-            focus: { kind: "question", ask_ids: ["ask-1"] },
-          },
-        },
-      },
-    });
-    expect(errors[1]).toBeInstanceOf(ContractError);
-
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 4,
-        pending: {
-          id: { kind: "question", uuid: "future" },
-          kind: "future_attention",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          target: { kind: "future_target" },
-        },
-      },
-    });
-
-    expect(events).toHaveLength(1);
-    expect(errors).toHaveLength(3);
-    expect(errors[2]).toBeInstanceOf(ContractError);
-  });
-
-  it("parses generic and Workflow Approvals as distinct payloads", () => {
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const events: AttentionNotificationEvent[] = [];
-
-    client.subscribeAttentionNotifications({
-      onEvent(event) {
-        events.push(event);
-      },
-      onComplete() {
-        return;
-      },
-      onError(error) {
-        throw error;
-      },
-    });
-
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 1,
-        pending: {
-          id: { kind: "approval", uuid: "model-approval-1" },
-          kind: "approval",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          approval: { access_targets: [{ requested_path: "../outside.txt", resolved_path: "/outside.txt" }] },
-          target: {
-            kind: "session_prompt",
-            project_id: "project-1",
-            session_id: "session-1",
-          },
-        },
-      },
-    });
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 2,
-        pending: {
-          id: { kind: "workflow_approval", uuid: "approval-notification-1" },
-          kind: "workflow_approval",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          workflow_approval: { approval_id: "approval-1" },
-          target: {
-            kind: "workflow_task",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-            task_id: "task-1",
-            focus: { kind: "approval", approval_id: "approval-1" },
-          },
-        },
-      },
-    });
-
-    const genericApproval = events[0];
-    if (genericApproval?.type !== "pending" || genericApproval.pending.target.kind !== "session_prompt") {
-      throw new Error("Expected parsed generic approval attention pending event.");
-    }
-    expect(genericApproval.pending.approval?.accessTargets).toEqual([
-      { requestedPath: "../outside.txt", resolvedPath: "/outside.txt" },
     ]);
-    expect(genericApproval.pending.workflowApproval).toBeNull();
-    expect(genericApproval.pending.target).toEqual({
-      kind: "session_prompt",
-      projectID: "project-1",
-      sessionID: "session-1",
-    });
-
-    const workflowApproval = events[1];
-    if (workflowApproval?.type !== "pending" || workflowApproval.pending.target.kind !== "workflow_task") {
-      throw new Error("Expected parsed Workflow Approval attention pending event.");
-    }
-    expect(workflowApproval.pending.approval).toBeNull();
-    expect(workflowApproval.pending.workflowApproval?.approvalID).toBe("approval-1");
-    expect(workflowApproval.pending.target.focus).toEqual({ kind: "approval", approvalID: "approval-1" });
   });
 
-  it("parses interrupted-current-node attention notifications", () => {
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const events: AttentionNotificationEvent[] = [];
-
-    client.subscribeAttentionNotifications({
-      onEvent(event) {
-        events.push(event);
-      },
-      onComplete() {
-        return;
-      },
-      onError(error) {
-        throw error;
-      },
-    });
-
-    transport.emit("attention.notification", {
-      event: {
-        type: "pending",
-        sequence: 1,
-        pending: {
-          id: { kind: "interrupted_current_node", uuid: "node-1" },
-          kind: "interrupted_current_node",
-          occurred_at: "2026-06-29T12:00:00Z",
-          revision: 1,
-          interrupted_current_node: {
-            message: "Current Node interrupted",
-            reason: "workflow_runtime_failed",
-          },
-          target: {
-            kind: "workflow_task",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-            task_id: "task-1",
-            current_node_id: "node-1",
-            focus: { kind: "interrupted_current_node" },
-          },
-        },
-      },
-    });
-
-    const event = events[0];
-    if (event?.type !== "pending" || event.pending.target.kind !== "workflow_task") {
-      throw new Error("Expected parsed interrupted-current-node attention pending event.");
-    }
-    expect(event.pending.kind).toBe("interrupted_current_node");
-    expect(event.pending.question).toBeNull();
-    expect(event.pending.target.focus).toEqual({ kind: "interrupted_current_node" });
-  });
-
-  it("rejects incoherent attention payloads and targets", () => {
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const errors: Error[] = [];
-
-    client.subscribeAttentionNotifications({
-      onEvent() {
-        throw new Error("Incoherent attention notification must not reach the UI.");
-      },
-      onComplete() {
-        return;
-      },
-      onError(error) {
-        errors.push(error);
-      },
-    });
-
-    const question = {
-      id: { kind: "question", uuid: "question-1" },
-      kind: "question",
-      occurred_at: "2026-06-29T12:00:00Z",
-      revision: 1,
-      question: {
-        prepared_ask_ids: ["ask-1"],
-        materialized_ask_ids: ["ask-1"],
-        current_unresolved_ask_ids: ["ask-1"],
-        skipped_ask_ids: [],
-        display_count: 1,
-        materialized_count: 1,
-      },
-      target: {
-        kind: "workflow_task",
-        task_id: "task-1",
-        focus: { kind: "question", ask_ids: ["ask-1"] },
-      },
-    };
-
-    const incoherentNotifications = [
-      {
-        ...question,
-        target: {
-          ...question.target,
-          focus: { kind: "question", ask_ids: ["ask-2"] },
-        },
-      },
-      {
-        ...question,
-        approval: { message: "Approve?" },
-      },
-      {
-        id: { kind: "workflow_approval", uuid: "approval-notification-1" },
-        kind: "workflow_approval",
-        occurred_at: "2026-06-29T12:00:00Z",
-        revision: 1,
-        workflow_approval: { approval_id: "approval-1" },
-        target: {
-          kind: "workflow_task",
-          task_id: "task-1",
-          focus: { kind: "approval", approval_id: "approval-2" },
-        },
-      },
-      {
-        id: { kind: "interrupted_current_node", uuid: "interrupted-1" },
-        kind: "interrupted_current_node",
-        occurred_at: "2026-06-29T12:00:00Z",
-        revision: 1,
-        interrupted_current_node: { message: "Interrupted" },
-        target: {
-          kind: "workflow_task",
-          task_id: "task-1",
-          focus: { kind: "interrupted_current_node" },
-        },
-      },
-    ];
-
-    incoherentNotifications.forEach((pending, index) => {
-      transport.emit("attention.notification", {
-        event: {
-          type: "pending",
-          sequence: index + 1,
-          pending,
-        },
-      });
-    });
-
-    expect(errors).toHaveLength(incoherentNotifications.length);
-    expect(errors.every((error) => error instanceof ContractError)).toBe(true);
+  it("rejects a Task Question focus that differs from the prepared batch", () => {
+    const { transport, events } = observe();
+    expect(() => {
+      pending(
+        transport,
+        create(pb.AttentionNotificationSchema, {
+          ...question,
+          target: taskTarget(
+            create(pb.AttentionNotificationTaskFocusSchema, {
+              kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
+              focus: { case: "question", value: { askIds: ["other-ask"] } },
+            }),
+          ),
+        }),
+      );
+    }).toThrow();
+    expect(events).toEqual([]);
   });
 });

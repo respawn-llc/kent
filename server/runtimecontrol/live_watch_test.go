@@ -21,6 +21,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func mustRuntimeControlStepID(t *testing.T) runtimeids.StepID {
@@ -42,7 +43,7 @@ func (s liveWatchPromptSourceStub) ListPendingPrompts(string) []registry.Pending
 
 type failingLiveWatchAttention struct{ err error }
 
-func (f failingLiveWatchAttention) SubscribeAttentionNotifications(context.Context, serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (f failingLiveWatchAttention) SubscribeAttentionNotifications(context.Context, *emptypb.Empty) (servicecontract.AttentionNotificationSubscription, error) {
 	return nil, f.err
 }
 

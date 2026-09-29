@@ -1,14 +1,14 @@
 import type { TFunction } from "i18next";
 import type { KeyboardEvent } from "react";
 
-import { decodeWorkflowLabelError, errorMessage, type ProjectLabel } from "@/api";
+import { WorkflowLabelError, errorMessage, type ProjectLabel } from "@/api";
 import { isTextFieldSubmitShortcut, type TextFieldSubmitShortcutPolicy } from "@/app-facade";
 import type { LabelChooserInvocation } from "./LabelChooser";
 import type { LabelFilterCondition, LabelResultRowSelection } from "./LabelChooserRows";
 import type { LabelFilterState } from "./labelFilterState";
 
 export function labelMutationErrorMessage(error: unknown, t: TFunction): string {
-  const labelError = decodeWorkflowLabelError(error);
+  const labelError = error instanceof WorkflowLabelError ? error : null;
   if (labelError === null) {
     return errorMessage(error);
   }

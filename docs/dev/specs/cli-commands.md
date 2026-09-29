@@ -439,7 +439,7 @@
 - These commands expose neither page tokens nor page numbers.
 - An omitted offset starts at the beginning. A negative offset is invalid.
 - Workflow pagination must accept offsets from 0 through 9,007,199,254,740,991 and reject larger values. Workflow continuation offsets must remain within this range.
-- Task pagination accepts any non-negative offset.
+- Task pagination must accept offsets within the [API-defined Task pagination range](server-api-contract.md#task-requests) and reject larger values.
 - `--limit` defaults to 100 and accepts 1 through 100.
 - Callers may change the limit between requests.
 - An offset at or beyond the current end succeeds with the command's empty-result output and no next offset.
@@ -504,6 +504,7 @@
 - During Execution Target replacement, Task move and resume must accept `--branch-name <name>` for the new branch without renaming the original branch.
 - When a locked original Execution Target is reusable, an explicit replacement must be rejected. Supplying only `--branch-name` must not bypass this restriction or rename the existing branch.
 - Task start, resume, approve, and move never prompt interactively.
+- When the server reports that a Task is already resumed, `kent task resume` must report the no-op and exit successfully without retrying or changing work.
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.
 - `kent task start`, `kent task resume`, and `kent task move` must report success only after the server completes preparation and commits the action's atomic cutover. They must not wait for Agent or Script execution to finish. If a command stops waiting or loses its connection, the server operation must continue; the CLI must not replay it and must direct the operator to inspect authoritative Task state.

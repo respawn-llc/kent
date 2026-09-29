@@ -1,13 +1,20 @@
 package transport
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"core/server/core"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflowstore"
+	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -15,7 +22,95 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
+
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
+
+type taskCreateConflictService struct {
+	apicontract.WorkflowService
+}
+
+func (s *taskCreateConflictService) CreateWorkflowTask(context.Context, *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	return nil, workflowstore.TaskCreateConflictError{Reason: workflowstore.TaskCreateConflictSerialization}
+}
+
+func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
+	app, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = app.Close() }()
+	gateway, err := NewGateway(&gatewayCloseDependencies{
+		GatewayDependencies: app,
+		workflow:            &taskCreateConflictService{WorkflowService: app.WorkflowClient()},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	result, err := remote.CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Concurrent creation",
+	})
+	var conflict *remoteclient.TaskCreateError
+	if result != nil || !errors.As(err, &conflict) {
+		t.Fatalf("Create = %v, %T %v; want typed conflict", result, err, err)
+	}
+	if conflict.Failure.GetCreateConflict().GetReason() != taskpb.CreateConflictReason_CREATE_CONFLICT_REASON_SERIALIZATION {
+		t.Fatalf("Create lost serialization conflict detail: %v", conflict.Failure)
+	}
+}
+
+func TestTaskDeleteBlockedWorktreeRoundTrip(t *testing.T) {
+	app, server := newGatewayTestServer(t)
+	first := createGatewaySearchableTask(t, app)
+	second, err := app.WorkflowClient().CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Other Task managing the same Worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := app.MetadataStore()
+	workspace, err := store.ResolveProjectSourceWorkspace(t.Context(), app.ProjectID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreeID := uuid.NewString()
+	if err := store.UpsertWorktreeRecord(t.Context(), metadata.WorktreeRecord{
+		ID: worktreeID, WorkspaceID: workspace.ID, CanonicalRoot: t.TempDir(), Managed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, taskID := range []string{first.Id, second.Task.Id} {
+		updated, err := store.Queries().BindInitialTaskManagedWorktree(t.Context(), sqlitegen.BindInitialTaskManagedWorktreeParams{
+			TaskID: taskID, ManagedWorktreeID: sql.NullString{String: worktreeID, Valid: true},
+			UpdatedAtUnixMs: time.Now().UnixMilli(),
+		})
+		if err != nil || updated != 1 {
+			t.Fatalf("bind managed Worktree: rows=%d error=%v", updated, err)
+		}
+	}
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = remote.Close() })
+	_, err = remote.DeleteWorkflowTask(t.Context(), &taskpb.DeleteRequest{TaskId: first.Id})
+	var blocked *worktreecontract.BlockedError
+	if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) || !errors.As(err, &blocked) || blocked.Details == nil {
+		t.Fatalf("Task deletion lost the Worktree blocker: %T %v", err, err)
+	}
+	for _, expected := range []*taskpb.TaskSummary{first, second.Task} {
+		retained, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(expected.Id)})
+		if err != nil || retained.GetTask().GetSummary().GetTitle() != expected.Title {
+			t.Fatalf("blocked deletion changed Task %q: %v, %v", expected.Id, retained, err)
+		}
+	}
+}
 
 type workflowCoreGate struct {
 	*core.Core
@@ -91,7 +186,7 @@ func requireMissingCustomRefDiagnostic(t *testing.T, results []*pb.ModeValidatio
 	t.Fatalf("missing custom-ref diagnostic: %v", results)
 }
 
-func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
+func TestWorkflowBinaryLabelsInteroperateWithTaskDetails(t *testing.T) {
 	app, server := newGatewayTestServer(t)
 	defer server.Close()
 	defer func() { _ = app.Close() }()
@@ -114,23 +209,23 @@ func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
 		t.Fatalf("duplicate label detail = %v", failure.Detail)
 	}
 	updated, err := remote.UpdateWorkflowTaskLabels(t.Context(), &taskpb.LabelsUpdateRequest{
-		TaskId: task.ID, AddLabelIds: []string{created.Label.Id},
+		TaskId: task.Id, AddLabelIds: []string{created.Label.Id},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.ID})
+	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.Id})
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := remote.GetWorkflowTask(t.Context(), serverapi.WorkflowTaskGetRequest{TaskID: task.ID})
+	detail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(task.Id)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(updated.Assignment.LabelIds, []string{created.Label.Id}) ||
 		!slices.Equal(assignment.Assignment.LabelIds, updated.Assignment.LabelIds) ||
-		!slices.Equal(detail.Task.LabelIDs, updated.Assignment.LabelIds) {
-		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIDs)
+		!slices.Equal(detail.Task.LabelIds, updated.Assignment.LabelIds) {
+		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIds)
 	}
 	normalized, err := remote.CreateWorkflowProjectLabel(t.Context(), &pb.ProjectLabelCreateRequest{
 		ProjectId: app.ProjectID(), Name: " " + strings.Repeat("e\u0301", 64) + " ",

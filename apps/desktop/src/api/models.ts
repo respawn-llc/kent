@@ -68,7 +68,7 @@ export type WorkspaceSummary = Readonly<{
   rootPath: string;
   availability: WorkspaceAvailability;
   isPrimary: boolean;
-  updatedAt: number;
+  updatedAt: number | null;
 }>;
 
 export type ProjectSummary = Readonly<{
@@ -589,7 +589,7 @@ export type BoardColumn = Readonly<{
   key: string;
   kind: string;
   name: string;
-  assigneeRole: string;
+  assigneeRole: string | null;
   outputFields: readonly WorkflowOutputField[];
   groupID: string | null;
   sortOrder: number;
@@ -645,7 +645,7 @@ export type ApprovalSnapshot = Readonly<{
 
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
-  nextPageToken: string;
+  nextPageToken: string | null;
   generatedAt: number;
 }>;
 
@@ -690,7 +690,7 @@ export type TaskDetail = Readonly<{
   workflowVersion: number;
   title: string;
   body: string;
-  sourceURL: string;
+  sourceURL: string | null;
   sourceWorkspace: WorkspaceSummary;
   status: TaskStatus;
   actions: TaskActions;

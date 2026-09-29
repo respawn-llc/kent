@@ -1,65 +1,47 @@
-import { unexpectedProjectOverflow } from "@/test-support/api";
-import { FakeRpcTransport } from "@/test-support/api";
-
+import { create } from "@app/server-api-contract";
+import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
-import {
-  ContractError,
-  decodeTaskSearchError,
-  RpcError,
-  TaskSearchError,
-  type TaskSearchInput,
-} from "./index";
+import { RpcError, TaskSearchError, type TaskSearchInput } from "./index";
 
-const literalResponse = {
-  mode: "literal",
-  groups: [
-    {
-      project_id: "project-1",
-      project_key: "KNT",
-      task_id: "task-1",
-      short_id: "KNT-1",
-      workflow_id: "workflow-1",
-      title: "Search tasks",
-      status: {
-        kind: "active",
-        native_state: "active",
-        node_ids: ["node-1"],
-        attention_types: [],
-      },
-      total_hit_count: 2,
-      hits: [
-        {
-          ordinal: 1,
-          source: { kind: "title" },
-          literal: {
-            before: "",
-            match: "Search",
-            after: " tasks",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 2,
-          source: { kind: "comment", comment_id: "comment-1" },
-          literal: {
-            before: "Please ",
-            match: "search",
-            after: " this",
-            left_truncated: true,
-            right_truncated: true,
-          },
-        },
-      ],
+const method = pb.TaskReadService.method.search;
+const workflowID = "11111111-1111-4111-8111-111111111111";
+const firstHit = create(pb.SearchHitSchema, {
+  ordinal: 1,
+  source: { kind: pb.SearchSourceKind.TITLE },
+  match: { case: "literal", value: { match: "Search", after: " tasks" } },
+});
+const secondHit = create(pb.SearchHitSchema, {
+  ordinal: 2,
+  source: { kind: pb.SearchSourceKind.COMMENT, commentId: "comment-1" },
+  match: {
+    case: "literal",
+    value: {
+      before: "Please ",
+      match: "search",
+      after: " this",
+      leftTruncated: true,
+      rightTruncated: true,
     },
-  ],
-  next_offset: 25,
-} as const;
-const literalGroup = literalResponse.groups[0];
-const firstLiteralHit = literalGroup.hits[0];
-const secondLiteralHit = literalGroup.hits[1];
-
-const literalInput: TaskSearchInput = {
+  },
+});
+const group = create(pb.SearchGroupSchema, {
+  projectId: "project-1",
+  projectKey: "KNT",
+  taskId: "task-1",
+  shortId: "KNT-1",
+  workflowId: workflowID,
+  title: "Search tasks",
+  status: { kind: pb.TaskStatusKind.ACTIVE, nativeState: pb.TaskNativeState.ACTIVE, nodeIds: ["node-1"] },
+  totalHitCount: 2,
+  hits: [firstHit, secondHit],
+});
+const response = create(pb.SearchSuccessSchema, {
+  mode: pb.SearchMode.LITERAL,
+  groups: [group],
+  nextOffset: 25,
+});
+const input: TaskSearchInput = {
   mode: "literal",
   query: "search",
   context: 20,
@@ -70,28 +52,31 @@ const literalInput: TaskSearchInput = {
   offset: 5,
 };
 
-describe("ApiClient task search", () => {
-  it("sends the exact literal search payload and maps the grouped response", async () => {
-    const transport = new FakeRpcTransport([{ method: "workflow.task.search", result: literalResponse }]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-    const controller = new AbortController();
+function searchClient(result: pb.SearchResult) {
+  const transport = new FakeRpcTransport([{ descriptor: method, result }]);
+  return { client: new ApiClient(transport, unexpectedProjectOverflow), transport };
+}
 
-    await expect(client.searchTasks(literalInput, controller.signal)).resolves.toEqual({
+function success(value: pb.SearchSuccess) {
+  return create(method.output, { outcome: { case: "success", value } });
+}
+
+describe("ApiClient task search", () => {
+  it("sends literal filters and maps grouped content without changing text", async () => {
+    const { client, transport } = searchClient(success(response));
+    const controller = new AbortController();
+    await expect(client.searchTasks(input, controller.signal)).resolves.toEqual({
       mode: "literal",
+      nextOffset: 25,
       groups: [
         {
           projectID: "project-1",
           projectKey: "KNT",
           taskID: "task-1",
           shortID: "KNT-1",
-          workflowID: "workflow-1",
+          workflowID,
           title: "Search tasks",
-          status: {
-            kind: "active",
-            nativeState: "active",
-            nodeIDs: ["node-1"],
-            attentionTypes: [],
-          },
+          status: { kind: "active", nativeState: "active", nodeIDs: ["node-1"], attentionTypes: [] },
           totalHitCount: 2,
           hits: [
             {
@@ -119,248 +104,138 @@ describe("ApiClient task search", () => {
           ],
         },
       ],
-      nextOffset: 25,
     });
-
     expect(transport.calls).toEqual([]);
-    expect(transport.dedicatedCalls).toEqual([
+    expect(transport.dedicatedCalls).toEqual([]);
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.search",
-        params: {
-          mode: "literal",
-          query: "search",
-          context: 20,
-          case_sensitive: false,
-          include_comments: true,
-          project_ids: ["project-1", "project-2"],
-          page_size: 25,
-          offset: 5,
-        },
+        descriptor: method,
+        request: create(method.input, {
+          mode: pb.SearchMode.LITERAL,
+          query: input.query,
+          context: input.context,
+          includeComments: true,
+          projectIds: ["project-1", "project-2"],
+          pageSize: input.pageSize,
+          offset: input.offset,
+        }),
         options: { signal: controller.signal },
       },
     ]);
   });
 
-  it("preserves an explicit null next offset as absent pagination", async () => {
-    const client = new ApiClient(
-      new FakeRpcTransport([
-        {
-          method: "workflow.task.search",
-          result: { ...literalResponse, next_offset: null },
-        },
-      ]),
-      unexpectedProjectOverflow,
+  it("maps an absent continuation to absent pagination", async () => {
+    const { client } = searchClient(
+      success(create(pb.SearchSuccessSchema, { ...response, nextOffset: undefined })),
     );
-
-    await expect(client.searchTasks(literalInput)).resolves.toMatchObject({
-      mode: "literal",
-      nextOffset: null,
-    });
+    await expect(client.searchTasks(input)).resolves.toMatchObject({ mode: "literal", nextOffset: null });
   });
 
   it("decodes a literal Short ID hit", async () => {
-    const response = {
-      ...literalResponse,
-      groups: [
-        {
-          ...literalGroup,
-          total_hit_count: 1,
-          hits: [
-            {
-              ordinal: 1,
-              source: { kind: "short_id" },
-              literal: {
-                before: "KNT-",
-                match: "345",
-                after: "",
-                left_truncated: false,
-                right_truncated: false,
-              },
-            },
-          ],
-        },
-      ],
-    } as const;
-    const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
-      unexpectedProjectOverflow,
+    const hit = create(pb.SearchHitSchema, {
+      ordinal: 1,
+      source: { kind: pb.SearchSourceKind.SHORT_ID },
+      match: { case: "literal", value: { before: "KNT-", match: "345" } },
+    });
+    const { client } = searchClient(
+      success(
+        create(pb.SearchSuccessSchema, {
+          ...response,
+          groups: [create(pb.SearchGroupSchema, { ...group, totalHitCount: 1, hits: [hit] })],
+        }),
+      ),
     );
-
-    await expect(client.searchTasks(literalInput)).resolves.toMatchObject({
-      groups: [
-        {
-          hits: [
-            {
-              source: { kind: "short_id" },
-              literal: { match: "345" },
-            },
-          ],
-        },
-      ],
+    await expect(client.searchTasks(input)).resolves.toMatchObject({
+      groups: [{ hits: [{ source: { kind: "short_id" }, literal: { match: "345" } }] }],
     });
   });
 
   it("rejects a raw FTS5 Short ID hit", async () => {
-    const response = {
-      ...literalResponse,
-      mode: "fts5",
-      groups: [
-        {
-          ...literalGroup,
-          total_hit_count: 1,
-          hits: [
-            {
-              ordinal: 1,
-              source: { kind: "short_id" },
-              fts5: { snippet: "345" },
-            },
-          ],
-        },
-      ],
-    } as const;
-    const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
-      unexpectedProjectOverflow,
+    const hit = create(pb.SearchHitSchema, {
+      ordinal: 1,
+      source: { kind: pb.SearchSourceKind.SHORT_ID },
+      match: { case: "fts5", value: { snippet: "345" } },
+    });
+    const { client } = searchClient(
+      success(
+        create(pb.SearchSuccessSchema, {
+          ...response,
+          mode: pb.SearchMode.FTS5,
+          groups: [create(pb.SearchGroupSchema, { ...group, totalHitCount: 1, hits: [hit] })],
+        }),
+      ),
     );
-
-    await expect(client.searchTasks({ ...literalInput, mode: "fts5" })).rejects.toBeInstanceOf(ContractError);
+    await expect(client.searchTasks({ ...input, mode: "fts5" })).rejects.toThrow();
   });
 
   it.each([
     {
-      name: "an unexpected response field",
-      response: { ...literalResponse, legacy_hits: [] },
-    },
-    {
       name: "a mode-incompatible hit payload",
-      response: {
-        ...literalResponse,
-        groups: [
-          {
-            ...literalResponse.groups[0],
-            hits: [
-              {
-                ordinal: 1,
-                source: { kind: "title" },
-                fts5: { snippet: "search" },
-              },
-            ],
-          },
+      group: create(pb.SearchGroupSchema, {
+        ...group,
+        hits: [
+          create(pb.SearchHitSchema, {
+            ordinal: 1,
+            source: { kind: pb.SearchSourceKind.TITLE },
+            match: { case: "fts5", value: { snippet: "search" } },
+          }),
         ],
-      },
+      }),
     },
     {
       name: "a non-canonical task status",
-      response: {
-        ...literalResponse,
-        groups: [
-          {
-            ...literalResponse.groups[0],
-            status: { ...literalGroup.status, native_state: "running" },
-          },
-        ],
-      },
+      group: create(pb.SearchGroupSchema, {
+        ...group,
+        status: create(pb.TaskStatusSchema, {
+          kind: pb.TaskStatusKind.ACTIVE,
+          nativeState: pb.TaskNativeState.RUNNING,
+        }),
+      }),
     },
     {
       name: "unordered hit ordinals",
-      response: {
-        ...literalResponse,
-        groups: [
-          {
-            ...literalResponse.groups[0],
-            hits: [secondLiteralHit, firstLiteralHit],
-          },
-        ],
-      },
+      group: create(pb.SearchGroupSchema, { ...group, hits: [secondHit, firstHit] }),
     },
-  ])("rejects $name", async ({ response }) => {
-    const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.search", result: response }]),
-      unexpectedProjectOverflow,
+  ])("rejects $name", async ({ group }) => {
+    const { client } = searchClient(
+      success(create(pb.SearchSuccessSchema, { ...response, groups: [group] })),
     );
-
-    await expect(client.searchTasks(literalInput)).rejects.toBeInstanceOf(ContractError);
+    await expect(client.searchTasks(input)).rejects.toThrow();
   });
 
-  it("surfaces normalized-too-short as a typed error and omits absent request fields", async () => {
-    const typedError = new RpcError({
-      code: -32052,
-      message: "display-only search failure",
-      method: "workflow.task.search",
-      data: {
-        type: "task_search_error",
-        reason: "normalized_too_short",
-      },
-    });
-    const transport = new FakeRpcTransport([{ method: "workflow.task.search", error: typedError }]);
-    const client = new ApiClient(transport, unexpectedProjectOverflow);
-
-    await expect(
-      client.searchTasks({
-        mode: "literal",
-        query: "ab",
-        context: 20,
-        caseSensitive: false,
-        includeComments: true,
-        projectIDs: ["project-1"],
-        pageSize: 10,
-      }),
-    ).rejects.toMatchObject({
-      reason: "normalized_too_short",
-      code: -32052,
-      method: "workflow.task.search",
-    });
-    expect(transport.calls).toEqual([]);
-    expect(transport.dedicatedCalls).toEqual([
-      {
-        method: "workflow.task.search",
-        params: {
-          mode: "literal",
-          query: "ab",
-          context: 20,
-          case_sensitive: false,
-          include_comments: true,
-          project_ids: ["project-1"],
-          page_size: 10,
+  it("surfaces normalized-too-short as a typed outcome", async () => {
+    const { client } = searchClient(
+      create(method.output, {
+        outcome: {
+          case: "error",
+          value: {
+            code: "normalized_too_short",
+            detail: { case: "normalizedTooShort", value: {} },
+          },
         },
-      },
-    ]);
-
-    const decoded = decodeTaskSearchError(typedError);
-    expect(decoded).toBeInstanceOf(TaskSearchError);
-    expect(decoded).toMatchObject({
-      reason: "normalized_too_short",
-      code: -32052,
-      method: "workflow.task.search",
-      message: "display-only search failure",
-    });
+      }),
+    );
+    const error: unknown = await client
+      .searchTasks({ ...input, query: "ab" })
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(TaskSearchError);
+    expect(error).toMatchObject({ reason: "normalized_too_short" });
   });
 
-  it.each([
-    new RpcError({
-      code: -32052,
-      message: "generic search failure",
-      method: "workflow.task.search",
-    }),
-    new RpcError({
-      code: -32052,
-      message: "unknown typed search failure",
-      method: "workflow.task.search",
-      data: { type: "task_search_error", reason: "other" },
-    }),
-    new RpcError({
-      code: -32000,
-      message: "wrong RPC code",
-      method: "workflow.task.search",
-      data: { type: "task_search_error", reason: "normalized_too_short" },
-    }),
-  ])("keeps generic or malformed RPC failures visible", async (error) => {
-    const client = new ApiClient(
-      new FakeRpcTransport([{ method: "workflow.task.search", error }]),
-      unexpectedProjectOverflow,
+  it("keeps unknown error codes generic even with a known detail", async () => {
+    const { client } = searchClient(
+      create(method.output, {
+        outcome: {
+          case: "error",
+          value: {
+            code: "future_search_failure",
+            detail: { case: "normalizedTooShort", value: {} },
+          },
+        },
+      }),
     );
-
-    await expect(client.searchTasks(literalInput)).rejects.toBe(error);
-    expect(decodeTaskSearchError(error)).toBeNull();
+    const error: unknown = await client.searchTasks(input).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(RpcError);
+    expect(error).not.toBeInstanceOf(TaskSearchError);
   });
 });

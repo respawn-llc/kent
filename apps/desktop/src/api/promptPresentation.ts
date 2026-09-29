@@ -36,16 +36,18 @@ export function approvalPrompt(approval: Approval): PendingPrompt {
     stepID: approval.stepId,
     question: approval.question ?? null,
     createdAt: new Date(timestampMillis(required(approval.createdAt))).toISOString(),
-    approvalDecisions: approval.options.map((option) =>
-      enumValue(option.decision, {
-        [ApprovalDecision.ALLOW_ONCE]: "allow_once",
-        [ApprovalDecision.ALLOW_SESSION]: "allow_session",
-        [ApprovalDecision.DENY]: "deny",
-      }),
-    ),
+    approvalDecisions: approval.options.map((option) => approvalDecision(option.decision)),
     accessTargets: approval.accessTargets.map((target) => ({
       requestedPath: target.requestedPath,
       resolvedPath: target.resolvedPath,
     })),
   };
+}
+
+export function approvalDecision(value: ApprovalDecision) {
+  return enumValue(value, {
+    [ApprovalDecision.ALLOW_ONCE]: "allow_once",
+    [ApprovalDecision.ALLOW_SESSION]: "allow_session",
+    [ApprovalDecision.DENY]: "deny",
+  });
 }

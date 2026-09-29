@@ -8,10 +8,10 @@ import (
 
 	"core/server/sessionruntime"
 	"core/shared/clientui"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
-func (r *RuntimeRegistry) WithWorkflowEventPublisher(publisher func(context.Context, serverapi.WorkflowProjectEvent) error) *RuntimeRegistry {
+func (r *RuntimeRegistry) WithWorkflowEventPublisher(publisher func(context.Context, workflowcontract.Event) error) *RuntimeRegistry {
 	if r == nil {
 		return r
 	}
@@ -44,10 +44,10 @@ func (r *RuntimeRegistry) publishTaskQuestionWaitingForScope(scope sessionruntim
 		return fmt.Errorf("workflow prompt scope %s has a prompt without an id", scope.ID())
 	}
 	workflowID := ref.WorkflowID
-	if err := r.workflowEventPublisher(context.Background(), serverapi.WorkflowProjectEvent{
+	if err := r.workflowEventPublisher(context.Background(), workflowcontract.Event{
 		ProjectID: &projectID, WorkflowID: &workflowID,
-		Resource:        serverapi.WorkflowProjectEventResourceTask,
-		Action:          serverapi.WorkflowProjectEventActionQuestionWaiting,
+		Resource:        workflowcontract.EventResourceTask,
+		Action:          workflowcontract.EventActionQuestionWaiting,
 		PrimaryEntityID: taskID, RelatedIDs: []string{sessionID, askID},
 		OccurredAtUnixMs: snapshot.CreatedAt.UTC().UnixMilli(),
 	}); err != nil {
@@ -83,10 +83,10 @@ func (r *RuntimeRegistry) publishTaskQuestionCleared(sessionID string, snapshot 
 		return fmt.Errorf("workflow prompt %q attention target session %q does not match resolved session %q", toolCallID, targetSessionID, sessionID)
 	}
 	workflowID := *target.WorkflowID
-	if err := r.workflowEventPublisher(context.Background(), serverapi.WorkflowProjectEvent{
+	if err := r.workflowEventPublisher(context.Background(), workflowcontract.Event{
 		ProjectID: &projectID, WorkflowID: &workflowID,
-		Resource:         serverapi.WorkflowProjectEventResourceTask,
-		Action:           serverapi.WorkflowProjectEventActionQuestionCleared,
+		Resource:         workflowcontract.EventResourceTask,
+		Action:           workflowcontract.EventActionQuestionCleared,
 		PrimaryEntityID:  taskID,
 		RelatedIDs:       []string{targetSessionID, toolCallID},
 		OccurredAtUnixMs: time.Now().UTC().UnixMilli(),

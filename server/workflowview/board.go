@@ -13,8 +13,11 @@ import (
 	"core/server/workflow"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Board struct {
@@ -47,102 +50,109 @@ func NewBoard(metadataStore *metadata.Store, definitions *DefinitionProjection, 
 	}, nil
 }
 
-func (b *Board) Get(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoard, error) {
+func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.Board, error) {
 	if b == nil {
-		return serverapi.WorkflowBoard{}, errors.New("board is required")
+		return nil, errors.New("board is required")
 	}
-	if err := req.ValidateRPC(); err != nil {
-		return serverapi.WorkflowBoard{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	projectID := strings.TrimSpace(req.ProjectID)
+	projectID := strings.TrimSpace(req.ProjectId)
 	if projectID == "" {
-		return serverapi.WorkflowBoard{}, errors.New("project_id is required")
+		return nil, errors.New("project_id is required")
 	}
 	definitions, picker, err := b.selectionInputs(ctx, projectID)
 	if err != nil {
-		return serverapi.WorkflowBoard{}, err
+		return nil, err
 	}
 	project, err := projectWorkspaceFacts(ctx, b.queries, projectID)
 	if err != nil {
-		return serverapi.WorkflowBoard{}, err
+		return nil, err
 	}
 	labelFilter, err := resolveWorkflowTaskLabelFilter(ctx, b.queries, projectID, req.LabelFilter)
 	if err != nil {
-		return serverapi.WorkflowBoard{}, err
+		return nil, err
 	}
 	selected := workflowBoardSelectorFromRequest(req).selectFrom(picker)
 	if selected == nil {
-		return serverapi.WorkflowBoard{
-			ProjectID:         projectID,
-			Project:           project,
-			WorkflowPicker:    picker,
-			GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+		return &taskpb.Board{
+			ProjectId:   projectID,
+			Project:     project,
+			Workflows:   picker,
+			GeneratedAt: timestamppb.Now(),
 		}, nil
 	}
-	snapshot := definitions[selected.WorkflowID]
-	selectedWorkflowID := selected.WorkflowID
+	selectedWorkflowID, err := runtimeids.ParseWorkflowID(selected.WorkflowId)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := definitions[selectedWorkflowID]
 	groups := boardGroups(snapshot.api)
 	columns, err := boardColumns(snapshot)
 	if err != nil {
-		return serverapi.WorkflowBoard{}, err
+		return nil, err
 	}
 	if err := b.applyColumnTaskCounts(ctx, columns, projectID, selectedWorkflowID, labelFilter, req.DependencyFilter); err != nil {
-		return serverapi.WorkflowBoard{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowBoard{
-		ProjectID:         projectID,
-		Project:           project,
-		SelectedWorkflow:  selected,
-		WorkflowPicker:    picker,
-		Groups:            groups,
-		Columns:           columns,
-		GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+	return &taskpb.Board{
+		ProjectId:        projectID,
+		Project:          project,
+		SelectedWorkflow: selected,
+		Workflows:        picker,
+		Groups:           groups,
+		Columns:          columns,
+		GeneratedAt:      timestamppb.Now(),
 	}, nil
 }
 
-func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsListRequest) (*taskpb.BoardNodeCardsListSuccess, error) {
 	if b == nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, errors.New("board is required")
+		return nil, errors.New("board is required")
 	}
-	if err := req.ValidateRPC(); err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	projectID := strings.TrimSpace(req.ProjectID)
-	workflowID := req.WorkflowID
-	nodeID := strings.TrimSpace(req.NodeID)
+	projectID := strings.TrimSpace(req.ProjectId)
+	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	if err != nil {
+		return nil, err
+	}
+	nodeID := strings.TrimSpace(req.NodeId)
 	project, err := projectWorkspaceFacts(ctx, b.queries, projectID)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
-	labelFilter, err := resolveWorkflowTaskLabelFilter(ctx, b.queries, projectID, req.LabelFilter)
+	labelFilterArgs, err := resolveWorkflowTaskLabelFilter(ctx, b.queries, projectID, req.LabelFilter)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
-	labelFilterArgs, err := labelFilter.queryArgs()
-	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
-	}
-	pageSize := req.PageSize
+	pageSize := int(req.PageSize)
 	if pageSize == 0 {
 		pageSize = serverapi.WorkflowBoardNodeCardsMaxPageSize
 	}
 	sortSelection := req.Sort
 	if sortSelection == nil {
-		sortSelection = &serverapi.WorkflowTaskListSort{
-			Field:     serverapi.WorkflowTaskListSortFieldUpdated,
-			Direction: serverapi.WorkflowTaskListSortDirectionDesc,
+		sortSelection = &taskpb.ListSort{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_UPDATED,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC,
 		}
 	}
-	offset := 0
-	if req.Offset != nil {
-		offset = *req.Offset
+	sortField, err := protoapi.TaskListSortField.Decode(sortSelection.Field)
+	if err != nil {
+		return nil, err
 	}
+	sortDirection, err := protoapi.TaskListSortDirection.Decode(sortSelection.Direction)
+	if err != nil {
+		return nil, err
+	}
+	offset := int(req.GetOffset())
 	definition, err := b.projection.definition(ctx, b.queries, workflowID)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	if _, ok := workflowNodesByID(definition.api)[nodeID]; !ok {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, errors.New("node_id is invalid for workflow")
+		return nil, errors.New("node_id is invalid for workflow")
 	}
 	rows, err := b.queries.ListBoardNodeTasks(ctx, sqlitegen.ListBoardNodeTasksParams{
 		ProjectID:            projectID,
@@ -153,17 +163,17 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 		LabelIdsJson:         labelFilterArgs.labelIDsJSON,
 		ExcludedLabelIdsJson: labelFilterArgs.excludedLabelIDsJSON,
 		DependencyFilter:     workflowTaskDependencyFilterQueryArg(req.DependencyFilter),
-		SortField:            string(sortSelection.Field),
-		SortDirection:        string(sortSelection.Direction),
+		SortField:            sortField,
+		SortDirection:        sortDirection,
 		OffsetRows:           int64(offset),
 		LimitRows:            int64(pageSize),
 	})
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	dependencyProgressByTaskID, err := boardDependencyProgressByTaskID(rows)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	tasks := boardNodeTaskRecords(rows)
 	hasExtra := len(tasks) > pageSize
@@ -173,26 +183,26 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 	projectTaskIDs := workflowTaskIDs(taskIDs(tasks))
 	observation, err := b.projection.Observe(projectTaskIDs)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	projectedByTaskID, err := b.projection.Project(ctx, observation, b.queries, projectTaskIDs)
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	labelsByTask, err := loadTaskLabelsByTask(ctx, b.queries, taskIDs(tasks))
 	if err != nil {
-		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+		return nil, err
 	}
 	labelIDsByTask := taskLabelIDsByTask(labelsByTask)
-	cards := make([]serverapi.WorkflowBoardTaskCard, 0, len(tasks))
+	cards := make([]*taskpb.BoardTaskCard, 0, len(tasks))
 	for _, task := range tasks {
 		projected, exists := projectedByTaskID[workflow.TaskID(task.ID)]
 		if !exists {
-			return serverapi.WorkflowBoardNodeCardsListResponse{}, fmt.Errorf("task status projection omitted Task %q", task.ID)
+			return nil, fmt.Errorf("task status projection omitted Task %q", task.ID)
 		}
-		source, err := taskSourceWorkspace(ctx, b.queries, task, project.DefaultWorkspaceID)
+		source, err := taskSourceWorkspace(ctx, b.queries, task, project.DefaultWorkspaceId)
 		if err != nil {
-			return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+			return nil, err
 		}
 		card, _ := b.card(
 			projected,
@@ -202,36 +212,39 @@ func (b *Board) ListNodeCards(ctx context.Context, req serverapi.WorkflowBoardNo
 		)
 		cards = append(cards, card)
 	}
-	var nextOffset *int
+	var nextOffset *int32
 	if hasExtra {
-		next := offset + pageSize
+		next, err := protoapi.Int32(offset+pageSize, "next_offset")
+		if err != nil {
+			return nil, err
+		}
 		nextOffset = &next
 	}
-	return serverapi.WorkflowBoardNodeCardsListResponse{
-		ProjectID:         projectID,
-		WorkflowID:        workflowID,
-		NodeID:            nodeID,
-		Cards:             cards,
-		NextOffset:        nextOffset,
-		GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+	return &taskpb.BoardNodeCardsListSuccess{
+		ProjectId:   projectID,
+		WorkflowId:  workflowID.String(),
+		NodeId:      nodeID,
+		Cards:       cards,
+		NextOffset:  nextOffset,
+		GeneratedAt: timestamppb.Now(),
 	}, nil
 }
 
-func (b *Board) card(projected TaskStatusProjectionResult, labelIDs []string, sourceWorkspace serverapi.ProjectWorkspaceSummary, dependencyProgress *serverapi.WorkflowTaskDependencyProgress) (serverapi.WorkflowBoardTaskCard, bool) {
+func (b *Board) card(projected TaskStatusProjectionResult, labelIDs []string, sourceWorkspace *taskpb.TaskSourceWorkspace, dependencyProgress *taskpb.DependencyProgress) (*taskpb.BoardTaskCard, bool) {
 	task := projected.Task
-	return serverapi.WorkflowBoardTaskCard{
-		TaskID:             task.ID,
-		ShortID:            task.ShortID,
+	return &taskpb.BoardTaskCard{
+		TaskId:             task.ID,
+		ShortId:            task.ShortID,
 		Title:              task.Title,
 		Preview:            markdownPreview(task.Body),
-		WorkflowID:         task.WorkflowID,
-		ActiveNodeIDs:      append([]string(nil), projected.Status.NodeIDs...),
+		WorkflowId:         task.WorkflowID.String(),
+		ActiveNodeIds:      append([]string(nil), projected.Status.NodeIds...),
 		SourceWorkspace:    sourceWorkspace,
 		Status:             projected.Status,
 		Actions:            projected.Actions,
-		LabelIDs:           labelIDs,
+		LabelIds:           labelIDs,
 		DependencyProgress: dependencyProgress,
-		UpdatedAtUnixMs:    task.UpdatedAtUnixMs,
+		UpdatedAt:          timestamppb.New(time.UnixMilli(task.UpdatedAtUnixMs)),
 	}, projected.Done
 }
 
@@ -241,21 +254,29 @@ type taskDependencyProgressRow struct {
 	totalCount     int64
 }
 
-func projectTaskDependencyProgress(rows []taskDependencyProgressRow) (map[string]*serverapi.WorkflowTaskDependencyProgress, error) {
-	progress := make(map[string]*serverapi.WorkflowTaskDependencyProgress)
+func projectTaskDependencyProgress(rows []taskDependencyProgressRow) (map[string]*taskpb.DependencyProgress, error) {
+	progress := make(map[string]*taskpb.DependencyProgress)
 	for _, row := range rows {
 		if row.totalCount < 1 || row.satisfiedCount < 0 || row.satisfiedCount > row.totalCount {
 			return nil, fmt.Errorf("task %q dependency aggregate is invalid: satisfied=%d total=%d", row.taskID, row.satisfiedCount, row.totalCount)
 		}
-		progress[row.taskID] = &serverapi.WorkflowTaskDependencyProgress{
-			SatisfiedCount: int(row.satisfiedCount),
-			TotalCount:     int(row.totalCount),
+		satisfied, err := protoapi.Int32(int(row.satisfiedCount), "satisfied_count")
+		if err != nil {
+			return nil, err
+		}
+		total, err := protoapi.Int32(int(row.totalCount), "total_count")
+		if err != nil {
+			return nil, err
+		}
+		progress[row.taskID] = &taskpb.DependencyProgress{
+			SatisfiedCount: satisfied,
+			TotalCount:     total,
 		}
 	}
 	return progress, nil
 }
 
-func boardDependencyProgressByTaskID(rows []sqlitegen.ListBoardNodeTasksRow) (map[string]*serverapi.WorkflowTaskDependencyProgress, error) {
+func boardDependencyProgressByTaskID(rows []sqlitegen.ListBoardNodeTasksRow) (map[string]*taskpb.DependencyProgress, error) {
 	progressRows := make([]taskDependencyProgressRow, 0, len(rows))
 	for _, row := range rows {
 		if row.DependencySatisfiedCount.Valid != row.DependencyTotalCount.Valid {
@@ -318,7 +339,7 @@ func boardNodeTaskRecords(rows []sqlitegen.ListBoardNodeTasksRow) []sqlitegen.Ta
 	return tasks
 }
 
-func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runtimeids.WorkflowID]definitionSnapshot, []serverapi.WorkflowPickerItem, error) {
+func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runtimeids.WorkflowID]definitionSnapshot, []*taskpb.WorkflowPickerItem, error) {
 	links, err := b.queries.ListProjectWorkflowLinks(ctx, projectID)
 	if err != nil {
 		return nil, nil, err
@@ -336,14 +357,14 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 		linkByWorkflowID[link.WorkflowID] = link
 		workflowIDs = append(workflowIDs, link.WorkflowID)
 	}
-	activityByWorkflowID := map[runtimeids.WorkflowID]int64{}
+	activityByWorkflowID := map[string]int64{}
 	for _, activity := range taskActivityRows {
 		if _, linked := linkByWorkflowID[activity.WorkflowID]; linked {
-			activityByWorkflowID[activity.WorkflowID] = activity.LatestUpdatedAtUnixMs
+			activityByWorkflowID[activity.WorkflowID.String()] = activity.LatestUpdatedAtUnixMs
 		}
 	}
 	definitions := make(map[runtimeids.WorkflowID]definitionSnapshot, len(workflowIDs))
-	picker := make([]serverapi.WorkflowPickerItem, 0, len(workflowIDs))
+	picker := make([]*taskpb.WorkflowPickerItem, 0, len(workflowIDs))
 	for _, workflowID := range workflowIDs {
 		snapshot, err := b.definitions.snapshot(ctx, workflowID)
 		if err != nil {
@@ -359,37 +380,29 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 		if err != nil {
 			return nil, nil, err
 		}
-		taskDiagnostics, err := protoapi.WorkflowValidationErrorsForJSON(diagnostics)
-		if err != nil {
-			return nil, nil, err
-		}
-		picker = append(picker, serverapi.WorkflowPickerItem{
-			WorkflowID:           workflowID,
+		picker = append(picker, &taskpb.WorkflowPickerItem{
+			WorkflowId:           workflowID.String(),
 			DisplayName:          snapshot.api.Workflow.Name,
 			Description:          snapshot.api.Workflow.Description,
 			Version:              snapshot.api.Workflow.Version,
 			IsProjectDefault:     link.IsDefault != 0,
 			ValidForTaskCreation: !validation.HasBlockingErrors(),
-			ValidationErrors:     taskDiagnostics,
+			ValidationErrors:     diagnostics,
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {
 		if picker[i].IsProjectDefault != picker[j].IsProjectDefault {
 			return picker[i].IsProjectDefault
 		}
-		if activityByWorkflowID[picker[i].WorkflowID] != activityByWorkflowID[picker[j].WorkflowID] {
-			return activityByWorkflowID[picker[i].WorkflowID] > activityByWorkflowID[picker[j].WorkflowID]
+		if activityByWorkflowID[picker[i].WorkflowId] != activityByWorkflowID[picker[j].WorkflowId] {
+			return activityByWorkflowID[picker[i].WorkflowId] > activityByWorkflowID[picker[j].WorkflowId]
 		}
 		return strings.ToLower(picker[i].DisplayName) < strings.ToLower(picker[j].DisplayName)
 	})
 	return definitions, picker, nil
 }
 
-func (b *Board) applyColumnTaskCounts(ctx context.Context, columns []serverapi.WorkflowBoardColumn, projectID string, workflowID runtimeids.WorkflowID, labelFilter workflowTaskLabelFilterFacts, dependencyFilter *bool) error {
-	labelFilterArgs, err := labelFilter.queryArgs()
-	if err != nil {
-		return err
-	}
+func (b *Board) applyColumnTaskCounts(ctx context.Context, columns []*taskpb.BoardColumn, projectID string, workflowID runtimeids.WorkflowID, labelFilterArgs workflowTaskLabelFilterQueryArgs, dependencyFilter *bool) error {
 	rows, err := b.queries.ListBoardColumnTaskCounts(ctx, sqlitegen.ListBoardColumnTaskCountsParams{
 		ProjectID:            projectID,
 		WorkflowID:           workflowID,
@@ -404,7 +417,7 @@ func (b *Board) applyColumnTaskCounts(ctx context.Context, columns []serverapi.W
 	}
 	indexByNodeID := map[string]int{}
 	for index, column := range columns {
-		indexByNodeID[column.Node.NodeID] = index
+		indexByNodeID[column.Node.NodeId] = index
 	}
 	for _, row := range rows {
 		nodeID := strings.TrimSpace(row.NodeID)
@@ -412,103 +425,107 @@ func (b *Board) applyColumnTaskCounts(ctx context.Context, columns []serverapi.W
 			continue
 		}
 		if index, ok := indexByNodeID[nodeID]; ok {
-			columns[index].TaskCount = int(row.TaskCount)
+			count, err := protoapi.Int32(int(row.TaskCount), "task_count")
+			if err != nil {
+				return err
+			}
+			columns[index].TaskCount = count
 		}
 	}
 	return nil
 }
 
 type workflowBoardSelector interface {
-	selectFrom(picker []serverapi.WorkflowPickerItem) *serverapi.WorkflowPickerItem
+	selectFrom(picker []*taskpb.WorkflowPickerItem) *taskpb.WorkflowPickerItem
 }
 
 type workflowBoardDefaultSelector struct{}
 
-func (workflowBoardDefaultSelector) selectFrom(picker []serverapi.WorkflowPickerItem) *serverapi.WorkflowPickerItem {
+func (workflowBoardDefaultSelector) selectFrom(picker []*taskpb.WorkflowPickerItem) *taskpb.WorkflowPickerItem {
 	return defaultWorkflowBoardSelection(picker)
 }
 
 type workflowBoardExplicitSelector struct {
-	workflowID runtimeids.WorkflowID
+	workflowID string
 }
 
-func (s workflowBoardExplicitSelector) selectFrom(picker []serverapi.WorkflowPickerItem) *serverapi.WorkflowPickerItem {
+func (s workflowBoardExplicitSelector) selectFrom(picker []*taskpb.WorkflowPickerItem) *taskpb.WorkflowPickerItem {
 	if selected := exactWorkflowBoardSelection(picker, s.workflowID); selected != nil {
 		return selected
 	}
 	return defaultWorkflowBoardSelection(picker)
 }
 
-func workflowBoardSelectorFromRequest(req serverapi.WorkflowBoardRequest) workflowBoardSelector {
-	if req.WorkflowID != nil {
-		return workflowBoardExplicitSelector{workflowID: *req.WorkflowID}
+func workflowBoardSelectorFromRequest(req *taskpb.BoardGetRequest) workflowBoardSelector {
+	if req.WorkflowId != nil {
+		return workflowBoardExplicitSelector{workflowID: *req.WorkflowId}
 	}
 	return workflowBoardDefaultSelector{}
 }
 
-func exactWorkflowBoardSelection(picker []serverapi.WorkflowPickerItem, workflowID runtimeids.WorkflowID) *serverapi.WorkflowPickerItem {
+func exactWorkflowBoardSelection(picker []*taskpb.WorkflowPickerItem, workflowID string) *taskpb.WorkflowPickerItem {
 	for index := range picker {
-		if picker[index].WorkflowID == workflowID {
-			return &picker[index]
+		if picker[index].WorkflowId == workflowID {
+			return picker[index]
 		}
 	}
 	return nil
 }
 
-func defaultWorkflowBoardSelection(picker []serverapi.WorkflowPickerItem) *serverapi.WorkflowPickerItem {
+func defaultWorkflowBoardSelection(picker []*taskpb.WorkflowPickerItem) *taskpb.WorkflowPickerItem {
 	for index := range picker {
 		if picker[index].IsProjectDefault {
-			return &picker[index]
+			return picker[index]
 		}
 	}
 	if len(picker) == 0 {
 		return nil
 	}
-	return &picker[0]
+	return picker[0]
 }
 
-func boardGroups(def *pb.WorkflowDefinition) []serverapi.WorkflowBoardGroup {
+func boardGroups(def *pb.WorkflowDefinition) []*taskpb.BoardGroup {
 	columnNodes := boardColumnNodes(def)
-	groups := make([]serverapi.WorkflowBoardGroup, 0, len(def.NodeGroups))
+	groups := make([]*taskpb.BoardGroup, 0, len(def.NodeGroups))
 	for _, group := range def.NodeGroups {
-		dto := serverapi.WorkflowBoardGroup{
-			GroupID:     group.GroupId,
+		dto := &taskpb.BoardGroup{
+			GroupId:     group.GroupId,
 			Key:         group.GroupKey,
 			DisplayName: group.DisplayName,
-			SortOrder:   int(group.SortOrder),
+			SortOrder:   group.SortOrder,
 		}
 		for _, node := range columnNodes {
 			if node.GroupId != nil && *node.GroupId == group.GroupId {
-				dto.NodeIDs = append(dto.NodeIDs, node.Id)
+				dto.NodeIds = append(dto.NodeIds, node.Id)
 			}
 		}
-		if len(dto.NodeIDs) > 0 {
+		if len(dto.NodeIds) > 0 {
 			groups = append(groups, dto)
 		}
 	}
 	return groups
 }
 
-func boardColumns(snapshot definitionSnapshot) ([]serverapi.WorkflowBoardColumn, error) {
-	columns := make([]serverapi.WorkflowBoardColumn, 0, len(snapshot.api.Nodes))
+func boardColumns(snapshot definitionSnapshot) ([]*taskpb.BoardColumn, error) {
+	columns := make([]*taskpb.BoardColumn, 0, len(snapshot.api.Nodes))
 	derived := workflow.DeriveWiring(snapshot.domain)
 	for index, node := range boardColumnNodes(snapshot.api) {
-		kind, err := protoapi.WorkflowNodeKind.Decode(node.Kind)
+		sortOrder, err := protoapi.Int32(index, "sort_order")
 		if err != nil {
 			return nil, err
 		}
-		columns = append(columns, serverapi.WorkflowBoardColumn{
-			Node: serverapi.WorkflowBoardNodeSummary{
-				NodeID:       node.Id,
+		columns = append(columns, &taskpb.BoardColumn{
+			Node: &taskpb.BoardNodeSummary{
+				NodeId:       node.Id,
 				Key:          node.Key,
-				Kind:         kind,
+				Kind:         node.Kind,
 				DisplayName:  node.DisplayName,
-				AssigneeRole: node.GetSubagentRole(),
-				SortOrder:    index,
-				OutputFields: protoapi.WorkflowOutputFieldsForJSON(OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.Id)))),
+				AssigneeRole: node.SubagentRole,
+				SortOrder:    sortOrder,
+				OutputFields: OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.Id))),
 			},
-			GroupID:   node.GroupId,
-			SortOrder: index,
+			GroupId:   node.GroupId,
+			SortOrder: sortOrder,
 			IsBacklog: node.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_START,
 			IsDone:    node.Kind == pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL,
 		})

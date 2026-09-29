@@ -113,17 +113,13 @@ export {
   ContractError,
   ProtocolMismatchError,
   RpcError,
-  decodeExecutionTargetChoiceFailure,
+  executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
   WorkflowLabelError,
   WorkflowTaskCreateSelectionError,
   WorkflowTaskDependencyError,
   TaskSearchError,
-  decodeTaskSearchError,
-  decodeWorkflowLabelError,
-  decodeWorkflowTaskCreateSelectionError,
   isTaskContextSelectionRequiredError,
-  decodeWorkflowTaskDependencyError,
   isProjectMissingError,
   isTaskMissingError,
   ServerRootMismatchError,
@@ -176,7 +172,7 @@ export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
 export type { WorktreeSetupEventHandler } from "./worktreeSetup";
-export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./schemas/workflowBoard";
+export { worktreeSetupRecovery, type WorktreeSetupRecovery } from "./taskWorktreeProjection";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
 export type { ProjectObservation } from "./projectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";

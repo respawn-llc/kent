@@ -664,50 +664,11 @@ func protocolError(resp *protocol.ResponseError) error {
 	if resp.Code == protocol.ErrCodeServerNotReady && len(resp.Data) > 0 {
 		return serverapi.DecodeServerNotReadyError(resp.Data, message)
 	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskListScope && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskListScopeError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskSearch && len(resp.Data) > 0 {
-		return serverapi.DecodeTaskSearchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskContextSelectionRequired && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskContextSelectionRequiredError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateSelection && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateSelectionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskMutationSelfTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskMutationSelfTargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskStartConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskStartConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskInitialBranch && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskInitialBranchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorktreeSetupRetained && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowSetupRetainedError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskDependency && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskDependencyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLabel && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLabelError(resp.Data, message)
-	}
 	if resp.Code == protocol.ErrCodeSubagentLaunchDenied && len(resp.Data) > 0 {
 		return serverapi.DecodeSubagentLaunchDeniedError(resp.Data, message)
 	}
 	if resp.Code == protocol.ErrCodeSubagentLaunchPolicy {
 		return protocol.DecodeSubagentLaunchPolicyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowExecutionTargetResolution && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowExecutionTargetResolutionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLockedExecutionTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLockedExecutionTargetError(resp.Data, message)
 	}
 	if resp.Code == protocol.ErrCodeRequestCanceled {
 		return requestCanceledError{message: message}

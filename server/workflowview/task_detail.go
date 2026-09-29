@@ -13,8 +13,9 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
+	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type TaskDetail struct {
@@ -40,16 +41,16 @@ func NewTaskDetail(metadataStore *metadata.Store, projection *TaskStatusProjecti
 	}, nil
 }
 
-func (d *TaskDetail) GetTask(ctx context.Context, taskID string) (serverapi.WorkflowTaskDetail, error) {
+func (d *TaskDetail) GetTask(ctx context.Context, taskID string) (*taskpb.TaskDetail, error) {
 	if d == nil {
-		return serverapi.WorkflowTaskDetail{}, errors.New("task detail is required")
+		return nil, errors.New("task detail is required")
 	}
 	if strings.TrimSpace(taskID) == "" {
-		return serverapi.WorkflowTaskDetail{}, ErrTaskIDRequired
+		return nil, ErrTaskIDRequired
 	}
 	task, err := d.queries.GetTask(ctx, taskID)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	return d.task(ctx, task)
 }
@@ -68,63 +69,63 @@ func (d *TaskDetail) ListCurrentNodes(ctx context.Context, taskID string) ([]wor
 	return nodesByTask[workflow.TaskID(taskID)], nil
 }
 
-func (d *TaskDetail) GetTaskByProjectShortID(ctx context.Context, projectID string, shortID string) (serverapi.WorkflowTaskDetail, error) {
+func (d *TaskDetail) GetTaskByProjectShortID(ctx context.Context, projectID string, shortID string) (*taskpb.TaskDetail, error) {
 	if d == nil {
-		return serverapi.WorkflowTaskDetail{}, errors.New("task detail is required")
+		return nil, errors.New("task detail is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	if trimmedProjectID == "" {
-		return serverapi.WorkflowTaskDetail{}, errors.New("project_id is required")
+		return nil, errors.New("project_id is required")
 	}
 	trimmedShortID := strings.TrimSpace(shortID)
 	if trimmedShortID == "" {
-		return serverapi.WorkflowTaskDetail{}, errors.New("short_id is required")
+		return nil, errors.New("short_id is required")
 	}
 	task, err := d.queries.GetTaskByProjectShortID(ctx, sqlitegen.GetTaskByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	return d.task(ctx, task)
 }
 
-func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (serverapi.WorkflowTaskDetail, error) {
+func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*taskpb.TaskDetail, error) {
 	if d == nil {
-		return serverapi.WorkflowTaskDetail{}, errors.New("task detail is required")
+		return nil, errors.New("task detail is required")
 	}
 	trimmedShortID := strings.TrimSpace(shortID)
 	if trimmedShortID == "" {
-		return serverapi.WorkflowTaskDetail{}, errors.New("short_id is required")
+		return nil, errors.New("short_id is required")
 	}
 	tasks, err := d.queries.ListTasksByShortID(ctx, trimmedShortID)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	if len(tasks) == 0 {
-		return serverapi.WorkflowTaskDetail{}, sql.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
 	if len(tasks) > 1 {
-		return serverapi.WorkflowTaskDetail{}, fmt.Errorf("task short_id %q is ambiguous; use task id", trimmedShortID)
+		return nil, fmt.Errorf("task short_id %q is ambiguous; use task id", trimmedShortID)
 	}
 	return d.GetTask(ctx, tasks[0].ID)
 }
 
-func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (serverapi.WorkflowTaskDetail, error) {
+func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*taskpb.TaskDetail, error) {
 	taskID := workflow.TaskID(task.ID)
 	observation, err := d.projection.Observe([]workflow.TaskID{taskID})
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	results, err := d.projection.Project(ctx, observation, d.queries, []workflow.TaskID{taskID})
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	projected, ok := results[taskID]
 	if !ok {
-		return serverapi.WorkflowTaskDetail{}, fmt.Errorf("task status projection omitted Task %q", task.ID)
+		return nil, fmt.Errorf("task status projection omitted Task %q", task.ID)
 	}
 	projectedDependencies, err := d.dependencies.projectTaskDependencies(ctx, task.ID, observation, d.queries)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	task = projected.Task
 	definition := projected.Definition
@@ -136,51 +137,62 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (serve
 		definition,
 	)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	labelsByTask, err := loadTaskLabelsByTask(ctx, d.queries, []string{task.ID})
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	labelIDsByTask := taskLabelIDsByTask(labelsByTask)
 	project, err := projectWorkspaceFacts(ctx, d.queries, task.ProjectID)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
-	sourceWorkspace, err := taskSourceWorkspace(ctx, d.queries, task, project.DefaultWorkspaceID)
+	sourceWorkspace, err := taskSourceWorkspace(ctx, d.queries, task, project.DefaultWorkspaceId)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
-	executionTarget, worktreePath, err := d.executionTargetForTask(ctx, task, sourceWorkspace.WorkspaceID)
+	executionTarget, worktreePath, err := d.executionTargetForTask(ctx, task, sourceWorkspace.WorkspaceId)
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
 	retainedSessionCount, err := d.queries.CountTaskSessions(ctx, sql.NullString{String: task.ID, Valid: true})
 	if err != nil {
-		return serverapi.WorkflowTaskDetail{}, err
+		return nil, err
 	}
-
-	detail := serverapi.WorkflowTaskDetail{
+	retainedCount, err := protoapi.Int32(int(retainedSessionCount), "retained_session_count")
+	if err != nil {
+		return nil, err
+	}
+	attentionCount, err := protoapi.Int32(projected.AttentionCount, "attention_count")
+	if err != nil {
+		return nil, err
+	}
+	var sourceURL *string
+	if task.SourceUrl != "" {
+		sourceURL = &task.SourceUrl
+	}
+	detail := &taskpb.TaskDetail{
 		Summary: taskSummary(task, projected.Status, projected.Done),
 		Project: project,
-		Workflow: serverapi.WorkflowTaskWorkflowSummary{
-			WorkflowID:  definition.domain.ID,
+		Workflow: &taskpb.TaskWorkflowSummary{
+			WorkflowId:  definition.domain.ID.String(),
 			DisplayName: definition.api.Workflow.Name,
 			Version:     definition.api.Workflow.Version,
 		},
 		Body:                 task.Body,
-		SourceURL:            task.SourceUrl,
+		SourceUrl:            sourceURL,
 		SourceWorkspace:      sourceWorkspace,
 		ExecutionTarget:      executionTarget,
 		WorktreePath:         worktreePath,
 		CurrentNodes:         ProjectCurrentNodes(projected.CurrentNodes),
 		LiveSessions:         liveSessions,
 		CurrentScripts:       currentScripts,
-		RetainedSessionCount: int(retainedSessionCount),
+		RetainedSessionCount: retainedCount,
 		Status:               projected.Status,
 		Actions:              projected.Actions,
-		LabelIDs:             labelIDsByTask[task.ID],
-		AttentionCount:       projected.AttentionCount,
+		LabelIds:             labelIDsByTask[task.ID],
+		AttentionCount:       attentionCount,
 	}
 	detail.Dependencies = projectedDependencies
 	return detail, nil
@@ -192,14 +204,14 @@ func taskDetailLiveTargets(
 	taskID string,
 	executions []sessionruntime.TaskExecution,
 	definition definitionSnapshot,
-) ([]serverapi.WorkflowTaskLiveSession, []serverapi.WorkflowTaskCurrentScript, error) {
+) ([]*taskpb.LiveSession, []*taskpb.CurrentScript, error) {
 	type liveAgent struct {
 		sessionID       string
 		nodeDisplayName string
 	}
 	agents := make([]liveAgent, 0, len(executions))
 	sessionIDs := make([]string, 0, len(executions))
-	scripts := make([]serverapi.WorkflowTaskCurrentScript, 0, len(executions))
+	scripts := make([]*taskpb.CurrentScript, 0, len(executions))
 	nodesByID := workflowNodesByID(definition.api)
 	seenSessionIDs := make(map[string]struct{}, len(executions))
 	for _, execution := range executions {
@@ -227,7 +239,7 @@ func taskDetailLiveTargets(
 			if strings.TrimSpace(execution.Script.Path) == "" {
 				return nil, nil, fmt.Errorf("task %q live Script execution has a blank target path", taskID)
 			}
-			scripts = append(scripts, serverapi.WorkflowTaskCurrentScript{
+			scripts = append(scripts, &taskpb.CurrentScript{
 				CurrentNode: workflowCurrentNodeReference(execution.Ref.CurrentNode),
 				Path:        execution.Script.Path,
 			})
@@ -239,23 +251,23 @@ func taskDetailLiveTargets(
 	if err != nil {
 		return nil, nil, fmt.Errorf("task %q live Sessions: %w", taskID, err)
 	}
-	liveSessions := make([]serverapi.WorkflowTaskLiveSession, 0, len(agents))
+	liveSessions := make([]*taskpb.LiveSession, 0, len(agents))
 	for _, agent := range agents {
-		liveSessions = append(liveSessions, serverapi.WorkflowTaskLiveSession{
-			SessionID:       agent.sessionID,
+		liveSessions = append(liveSessions, &taskpb.LiveSession{
+			SessionId:       agent.sessionID,
 			SessionName:     names[agent.sessionID],
 			NodeDisplayName: agent.nodeDisplayName,
 		})
 	}
-	sort.Slice(liveSessions, func(i, j int) bool { return liveSessions[i].SessionID < liveSessions[j].SessionID })
+	sort.Slice(liveSessions, func(i, j int) bool { return liveSessions[i].SessionId < liveSessions[j].SessionId })
 	sortTaskDetailCurrentScripts(scripts)
 	return liveSessions, scripts, nil
 }
 
-func sortTaskDetailCurrentScripts(scripts []serverapi.WorkflowTaskCurrentScript) {
+func sortTaskDetailCurrentScripts(scripts []*taskpb.CurrentScript) {
 	sort.Slice(scripts, func(i, j int) bool {
-		if scripts[i].CurrentNode.NodeID != scripts[j].CurrentNode.NodeID {
-			return scripts[i].CurrentNode.NodeID < scripts[j].CurrentNode.NodeID
+		if scripts[i].CurrentNode.NodeId != scripts[j].CurrentNode.NodeId {
+			return scripts[i].CurrentNode.NodeId < scripts[j].CurrentNode.NodeId
 		}
 		leftBranch := scripts[i].CurrentNode.TransitionBranchKey
 		rightBranch := scripts[j].CurrentNode.TransitionBranchKey
@@ -272,7 +284,7 @@ func sortTaskDetailCurrentScripts(scripts []serverapi.WorkflowTaskCurrentScript)
 	})
 }
 
-func (d *TaskDetail) executionTargetForTask(ctx context.Context, task sqlitegen.TaskRecord, sourceWorkspaceID string) (*serverapi.WorkflowExecutionTarget, *string, error) {
+func (d *TaskDetail) executionTargetForTask(ctx context.Context, task sqlitegen.TaskRecord, sourceWorkspaceID string) (*taskpb.ExecutionTarget, *string, error) {
 	if !task.ExecutionTargetMode.Valid {
 		if task.ExecutionTargetRequestedRef.Valid ||
 			task.ExecutionTargetResolvedRef.Valid ||
@@ -285,14 +297,22 @@ func (d *TaskDetail) executionTargetForTask(ctx context.Context, task sqlitegen.
 		}
 		return nil, nil, nil
 	}
-	target := &serverapi.WorkflowExecutionTarget{
-		Mode:         serverapi.WorkflowExecutionTargetMode(task.ExecutionTargetMode.String),
+	mode, err := protoapi.WorkflowExecutionTargetMode.Encode(task.ExecutionTargetMode.String)
+	if err != nil {
+		return nil, nil, err
+	}
+	provenance, err := protoapi.TaskExecutionTargetProvenance.Encode(task.ExecutionTargetProvenance.String)
+	if err != nil {
+		return nil, nil, err
+	}
+	target := &taskpb.ExecutionTarget{
+		Mode:         mode,
 		RequestedRef: metadata.OptionalString(task.ExecutionTargetRequestedRef),
 		ResolvedRef:  metadata.OptionalString(task.ExecutionTargetResolvedRef),
-		CommitOID:    metadata.OptionalString(task.ExecutionTargetCommitOid),
-		Provenance:   serverapi.WorkflowExecutionTargetProvenance(task.ExecutionTargetProvenance.String),
+		CommitOid:    metadata.OptionalString(task.ExecutionTargetCommitOid),
+		Provenance:   provenance,
 	}
-	if err := target.Validate(); err != nil {
+	if err := protoapi.Validate(target); err != nil {
 		return nil, nil, fmt.Errorf("project task execution target: %w", err)
 	}
 	if !task.ManagedWorktreeID.Valid {

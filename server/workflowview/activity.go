@@ -4,22 +4,27 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/workflowstore"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Activity struct {
-	queries   *sqlitegen.Queries
-	projector *TaskProjector
+	queries *sqlitegen.Queries
 }
 
 type activityPage struct {
 	task       sqlitegen.TaskRecord
 	rows       []taskActivityRow
 	comments   map[string]sqlitegen.TaskComment
-	offsetPage serverapi.WorkflowOffsetPage[taskActivityRow]
+	nextOffset *int32
 }
 
 type taskActivityRow struct {
@@ -31,62 +36,55 @@ type taskActivityRow struct {
 	sessionName      *string
 }
 
-func NewActivity(metadataStore *metadata.Store, projector *TaskProjector) (*Activity, error) {
+func NewActivity(metadataStore *metadata.Store) (*Activity, error) {
 	if metadataStore == nil || metadataStore.Queries() == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	if projector == nil {
-		return nil, errors.New("task projector is required")
-	}
-	return &Activity{queries: metadataStore.Queries(), projector: projector}, nil
+	return &Activity{queries: metadataStore.Queries()}, nil
 }
 
-func (a *Activity) List(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
+func (a *Activity) List(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.ActivityListSuccess, error) {
 	page, err := a.loadPage(ctx, req)
 	if err != nil {
-		return serverapi.WorkflowTaskActivityListResponse{}, err
+		return nil, err
 	}
 	items, err := a.itemsFromPage(page)
 	if err != nil {
-		return serverapi.WorkflowTaskActivityListResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowTaskActivityListResponse{
-		WorkflowOffsetPage: serverapi.WorkflowOffsetPage[serverapi.WorkflowTaskActivityItem]{
-			Items:      items,
-			NextOffset: page.offsetPage.NextOffset,
-		},
-	}, nil
+	return &taskpb.ActivityListSuccess{Items: items, NextOffset: page.nextOffset}, nil
 }
 
-func (a *Activity) loadPage(ctx context.Context, req serverapi.WorkflowTaskOffsetPageRequest) (activityPage, error) {
+func (a *Activity) loadPage(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (activityPage, error) {
 	if a == nil {
 		return activityPage{}, errors.New("activity is required")
 	}
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return activityPage{}, err
 	}
-	task, err := a.queries.GetTask(ctx, strings.TrimSpace(req.TaskID))
+	task, err := a.queries.GetTask(ctx, strings.TrimSpace(req.TaskId))
 	if err != nil {
 		return activityPage{}, err
 	}
-	window, err := serverapi.ResolveWorkflowOffsetWindow(req.Offset, req.Limit)
-	if err != nil {
-		return activityPage{}, err
-	}
+	window := TaskPageWindow(req)
 	rows, err := a.activityRows(ctx, task.ID, window.Offset, window.Limit+1)
 	if err != nil {
 		return activityPage{}, err
 	}
-	offsetPage := serverapi.FinalizeWorkflowOffsetPage(window, rows)
-	comments, err := a.commentsByID(ctx, sourceIDsByType(offsetPage.Items, "comment"))
+	items, nextOffset := serverapi.TrimOffsetLookahead(window, rows)
+	next, err := TaskNextOffset(nextOffset)
+	if err != nil {
+		return activityPage{}, err
+	}
+	comments, err := a.commentsByID(ctx, sourceIDsByType(items, "comment"))
 	if err != nil {
 		return activityPage{}, err
 	}
 	return activityPage{
 		task:       task,
-		rows:       offsetPage.Items,
+		rows:       items,
 		comments:   comments,
-		offsetPage: offsetPage,
+		nextOffset: next,
 	}, nil
 }
 
@@ -131,15 +129,13 @@ func (a *Activity) commentsByID(ctx context.Context, ids []string) (map[string]s
 	return out, nil
 }
 
-func (a *Activity) itemsFromPage(page activityPage) ([]serverapi.WorkflowTaskActivityItem, error) {
-	items := make([]serverapi.WorkflowTaskActivityItem, 0, len(page.rows))
+func (a *Activity) itemsFromPage(page activityPage) ([]*taskpb.ActivityItem, error) {
+	items := make([]*taskpb.ActivityItem, 0, len(page.rows))
 	for _, row := range page.rows {
-		item := serverapi.WorkflowTaskActivityItem{
-			ActivityID:       row.activityID,
-			Type:             row.kind,
-			TaskID:           page.task.ID,
-			OccurredAtUnixMs: row.occurredAtUnixMs,
-			UpdatedAtUnixMs:  row.updatedAtUnixMs,
+		item := &taskpb.ActivityItem{
+			ActivityId: row.activityID, TaskId: page.task.ID,
+			OccurredAt: timestamppb.New(time.UnixMilli(row.occurredAtUnixMs)),
+			UpdatedAt:  timestamppb.New(time.UnixMilli(row.updatedAtUnixMs)),
 		}
 		switch row.kind {
 		case "comment":
@@ -147,13 +143,16 @@ func (a *Activity) itemsFromPage(page activityPage) ([]serverapi.WorkflowTaskAct
 			if !ok {
 				return nil, errors.New("activity comment source is missing")
 			}
-			dto := a.projector.ProjectComment(comment)
-			item.Comment = &dto
+			dto, err := Comment(workflowstore.CommentRecordFromRow(comment))
+			if err != nil {
+				return nil, err
+			}
+			item.Activity = &taskpb.ActivityItem_Comment{Comment: dto}
 		case "session_started":
 			if row.sessionName == nil || strings.TrimSpace(*row.sessionName) == "" {
 				return nil, errors.New("activity session source has no name")
 			}
-			item.SessionStarted = &serverapi.WorkflowTaskSessionStarted{SessionID: row.sourceID, Name: *row.sessionName}
+			item.Activity = &taskpb.ActivityItem_SessionStarted{SessionStarted: &taskpb.SessionStarted{SessionId: row.sourceID, Name: *row.sessionName}}
 		default:
 			return nil, errors.New("activity kind is unsupported")
 		}

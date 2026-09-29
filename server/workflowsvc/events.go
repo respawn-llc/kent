@@ -6,9 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"core/server/workflowstore"
+	"core/shared/apicontract"
+	"core/shared/protoapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/workflowcontract"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const workflowProjectEventBufferSize = 64
@@ -21,9 +25,9 @@ type workflowProjectEventBroker struct {
 }
 
 type workflowProjectSubscription struct {
-	projectID  string
+	projectID  *string
 	workflowID *runtimeids.WorkflowID
-	ch         chan serverapi.WorkflowProjectEvent
+	ch         chan *pb.ProjectEvent
 	onClose    func()
 
 	mu   sync.Mutex
@@ -35,11 +39,11 @@ func newWorkflowProjectEventBroker() *workflowProjectEventBroker {
 	return &workflowProjectEventBroker{subscribers: make(map[uint64]*workflowProjectSubscription)}
 }
 
-func (b *workflowProjectEventBroker) subscribe(projectID string, workflowID *runtimeids.WorkflowID) (*workflowProjectSubscription, error) {
+func (b *workflowProjectEventBroker) subscribe(projectID *string, workflowID *runtimeids.WorkflowID) (*workflowProjectSubscription, error) {
 	sub := &workflowProjectSubscription{
 		projectID:  projectID,
 		workflowID: workflowID,
-		ch:         make(chan serverapi.WorkflowProjectEvent, workflowProjectEventBufferSize),
+		ch:         make(chan *pb.ProjectEvent, workflowProjectEventBufferSize),
 	}
 	b.mu.Lock()
 	if b.closed {
@@ -59,7 +63,7 @@ func (b *workflowProjectEventBroker) subscribe(projectID string, workflowID *run
 	return sub, nil
 }
 
-func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, event workflowstore.WorkflowEventRecord) error {
+func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, event workflowcontract.Event) error {
 	if b == nil {
 		return nil
 	}
@@ -67,19 +71,33 @@ func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, eve
 	if occurredAt == 0 {
 		occurredAt = time.Now().UTC().UnixMilli()
 	}
-	b.publish(serverapi.WorkflowProjectEvent{
-		ProjectID:        event.ProjectID,
-		WorkflowID:       event.WorkflowID,
-		Resource:         event.Resource,
-		Action:           event.Action,
-		PrimaryEntityID:  event.PrimaryEntityID,
-		RelatedIDs:       append([]string(nil), event.RelatedIDs...),
-		OccurredAtUnixMs: occurredAt,
-	})
+	resource, err := protoapi.WorkflowEventResource.Encode(string(event.Resource))
+	if err != nil {
+		return err
+	}
+	action, err := protoapi.WorkflowEventAction.Encode(string(event.Action))
+	if err != nil {
+		return err
+	}
+	var workflowID *string
+	if event.WorkflowID != nil {
+		value := event.WorkflowID.String()
+		workflowID = &value
+	}
+	projected := &pb.ProjectEvent{
+		ProjectId: event.ProjectID, WorkflowId: workflowID,
+		Resource: resource, Action: action, PrimaryEntityId: event.PrimaryEntityID,
+		RelatedIds: append([]string(nil), event.RelatedIDs...),
+		OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
+	}
+	if err := protoapi.Validate(projected); err != nil {
+		return err
+	}
+	b.publish(projected)
 	return nil
 }
 
-func (b *workflowProjectEventBroker) publish(event serverapi.WorkflowProjectEvent) {
+func (b *workflowProjectEventBroker) publish(event *pb.ProjectEvent) {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -99,15 +117,15 @@ func (b *workflowProjectEventBroker) publish(event serverapi.WorkflowProjectEven
 	}
 }
 
-func workflowProjectEventMatches(subscribedProjectID string, eventProjectID *string) bool {
-	return subscribedProjectID == "" || (eventProjectID != nil && subscribedProjectID == *eventProjectID)
+func workflowProjectEventMatches(subscribedProjectID *string, eventProjectID *string) bool {
+	return subscribedProjectID == nil || (eventProjectID != nil && *subscribedProjectID == *eventProjectID)
 }
 
-func workflowSubscriptionMatches(sub *workflowProjectSubscription, event serverapi.WorkflowProjectEvent) bool {
+func workflowSubscriptionMatches(sub *workflowProjectSubscription, event *pb.ProjectEvent) bool {
 	if sub.workflowID != nil {
-		return event.ProjectID == nil && event.WorkflowID != nil && *sub.workflowID == *event.WorkflowID
+		return event.ProjectId == nil && event.WorkflowId != nil && sub.workflowID.String() == *event.WorkflowId
 	}
-	return workflowProjectEventMatches(sub.projectID, event.ProjectID)
+	return workflowProjectEventMatches(sub.projectID, event.ProjectId)
 }
 
 func (b *workflowProjectEventBroker) Close(err error) {
@@ -131,7 +149,7 @@ func (b *workflowProjectEventBroker) Close(err error) {
 	}
 }
 
-func (s *workflowProjectSubscription) publish(event serverapi.WorkflowProjectEvent) bool {
+func (s *workflowProjectSubscription) publish(event *pb.ProjectEvent) bool {
 	if s == nil {
 		return false
 	}
@@ -148,13 +166,13 @@ func (s *workflowProjectSubscription) publish(event serverapi.WorkflowProjectEve
 	}
 }
 
-func (s *workflowProjectSubscription) Next(ctx context.Context) (serverapi.WorkflowProjectEvent, error) {
+func (s *workflowProjectSubscription) Next(ctx context.Context) (*pb.ProjectEvent, error) {
 	if s == nil {
-		return serverapi.WorkflowProjectEvent{}, io.EOF
+		return nil, io.EOF
 	}
 	select {
 	case <-ctx.Done():
-		return serverapi.WorkflowProjectEvent{}, ctx.Err()
+		return nil, ctx.Err()
 	case event, ok := <-s.ch:
 		if ok {
 			return event, nil
@@ -162,9 +180,9 @@ func (s *workflowProjectSubscription) Next(ctx context.Context) (serverapi.Workf
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.err != nil {
-			return serverapi.WorkflowProjectEvent{}, serverapi.NormalizeStreamError(s.err)
+			return nil, serverapi.NormalizeStreamError(s.err)
 		}
-		return serverapi.WorkflowProjectEvent{}, io.EOF
+		return nil, io.EOF
 	}
 }
 
@@ -196,4 +214,4 @@ func (s *workflowProjectSubscription) closeWithError(err error) {
 	}
 }
 
-var _ serverapi.WorkflowProjectSubscription = (*workflowProjectSubscription)(nil)
+var _ apicontract.WorkflowEventSubscription = (*workflowProjectSubscription)(nil)

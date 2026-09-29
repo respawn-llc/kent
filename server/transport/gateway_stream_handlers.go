@@ -6,11 +6,9 @@ import (
 	"fmt"
 
 	rpccontract "core/shared/apicontract"
-	"core/shared/clientui"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
 )
 
 type gatewaySubscription[Event any] interface {
@@ -94,30 +92,4 @@ func serveGatewaySubscription[Req interface{ Validate() error }, Event any, Wire
 			return
 		}
 	}
-}
-
-func (g *Gateway) serveAttentionNotificationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.AttentionNotificationClient().SubscribeAttentionNotifications, func(evt clientui.AttentionNotificationEvent) protocol.AttentionNotificationEventParams {
-		return protocol.AttentionNotificationEventParams{Event: evt}
-	})
-}
-
-func (g *Gateway) serveWorkflowProjectSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.WorkflowClient().SubscribeWorkflowProject, workflowProjectEventParams)
-}
-
-func (g *Gateway) serveWorkflowSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.WorkflowClient().SubscribeWorkflow, workflowProjectEventParams)
-}
-
-func workflowProjectEventParams(evt serverapi.WorkflowProjectEvent) protocol.WorkflowProjectEventParams {
-	return protocol.WorkflowProjectEventParams{Event: protocol.WorkflowProjectEvent{
-		ProjectID:        evt.ProjectID,
-		WorkflowID:       evt.WorkflowID,
-		Resource:         protocol.WorkflowProjectEventResource(evt.Resource),
-		Action:           protocol.WorkflowProjectEventAction(evt.Action),
-		PrimaryEntityID:  evt.PrimaryEntityID,
-		RelatedIDs:       append([]string(nil), evt.RelatedIDs...),
-		OccurredAtUnixMs: evt.OccurredAtUnixMs,
-	}}
 }

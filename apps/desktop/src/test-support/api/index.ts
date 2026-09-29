@@ -2,6 +2,7 @@ import {
   create,
   decode,
   encode,
+  validate,
   operationName,
   type DescMessage,
   type DescMethod,
@@ -288,7 +289,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   readonly descriptorCalls: Readonly<{
     descriptor: DescMethod;
     request: Message;
-    options?: RpcCallOptions;
+    options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly dedicatedCalls: Readonly<{
     method: string;
@@ -353,8 +354,9 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   async callDescriptor<Method extends DescMethod>(
     descriptor: Method,
     request: MessageShape<Method["input"]>,
-    options?: RpcCallOptions,
+    options?: RpcDedicatedCallOptions,
   ): Promise<MessageShape<Method["output"]>> {
+    validate(descriptor.input, request);
     this.descriptorCalls.push(
       options === undefined ? { descriptor, request } : { descriptor, request, options },
     );

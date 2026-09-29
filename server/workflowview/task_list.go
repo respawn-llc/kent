@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TaskList struct {
@@ -38,33 +41,41 @@ func NewTaskList(metadataStore *metadata.Store, definitions *DefinitionProjectio
 	}, nil
 }
 
-func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.ListSuccess, error) {
 	if l == nil {
-		return serverapi.WorkflowTaskListResponse{}, errors.New("task list is required")
+		return nil, errors.New("task list is required")
 	}
-	if err := req.ValidateRPC(); err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	window, err := serverapi.ResolveWorkflowOffsetWindow(req.Offset, req.Limit)
+	window := serverapi.OffsetWindow{Offset: int(req.GetOffset()), Limit: serverapi.OffsetPaginationMaxLimit}
+	if req.Limit != nil {
+		window.Limit = int(*req.Limit)
+	}
+	var workflowSelector *runtimeids.WorkflowID
+	if req.WorkflowId != nil {
+		value, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		if err != nil {
+			return nil, err
+		}
+		workflowSelector = &value
+	}
+	projectID, workflowID, err := l.resolveScope(ctx, req.ProjectId, workflowSelector)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
-	}
-	projectID, workflowID, err := l.resolveScope(ctx, req.ProjectID, req.WorkflowID)
-	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	if _, err := l.metadata.GetProjectEditMetadata(ctx, projectID); err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	labelFilter, err := resolveWorkflowTaskLabelFilter(ctx, l.queries, projectID, req.LabelFilter)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
-	var columns []serverapi.WorkflowBoardColumn
+	var columns []*taskpb.BoardColumn
 	if workflowID == nil {
 		if len(req.ColumnKeys) > 0 || workflowTaskListSortUsesColumn(req.Sort) {
 			errorProjectID := projectID
-			return serverapi.WorkflowTaskListResponse{}, &serverapi.WorkflowTaskListScopeError{
+			return nil, &serverapi.WorkflowTaskListScopeError{
 				Reason:    serverapi.WorkflowTaskListScopeReasonWorkflowRequiredColumns,
 				ProjectID: &errorProjectID,
 			}
@@ -72,14 +83,14 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 	} else {
 		snapshot, snapshotErr := l.definitions.snapshot(ctx, *workflowID)
 		if snapshotErr != nil {
-			return serverapi.WorkflowTaskListResponse{}, snapshotErr
+			return nil, snapshotErr
 		}
 		columns, err = boardColumns(snapshot)
 		if err != nil {
-			return serverapi.WorkflowTaskListResponse{}, err
+			return nil, err
 		}
 		if err := validateWorkflowTaskListColumnKeys(req.ColumnKeys, columns); err != nil {
-			return serverapi.WorkflowTaskListResponse{}, err
+			return nil, err
 		}
 	}
 	sortSelectors := normalizeWorkflowTaskListSort(req.Sort)
@@ -93,11 +104,16 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 	}
 	observation, err := l.projection.Observe(nil)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	statusKinds := req.StatusKinds
 	if req.Group != nil {
-		statusKinds = req.Group.StatusKinds()
+		for _, definition := range protoapi.TaskGroupDefinitions() {
+			if definition.Group == *req.Group {
+				statusKinds = definition.StatusKinds
+				break
+			}
+		}
 	}
 	page, err := l.queryRows(ctx, workflowTaskListQueryRequest{
 		projectID:          projectID,
@@ -112,11 +128,11 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 		liveTaskStatesJSON: observation.LiveTaskStatesJSON,
 	})
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	matchingWorkflowCardinality, err := workflowTaskListMatchingWorkflowCardinality(page.matchingWorkflowCount)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	pageItems := page.rows
 	hasNext := len(pageItems) > window.Limit
@@ -125,15 +141,15 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 	}
 	pageTaskIDs := make([]string, 0, len(pageItems))
 	for _, row := range pageItems {
-		pageTaskIDs = append(pageTaskIDs, row.item.TaskID)
+		pageTaskIDs = append(pageTaskIDs, row.item.TaskId)
 	}
 	labelsByTask, err := loadTaskLabelsByTask(ctx, l.queries, pageTaskIDs)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	dependencyRows, err := l.queries.ListTaskDependencyProgressByTasks(ctx, pageTaskIDs)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
 	progressRows := make([]taskDependencyProgressRow, 0, len(dependencyRows))
 	for _, row := range dependencyRows {
@@ -145,62 +161,77 @@ func (l *TaskList) List(ctx context.Context, req serverapi.WorkflowTaskListReque
 	}
 	dependencyProgressByTask, err := projectTaskDependencyProgress(progressRows)
 	if err != nil {
-		return serverapi.WorkflowTaskListResponse{}, err
+		return nil, err
 	}
-	responseItems := make([]serverapi.WorkflowTaskListItem, 0, len(pageItems))
+	responseItems := make([]*taskpb.ListItem, 0, len(pageItems))
 	for _, row := range pageItems {
 		item := row.item
-		item.Labels = labelsByTask[item.TaskID]
-		item.DependencyProgress = dependencyProgressByTask[item.TaskID]
+		item.Labels = labelsByTask[item.TaskId]
+		item.DependencyProgress = dependencyProgressByTask[item.TaskId]
 		responseItems = append(responseItems, item)
 	}
-	var nextOffset *int
+	var nextOffset *int32
 	if hasNext {
-		value := window.Offset + len(pageItems)
+		value, err := protoapi.Int32(window.Offset+len(pageItems), "next_offset")
+		if err != nil {
+			return nil, err
+		}
 		nextOffset = &value
 	}
-	return serverapi.WorkflowTaskListResponse{
-		Scope: serverapi.WorkflowTaskListScope{
-			ProjectID:  projectID,
-			WorkflowID: workflowID,
+	return &taskpb.ListSuccess{
+		Scope: &taskpb.ListScope{
+			ProjectId:  projectID,
+			WorkflowId: req.WorkflowId,
 		},
 		MatchingWorkflowCardinality: matchingWorkflowCardinality,
 		NextOffset:                  nextOffset,
-		GeneratedAtUnixMs:           time.Now().UTC().UnixMilli(),
+		GeneratedAt:                 timestamppb.Now(),
 		Tasks:                       responseItems,
 	}, nil
 }
 
-func (l *TaskList) CountGroups(ctx context.Context, req serverapi.WorkflowProjectTaskGroupCountsRequest) (serverapi.WorkflowProjectTaskGroupCountsResponse, error) {
+func (l *TaskList) CountGroups(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error) {
 	if l == nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, errors.New("task list is required")
+		return nil, errors.New("task list is required")
 	}
-	if err := req.ValidateRPC(); err != nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	if _, err := l.metadata.GetProjectEditMetadata(ctx, req.ProjectID); err != nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
+	if _, err := l.metadata.GetProjectEditMetadata(ctx, req.ProjectId); err != nil {
+		return nil, err
 	}
 	observation, err := l.projection.Observe(nil)
 	if err != nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
+		return nil, err
 	}
 	counts, err := l.queries.CountProjectTaskGroups(ctx, sqlitegen.CountProjectTaskGroupsParams{
-		ProjectID:          req.ProjectID,
+		ProjectID:          req.ProjectId,
 		LiveTaskStatesJson: observation.LiveTaskStatesJSON,
 	})
 	if err != nil {
-		return serverapi.WorkflowProjectTaskGroupCountsResponse{}, err
+		return nil, err
 	}
-	return serverapi.WorkflowProjectTaskGroupCountsResponse{
-		ProjectID:   req.ProjectID,
-		Definitions: serverapi.WorkflowProjectTaskGroupDefinitions(),
-		Counts: serverapi.WorkflowProjectTaskGroupCounts{
-			Active:  int(counts.ActiveCount),
-			Backlog: int(counts.BacklogCount),
-			Done:    int(counts.DoneCount),
+	active, err := protoapi.Int32(int(counts.ActiveCount), "active")
+	if err != nil {
+		return nil, err
+	}
+	backlog, err := protoapi.Int32(int(counts.BacklogCount), "backlog")
+	if err != nil {
+		return nil, err
+	}
+	done, err := protoapi.Int32(int(counts.DoneCount), "done")
+	if err != nil {
+		return nil, err
+	}
+	return &taskpb.ProjectTaskGroupCountsSuccess{
+		ProjectId:   req.ProjectId,
+		Definitions: protoapi.TaskGroupDefinitions(),
+		Counts: &taskpb.ProjectTaskGroupCounts{
+			Active:  active,
+			Backlog: backlog,
+			Done:    done,
 		},
-		GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+		GeneratedAt: timestamppb.Now(),
 	}, nil
 }
 
@@ -244,7 +275,7 @@ func (l *TaskList) resolveScope(ctx context.Context, projectIDValue *string, wor
 	}
 }
 
-func validateWorkflowTaskListColumnKeys(columnKeys []string, columns []serverapi.WorkflowBoardColumn) error {
+func validateWorkflowTaskListColumnKeys(columnKeys []string, columns []*taskpb.BoardColumn) error {
 	visible := map[string]bool{}
 	for _, column := range columns {
 		visible[column.Node.Key] = true

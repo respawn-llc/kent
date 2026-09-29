@@ -8,7 +8,7 @@ describe("questionAnswerBatchInput", () => {
         kind: "ordinary",
         toolCallID: "prompt-1",
         selectedOptionNumber: 1,
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
         stepID: "step-1",
       }).entries[0],
     ).toMatchObject({ freeform: null });
@@ -18,7 +18,7 @@ describe("questionAnswerBatchInput", () => {
         decision: "allow_once",
         kind: "approval",
         toolCallID: "prompt-2",
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
         stepID: "step-1",
       }).entries[0],
     ).toMatchObject({ commentary: " keep this " });
