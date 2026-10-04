@@ -79,7 +79,7 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             worktree,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
-		Model:                     "gpt-5",
+		Model:                     "gpt-6-sol",
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -220,7 +220,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	if err != nil {

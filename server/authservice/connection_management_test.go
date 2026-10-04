@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -55,6 +56,33 @@ func TestConnectionReferenceSavingDoesNotCheckCredentials(t *testing.T) {
 	}
 	if _, err := connection.Auth.ResolveDispatchAuth(t.Context()); err == nil {
 		t.Fatal("missing credentials must fail when the saved connection is used")
+	}
+}
+
+func TestFirstAddedConnectionBecomesDefault(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("theme = \"dark\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewBootstrapService(t.Context(), NewConnectionResolver(root,
+		auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
+	for _, id := range []string{"first", "second"} {
+		_, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
+			Change: &authpb.ConfigureConnectionRequest_Add{Add: &authpb.ConnectionDefinition{
+				Id: id, Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES,
+				Endpoint: textutil.Value("http://localhost:1234/v1"),
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := service.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if catalog.DefaultConnectionId == nil || *catalog.DefaultConnectionId != "first" {
+			t.Fatalf("default after adding %s: %v", id, catalog.DefaultConnectionId)
+		}
 	}
 }
 

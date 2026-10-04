@@ -256,6 +256,7 @@
 - If no server is reachable, Run fails with guidance to use `kent serve` or `kent service install`.
 - `kent run --agent <role> "prompt"` selects a configured role.
 - `--fast` selects the built-in fast role and cannot be combined with `--agent`.
+- On first-party OpenAI connections, the built-in fast role must default to GPT-6 Luna when model overrides are allowed.
 - Named roles are file-only `[subagents.<role>]` settings and inherit main settings unless overridden.
 - Headless execution runs one non-interactive prompt with ordinary Session persistence.
 - New unnamed Sessions are named `<session-id> subagent`.

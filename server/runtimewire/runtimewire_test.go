@@ -1341,7 +1341,7 @@ func runtimeWireShellSettings(mode config.ShellPostprocessingMode, hookPath *str
 		hook = &copy
 	}
 	return config.Settings{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		ModelContextWindow:  200_000,
 		Reviewer:            config.ReviewerSettings{Frequency: "off"},
 		Timeouts:            config.Timeouts{ModelRequestSeconds: 1},
@@ -1496,7 +1496,7 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 
 func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
-		"gpt-5",
+		"gpt-6-sol",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
 		map[string]config.Origin{"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}}},
@@ -1610,7 +1610,7 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 
 func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
-		"gpt-5",
+		"gpt-6-sol",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
 		map[string]config.Origin{"model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_reasoning_effort"}}},
@@ -1725,7 +1725,7 @@ func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.I
 
 func newRuntimeWireEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
 	t.Helper()
-	engineConfig := runtime.Config{Model: "gpt-5"}
+	engineConfig := runtime.Config{Model: "gpt-6-sol"}
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
 	}

@@ -8,6 +8,8 @@ import (
 
 	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
+	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
 
 type authInteraction struct {
@@ -16,7 +18,7 @@ type authInteraction struct {
 }
 
 type authInteractor interface {
-	isAuthInteractor()
+	authenticateRemote(context.Context, onboardingConnectionClient, config.Settings, *authpb.BootstrapStatus) error
 }
 
 type headlessAuthInteractor struct{}
@@ -35,7 +37,7 @@ type interactiveAuthInteractor struct {
 	pickMethod            func(authInteraction) (authMethodPickerResult, error)
 }
 
-func newInteractiveAuthInteractor() authInteractor {
+func newInteractiveAuthInteractor() *interactiveAuthInteractor {
 	return &interactiveAuthInteractor{
 		stderr:      os.Stderr,
 		openBrowser: serverauth.OpenBrowser,
@@ -49,9 +51,6 @@ func newInteractiveAuthInteractor() authInteractor {
 func newHeadlessAuthInteractor() authInteractor {
 	return &headlessAuthInteractor{}
 }
-
-func (*interactiveAuthInteractor) isAuthInteractor() {}
-func (*headlessAuthInteractor) isAuthInteractor()    {}
 
 func (i *interactiveAuthInteractor) chooseMethod(req authInteraction) (authMethodChoice, error) {
 	run := i.pickMethod

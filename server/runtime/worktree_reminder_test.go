@@ -285,7 +285,7 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 		},
 	}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 		OnEvent: func(event Event) {
 			if event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed {
@@ -330,7 +330,7 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	}
 	resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("after compaction")}}
 	resumedEngine := mustNewTestEngine(t, reopenedStore, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	if _, err := resumedEngine.SubmitUserMessage(context.Background(), "continue"); err != nil {

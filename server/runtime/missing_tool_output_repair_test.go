@@ -28,7 +28,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 			Usage:     llm.Usage{InputTokens: 10, OutputTokens: 2, WindowTokens: 100},
 		}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 
 	message, err := eng.SubmitUserMessage(context.Background(), "continue")
@@ -96,7 +96,7 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 		},
 		responses: []llm.Response{finalTextResponse("repaired")},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	customInput := "custom input"
 	call := llm.ToolCall{
 		ID:          "normal-live-custom",
@@ -187,7 +187,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 			return nil
 		},
 	}
-	eng = mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng = mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
@@ -220,7 +220,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 
 func TestLiveMissingToolOutputRepairWaitsForOutputSteeringBoundary(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("serialized-live-repair")
 	steerDanglingToolCall(t, engine, stepID, llm.ToolCall{
 		ID: "serialized-repair", Name: "exec_command", Input: json.RawMessage(`{}`),
@@ -259,7 +259,7 @@ func TestMissingToolOutputRepairLeavesUnrelated400Unrepaired(t *testing.T) {
 	client := &fakeClient{
 		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "malformed request"}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err == nil {
 		t.Fatal("expected unrelated provider 400 to surface")
@@ -345,7 +345,7 @@ func steerDanglingToolCall(t *testing.T, engine *Engine, stepID string, call llm
 func TestRepairMissingToolOutputsPersistSyntheticErrorPresentation(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("synthetic-repair-presentation")
 	steerDanglingToolCall(t, eng, stepID, llm.ToolCall{
 		ID: "missing", Name: "exec_command", Input: json.RawMessage(`{"cmd":"true"}`),
@@ -371,10 +371,10 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 			Usage: llm.Usage{WindowTokens: 100},
 		}},
 	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),
@@ -420,10 +420,10 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 			},
 		},
 	}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),
 	}
@@ -464,7 +464,7 @@ func TestMalformedRemoteCompactionFallbackUsesMissingToolRepairedInput(t *testin
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{
@@ -499,7 +499,7 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 			},
 		}},
 	}
-	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, engine, "seed", llm.ToolCall{
 		ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`),
 	})
@@ -548,7 +548,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
 		},
 	}
-	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID:    "call-shell",
 		Name:  "exec_command",
@@ -572,7 +572,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		t.Fatalf("append dangling tool call: %v", err)
 	}
 	request := llm.CompactionRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      textutil.Value(store.Meta().SessionID),
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 		Items:          eng.transcriptRuntimeState().SnapshotItems(),

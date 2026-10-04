@@ -70,6 +70,12 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 		if err != nil {
 			return err
 		}
+		catalog, err = runConnectionOperation(ctx, selectedTheme, func() (*authpb.ConnectionCatalog, error) {
+			return s.remote.GetConnections(ctx, &authpb.GetConnectionsRequest{WorkspaceRoot: workspace})
+		})
+		if err != nil {
+			return err
+		}
 	} else {
 		selected = existing[choice]
 		if selected == nil {
@@ -105,9 +111,6 @@ func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb
 	defaultPicker := newStartupPickerModel("**Default connection**", "Default connection", selectedTheme,
 		startupPickerNotice{Text: "Changing the global default preserves role assignments and saved Session connections.", Kind: startupPickerNoticeNeutral},
 		[]startupPickerOption{{ID: "keep", Title: "Keep the current default"}, {ID: "default", Title: "Make " + selected.Id + " the global default"}})
-	if len(catalog.Connections) == 0 {
-		defaultPicker.cursor = 1
-	}
 	picked, err := runStartupPickerFlow(defaultPicker)
 	if err != nil {
 		return err

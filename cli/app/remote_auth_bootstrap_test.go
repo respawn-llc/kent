@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"core/cli/app/internal/authui"
+	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type stubAuthBootstrapClient struct {
@@ -24,6 +27,14 @@ func (c *stubAuthBootstrapClient) GetBootstrapStatus(context.Context, *authpb.Ge
 	return c.status, nil
 }
 
+func (*stubAuthBootstrapClient) GetConnections(context.Context, *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return &authpb.ConnectionCatalog{}, nil
+}
+
+func (*stubAuthBootstrapClient) ConfigureConnection(context.Context, *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
 func (c *stubAuthBootstrapClient) CompleteBootstrap(_ context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
 	c.completeCalls++
 	c.completeReq = req
@@ -36,6 +47,75 @@ func (c *stubAuthBootstrapClient) CompleteBootstrap(_ context.Context, req *auth
 		return c.completeResp, nil
 	}
 	return &authpb.BootstrapCompletion{AuthReady: true, Method: authpb.AuthMethod_AUTH_METHOD_OAUTH, ConnectionId: "test"}, nil
+}
+
+func TestRemoteAuthReadinessAllowsOptionalAuthForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+		AuthRequired: false,
+	}}
+
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor()); err != nil {
+		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no authentication attempt", remote.completeCalls)
+	}
+}
+
+func TestRemoteAuthReadinessBootstrapsAPIKeyForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_API_KEY,
+		ConnectionId: string(connection),
+		AuthRequired: true,
+	}}
+
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor()); err != nil {
+		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	}
+	if remote.completeCalls != 1 {
+		t.Fatalf("bootstrap calls = %d, want exactly one API-key bootstrap", remote.completeCalls)
+	}
+	if remote.completeReq.GetMode() != authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY ||
+		remote.completeReq.GetTarget().GetConnectionId() != string(connection) {
+		t.Fatalf("unexpected API-key bootstrap request: %+v", remote.completeReq)
+	}
+}
+
+func TestRemoteAuthReadinessReportsUnavailableOAuthForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:         authpb.AuthMethod_AUTH_METHOD_OAUTH,
+		ConnectionId:   "connection",
+		AuthRequired:   true,
+		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE},
+	}}
+
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, newHeadlessAuthInteractor())
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("ensureRemoteAuthReady error = %v, want unavailable interaction error", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no headless OAuth attempt", remote.completeCalls)
+	}
+}
+
+func TestRemoteAuthReadinessRequiresInteractorForUnreadyAuth(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+		AuthRequired: false,
+	}}
+
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: &connection}, nil)
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("ensureRemoteAuthReady error = %v, want interaction-required error", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no authentication attempt", remote.completeCalls)
+	}
 }
 
 type stubOAuthCallbackListener struct {

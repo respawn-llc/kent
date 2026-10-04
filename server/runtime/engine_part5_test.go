@@ -19,7 +19,7 @@ import (
 
 func reviewerPromptConfig(path string) Config {
 	return Config{Reviewer: ReviewerConfig{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		SystemPromptFile: textutil.Value(path),
 	}}
 }
@@ -126,7 +126,7 @@ func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 	}
 
 	store := mustCreateTestSessionAt(t, dir)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Reviewer: ReviewerConfig{Model: "gpt-5", SystemPromptFile: app.Settings.Reviewer.SystemPromptFile}})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Reviewer: ReviewerConfig{Model: "gpt-6-sol", SystemPromptFile: app.Settings.Reviewer.SystemPromptFile}})
 	if got := runReviewerPrompt(t, eng).SystemPrompt; got != "tilde reviewer prompt" {
 		t.Fatalf("reviewer system prompt = %q, want tilde reviewer prompt", got)
 	}
@@ -180,11 +180,11 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		FastModeEnabled: true,
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -224,10 +224,10 @@ func TestBlankFinalProjectionIsInvisibleAndSkipsReviewer(t *testing.T) {
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -322,10 +322,10 @@ func TestReviewerRunsOnEditsFrequencyOnlyWhenPatchApplied(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "edits",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -362,10 +362,10 @@ func TestReviewerBlankFinalKeepsOriginalAnswer(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}
 	eng := mustNewExecTestEngine(t, store, mainClient, Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
@@ -407,7 +407,7 @@ func TestReviewerBlankFinalKeepsOriginalAnswer(t *testing.T) {
 	if feedbackRows != 1 {
 		t.Fatalf("reviewer feedback rows = %d, want one; entries=%+v", feedbackRows, snapshot.Entries)
 	}
-	restored := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	restored := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	if len(restored.ChatSnapshot().Entries) == 0 {
 		t.Fatal("restored chat snapshot is empty")
 	}

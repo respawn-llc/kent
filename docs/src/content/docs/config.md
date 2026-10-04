@@ -20,8 +20,6 @@ The private `config.local.toml` is read from the main workspace when using workt
 
 **Connection discovery is an exception** - for provider connection declarations, Kent reads global configuration to keep provider access private to that installation. See [Authentication and connections](../authentication/).
 
-Some cache-affecting settings like prompts, tools, and model IDs are **snapshotted** at session start and re-loaded at **compaction**. This is done to keep the prompt cache.
-
 ## Locations
 
 ### Persistence root
@@ -31,13 +29,19 @@ Some cache-affecting settings like prompts, tools, and model IDs are **snapshott
 - Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
   `kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS holds a single service, so install with the root you want managed.
 
+## Model defaults
+
+Kent defaults to GPT-6.1 Sol. The built-in `fast` role uses GPT-6 Luna on first-party OpenAI connections. With Supervisor enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers. Custom setup pre-fills Supervisor with the selected primary model. GPT-6 models default to a 272,000-token context window. During setup, the large-context option selects 872,000 tokens for ChatGPT subscriptions or 1,050,000 tokens for the OpenAI API. Requests above 272,000 input tokens have higher [OpenAI API rates](https://developers.openai.com/api/docs/pricing).
+
+GPT-6 Sol and Luna support `thinking_level = "none"` to disable thinking.
+
 ## Example
 
 ```toml
-model = "gpt-6-astra"
+model = "gpt-6.1-sol"
 connection = "subscription"
 provider_identifier = "kent"
-thinking_level = "medium" # low, medium, high, xhigh, max, ultra
+thinking_level = "medium" # none, low, medium, high, xhigh, max
 model_verbosity = "low" # or "medium" / "high"
 max_subagent_depth = 2 # 0 through 30; 0 blocks subagent creation completely
 # system_prompt_file = "SYSTEM.md" # relative to this config.toml directory
@@ -53,7 +57,7 @@ model_request_seconds = 400
 
 [tools]
 shell = true
-# Leave both patch/edit commented to use Kent's model-based default.
+# Leave patch and edit unset to let Kent choose.
 # patch = true
 # edit = false
 view_image = true
@@ -72,7 +76,7 @@ postprocessing_mode = "all" # shell output token optimizations by Kent: none | b
 completion_mode = "auto"
 concurrency = 5 # max agents to run concurrently for workflows; Script Nodes / Chats do not use it
 max_invalid_completion_attempts = 5
-pre_compaction_tokens = 247380 # defaults to 70% of context_compaction_threshold_tokens
+pre_compaction_tokens = 180880 # defaults to 70% of context_compaction_threshold_tokens
 use_required_tool_calls = true # whether to force models to never stop until workflow is complete on the API level
 subagents = false # disables all workflow-agent delegation
 
@@ -111,9 +115,9 @@ protocol = "chatgpt-codex"
 
 ## Thinking
 
-Thinking selects the model's reasoning effort. Change it in Chat settings or with [`/thinking <level>`](/slash-commands/). Available levels depend on the model and provider.
+Set the model's reasoning effort in Chat settings or with [`/thinking <level>`](/slash-commands/). Available levels depend on the selected model and provider.
 
-A Session's Thinking override takes precedence over its Agent configuration and global `thinking_level`. Use terminal detail mode to inspect recorded Thinking updates on supported models.
+A session's Thinking override takes precedence over its agent configuration and global `thinking_level`.
 
 ## CLI overrides
 
@@ -131,7 +135,7 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 
 | Key                                   | Type            | Default       | Env                                        | CLI                                | Description                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------- | --------------- | ------------- | ------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`                               | string          | `gpt-6-astra` | `KENT_MODEL`                               | `kent run --model`                 | Model name for the selected provider connection. Select provider access with `connection`.                                                                                                                                                                                                                                      |
+| `model`                               | string          | `gpt-6.1-sol` | `KENT_MODEL`                               | `kent run --model`                 | Model name for the selected provider connection. Select provider access with `connection`.                                                                                                                                                                                                                                      |
 | `max_subagent_depth`                  | int             | `2`           |                                            |                                    | Maximum depth for model-originated creation of new child agents. A root is depth `0`. Values must be from `0` through `30`, and `0` blocks all model-originated child creation. Kent uses the active global-then-workspace value for every launch attempt.                                                                      |
 | `thinking_level`                      | string          | `medium`      | `KENT_THINKING_LEVEL`                      | `kent run --thinking-level`        | Provider-specific reasoning effort string.                                                                                                                                                                                                                                                                                      |
 | `model_verbosity`                     | string          | `low`         |                                            |                                    | Text verbosity hint for supported models. Allowed: `""`, `low`, `medium`, `high`. Unsupported models ignore it.                                                                                                                                                                                                                 |
@@ -149,8 +153,8 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | `provider_identifier`                 | string          | `kent`        | `KENT_PROVIDER_IDENTIFIER`                 |                                    | Sets the `originator` header and the `<provider_identifier>/<Kent version>` User-Agent on OpenAI, ChatGPT Codex, and OpenAI-compatible model-provider requests. The value must be a non-empty HTTP product token, such as `kent`, `my-agent`, or `acme_codex`. A restarted server applies the active value to resumed sessions. |
 | `store`                               | bool            | `false`       | `KENT_STORE`                               |                                    | Sets OpenAI Responses `store=true` for main model requests.                                                                                                                                                                                                                                                                     |
 | `allow_non_cwd_edits`                 | bool            | `false`       | `KENT_ALLOW_NON_CWD_EDITS`                 |                                    | Allows native file edits outside the working directory. Operating-system temporary directories are always allowed. For tool isolation, use a sandbox.                                                                                                                                                                           |
-| `model_context_window`                | int             | `372000`      | `KENT_MODEL_CONTEXT_WINDOW`                |                                    | Explicit context-window size used for compaction and token accounting. The minimum is `40000`.                                                                                                                                                                                                                                  |
-| `context_compaction_threshold_tokens` | int             | `353400`      | `KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS` |                                    | Auto-compaction threshold. Must be `> 0`, `< model_context_window`, and at least `50%` of `model_context_window`. The default is derived from the default context window.                                                                                                                                                       |
+| `model_context_window`                | int             | `272000`      | `KENT_MODEL_CONTEXT_WINDOW`                |                                    | Explicit context-window size used for compaction and token accounting. The minimum is `40000`.                                                                                                                                                                                                                                  |
+| `context_compaction_threshold_tokens` | int             | `258400`      | `KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS` |                                    | Auto-compaction threshold. Must be `> 0`, `< model_context_window`, and at least `50%` of `model_context_window`. The default is derived from the default context window.                                                                                                                                                       |
 | `pre_submit_compaction_lead_tokens`   | int             | `35000`       | `KENT_PRE_SUBMIT_COMPACTION_LEAD_TOKENS`   |                                    | Fixed pre-submit runway reserve before auto-compaction. Kent compacts before sending the next user prompt once (`context_compaction_threshold_tokens` - this threshold) is reached.                                                                                                                                             |
 | `minimum_exec_to_bg_seconds`          | int             | `15`          | `KENT_MINIMUM_EXEC_TO_BG_SECONDS`          |                                    | Default floor for `exec_command` yield time before it moves to background and lets Kent manage it asynchronously. Must be `> 0`. Use if model frequently expects your commands to complete fast, they background, and force model to poll for them.                                                                             |
 | `compaction_mode`                     | string          | `local`       | `KENT_COMPACTION_MODE`                     |                                    | Allowed: `native`, `local`, `none`. `native` prefers provider-native compaction and falls back to local compaction. `local` always uses local summary compaction. `none` disables auto-compaction and makes manual compaction fail.                                                                                             |
@@ -167,17 +171,15 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | Key                                        | Type   | Default                                                      | Env                                             | Description                                                                                                                                                                                            |
 | ------------------------------------------ | ------ | ------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `workflow.completion_mode`                 | string | `auto`                                                       | `KENT_WORKFLOW_COMPLETION_MODE`                 | Default completion mode for workflow agent nodes that inherit the global default. Allowed: `auto`, `structured_output`, `tool`, `shell_command`, `unstructured_output`.                                |
-| `workflow.concurrency`                     | int    | `5`                                                          | `KENT_WORKFLOW_CONCURRENCY`                     | Agent Node scheduling capacity. Explicit workflow actions may exceed it. Script Nodes do not use it. Must be `> 0`.                                                                                    |
+| `workflow.concurrency`                     | int    | `5`                                                          | `KENT_WORKFLOW_CONCURRENCY`                     | Agent node scheduling capacity. Explicit workflow actions may exceed it. Script nodes do not use it. Must be `> 0`.                                                                                    |
 | `workflow.max_invalid_completion_attempts` | int    | `5`                                                          | `KENT_WORKFLOW_MAX_INVALID_COMPLETION_ATTEMPTS` | Number of invalid workflow completion attempts allowed before Kent interrupts the run. Must be `> 0`.                                                                                                  |
-| `workflow.pre_compaction_tokens`           | int    | `70%` of `context_compaction_threshold_tokens`, rounded down |                                                 | Workflow Session pre-compaction threshold. Must be positive and no greater than `context_compaction_threshold_tokens`. See workflow documentation for more info.                                       |
+| `workflow.pre_compaction_tokens`           | int    | `70%` of `context_compaction_threshold_tokens`, rounded down |                                                 | Workflow session pre-compaction threshold. Must be positive and no greater than `context_compaction_threshold_tokens`. See workflow documentation for more info.                                       |
 | `workflow.use_required_tool_calls`         | bool   | `true`                                                       |                                                 | Uses provider-required tool selection for `tool` and `shell_command` workflow completion modes. Set to `false` to use automatic tool selection while preserving Kent's workflow completion validation. |
 | `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to delegate to eligible roles, including `default` and `fast`.                                                                                                                  |
 
 ### Supervisor
 
-Configure the supervisor agent that oversees model changes ("reviewer" is the legacy name of the feature).
-
-Supervisor reviews run asynchronously, so you can continue working after the main answer.
+Configure the supervisor agent that reviews model changes.
 
 | Key                             | Type            | Default                         | Env                                  | Description                                                                                                                                                 |
 | ------------------------------- | --------------- | ------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -194,55 +196,55 @@ Supervisor reviews run asynchronously, so you can continue working after the mai
 
 Use `reviewer.model_capabilities` for custom supervisor models. Provider capability overrides belong to the supervisor's selected connection.
 
-| Key (inside `reviewer.model_capabilities.*`) | Type | Default                                                 | Env                                                          | Description                                                                         |
-| -------------------------------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `supports_reasoning_effort`                  | bool | inherits `model_capabilities.supports_reasoning_effort` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the reviewer model as supporting reasoning effort / thinking levels. |
-| `supports_vision_inputs`                     | bool | inherits `model_capabilities.supports_vision_inputs`    | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Marks the reviewer model as supporting multimodal image and PDF inputs.             |
+| Key (inside `reviewer.model_capabilities.*`) | Type | Default                                                 | Env                                                          | Description                                                          |
+| -------------------------------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `supports_reasoning_effort`                  | bool | inherits `model_capabilities.supports_reasoning_effort` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Allows Kent to send reasoning-effort settings to the reviewer model. |
+| `supports_vision_inputs`                     | bool | inherits `model_capabilities.supports_vision_inputs`    | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Allows Kent to send image and PDF inputs to the reviewer model.      |
 
 ### Model capability overrides
 
-For models outside Kent's catalog, declare reasoning and vision support through these settings. Native compaction depends on the selected connection.
+Use these fields to override Kent's default capability selection for a model.
 
-| Key                                            | Type | Default                | Env                                                 | Description                                                                           |
-| ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
-| `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Overrides support for multimodal image and PDF inputs.                                |
+| Key                                            | Type | Default                | Env                                                 | Description                                                          |
+| ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Allows Kent to send reasoning-effort settings to the selected model. |
+| `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Allows Kent to send image and PDF inputs to the selected model.      |
 
 ### Provider capability overrides
 
 Set these fields inside `[connections.<id>.provider_capabilities]`. `provider_id` is required when declaring overrides.
 
-| Key                                 | Type   | Default  | Description                                                                                                                                     |
-| ----------------------------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider_id`                       | string | required | Required whenever you set provider capability overrides.                                                                                        |
-| `supports_responses_api`            | bool   | `false`  | Marks the provider as supporting the Responses API.                                                                                             |
-| `supports_responses_compact`        | bool   | `false`  | Marks the provider as supporting server-side compaction.                                                                                        |
-| `supports_native_web_search`        | bool   | `false`  | Marks the provider as supporting native web search.                                                                                             |
-| `supports_reasoning_encrypted`      | bool   | `false`  | Marks the provider as supporting encrypted reasoning items.                                                                                     |
-| `supports_server_side_context_edit` | bool   | `false`  | Marks the provider as supporting server-side context editing.                                                                                   |
-| `supports_provider_verbosity`       | bool   | `false`  | Controls Responses `text.verbosity` for unknown models. Known models use catalog facts.                                                         |
-| `is_openai_first_party`             | bool   | `false`  | Marks the provider as first-party OpenAI semantics, which gates some Responses-specific behavior such as fast mode and phase protocol features. |
+| Key                                 | Type   | Default  | Description                                                                |
+| ----------------------------------- | ------ | -------- | -------------------------------------------------------------------------- |
+| `provider_id`                       | string | required | Identifies the provider described by these overrides.                      |
+| `supports_responses_api`            | bool   | `false`  | Marks the provider as supporting the Responses API.                        |
+| `supports_responses_compact`        | bool   | `false`  | Marks the provider as supporting server-side compaction.                   |
+| `supports_native_web_search`        | bool   | `false`  | Marks the provider as supporting native web search.                        |
+| `supports_reasoning_encrypted`      | bool   | `false`  | Marks the provider as supporting encrypted reasoning items.                |
+| `supports_server_side_context_edit` | bool   | `false`  | Marks the provider as supporting server-side context editing.              |
+| `supports_provider_verbosity`       | bool   | `false`  | Enables provider-specific verbosity settings for models that support them. |
+| `is_openai_first_party`             | bool   | `false`  | Marks this connection as a first-party OpenAI provider.                    |
 
 ### Tools
 
 `[tools]` is a per-tool boolean table in `config.toml`.
 File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools` behave differently: they replace the entire tool set with the CSV you provide.
 
-| Key                     | Default            | What enabling it exposes                                                                                     |
-| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `tools.ask_question`    | task-dependent     | Tool to ask humans interactive questions. Mandatory for workflows.                                           |
-| `tools.shell`           | `true`             | The primary shell tool.                                                                                      |
-| `tools.patch`           | model-dependent    | Freeform patch grammar edit tool for models trained on it (like the GPT family)                              |
-| `tools.edit`            | model-dependent    | JSON text replacement/create/delete edit tool. Intended for models that are not trained to use patch syntax. |
-| `tools.trigger_handoff` | `true`             | Tool agents can use to proactively compact their own context.                                                |
-| `tools.view_image`      | model-dependent    | Ability to view PNG, JPEG, single-frame WebP and GIF, and PDF files (if supported)                           |
-| `tools.web_search`      | provider-dependent | Tool to search the web                                                                                       |
-| `tools.write_stdin`     | `true`             | Interaction with background shells.                                                                          |
+| Key                     | Default            | What enabling it exposes                                                           |
+| ----------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `tools.ask_question`    | task-dependent     | Tool to ask humans interactive questions. Mandatory for workflows.                 |
+| `tools.shell`           | `true`             | The primary shell tool.                                                            |
+| `tools.patch`           | model-dependent    | Lets the model edit files with patch syntax.                                       |
+| `tools.edit`            | model-dependent    | Lets the model edit files with structured text replacements.                       |
+| `tools.trigger_handoff` | `true`             | Tool agents can use to proactively compact their own context.                      |
+| `tools.view_image`      | model-dependent    | Ability to view PNG, JPEG, single-frame WebP and GIF, and PDF files (if supported) |
+| `tools.web_search`      | provider-dependent | Tool to search the web                                                             |
+| `tools.write_stdin`     | `true`             | Interaction with background shells.                                                |
 
 Notes:
 
 - Native web search requires `tools.web_search = true`, `web_search = "native"`, and provider support.
-- `tools.patch` and `tools.edit` are mutually exclusive. If both are left at their defaults, Kent chooses `patch` for models that are trained on freeform patch syntax, otherwise `edit`. To force `edit`, set `edit = true` and `patch = false`.
+- Kent selects either `tools.patch` or `tools.edit` for the selected model. Set one to `true` and the other to `false` to choose explicitly.
 
 ## Concurrent shells
 

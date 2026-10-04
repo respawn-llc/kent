@@ -116,7 +116,7 @@ func TestMutateChatSettingsPreservesLockedUnavailableAgent(t *testing.T) {
 		Agent:    "removed-agent",
 		Settings: completeChatSettingsOverrides("all", "custom-depth", true, false, false),
 	})
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5"}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol"}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
 	before := store.Meta()

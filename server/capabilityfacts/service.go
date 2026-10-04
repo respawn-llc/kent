@@ -142,7 +142,8 @@ func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCa
 	if modelID == "" {
 		return nil, errBlankModelCatalogEntry
 	}
-	contextWindow, err := positiveUint32Ptr(contract.ContextWindowTokens, "model context window")
+	metadata := contract.ContextMetadata(providerCaps)
+	contextWindow, err := positiveUint32Ptr(metadata.ContextWindowTokens, "model context window")
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +157,8 @@ func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCa
 		SupportsVisionInputs:     contract.SupportsVisionInputs,
 		Verbosity:                verbosityFact(llm.VerbositySupportForModelAndProvider(modelID, providerCaps)),
 	}
-	if contract.LargeContextWindowTokens > contract.ContextWindowTokens {
-		tokens, err := uint32Value(contract.LargeContextWindowTokens, "model large context window")
+	if metadata.LargeContextWindowTokens > metadata.ContextWindowTokens {
+		tokens, err := uint32Value(metadata.LargeContextWindowTokens, "model large context window")
 		if err != nil {
 			return nil, err
 		}

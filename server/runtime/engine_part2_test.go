@@ -140,7 +140,7 @@ func TestBuildSystemPromptSnapshotForRootDoesNotUseMutexTakingWorkspaceAccessor(
 	eng.mu.Lock()
 	go func() {
 		prompt, err := eng.buildSystemPromptSnapshotForRoot(session.LockedContract{
-			Model:       "gpt-5",
+			Model:       "gpt-6-sol",
 			Temperature: 1,
 			ToolPreambles: func() *bool {
 				enabled := false
@@ -208,7 +208,7 @@ func TestEnvironmentContextUsesTranscriptWorkingDirWithoutWorktreeReminder(t *te
 	}
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir:  worktree,
 		AutoCompactTokenLimit: 1_000_000_000,
@@ -248,7 +248,7 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 
 	store := mustCreateTestSession(t, workspace)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
 		ToolPreambles: func() *bool {
@@ -445,7 +445,7 @@ func TestUnsnapshottedSystemPromptUsesCurrentContextBudget(t *testing.T) {
 			promptPath := filepath.Join(workspace, "budget.md")
 			writeTestFile(t, promptPath, "{{.EstimatedToolCallsForContext}}")
 			store := mustCreateTestSession(t, workspace)
-			if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
+			if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-6-sol"}); err != nil {
 				t.Fatalf("mark locked: %v", err)
 			}
 			client := &fakeClient{responses: []llm.Response{{
@@ -520,12 +520,12 @@ func TestRuntimeControlsRejectInvalidOrUnavailableChanges(t *testing.T) {
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:                   "gpt-5.3-codex",
+			Model:                   "gpt-6-luna",
 			ThinkingLevel:           "high",
 			SupportedThinkingValues: []string{"low", "medium", "high", "xhigh"},
 			Reviewer: ReviewerConfig{
 				Frequency:     "off",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 			},
 		},
@@ -578,7 +578,7 @@ func TestFastModeEnabledReportsFalseWhenProviderIsUnavailable(t *testing.T) {
 		}},
 		tools.NewRegistry(),
 		Config{
-			Model:           "gpt-5.3-codex",
+			Model:           "gpt-6-luna",
 			FastModeEnabled: true,
 		},
 	)
@@ -600,7 +600,7 @@ func TestNewRejectsUnavailableProviderCapabilities(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		&fakeClient{capsErr: capabilityErr},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	if !errors.Is(err, capabilityErr) {
 		t.Fatalf("New error = %v, want provider capability error", err)
@@ -610,7 +610,7 @@ func TestNewRejectsUnavailableProviderCapabilities(t *testing.T) {
 func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:          "gpt-5.4",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
 		ProviderContract: session.LockedProviderCapabilities{
@@ -627,7 +627,7 @@ func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}}}}
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:         "gpt-5.4",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 	})
@@ -657,7 +657,7 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 	}
 
 	eng := mustNewExecTestEngine(t, store, client, Config{
-		Model:         "gpt-5.3-codex",
+		Model:         "gpt-6-luna",
 		Temperature:   1,
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -689,7 +689,7 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 
 func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 	store := mustCreateTestSession(t)
-	cfg := Config{Model: "gpt-5.3-codex"}
+	cfg := Config{Model: "gpt-6-luna"}
 	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
 
 	changed, err := eng.SetFastModeEnabled(true)
@@ -708,7 +708,7 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetAutoCompactionEnabledRejectsAfterClose(t *testing.T) {
 	store := mustCreateTestSession(t)
-	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 
 	if err := eng.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
@@ -753,7 +753,7 @@ func TestSetAutoCompactionDisabledDuringBusyStepAppliesAtBoundary(t *testing.T) 
 	started := make(chan struct{})
 	release := make(chan struct{})
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: blockingTool{name: toolspec.ToolExecCommand, started: started, release: release}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		AutoCompactTokenLimit: 350000,
 	})
 
@@ -804,10 +804,10 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)
 	cfg := Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        &fakeClient{},
 		},
@@ -834,10 +834,10 @@ func TestSetReviewerEnabledLazyInitializesReviewerClient(t *testing.T) {
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "low",
 			Client:        nil,
 			ClientFactory: func() (llm.Client, error) {

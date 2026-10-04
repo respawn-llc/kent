@@ -61,7 +61,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 		t.Fatal("working B must not prompt for unavailable A")
 		return authMethodPickerResult{}, nil
 	}}
-	if err := server.EnsureAuthReady(t.Context(), plan.ActiveSettings.Connection, interactor, true); err != nil {
+	if err := server.EnsureAuthReady(t.Context(), plan.ActiveSettings, interactor); err != nil {
 		t.Fatal(err)
 	}
 	resumed := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, SessionID: plan.SessionID}, interactor)
@@ -74,7 +74,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	if resumePlan.ActiveSettings.Connection == nil || *resumePlan.ActiveSettings.Connection != b {
 		t.Fatalf("bound Session lost B: %v", resumePlan.ActiveSettings.Connection)
 	}
-	if err := resumed.EnsureAuthReady(t.Context(), resumePlan.ActiveSettings.Connection, newHeadlessAuthInteractor(), false); err != nil {
+	if err := resumed.EnsureAuthReady(t.Context(), resumePlan.ActiveSettings, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("selected Session reauthentication: %v", err)
 	}
 	result, err := RunPrompt(t.Context(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, "hello", 0, nil)

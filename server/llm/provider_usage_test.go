@@ -73,11 +73,11 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
 		transport := newOpenAIStreamTestTransport(t,
-			`{"type":"response.completed","response":{"model":"gpt-5","output":[]}}`,
+			`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[]}}`,
 			`[DONE]`,
 		)
 		response, err := transport.Generate(context.Background(), OpenAIRequest{
-			Model: "gpt-5", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -89,11 +89,11 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 
 	t.Run("explicit zero", func(t *testing.T) {
 		transport := newOpenAIStreamTestTransport(t,
-			`{"type":"response.completed","response":{"model":"gpt-5","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},"output":[]}}`,
+			`{"type":"response.completed","response":{"model":"gpt-6-sol","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},"output":[]}}`,
 			`[DONE]`,
 		)
 		response, err := transport.Generate(context.Background(), OpenAIRequest{
-			Model: "gpt-5", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+			Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 		}, StreamCallbacks{})
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -113,11 +113,11 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 
 func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.completed","response":{"model":"gpt-5","output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}]}}`,
+		`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}]}}`,
 		`[DONE]`,
 	)
 	_, err := transport.Generate(context.Background(), OpenAIRequest{
-		Model: "gpt-5", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic,
 	}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("Generate succeeded with malformed hosted-tool evidence")

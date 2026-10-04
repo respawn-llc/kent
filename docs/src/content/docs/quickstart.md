@@ -124,7 +124,7 @@ Changes take effect when a session starts or after compaction.
 
 ## Supervisor
 
-- Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the work done by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
+- Use `/supervisor` to toggle reviews for the current session. It reviews the model's work and adds about 15% to costs when it uses the main model. See [Configuration](../config/) to choose its model.
 
 ## Advanced
 

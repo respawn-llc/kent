@@ -238,7 +238,7 @@ func newProjectedAuthorityRuntime(
 	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
 	if cfg.Model == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	} else {
 		settings.Model = cfg.Model
 	}

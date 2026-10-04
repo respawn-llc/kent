@@ -298,11 +298,11 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version: "1.2.3",
 		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
-			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-6.1-sol", "high")}, nil
 		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
+			Settings:      config.Settings{Model: "gpt-6.1-sol", ThinkingLevel: "high"},
 			AuthStatus:    &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)},
 		},
 	})
@@ -315,7 +315,7 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	updated := next.(*sessionPickerModel)
 	updated.Update(updated.collectHeaderFactsCmd()())
 	plain := stripANSIAndTrimRight(updated.renderHeader())
-	for _, want := range []string{"git picker-branch", "gpt-5 high"} {
+	for _, want := range []string{"git picker-branch", "gpt-6.1-sol high"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("expected async status value %q in header, got %q", want, plain)
 		}
@@ -328,11 +328,11 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 		Version:       "1.2.3",
 		ServerAddress: "127.0.0.1:53082",
 		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
-			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-6.1-sol", "high")}, nil
 		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
+			Settings:      config.Settings{Model: "gpt-6.1-sol", ThinkingLevel: "high"},
 			AuthStatus:    &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_NONE)},
 		},
 	})
@@ -343,7 +343,7 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	}
 
 	before := stripANSIAndTrimRight(m.View())
-	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-5 high", repoRoot} {
+	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-6.1-sol high", repoRoot} {
 		if strings.Contains(before, unexpected) {
 			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
 		}
@@ -425,7 +425,7 @@ func TestSessionPickerHeaderTinyWidthKeepsRowsVisible(t *testing.T) {
 		Version:       "1.2.3",
 		CWD:           "~/very/long/path/to/repo",
 		Branch:        "feature/very-long-branch",
-		Model:         "gpt-5.1-ultra high",
+		Model:         "custom-model high",
 		ServerAddress: "127.0.0.1:53082",
 	})
 	m.width = 8

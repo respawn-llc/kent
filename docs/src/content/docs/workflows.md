@@ -16,9 +16,9 @@ Backlog -> Plan -> Implement -> Review -> Done
                          +----- Needs changes
 ```
 
-## 1. Choose How To Build
+## 1. Choose how to build
 
-### Ask Kent To Create It
+### Ask Kent to create it
 
 The easiest path is to ask Kent to model your existing work process as a workflow. Kent agents can inspect your repo, agent roles, skills, slash commands, project conventions, and past sessions, then create the reusable workflow definition for you. After that, use Kent Desktop to review and adjust the graph.
 
@@ -32,23 +32,23 @@ Include the roles, nodes, transitions, prompts, parameters, context modes, appro
 
 This path works best when you describe the real decision points in your process: when implementation is done, what a review must return, when QA is required, what counts as shipped, and where you want explicit approval.
 
-### Build Or Edit In Kent Desktop
+### Build or edit in Kent Desktop
 
 Use Kent Desktop when you want direct control over the workflow definition.
 From a project, create or link a workflow, open the workflow editor, then edit the graph.
 
 ![Kent Desktop workflow editor showing a workflow graph and transition inspector.](/desktop/desktop-workflow-editor.webp)
 
-## 2. Set Up Agent Roles
+## 2. Set up agent roles
 
-Workflow Agent Nodes run existing Kent subagent roles. Each Agent Node requires an Assignee, and that role must effectively enable `ask_question`. See [Tools](../config/#tools) for tool configuration. Why? Ability to ask questions prevents infinite loops and other issues where workflow is problematic or requirements are ambiguous.
+Workflow agent nodes run existing Kent subagent roles. Each agent node requires an assignee, and that role must effectively enable `ask_question`. See [tools](../config/#tools) for tool configuration. Why? Ability to ask questions prevents infinite loops and other issues where the workflow is problematic or requirements are ambiguous.
 
-Eligible serial transitions into Agent Nodes can select an Assignee from roles explicitly configured with `agent_callable = true`. Kent force-enables `ask_question` for that transition-selected execution.
+Eligible serial transitions into agent nodes can select an assignee from roles explicitly configured with `agent_callable = true`. Kent force-enables `ask_question` for that transition-selected execution.
 
 ```toml
 [subagents.implementer]
 description = "Implements approved tasks and leaves reviewable changes."
-model = "gpt-5.6-luna"
+model = "gpt-6-luna"
 thinking_level = "xhigh"
 system_prompt_file = "agents/implementer.md"
 agent_callable = false # prevent ordinary Kent sessions from delegating to this role
@@ -63,17 +63,17 @@ workflow_subagent = false # prevent workflow agents from delegating to this role
 
 See [Headless runs](../headless/#subagent-roles) for the role configuration reference.
 
-## 3. Understand The Graph
+## 3. Understand the graph
 
-### Workflow, Project, And Task
+### Workflow, project, and task
 
 - A workflow is the reusable graph definition.
 - A project links workflows, provides workspaces, and owns the task board.
 - A task is the durable unit of work that moves through one workflow.
-- A task directly owns its Current Nodes: normally one node, or several while a transition fans out into parallel branches. Current Nodes have no independent identity.
+- A task directly owns its current nodes: normally one node, or several while a transition fans out into parallel branches. Current nodes have no independent identity.
 - An agent current node can bind to an existing Kent session. A script current node uses its saved script state for resumption.
 
-Creating a task puts it in Backlog. Starting the task applies the workflow's start transition and creates its first executable Current Node.
+Creating a task puts it in Backlog. Starting the task applies the workflow's start transition and creates its first executable current node.
 
 ### Nodes
 
@@ -102,7 +102,7 @@ Each transition contains one or more branches:
 
 Use transition descriptions for agent-facing choice criteria. For example, a Review node might offer `done` with "Choose when the implementation is correct and ready to ship" and `needs_changes` with "Choose when implementation changes are required."
 
-### Parallelism, Node Groups, And Joins
+### Parallelism, node groups, and joins
 
 Use a node group when you want several nodes to execute in parallel.
 
@@ -118,11 +118,11 @@ Implement
 
 To create a new parallel group, right-click the node and select "Group". Drag additional agent nodes into the group to add branches.
 
-Wire the group as one fan-out transition from the upstream source to every grouped branch. Each branch then routes to the group's Join node, and the Join routes to the next node in the workflow.
+Wire the group as one fan-out transition from the upstream source to every grouped branch. Each branch then routes to the group's join node, and the join routes to the next node in the workflow.
 
-Use the Join to aggregate branch parameters, then put synthesis, release-note writing, approval, or final decision-making in a normal agent/script node after the join.
+Use the join to aggregate branch parameters, then put synthesis, release-note writing, approval, or final decision-making in a normal agent/script node after the join.
 
-## 4. Configure Agent Work
+## 4. Configure agent work
 
 ### Prompts
 
@@ -162,9 +162,9 @@ A previous-transition parameter is valid only when every path to the prompt pass
 
 ![Kent Desktop workflow transition inspector showing a prompt with task and parameter placeholders.](/desktop/desktop-workflow-prompt-editor.webp)
 
-### Script Nodes
+### Script nodes
 
-Use a Script node when a workflow step should run a deterministic local executable instead of an agent. Script nodes can be used anywhere an agent node can.
+Use a script node when a workflow step should run a deterministic local executable instead of an agent. Script nodes can be used anywhere an agent node can.
 
 Set the script path on the script node. **All paths are resolved on the server machine.** Relative paths resolve against the task's execution root.
 
@@ -193,7 +193,7 @@ Stdout must be the workflow completion JSON. Stderr is diagnostics only. For exa
 }
 ```
 
-If the script exits non-zero, writes invalid completion JSON, omits required parameters, or becomes unavailable, Kent interrupts the Current Node. Resume reruns the script with the same incoming parameter values and the current workflow script path and transition contracts.
+If the script exits non-zero, writes invalid completion JSON, omits required parameters, or becomes unavailable, Kent interrupts the current node. Resume reruns the script with the same incoming parameter values and the current workflow script path and transition contracts.
 
 ### Parameters
 
@@ -210,13 +210,13 @@ Declare parameters on the transition whose source agent can produce them. In fan
 
 For each transition, the source agent must provide the declared parameters before it can complete that branch. The target agent receives those values where the transition prompt references them with placeholders such as `{{.Params.findings}}`.
 
-### Transition Assignee And Thinking Selection
+### Transition assignee and thinking selection
 
-Each eligible serial Agent or Script transition into an Agent Node can independently enable **Let the previous node choose** for the target Assignee and **Let the previous node select thinking level** for thinking. A disabled selector uses the target Agent Node's configured fallback Assignee or configured thinking. Fan-out transitions do not support either selector.
+Each eligible serial agent or script transition into an agent node can independently enable **Let the previous node choose** for the target assignee and **Let the previous node select thinking level** for thinking. A disabled selector uses the target agent node's configured fallback assignee or configured thinking. Fan-out transitions do not support either selector.
 
-Transition-selected effort follows the Session's [Thinking settings](/config/#thinking). Transition-selected Assignees must be explicitly agent-callable roles.
+Transition-selected effort follows the session's [thinking settings](/config/#thinking). Transition-selected assignees must be explicitly agent-callable roles.
 
-### Context Modes
+### Context modes
 
 Context mode controls how the target agent starts its session.
 It applies to transitions into agent nodes. Transitions into joins or terminal nodes do not start agent sessions.
@@ -231,16 +231,16 @@ Continuation modes also have a context source:
 
 - Immediate source uses the session from the node that just completed.
 - Selected node uses a previous node that is guaranteed to have run before this transition.
-- Previous target uses the latest saved session associated with this edge's target node. Use it for loops where the workflow returns to a node and should continue that node's prior Session.
-- Previous target, or new session uses the latest saved session associated with this edge's target node when one exists. Use it for re-review loops where the first pass starts fresh and later passes continue the target's prior Session.
+- Previous target uses the latest saved session associated with this edge's target node. Use it for loops where the workflow returns to a node and should continue that node's prior session.
+- Previous target, or new session uses the latest saved session associated with this edge's target node when one exists. Use it for re-review loops where the first pass starts fresh and later passes continue the target's prior session.
 
 Use `new_session` or `compact_and_continue_session` when you need to change agent roles between sessions or the task benefits from a fresh pair of eyes.
 
-### Human Approval
+### Human approval
 
 A transition can require approval. When the source agent chooses that transition, the task waits before target branches start. Use approvals for plan acceptance, destructive operations, release steps, or any point where you want to inspect the agent's proposed direction. For fan-out transitions, approval gates the whole selected transition before any branch starts.
 
-### Completion Modes
+### Completion modes
 
 Completion mode controls how an agent node reports that it has finished and which transition it selected.
 Only agent nodes have completion modes. Start, join, and terminal nodes use their own transition rules.
@@ -249,14 +249,14 @@ Only agent nodes have completion modes. Start, join, and terminal nodes use thei
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Inherit global default | Use the workflow completion mode from [configuration](../config/#workflow).                                                                              | Same behavior as the resolved configured mode.                                                                                                        |
 | Auto                   | Best default for most nodes. Kent picks the effective mode from the workflow shape, provider support, and shell availability.                            | Usually gives the safest cache/cost trade-off automatically.                                                                                          |
-| Structured output      | Provider-native structured output. Use it when the provider supports strict structured responses and the node is not part of a `continue_session` chain. | Lowest-friction on capable providers, but prevents the Current Node from starting when unsupported and fully invalidates cache on continued sessions. |
+| Structured output      | Provider-native structured output. Use it when the provider supports strict structured responses and the node is not part of a `continue_session` chain. | Lowest-friction on capable providers, but prevents the current node from starting when unsupported and fully invalidates cache on continued sessions. |
 | Tool call              | Dedicated completion tool. Use it for providers without structured-output support.                                                                       | Reliable tool-driven completion, but fully invalidates cache on continued sessions.                                                                   |
 | Shell command          | Completion through the agent's shell environment. Prefer this for `continue_session` chains.                                                             | Requires the shell tool for the target role and gives the agent shell access, but avoids completion-contract cache invalidation.                      |
 | Unstructured output    | Best-effort raw JSON final answer. Use only when you need `continue_session` and cannot use shell commands.                                              | Most fragile mode. It avoids dynamic completion metadata, but depends on the model following exact final-answer instructions.                         |
 
 `auto` chooses unstructured output if the runtime has no shell available. Otherwise it chooses shell command when the workflow contains a `continue_session` transition, structured output on capable providers, and tool call as the remaining fallback.
 
-### Cache And Cost Behavior
+### Cache and cost behavior
 
 Workflow design affects prompt-cache continuity and token spend:
 
@@ -264,7 +264,7 @@ Workflow design affects prompt-cache continuity and token spend:
 - `new_session` starts clean. The prompt and parameters must carry enough context for the agent, otherwise the target agent will spend tokens re-orienting in the workspace, negating the cost and quality benefits of fresh context.
 - `compact_and_continue_session` compacts the previous session, then starts a fresh session from that summary with the target role. It frees context but adds costs to compact the session.
 
-## 6. Manage Tasks
+## 6. Manage tasks
 
 Each task belongs to one project and one linked workflow: the project supplies workspaces and execution environment, while the workflow supplies the automation path.
 
@@ -286,6 +286,6 @@ The workflow's worktree policy chooses where agent and script nodes run:
 | Repository default branch | A worktree created from the default branch configured by local remote-HEAD metadata (a remote must be present). |
 | Custom Git revision       | Provide a fixed branch, tag, or commit.                                                                         |
 
-Managed replacements use a fresh Worktree and default their branch name to the Task Short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`.
+Managed replacements use a fresh worktree and default their branch name to the task short ID. If that name collides, supply an available name through Desktop's Branch name field or `--branch-name`.
 
 More about worktrees on the [Worktree](../worktrees/) page.

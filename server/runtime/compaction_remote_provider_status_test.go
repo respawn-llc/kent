@@ -72,7 +72,7 @@ func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) 
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -136,7 +136,7 @@ func TestMalformedRemoteCompactionFallbackUsesOverflowRepairedInput(t *testing.T
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -221,7 +221,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -278,7 +278,7 @@ func TestRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:           "gpt-5.6-sol",
+		Model:           "gpt-6-sol",
 		CompactionMode:  "native",
 		FastModeEnabled: true,
 	})
@@ -310,7 +310,7 @@ func TestRemoteCompactionPreservesNativeWebSearchDeclaration(t *testing.T) {
 		caps:                openAIFirstPartyNativeWebSearchCaps(),
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		WebSearchMode:  "native",
 		EnabledTools:   []toolspec.ID{toolspec.ToolWebSearch},
@@ -347,7 +347,7 @@ func TestRemoteCompactionTransientRetryReusesUnchangedDispatchState(t *testing.T
 		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	if err := steerTestActiveStep(engine, "transient-retry-input", steerMessagesWithPersistenceIntent(
@@ -637,7 +637,7 @@ func TestMalformedRemoteCompactionJoinsLocalDispatchFailure(t *testing.T) {
 	}
 	client := &compactionCallbackClient{fakeCompactionClient: base}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	client.onCompact = func() {
@@ -676,7 +676,7 @@ func newRemoteCompactionFixture(
 		}},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	restoreStep := setTestActiveStep(engine, "input")

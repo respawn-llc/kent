@@ -27,6 +27,11 @@ func AddProviderConnection(path string, id ConnectionID, definition ProviderConn
 		if _, present := existing[id]; present {
 			return &ConnectionAlreadyExistsError{ID: id}
 		}
+		if len(existing) == 0 {
+			if _, selected := raw["connection"]; !selected {
+				raw["connection"] = string(id)
+			}
+		}
 		definitions[string(id)] = connectionSettingsTable(definition)
 		raw["connections"] = map[string]any(definitions)
 		return nil

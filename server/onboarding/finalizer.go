@@ -90,6 +90,20 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 		if err != nil {
 			return config.Settings{}, options, err
 		}
+		if req.Supervisor == nil && settings.Reviewer.Frequency != "off" && !preserved["reviewer.model"] {
+			provider, err := llm.ResolveRuntimeProviderCapabilities(initial)
+			if err != nil {
+				return config.Settings{}, options, err
+			}
+			if provider.IsOpenAIFirstParty {
+				settings.Reviewer.Model = "gpt-6-luna"
+				if preserved == nil {
+					preserved = map[string]bool{}
+				}
+				preserved["reviewer.model"] = true
+				options.PreservedDefaults = preserved
+			}
+		}
 		if _, err := config.RenderSettingsTOMLForOnboarding(settings, options); err != nil {
 			return config.Settings{}, options, invalidRequest("settings", "invalid")
 		}
@@ -230,8 +244,16 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 		defaults := config.DefaultOnboardingSettings()
 		llm.ApplyDerivedModelContextBudget(settings, model, defaults.ModelContextWindow, defaults.ContextCompactionThresholdTokens)
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
-		meta, ok := llm.LookupModelMetadata(model)
-		if !ok || meta.LargeContextWindowTokens <= 0 {
+		contract, ok := llm.LookupModelCapabilityContract(model)
+		if !ok {
+			return invalidRequest("context_window.kind", "unsupported_for_model")
+		}
+		provider, err := llm.ResolveRuntimeProviderCapabilities(*settings)
+		if err != nil {
+			return err
+		}
+		meta := contract.ContextMetadata(provider)
+		if meta.LargeContextWindowTokens <= 0 {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
 		settings.ModelContextWindow = meta.LargeContextWindowTokens
@@ -261,7 +283,7 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, field strin
 	case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
 		return config.DefaultOnboardingSettings().ThinkingLevel, nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
-		return "", nil
+		return llm.ProviderThinkingEffort(model, ""), nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
 		level := strings.TrimSpace(choice.GetLevel())
 		if !contains(llm.SupportedThinkingLevelsModel(model), level) {

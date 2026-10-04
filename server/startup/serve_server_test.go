@@ -90,7 +90,7 @@ func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 func TestOccupiedRootDoesNotConvertProviderConfiguration(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.toml")
-	body := []byte("model = \"gpt-5\"\nprovider_override = \"openai\"\n")
+	body := []byte("model = \"gpt-6-sol\"\nprovider_override = \"openai\"\n")
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			configureServeTestServerPort(t)
-			writeServeSettings(t, home, "model = \"gpt-5\"\n"+access)
+			writeServeSettings(t, home, "model = \"gpt-6-sol\"\n"+access)
 			root := filepath.Join(home, config.ConfigDirName)
 			authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
 			if err := os.WriteFile(authPath, []byte(`{"scope":"global","method":{"type":"oauth","oauth":{"access_token":"discarded-fixture"}}}`), 0o600); err != nil {
@@ -196,7 +196,7 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	writeServeSettings(t, home, "model = \"gpt-5\"\n")
+	writeServeSettings(t, home, "model = \"gpt-6-sol\"\n")
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -582,7 +582,7 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "local"
 [connections.local]
 protocol = "responses"
@@ -687,7 +687,7 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "subscription"
 
 [connections.subscription]

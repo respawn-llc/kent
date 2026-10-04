@@ -17,7 +17,7 @@ func TestNewUsesPersistedProviderContractWhenLiveCapabilitiesUnavailable(t *test
 		IsOpenAIFirstParty:   true,
 	}
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:            "gpt-5.3-codex",
+		Model:            "gpt-5.6-luna",
 		ProviderContract: llm.LockedProviderCapabilitiesFromContract(persisted),
 	}); err != nil {
 		t.Fatalf("persist provider contract: %v", err)
@@ -31,7 +31,7 @@ func TestNewUsesPersistedProviderContractWhenLiveCapabilitiesUnavailable(t *test
 		mustMaterializeTestEventLog(t, store),
 		client,
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5.3-codex"},
+		Config{Model: "gpt-5.6-luna"},
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)

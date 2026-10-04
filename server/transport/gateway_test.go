@@ -627,7 +627,7 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	t.Helper()
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
 	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
@@ -660,7 +660,7 @@ func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serve
 func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) serverapi.SessionRuntimeActivateRequest {
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{

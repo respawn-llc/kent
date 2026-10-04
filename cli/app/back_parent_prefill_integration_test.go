@@ -38,7 +38,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	if err != nil {

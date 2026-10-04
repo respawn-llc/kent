@@ -14,11 +14,11 @@ import (
 const DefaultMaxConcurrentShells = 100
 
 const (
-	defaultModel                         = "gpt-5.6-sol"
+	defaultModel                         = "gpt-6.1-sol"
 	defaultThinkingLevel                 = "medium"
 	defaultModelVerbosity                = ModelVerbosityLow
 	defaultTheme                         = theme.Auto
-	defaultModelContextWindow            = 372_000
+	defaultModelContextWindow            = 272_000
 	minimumModelContextWindow            = 40_000
 	defaultModelTimeoutSeconds           = 400
 	defaultMinimumExecToBgSec            = 15
@@ -79,8 +79,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	}
 	if includeToolSection {
 		out.WriteString("\n[tools]\n")
-		out.WriteString("# Leave both patch/edit commented to use Kent's model-based default:\n")
-		out.WriteString("# patch for first-party OpenAI or gpt-* models, edit otherwise.\n")
+		out.WriteString("# Leave patch and edit unset to let Kent choose.\n")
 		writeToolLines(&out, state.Settings.EnabledTools)
 	}
 	shellLines := annotateRenderedLines(filterDefaultLines(lines, "shell"), filterDefaultLines(defaultLines, "shell"), nil)
@@ -127,13 +126,13 @@ func writeBuiltInSubagentSections(builder *strings.Builder) {
 		return
 	}
 	builder.WriteString("\n[subagents.fast]\n")
-	builder.WriteString("# inherits all main settings unless overridden\n")
-	builder.WriteString("# agent_callable = true # set false to hide/block this role from Kent-session subagent calls\n")
-	builder.WriteString("# description = \"\" # model-visible role description for future/catalog uses\n")
-	builder.WriteString("# model = \"gpt-5.6-terra\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# thinking_level = \"low\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# priority_request_mode = true # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# model_context_window = 372000 # built-in heuristic on exact OpenAI first-party setups\n")
+	builder.WriteString("# Inherits main settings unless overridden.\n")
+	builder.WriteString("# agent_callable = true # Set false to prevent model-originated delegation to this role.\n")
+	builder.WriteString("# description = \"\" # Role description shown to the model.\n")
+	builder.WriteString("# model = \"gpt-6-luna\"\n")
+	builder.WriteString("# thinking_level = \"low\"\n")
+	builder.WriteString("# priority_request_mode = true\n")
+	builder.WriteString("# model_context_window = 272000\n")
 }
 
 func DefaultModel() string {
