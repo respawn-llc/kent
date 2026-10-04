@@ -70,7 +70,7 @@ func (s *Service) applyChatSettings(
 				return false, err
 			}
 			if projected.Effective.Fast && !engine.FastModeAvailable() {
-				return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
+				return false, errors.New("fast mode is not supported by the selected provider connection")
 			}
 		}
 		committed, commitErr := sessionStore.CommitChatSettingsState(projected.State)

@@ -91,13 +91,13 @@ func applyPathReferenceCompletion(input string, cursor int, query uiPathReferenc
 }
 
 func (m *uiModel) refreshAutocompleteFromInput() tea.Cmd {
-	cmd := m.refreshSlashCommandFilterFromInputWithAuth(true)
+	cmd := m.refreshSlashCommandFilterFromInput()
 	m.refreshPathReferenceFromInput()
 	return cmd
 }
 
 func (m *uiModel) refreshAutocompleteStateFromInput() {
-	m.refreshSlashCommandFilterFromInputWithAuth(false)
+	m.refreshSlashCommandFilterFromInput()
 	m.refreshPathReferenceFromInput()
 }
 

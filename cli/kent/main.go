@@ -283,7 +283,7 @@ func runSubcommand(args []string) int {
 	flags := registerCommonFlags(runFS, true)
 	agentRoleRaw := runFS.String("agent", "", "role for this run; default selects the headless default, omission preserves a resumed role")
 	fastRole := runFS.Bool("fast", false, "use the built-in fast subagent role")
-	timeoutRaw := runFS.String("timeout", "", "maximum run duration, such as 30s or 2m")
+	timeoutRaw := runFS.String("timeout", "", "maximum run-completion time after launch preparation and prompt-history saving, such as 30s or 2m")
 	outputModeRaw := runFS.String("output-mode", string(runOutputModeFinalText), "result format: final-text|json")
 	progressModeRaw := runFS.String("progress-mode", string(runProgressModeStderr), "live output: stderr|quiet")
 	quiet := false
@@ -782,7 +782,7 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 		registerSessionFlagVars(fs, flags)
 	}
 	fs.StringVar(&flags.Model, "model", "", "model for this session")
-	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort supported by the selected model; saved for --continue/--session even if the run later fails")
+	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort supported by the selected model")
 	fs.StringVar(&flags.Theme, "theme", "", "theme: light|dark")
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "comma-separated enabled tool IDs, such as shell,patch")

@@ -92,10 +92,6 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.handleLatestFinalAnswerTimeout(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
-	case authSlashCommandRefreshedMsg:
-		m.applyAuthSlashCommandRefreshed(msg)
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, nil)
 	case promptHistoryPersistErrMsg:
 		m.observeRuntimeRequestResult(msg.err)
 		if msg.err == nil {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"core/cli/app/internal/startupconfig"
 	"core/internal/testharness/testsetup"
 	"core/server/runprompt"
 	serverstartup "core/server/startup"
@@ -19,14 +20,48 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
+	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
+type staticRunPromptService struct {
+	response *runpromptpb.Success
+}
+
+func (s staticRunPromptService) RunPrompt(
+	context.Context,
+	serverapi.RunPromptRequest,
+	serverapi.RunPromptProgressSink,
+) (*runpromptpb.Success, error) {
+	return s.response, nil
+}
+
+func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
+	result, err := runPrompt(t.Context(), staticRunPromptService{
+		response: &runpromptpb.Success{
+			SessionId: "session-id",
+			Duration:  durationpb.New(time.Millisecond),
+			SelectionWarnings: []runpromptpb.RunSelectionWarning{
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
+			},
+		},
+	}, Options{}, "", "prompt", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
+		t.Fatalf("selection warning count/content = %q", result.Warnings)
+	}
+}
+
+func TestLoadRemoteAttachConfigRetainsInvocationWorkspaceForResume(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
@@ -48,12 +83,12 @@ func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *test
 	if err != nil {
 		t.Fatalf("canonical got workspace: %v", err)
 	}
-	wantCanonical, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
+	wantCanonical, err := config.CanonicalWorkspaceRoot(worktree)
 	if err != nil {
 		t.Fatalf("canonical want workspace: %v", err)
 	}
 	if gotCanonical != wantCanonical {
-		t.Fatalf("workspace root = %q, want session workspace %q", got.WorkspaceRoot, cfg.WorkspaceRoot)
+		t.Fatalf("initial targeting root = %q, want invocation workspace %q", got.WorkspaceRoot, worktree)
 	}
 }
 
@@ -77,7 +112,7 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             worktree,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
-		Model:                     "gpt-5",
+		Model:                     "gpt-6-sol",
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
@@ -95,20 +130,93 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 
 func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	selected := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
 	defer fakeResponses.Close()
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
 
-	_, err := RunPrompt(context.Background(), Options{
-		WorkspaceRoot:             workspace,
-		WorkspaceContextSessionID: "stale-env-session",
-		Model:                     "gpt-5",
-	}, "hello from stale context", 0, nil)
-	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
-		t.Fatalf("error = %v, want missing session rejection", err)
+	const missingID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	for _, tc := range []struct {
+		name      string
+		options   Options
+		inherited bool
+		denied    bool
+	}{
+		{
+			name:      "inherited caller attachment",
+			options:   Options{WorkspaceRoot: workspace, WorkspaceContextSessionID: missingID},
+			inherited: true,
+		},
+		{
+			name:      "caller validation with explicit workspace",
+			options:   Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, WorkspaceContextSessionID: missingID},
+			inherited: true,
+			denied:    true,
+		},
+		{
+			name:    "selected continued session",
+			options: Options{WorkspaceRoot: workspace, SessionID: missingID},
+		},
+		{
+			name:      "selected session does not bypass missing caller authorization",
+			options:   Options{WorkspaceRoot: workspace, SessionID: selected.Meta().SessionID, WorkspaceContextSessionID: missingID},
+			inherited: true,
+			denied:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RunPrompt(context.Background(), tc.options, "must not dispatch", 0, nil)
+			var missing *sessioncontract.SessionNotFoundError
+			if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||
+				!errors.As(err, &missing) || missing.SessionID != missingID {
+				t.Fatalf("error = %v, want typed missing session %s", err, missingID)
+			}
+			if errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) != tc.inherited {
+				t.Fatalf("incorrect inherited context classification: %v", err)
+			}
+			var denied *serverapi.SubagentLaunchDeniedError
+			if errors.As(err, &denied) != tc.denied ||
+				(denied != nil && denied.Kind != serverapi.SubagentLaunchDenialCallerMissing) {
+				t.Fatalf("incorrect caller authorization classification: %v", err)
+			}
+		})
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("expected no llm calls, got %d", hits.Load())
+	}
+}
+
+func TestRunPromptPreservesNotCallableDenialFromRemote(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	caller := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	role := "blocked"
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("[subagents.blocked]\nagent_callable = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	responses, hits := newFakeResponsesServer(t, nil)
+	defer responses.Close()
+	stop := startStandingRunPromptServer(t, workspace, responses.URL)
+	defer stop()
+
+	_, err := RunPrompt(t.Context(), Options{
+		WorkspaceRoot:             workspace,
+		WorkspaceContextSessionID: caller.Meta().SessionID,
+		AgentRole:                 &role,
+	}, "must not dispatch", 0, nil)
+	var denied *serverapi.SubagentLaunchDeniedError
+	if !errors.As(err, &denied) || denied.Kind != serverapi.SubagentLaunchDenialNotCallable ||
+		denied.Target == nil || *denied.Target != role {
+		t.Fatalf("remote error = %T %v, want typed NotCallable denial for %s", err, err, role)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("denied role dispatched %d model requests", hits.Load())
 	}
 }
 
@@ -145,7 +253,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	if err != nil {

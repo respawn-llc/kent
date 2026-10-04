@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"core/cli/app/internal/authui"
@@ -317,8 +319,7 @@ func newStartupPickerStyles(theme string) startupPickerStyles {
 }
 
 func runStartupPicker(model *startupPickerModel) (startupPickerResult, error) {
-	program := tea.NewProgram(model, tea.WithAltScreen())
-	finalModel, err := program.Run()
+	finalModel, err := runStartupAlternateScreen(context.Background(), model, os.Stdout)
 	if err != nil {
 		return startupPickerResult{}, err
 	}
@@ -332,8 +333,6 @@ func runStartupPicker(model *startupPickerModel) (startupPickerResult, error) {
 type authMethodChoice string
 
 const (
-	authMethodChoiceSkip        authMethodChoice = "skip"
-	authMethodChoiceEnvAPIKey   authMethodChoice = "env_api_key"
 	authMethodChoiceBrowserAuto authMethodChoice = "oauth_browser"
 	authMethodChoiceDevice      authMethodChoice = "oauth_device"
 )
@@ -343,9 +342,8 @@ type authMethodPickerResult struct {
 	Canceled bool
 }
 
-func authMethodOptions(includeEnvAPIKey bool, allowSkip bool) []startupPickerOption {
-	items := make([]startupPickerOption, 0, 4)
-	items = append(items,
+func authMethodOptions() []startupPickerOption {
+	return []startupPickerOption{
 		startupPickerOption{
 			ID:    string(authMethodChoiceBrowserAuto),
 			Title: "Sign in with OpenAI Codex using browser",
@@ -354,32 +352,18 @@ func authMethodOptions(includeEnvAPIKey bool, allowSkip bool) []startupPickerOpt
 			ID:    string(authMethodChoiceDevice),
 			Title: "Sign in with OpenAI Codex using device code",
 		},
-	)
-	if includeEnvAPIKey {
-		items = append(items, startupPickerOption{
-			ID:    string(authMethodChoiceEnvAPIKey),
-			Title: "Use provided OPENAI_API_KEY from now on",
-		})
 	}
-	if allowSkip {
-		items = append(items, startupPickerOption{
-			ID:    string(authMethodChoiceSkip),
-			Title: "No auth",
-		})
-	}
-	return items
 }
 
-func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeEnvAPIKey bool, allowSkip bool) *startupPickerModel {
-	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
+func newAuthMethodPickerModel(theme string, notice startupPickerNotice) *startupPickerModel {
+	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions())
 	model.banner = startupBannerANSI
 	return model
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
 	notice := authui.AuthMethodPickerNotice(authui.AuthMethodPickerNoticeRequest{
-		FlowErr:      req.FlowErr,
-		HasEnvAPIKey: req.HasEnvAPIKey,
+		FlowErr: req.FlowErr,
 	})
 	kind := startupPickerNoticeNeutral
 	if notice.Kind == authui.AuthNoticeError {
@@ -389,7 +373,7 @@ func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
 }
 
 func authMethodDisplayTitle(choice authMethodChoice) string {
-	for _, item := range authMethodOptions(true, true) {
+	for _, item := range authMethodOptions() {
 		if item.ID == string(choice) {
 			return item.Title
 		}
@@ -398,7 +382,7 @@ func authMethodDisplayTitle(choice authMethodChoice) string {
 }
 
 func runAuthMethodPicker(req authInteraction) (authMethodPickerResult, error) {
-	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req), req.HasEnvAPIKey, true)
+	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req))
 	picked, err := runStartupPickerFlow(model)
 	if err != nil {
 		return authMethodPickerResult{}, err

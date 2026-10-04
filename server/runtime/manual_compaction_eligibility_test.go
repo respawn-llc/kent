@@ -27,7 +27,7 @@ func TestManualCompactionRejectsTooSoonBeforeScheduling(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	engine.compactionRuntimeState().SetManualCompactionEligible(false)
@@ -65,7 +65,7 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	completeManualEligibilityAgentStep(t, engine)
@@ -84,7 +84,7 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 }
 
 func TestManualCompactionAdmissionReturnsDuringAgentStep(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	release := pendingWorkTestHoldStep(t, engine, ActiveKindUserTurn)
 	_, firstID := schedulePendingManualCompaction(t, engine)
 	_, secondID := schedulePendingManualCompaction(t, engine)
@@ -119,7 +119,7 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+			engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 			engine.compactionRuntimeState().SetManualCompactionEligible(true)
 			release := pendingWorkTestHoldMaintenance(t, engine)
 			var terminal *CompactionStatus

@@ -687,11 +687,11 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps, err := e.providerCapabilities(context.Background())
-	if err != nil {
+	caps := e.cfg.ProviderCapabilitiesOverride
+	if caps == nil {
 		return false
 	}
-	return llm.SupportsFastModeProvider(caps)
+	return llm.SupportsFastModeProvider(*caps)
 }
 
 func (e *Engine) ReviewerFrequency() string {

@@ -68,7 +68,7 @@ type WorkspacePageLoader interface {
 }
 
 type Server[T any] interface {
-	Config() config.App
+	Connection() config.Connection
 	PresentationTheme() string
 	ProjectViewClient() apicontract.ProjectViewService
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (T, error)
@@ -87,7 +87,7 @@ func EnsureInteractive[T any](ctx context.Context, req Request[T]) (T, error) {
 	if req.Server == nil || req.Server.ProjectViewClient() == nil {
 		return zero, errors.New("project view client is required")
 	}
-	workspaceRoot := strings.TrimSpace(req.Server.Config().WorkspaceRoot)
+	workspaceRoot := strings.TrimSpace(req.Server.Connection().WorkspaceRoot)
 	if workspaceRoot == "" {
 		return zero, errors.New("workspace root is required")
 	}
@@ -230,7 +230,7 @@ func ensureServerBrowsingBinding[T any](ctx context.Context, req Request[T], pro
 
 type WorkspaceSelectionRequest struct {
 	Server interface {
-		Config() config.App
+		Connection() config.Connection
 		PresentationTheme() string
 		ProjectViewClient() apicontract.ProjectViewService
 	}

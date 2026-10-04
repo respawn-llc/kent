@@ -27,6 +27,8 @@ type Options struct {
 
 func Run(ctx context.Context, opts Options) error {
 	interactor := newInteractiveAuthInteractor()
+	invocationOverrides := runPromptOverridesFromOptions(opts)
+	invocationOverrides.AgentRole = nil
 	return runner.RunInteractive(ctx, runnerRequestFromOptions(opts), runner.Dependencies{
 		StartSessionServer: func(ctx context.Context) (io.Closer, error) {
 			return startSessionServer(ctx, opts, interactor, true)
@@ -37,8 +39,9 @@ func Run(ctx context.Context, opts Options) error {
 				return errors.New("interactive session server is required")
 			}
 			return runSessionLifecycleWithOptions(ctx, interactive, interactor, sessionLifecycleOptions{
-				Intent:    intent,
-				Overrides: overrides,
+				Intent:              intent,
+				Overrides:           overrides,
+				InvocationOverrides: invocationOverrides,
 			})
 		},
 	})
@@ -58,7 +61,7 @@ func RunPrompt(ctx context.Context, opts Options, prompt string, timeout time.Du
 			_ = closeFn()
 		}
 	}()
-	return runPrompt(ctx, runClient, workspaceConfig.Options, workspaceConfig.CallerContext, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
+	return runPrompt(ctx, runClient, workspaceConfig.Options, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
 }
 
 func runnerRequestFromOptions(opts Options) runner.Request {

@@ -76,6 +76,9 @@ func DecodeWebSearchDetail(raw json.RawMessage) (*transcript.WebSearchDetail, er
 		}
 	}
 	for _, result := range results {
+		if result.Title != nil && *result.Title == "" {
+			result.Title = nil
+		}
 		if err := validateWebSearchStrings(result.Title, result.URL, result.ImageURL, result.SourceWebsiteURL); err != nil {
 			return nil, err
 		}

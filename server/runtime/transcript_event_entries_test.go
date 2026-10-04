@@ -136,16 +136,39 @@ func TestCustomToolCallOutputProjectsAsRegularToolResultEntry(t *testing.T) {
 
 func TestWebSearchCompletionContent(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		output      string
-		failed      bool
-		wantFailure bool
-		wantDetail  bool
+		name            string
+		output          string
+		failed          bool
+		wantFailure     bool
+		wantDetail      bool
+		wantFirstResult *transcript.WebSearchResult
 	}{
-		{"populated", `{"action":{"type":"search"},"results":[{"title":"Result","url":"https://example.com","snippet":"excluded"}]}`, false, false, true},
-		{"absent", `{"action":{"type":"search"}}`, false, false, false},
-		{"malformed", `{"action":{"type":"search"},"results":[{"url":42}]}`, false, true, false},
-		{"provider failure", `{"error":"provider failure"}`, true, true, false},
+		{
+			name:       "populated",
+			output:     `{"action":{"type":"search"},"results":[{"title":"Result","url":"https://example.com","snippet":"excluded"}]}`,
+			wantDetail: true,
+		},
+		{
+			name:   "absent",
+			output: `{"action":{"type":"search"}}`,
+		},
+		{
+			name:        "malformed",
+			output:      `{"action":{"type":"search"},"results":[{"url":42}]}`,
+			wantFailure: true,
+		},
+		{
+			name:        "provider failure",
+			output:      `{"error":"provider failure"}`,
+			failed:      true,
+			wantFailure: true,
+		},
+		{
+			name:            "untitled result remains successful",
+			output:          `{"action":{"type":"search","query":"site.lucide.dev clock-idle-right"},"results":[{"type":"text_result","title":"","url":"https://example.com/clock-idle-right","snippet":"excluded"}]}`,
+			wantDetail:      true,
+			wantFirstResult: &transcript.WebSearchResult{Destination: textutil.Value("https://example.com/clock-idle-right")},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: json.RawMessage(tc.output), IsError: tc.failed}
@@ -162,6 +185,15 @@ func TestWebSearchCompletionContent(t *testing.T) {
 			}
 			if !tc.wantFailure && entry.Text != "" {
 				t.Fatalf("successful raw output exposed: %q", entry.Text)
+			}
+			if tc.wantFirstResult != nil {
+				if entry.WebSearch == nil || len(entry.WebSearch.Results) != 1 {
+					t.Fatalf("untitled result was not projected as useful detail: %+v", entry)
+				}
+				got := entry.WebSearch.Results[0]
+				if got.Title != nil || got.Destination == nil || *got.Destination != *tc.wantFirstResult.Destination || got.Image {
+					t.Fatalf("untitled result projection = %+v, want absent title and supplied destination", got)
+				}
 			}
 			if string(result.Output) != tc.output || result.IsError != tc.failed {
 				t.Fatal("saved authority changed")

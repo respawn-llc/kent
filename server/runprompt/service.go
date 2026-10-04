@@ -39,16 +39,9 @@ func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi
 		err = errors.Join(err, runtimeHandle.plan.CloseWithFailure(err != nil))
 	}()
 
-	runCtx := ctx
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, req.Timeout)
-		defer cancel()
-	}
-
 	startedAt := time.Now()
 	if history := s.launcher.boot.PromptHistory; history != nil {
-		_, err := history.RecordPromptHistoryEntry(runCtx, metadata.PromptHistoryEntry{
+		_, err := history.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
 			SessionID: runtimeHandle.plan.sessionID,
 			Text:      runtimeHandle.plan.PromptHistoryText(req.Prompt),
 		})
@@ -56,6 +49,14 @@ func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi
 			return nil, err
 		}
 	}
+
+	runCtx := ctx
+	if req.Timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, req.Timeout)
+		defer cancel()
+	}
+
 	response, runErr := runtimeHandle.submitUserMessage(runCtx, req.Prompt)
 	response.Duration = durationpb.New(time.Since(startedAt))
 	if runErr != nil {

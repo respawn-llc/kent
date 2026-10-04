@@ -33,7 +33,7 @@ func TestWorkflowAgentPanicsBeforeSecondModelTurnWithoutWorkflowInstructions(t *
 		client,
 		testWorkflowConfig(nil, config.WorkflowCompletionModeShellCommand),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			EnabledTools: []toolspec.ID{
 				toolspec.ToolExecCommand,
 			},
@@ -61,7 +61,7 @@ func TestCompletedWorkflowContractDoesNotClassifyOrdinaryTurnAsWorkflow(t *testi
 	store := mustCreateTestSession(t)
 	mode := sessioncontract.WorkflowCompletionModeTool
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:                  "gpt-5",
+		Model:                  "gpt-6-sol",
 		WorkflowCompletionMode: &mode,
 	}); err != nil {
 		t.Fatalf("mark completed Workflow contract: %v", err)

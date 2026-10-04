@@ -24,6 +24,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -221,7 +222,7 @@ func newRunThinkingRecordingSession(t *testing.T) (*Core, *session.Store, apicon
 	return app, store, client, requests
 }
 
-func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serverapi.RunPromptOverrides, wantRole, wantModel string) {
+func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serverapi.RunPromptOverrides, wantRole, wantModel string) []runpromptpb.RunSelectionWarning {
 	t.Helper()
 	app, store, client, requests := newRunThinkingRecordingSession(t)
 	if locked {
@@ -231,7 +232,7 @@ func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serv
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "use the combined selection",
 		Overrides: overrides,
 	}, nil)
@@ -251,6 +252,10 @@ func testRunThinkingEffectiveSelection(t *testing.T, locked bool, overrides serv
 	if got := read.GetSession().Settings.SelectedAgent; got.Role != wantRole || got.Thinking != overrides.ThinkingLevel {
 		t.Fatalf("saved selection = %+v", got)
 	}
+	if response == nil {
+		t.Fatal("Run returned no success response")
+	}
+	return response.SelectionWarnings
 }
 
 func TestRunThinkingOmittedFlagUsesSavedSelection(t *testing.T) {
@@ -449,9 +454,51 @@ func lockRunThinkingSession(t *testing.T, store *session.Store) {
 }
 
 func TestRunThinkingLockedSelectionRetainsAgentAndModel(t *testing.T) {
-	testRunThinkingEffectiveSelection(t, true, serverapi.RunPromptOverrides{
+	warnings := testRunThinkingEffectiveSelection(t, true, serverapi.RunPromptOverrides{
 		AgentRole: textutil.Value("worker"), Model: "gpt-4.1", ThinkingLevel: "high",
 	}, config.DefaultSubagentRole, "gpt-5")
+	wantWarnings := []runpromptpb.RunSelectionWarning{
+		runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
+		runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
+	}
+	if !reflect.DeepEqual(warnings, wantWarnings) {
+		t.Fatalf("locked selection warnings = %q, want %q", warnings, wantWarnings)
+	}
+}
+
+func TestRunThinkingLockedOverridesWarnWithoutThinking(t *testing.T) {
+	app, store, client, requests := newRunThinkingRecordingSession(t)
+	lockRunThinkingSession(t, store)
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "continue with the locked selection",
+		Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value("worker"), Model: "gpt-4.1"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWarnings := []runpromptpb.RunSelectionWarning{
+		runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
+		runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
+	}
+	if response == nil || !reflect.DeepEqual(response.SelectionWarnings, wantWarnings) {
+		t.Fatalf("locked selection warnings = %v, want %v", response.GetSelectionWarnings(), wantWarnings)
+	}
+	if request := <-requests; request.Model != "gpt-5" {
+		t.Fatalf("locked model override was applied: %+v", request)
+	}
+	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: id.String()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected := read.GetSession().Settings.SelectedAgent; selected.Role != config.DefaultSubagentRole || selected.Model != "gpt-5" {
+		t.Fatalf("locked Chat selection = %+v", selected)
+	}
 }
 
 func TestRunThinkingLockedSelectionRejectsRequestedModelCapability(t *testing.T) {

@@ -96,7 +96,7 @@ func newRuntimeViewStore(t *testing.T) *session.Store {
 
 func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
 	t.Helper()
-	engineConfig := runtime.Config{Model: "gpt-5"}
+	engineConfig := runtime.Config{Model: "gpt-6-sol"}
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
 	}
@@ -114,7 +114,7 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 
 func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
 	client := newProjectionBlockingClient()
-	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), client, runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), client, runtime.Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal(t.Context(), "ship feature", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestTranscriptSessionStatusDoesNotAdvertiseUnavailableFastMode(t *testing.T
 		newRuntimeViewStore(t),
 		projectionUnavailableFastClient{},
 		runtime.Config{
-			Model:           "gpt-5",
+			Model:           "gpt-6-sol",
 			FastModeEnabled: true,
 			ThinkingLevel:   "medium",
 			CompactionMode:  "auto",
@@ -192,7 +192,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{
-		Model:                   "gpt-5",
+		Model:                   "gpt-6-sol",
 		ContextWindowTokens:     400_000,
 		SupportedThinkingValues: []string{"high"},
 	})
@@ -262,7 +262,7 @@ func mainViewFromRuntimeForTest(t *testing.T, eng *runtime.Engine) *runtimepb.Ma
 func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	binding, err := eng.BindCurrentNodeExecution(
 		&workflowruntime.CurrentNodeExecutionConfig{
@@ -291,7 +291,7 @@ func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
 
 func TestStatusFromRuntimeUsesResponseUsage(t *testing.T) {
 	eng := newRuntimeViewEngine(t, newRuntimeViewStore(t), projectionUsageClient{}, runtime.Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		ContextWindowTokens:           400_000,
 		AutoCompactTokenLimit:         10_000,
 		PreSubmitCompactionLeadTokens: 100,

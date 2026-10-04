@@ -11,10 +11,12 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -450,6 +452,13 @@ func binaryAttachSessionFailure(
 	err error,
 ) proto.Message {
 	switch {
+	case errors.Is(err, sessioncontract.ErrSessionNotFound) && request != nil:
+		return &connectionpb.AttachSessionError{
+			Code: "session_not_found",
+			Detail: &connectionpb.AttachSessionError_SessionNotFound{
+				SessionNotFound: &sessionlaunchpb.SessionNotFoundDetails{SessionId: request.SessionId},
+			},
+		}
 	case errors.Is(err, serverapi.ErrProjectNotFound) && request != nil:
 		details := &connectionpb.SessionAttachmentTargetDetails{SessionId: request.SessionId}
 		if projectID := connectionAttachmentProjectID(g, state); projectID != "" {
@@ -685,13 +694,6 @@ func (g *Gateway) dispatchBinary(
 		if err := g.requireCoreActive(); err != nil {
 			return fail(err)
 		}
-	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		binding.operation.Options.AuthenticationStage,
-	); err != nil {
-		return fail(err)
 	}
 	payloadField := request.call.ProtoReflect().Descriptor().Fields().ByName("payload")
 	if !request.call.ProtoReflect().Has(payloadField) {

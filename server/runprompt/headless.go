@@ -104,10 +104,11 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String()}
 	}
 	return &headlessPromptRuntime{
-		plan:           runtimePlan,
-		warnings:       result.Warnings,
-		progress:       progress,
-		sessionStarted: sessionStarted,
+		plan:              runtimePlan,
+		warnings:          result.Warnings,
+		selectionWarnings: result.RunSelectionWarnings,
+		progress:          progress,
+		sessionStarted:    sessionStarted,
 	}, nil
 }
 
@@ -299,10 +300,11 @@ func preservePresentAssistantContent(current string, message llm.Message) string
 }
 
 type headlessPromptRuntime struct {
-	plan           *headlessRuntimePlan
-	warnings       []string
-	progress       serverapi.RunPromptProgressSink
-	sessionStarted *runpromptpb.SessionStarted
+	plan              *headlessRuntimePlan
+	warnings          []string
+	selectionWarnings []runpromptpb.RunSelectionWarning
+	progress          serverapi.RunPromptProgressSink
+	sessionStarted    *runpromptpb.SessionStarted
 }
 
 func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (*runpromptpb.Success, error) {
@@ -324,6 +326,10 @@ func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt st
 		SessionName: r.plan.name,
 		Result:      r.plan.content,
 		Warnings:    append([]string(nil), r.warnings...),
+		SelectionWarnings: append(
+			[]runpromptpb.RunSelectionWarning(nil),
+			r.selectionWarnings...,
+		),
 	}, err
 }
 

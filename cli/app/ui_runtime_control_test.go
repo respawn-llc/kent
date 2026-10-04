@@ -158,7 +158,7 @@ func runtimeControlFakeChatSettings() *chatsettingspb.Settings {
 	return &chatsettingspb.Settings{
 		SelectedAgent: &chatsettingspb.AgentSummary{
 			Role:     "default",
-			Model:    "gpt-5",
+			Model:    "gpt-6-sol",
 			Thinking: "medium"},
 		Supervisor: &chatsettingspb.Supervisor{
 			Value:    chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF,

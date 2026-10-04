@@ -588,7 +588,7 @@ func withQuestionTaskRemote(
 	stderr io.Writer,
 	run func(*client.Remote, string) int,
 ) int {
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		if selector.TaskRef == nil {
 			fmt.Fprintln(stderr, "question task selector is required")
 			return 2
@@ -813,7 +813,7 @@ func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionC
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadConnectionDiscovery(configRoot)
+	cfg, err := config.LoadConnectionDiscovery(configRoot, config.LoadOptions{})
 	if err != nil {
 		return nil, err
 	}

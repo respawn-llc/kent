@@ -458,8 +458,6 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    authReady: readiness.authReady,
-    authRequired: readiness.authRequired,
     endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({

@@ -18,7 +18,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 		remoteCompactionReplacement(autoCompactLimit, 1_000, 200_000),
 	}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   200_000,
 		AutoCompactTokenLimit: autoCompactLimit,
 	})
@@ -92,7 +92,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		CompactionMode:        "local",
 		ContextWindowTokens:   200_000,
 		AutoCompactTokenLimit: 190_000,

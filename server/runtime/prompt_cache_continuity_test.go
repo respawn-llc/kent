@@ -145,8 +145,8 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		responses: []llm.Response{finalOutputItemResponse("enabled response")},
 	}
 	enabled := mustNewTestEngine(t, store, enabledClient, registry, Config{
-		Model:    "gpt-5",
-		Reviewer: ReviewerConfig{Model: "gpt-5"},
+		Model:    "gpt-6-sol",
+		Reviewer: ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := enabled.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("enabled submit: %v", err)
@@ -177,10 +177,10 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		}},
 	}
 	disabled := mustNewTestEngine(t, reopenedStore, disabledClient, registry, Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		SkillPolicy:    disabledPolicy,
-		Reviewer:       ReviewerConfig{Model: "gpt-5"},
+		Reviewer:       ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := disabled.SubmitUserMessage(context.Background(), "second"); err != nil {
 		t.Fatalf("disabled reopened submit: %v", err)
@@ -250,10 +250,10 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                        "gpt-5",
+		Model:                        "gpt-6-sol",
 		CompactionMode:               "native",
 		PromptFacingSnapshotReloader: reloader,
-		Reviewer:                     ReviewerConfig{Model: "gpt-5"},
+		Reviewer:                     ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("enabled submit: %v", err)
@@ -407,11 +407,11 @@ func newPromptCacheContinuityFixture(t *testing.T) *promptCacheContinuityFixture
 	reviewerClient := &fakeClient{caps: clientCaps}
 	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}, tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: fakeTool{name: toolspec.ToolAskQuestion}})
 	cfg := Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolAskQuestion},
 		Reviewer: ReviewerConfig{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 		},
 	}
@@ -739,7 +739,7 @@ func skillMessageContent(messages []llm.Message) (string, bool) {
 
 func seq21To28ShapeRequest(t testing.TB, thirdCallInput json.RawMessage) llm.Request {
 	return llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		SystemPrompt: "system",
 		Items: llm.ItemsFromMessages([]llm.Message{
 			{Role: llm.RoleUser, Content: textutil.Value("review docs migration")},

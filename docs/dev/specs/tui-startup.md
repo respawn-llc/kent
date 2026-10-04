@@ -32,6 +32,11 @@ Ordered gates; each gate is skipped when its condition does not apply, never byp
 
 ## Session Picker
 
+- If exactly one Provider Connection is configured, the picker must show its provider and authentication-status presentation.
+- If multiple Provider Connections are configured, the picker's connection indicator must show only `N connections` with the configured count.
+- Provider metadata display must not refresh credentials or contact a provider.
+- The picker must show an animated spinner while it loads its header settings.
+- If a header settings or provider metadata read fails, the picker must show an error with an explicit `Enter` retry action. Retrying must leave the active tab, selected Session, scroll position, loaded pages, and persisted drafts unchanged. A failed active tab's list load must take priority for `Enter`.
 - The picker shows recent Sessions and a new-Session action. Infinite Scroll provides older Sessions. An empty state opens new-Session setup.
 - The picker has `Sessions` and `Subagents` tabs and opens on `Sessions`. Ordinary interactive sessions and interactive forks start in `Sessions`; sessions created for headless or workflow-agent execution start in `Subagents`. Every interactive open of a Subagent session, including opening by explicit session ID, permanently promotes it to `Sessions`. Picker selection alone does not promote: workspace lookup failure returns to the picker with a generic retry error in the shared status line, and declining a workspace change returns to the picker; neither changes the session artifact, recency, or category. An accepted retarget completes before open and promotion. Automated headless/workflow resumes and renames never change category. Sessions without a recorded category appear in `Sessions`; category is never guessed from a session's name, parent, or current activity.
 - The tabs appear directly below the status header using the horizontal bracketed button-row treatment. The selected tab uses the primary bold treatment, the other tab is muted, and incremental lists do not show total counts.
