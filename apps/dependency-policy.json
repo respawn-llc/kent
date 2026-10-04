@@ -1,7 +1,12 @@
 {
   "$schema": "./dependency-policy.schema.json",
   "minimumReleaseAgeMinutes": 10080,
-  "minimumReleaseAgeExclude": ["@napi-rs/wasm-runtime@1.2.2", "vite@8.2.0"],
+  "minimumReleaseAgeExclude": [
+    "@napi-rs/wasm-runtime@1.2.2",
+    "remend@1.4.0",
+    "streamdown@2.7.0",
+    "vite@8.2.0"
+  ],
   "directDependencyAllowlist": {
     "@app/apps": {
       "devDependencies": ["@bufbuild/protoc-gen-es", "postcss", "prettier"]

@@ -36,7 +36,7 @@ afterEach(() => vi.unstubAllGlobals());
 it("keeps streamed output and drafts usable when reviewer suggestions are followed by a question", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
   const view = sessionWithPrompts();
-  const prompt = question();
+  const prompt = question("question-1", { recommendedOptionIndex: 1 });
   try {
     await waitFor(() => {
       expect(view.handlers).toHaveLength(1);
@@ -62,7 +62,9 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
       });
     });
     const list = screen.getByRole("list");
-    act(() => { geometry.resize(list, 600); });
+    act(() => {
+      geometry.resize(list, 600);
+    });
     await act(async () => {
       view.handlers[0]?.onEvent({
         sequence: 2,
@@ -82,25 +84,42 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
     });
     await user.click(within(list).getByRole("button", { expanded: false }));
     expect(await screen.findByText("Check the result")).toBeInTheDocument();
+    // Deliver native-style notifications between React's synchronous commits,
+    // without act draining the lower-priority work after every notification.
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+    try {
+      for (let sequence = 3; sequence < 63; sequence++) {
+        view.handlers[0]?.onEvent({
+          sequence,
+          kind: "assistant_delta",
+          payload: { StepID: prompt.stepID, StreamID: "stream", Phase: "commentary", Delta: "a" },
+        });
+        await Promise.resolve();
+      }
+    } finally {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    }
     await act(async () => {
-      view.handlers[0]?.onEvent({ sequence: 3, kind: "prompt", payload: { state: "pending", prompt } });
+      view.handlers[0]?.onEvent({ sequence: 63, kind: "prompt", payload: { state: "pending", prompt } });
     });
+    expect(view.services.logger.entries().filter((entry) => entry.level === "warn")).toEqual([]);
+    expect(view.handlers).toHaveLength(1);
     expect(await screen.findByRole("radio", { name: "one" })).toBeInTheDocument();
     expect(editor).not.toBeVisible();
     await act(async () => {
       view.handlers[0]?.onEvent({
-        sequence: 4,
+        sequence: 64,
         kind: "prompt",
         payload: { state: "resolved", toolCallID: prompt.toolCallID },
       });
       view.handlers[0]?.onEvent({
-        sequence: 5,
+        sequence: 65,
         kind: "assistant_delta",
         payload: { StepID: prompt.stepID, StreamID: "stream", Phase: "commentary", Delta: " continued" },
       });
     });
     expect(await screen.findByRole("textbox")).toHaveValue("Keep this draft");
-    expect(list).toHaveTextContent("Current response continued");
+    expect(list).toHaveTextContent(`Current response${"a".repeat(60)} continued`);
     expect(screen.queryByRole("button", { name: appI18n.t("app.retry") })).not.toBeInTheDocument();
     expect(view.handlers).toHaveLength(1);
   } finally {

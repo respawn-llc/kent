@@ -14,6 +14,9 @@ minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   # Maintainer-approved exact versions required by this lockfile.
   - "@napi-rs/wasm-runtime@1.2.2"
+  # Approved for the streaming render fix; remove after October 7, 2026.
+  - "remend@1.4.0"
+  - "streamdown@2.7.0"
   - "vite@8.2.0"
 
 # No frontend dependency may run install/build lifecycle scripts unless explicitly reviewed here.
