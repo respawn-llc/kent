@@ -13,8 +13,8 @@ import (
 )
 
 type ChatSettingsMutationContext struct {
-	Raw            session.ChatSettingsState
-	Effective      session.ChatSettings
+	Raw       session.ChatSettingsState
+	Effective session.ChatSettings
 	// EffectiveAgent reflects availability repair; caching locks retain the persisted role identity.
 	EffectiveAgent string
 	Locked         *session.LockedContract
