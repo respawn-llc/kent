@@ -33,6 +33,82 @@ import {
 beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
 afterEach(() => vi.unstubAllGlobals());
 
+it("keeps streamed output and drafts usable when reviewer suggestions are followed by a question", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const view = sessionWithPrompts();
+  const prompt = question();
+  try {
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+      expect(view.client.isFetching()).toBe(0);
+    });
+    const editor = await screen.findByRole("textbox");
+    const user = userEvent.setup();
+    await user.type(editor, "Keep this draft");
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...hydration(),
+          TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [row(1)] },
+          ActiveAssistant: {
+            StepID: prompt.stepID,
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Current response",
+          },
+        },
+      });
+    });
+    const list = screen.getByRole("list");
+    act(() => { geometry.resize(list, 600); });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 2,
+        kind: "committed_row",
+        payload: {
+          ...row(2),
+          Kind: "reviewer_feedback",
+          User: null,
+          ReviewerFeedback: {
+            ID: crypto.randomUUID(),
+            StepID: prompt.stepID,
+            Suggestions: ["Check the result"],
+            SuggestionCount: 1,
+          },
+        },
+      });
+    });
+    await user.click(within(list).getByRole("button", { expanded: false }));
+    expect(await screen.findByText("Check the result")).toBeInTheDocument();
+    await act(async () => {
+      view.handlers[0]?.onEvent({ sequence: 3, kind: "prompt", payload: { state: "pending", prompt } });
+    });
+    expect(await screen.findByRole("radio", { name: "one" })).toBeInTheDocument();
+    expect(editor).not.toBeVisible();
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 4,
+        kind: "prompt",
+        payload: { state: "resolved", toolCallID: prompt.toolCallID },
+      });
+      view.handlers[0]?.onEvent({
+        sequence: 5,
+        kind: "assistant_delta",
+        payload: { StepID: prompt.stepID, StreamID: "stream", Phase: "commentary", Delta: " continued" },
+      });
+    });
+    expect(await screen.findByRole("textbox")).toHaveValue("Keep this draft");
+    expect(list).toHaveTextContent("Current response continued");
+    expect(screen.queryByRole("button", { name: appI18n.t("app.retry") })).not.toBeInTheDocument();
+    expect(view.handlers).toHaveLength(1);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
+
 function ContextualWorktrees() {
   const [open, setOpen] = useState(false);
   const [navigator] = useState(() => createTestSidebarNavigator());

@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
 
 import {
   AnimatedReveal,
@@ -98,6 +98,11 @@ export function TranscriptWindowView({
     emitInput,
   );
   const items = transcriptViewItems(snapshot, tailFailure !== undefined);
+  const activeAssistantKey = snapshot.activeAssistant?.key;
+  const pinnedItemKeys = useMemo(
+    () => new Set(activeAssistantKey === undefined ? [] : [activeAssistantKey]),
+    [activeAssistantKey],
+  );
 
   return (
     <div className="relative h-full min-h-0">
@@ -114,6 +119,11 @@ export function TranscriptWindowView({
         rowSpacing="tight"
         getItemKey={(item) => item.key}
         getItemWrapperProps={(item) => ({
+          // display:none would restart character animations when returning to live output.
+          style:
+            item.kind === "assistant" && item.state === "live" && !snapshot.showsLive
+              ? { height: 0, overflow: "hidden", padding: 0, visibility: "hidden" }
+              : undefined,
           className:
             item.kind === "tool" || item.kind === "notice"
               ? "transcript-window-disclosure-row"
@@ -126,6 +136,7 @@ export function TranscriptWindowView({
         isFetchingNextPage={snapshot.newer.kind === "loading"}
         isFetchingPreviousPage={snapshot.older.kind === "loading"}
         items={items}
+        pinnedItemKeys={pinnedItemKeys}
         loadingLabel={loadingLabel}
         nextBoundary={nextBoundary}
         onLoadMore={() => {
@@ -160,8 +171,12 @@ type TranscriptEndInput = Readonly<{
 }>;
 
 function transcriptViewItems(snapshot: TranscriptWindowSnapshot, failed: boolean): readonly ViewItem[] {
-  if (failed) return [...snapshot.items, failureItem];
-  return snapshot.showsLive ? [...snapshot.items, statusItem] : snapshot.items;
+  const items =
+    !snapshot.showsLive && snapshot.activeAssistant !== null
+      ? [...snapshot.items, snapshot.activeAssistant]
+      : snapshot.items;
+  if (failed) return [...items, failureItem];
+  return snapshot.showsLive ? [...items, statusItem] : items;
 }
 
 function useTranscriptEndRequest(

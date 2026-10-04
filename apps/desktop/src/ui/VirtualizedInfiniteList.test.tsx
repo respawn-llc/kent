@@ -20,6 +20,15 @@ const virtualizer = vi.hoisted(() => ({
       start: number;
     }>[]
   >(() => []),
+  options: { count: 0, overscan: 0 },
+  get range() {
+    const items = this.getVirtualItems();
+    const first = items[0];
+    const last = items.at(-1);
+    return first === undefined || last === undefined
+      ? null
+      : { startIndex: first.index, endIndex: last.index };
+  },
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
   scrollToOffset: vi.fn(),
@@ -32,7 +41,10 @@ const testRenderItem = (item: string) => item;
 vi.mock("@tanstack/react-virtual", () => ({
   defaultRangeExtractor: ({ startIndex, endIndex }: Readonly<{ startIndex: number; endIndex: number }>) =>
     Array.from({ length: endIndex - startIndex + 1 }, (_value, index) => startIndex + index),
-  useVirtualizer: () => virtualizer,
+  useVirtualizer: (options: Readonly<{ count: number }>) => {
+    virtualizer.options.count = options.count;
+    return virtualizer;
+  },
 }));
 
 function List({

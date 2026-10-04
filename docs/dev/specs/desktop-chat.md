@@ -154,6 +154,7 @@
 ## Transcript History And Live Output
 
 - Transcript history uses server-authoritative infinite scroll. The desktop never loads or retains the complete transcript.
+- While an assistant response is streaming, scrolling away and back must preserve its rendered bubble. Returning to the response must not restart animations for already received text or shrink and regrow the bubble solely because it returned into view. After the response commits, ordinary transcript virtualization applies.
 - Bounded transcript pages, hydration, and live committed delivery carry the same committed time from its Session event on eligible user and assistant message rows. They do not derive, look up, sort by, or reconcile through time.
 - A Session event without committed time remains readable. Kent does not synthesize its missing time.
 - Every eligible message event written by Kent includes committed time. Earlier events remain unchanged, so committed time remains optional in persisted and wire contracts.
