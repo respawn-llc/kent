@@ -10,7 +10,7 @@
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings must retain their defined precedence.
 - Credentials must remain server-owned. Requests must use only the selected connection's credentials.
-- Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive credential failures must open the affected connection's authentication flow; headless failures must return actionable errors.
+- Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
 
 ## Authentication
 
@@ -21,7 +21,10 @@
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
 - ChatGPT must retain browser and device sign-in, including browser callback or pasted callback URL/code. OAuth failure must not fall back to an API key. Refresh failures must remain observable and actionable.
-- Re-authentication must be allowed during execution. Already-sent requests must continue; subsequent requests must use the newly saved credentials. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
+- If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
+- If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
+- Provider authentication failure must not automatically retry or replay the failed request or select another connection.
+- Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent requests must use the newly saved credentials without reopening the terminal Session. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
 
 ## Server Environment
 

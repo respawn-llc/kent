@@ -6,34 +6,47 @@ import (
 	"encoding/json"
 	"testing"
 
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
 func TestNativeThinkingSupport(t *testing.T) {
-	for _, oauth := range []bool{false, true} {
-		for _, custom := range []bool{false, true} {
-			transport := NewHTTPTransport(staticAuth{})
-			if oauth {
-				transport = NewHTTPTransport(oauthStaticAuth{})
+	for _, connection := range []struct {
+		name       string
+		definition config.ProviderConnection
+		native     bool
+	}{
+		{name: "first-party", definition: config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}, native: true},
+		{name: "subscription", definition: config.ProviderConnection{Protocol: config.ConnectionChatGPT}, native: true},
+		{name: "custom", definition: config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://proxy.example/v1")}},
+	} {
+		for _, override := range []bool{false, true} {
+			definition := connection.definition
+			if override {
+				definition.Capabilities = config.ProviderCapabilitiesOverride{
+					ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+				}
 			}
-			if custom {
-				transport.BaseURL = "https://proxy.example/v1"
-				transport.BaseURLExplicit = true
+			prepared, err := ResolveConnectionCapabilities(definition)
+			if err != nil {
+				t.Fatal(err)
 			}
-			transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
-				ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
-			}
+			transport := NewHTTPTransport(missingAuth{})
+			transport.ProviderCapabilitiesOverride = &prepared
 			caps, err := transport.ProviderCapabilities(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, model := range []string{"gpt-6-astra", "gpt-5", "unknown"} {
-				want := !custom && model == "gpt-6-astra"
+				want := connection.native && model == "gpt-6-astra"
 				if got := SupportsNativeThinkingUpdates(model, caps); got != want {
-					t.Fatalf("oauth=%v custom=%v model=%s: support=%v, want %v", oauth, custom, model, got, want)
+					t.Fatalf("connection=%s override=%v model=%s: support=%v, want %v", connection.name, override, model, got, want)
 				}
 			}
-			if caps.ProviderID != "openai" || !caps.IsOpenAIFirstParty {
+			if caps != prepared {
+				t.Fatalf("prepared connection contract changed: %+v, want %+v", caps, prepared)
+			}
+			if override && (caps.ProviderID != "openai" || !caps.IsOpenAIFirstParty) {
 				t.Fatalf("general override changed: %+v", caps)
 			}
 		}
