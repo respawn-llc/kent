@@ -10,12 +10,13 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	"core/shared/textutil"
 )
 
 type ChatSettingsMutationContext struct {
 	Raw            session.ChatSettingsState
 	Effective      session.ChatSettings
+	// EffectiveAgent reflects availability repair; caching locks retain the persisted role identity.
+	EffectiveAgent string
 	Locked         *session.LockedContract
 	WorkflowLocked bool
 	CompactionMode config.CompactionMode
@@ -40,8 +41,12 @@ type PreparedChatSettingsOperationResult struct {
 }
 
 func ProjectResolvedChatSettingsOperation(input ResolvedChatSettingsOperation) (PreparedChatSettingsOperationResult, error) {
+	effectiveAgent, valid := session.NormalizeChatAgent(input.EffectiveAgent)
+	if !valid || effectiveAgent != input.EffectiveAgent {
+		return PreparedChatSettingsOperationResult{}, errors.New("resolved Chat settings current Agent is invalid")
+	}
 	if (input.Locked != nil || input.WorkflowLocked) &&
-		!textutil.EqualOptional(input.Raw.AgentRole, input.Selection.State.AgentRole) {
+		effectiveAgent != input.Selection.State.AgentSelector() {
 		return rejectedChatSettingsOperation(input.ChatSettingsMutationContext, chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED), nil
 	}
 	target := input.Selection.State

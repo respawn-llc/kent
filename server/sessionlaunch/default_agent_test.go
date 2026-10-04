@@ -1,6 +1,7 @@
 package sessionlaunch
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,17 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+type workflowChatSettingsTaskIdentityResolver struct {
+	session.PersistedSessionResolver
+}
+
+func (workflowChatSettingsTaskIdentityResolver) ChatSettingsTaskIdentityForSession(
+	context.Context,
+	string,
+) (*serverapi.ChatSettingsTaskIdentity, error) {
+	return &serverapi.ChatSettingsTaskIdentity{TaskID: "task-chat-settings", TaskShortID: "KENT-1"}, nil
+}
 
 func TestDefaultHeadlessAgentSettingsAndInteractiveIsolation(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
@@ -116,6 +128,95 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 	}
 	if role := session.ContinuationAgentRole(store.Meta()); role == nil || *role != config.DefaultSubagentRole {
 		t.Fatalf("Thinking mutation lost headless role: %v", role)
+	}
+}
+
+func TestWorkflowLockedUnavailableAgentAllowsSettingsEditsAndRejectsAgentChange(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	workerSettings := cfg.Settings
+	workerSettings.Model = "gpt-6-luna"
+	workerSettings.Subagents = nil
+	cfg.Settings.Subagents["worker"] = config.SubagentRole{
+		Settings:      workerSettings,
+		Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
+		AgentCallable: true,
+	}
+	service := newSessionLaunchTestService(cfg, t.TempDir())
+	service.planner.PersistedSessions = workflowChatSettingsTaskIdentityResolver{
+		PersistedSessionResolver: service.planner.PersistedSessions,
+	}
+	store := createLaunchTestSession(t, service.planner.ContainerDir, "workflow-chat", cfg.WorkspaceRoot)
+	if err := store.SetContinuationContext(session.ContinuationContext{
+		AgentRole: textutil.Value("removed"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.PrepareSessionChatSettingsOperation(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prepared.WorkflowLocked {
+		t.Fatal("Chat settings were not workflow-locked")
+	}
+
+	operation := &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false},
+	}
+	resolved, rejected, err := resolveChatSettingsSelection(prepared, operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected != nil {
+		t.Fatalf("Questions edit selection rejected: %+v", rejected)
+	}
+	mutation, err := ProjectResolvedChatSettingsOperation(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mutation.Rejection != nil {
+		t.Fatalf("Questions edit rejected: %+v", mutation.Rejection)
+	}
+	if mutation.State.AgentSelector() != config.DefaultSubagentRole ||
+		mutation.State.Settings == nil ||
+		mutation.State.Settings.Questions == nil ||
+		*mutation.State.Settings.Questions {
+		t.Fatalf("Questions edit did not repair to default while applying the requested value: %+v", mutation.State)
+	}
+
+	defaultAgent, ok := prepared.Catalog.Lookup(config.DefaultSubagentRole)
+	if !ok {
+		t.Fatal("default Agent baseline is missing")
+	}
+	runMutation, err := resolveRunSettings(
+		PlanRequest{},
+		prepared,
+		session.Meta{},
+		*defaultAgent.Settings,
+		operation,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runMutation.Rejection != nil {
+		t.Fatalf("Run settings edit rejected: %+v", runMutation.Rejection)
+	}
+
+	agentChange, rejected, err := resolveChatSettingsSelection(prepared, &chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: "worker"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected != nil {
+		t.Fatalf("Agent change selection rejected before lock policy: %+v", rejected)
+	}
+	lockedMutation, err := ProjectResolvedChatSettingsOperation(agentChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lockedMutation.Rejection == nil ||
+		lockedMutation.Rejection.Reason != chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED {
+		t.Fatalf("Agent change rejection = %+v, want workflow Agent lock", lockedMutation.Rejection)
 	}
 }
 

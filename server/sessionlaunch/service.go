@@ -103,6 +103,10 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, errors.New("default Chat Agent baseline is missing")
 		}
 	}
+	effectiveAgent := entry.Choice.Role
+	if meta.Locked != nil {
+		effectiveAgent = raw.AgentSelector()
+	}
 	effective, err := session.ResolveEffectiveChatSettings(raw.Settings, nil, entry.Settings.Baseline)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
@@ -138,7 +142,7 @@ func (s *Service) prepareSessionChatSettings(
 	}
 	return PreparedChatSettingsOperationInput{
 		ChatSettingsMutationContext: ChatSettingsMutationContext{
-			Raw: raw, Effective: effective, Locked: meta.Locked,
+			Raw: raw, Effective: effective, EffectiveAgent: effectiveAgent, Locked: meta.Locked,
 			WorkflowLocked: taskIdentity != nil, CompactionMode: planner.Config.Settings.CompactionMode,
 		},
 		PersistedQuestions: persistedQuestions,
