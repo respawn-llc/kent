@@ -170,6 +170,24 @@ func TestServiceProjectsProviderVerbosityIndependentlyOfFirstPartyClassification
 	}
 }
 
+func TestServiceProjectsFastModeFromTheSelectedConnection(t *testing.T) {
+	settings := testsetup.ProviderSettings(config.Settings{Model: "gpt-6-sol"})
+	definition := settings.Connections[*settings.Connection]
+	definition.Capabilities = config.ProviderCapabilitiesOverride{
+		ProviderID: "custom-provider", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}
+	settings.Connections[*settings.Connection] = definition
+	service := NewService(Options{Config: testConfig(t, settings)})
+
+	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
+	if err != nil {
+		t.Fatalf("GetCapabilityFacts: %v", err)
+	}
+	if !resp.Providers.CurrentEffective.SupportsFastMode {
+		t.Fatalf("selected connection fast-mode capability = %+v", resp.Providers.CurrentEffective)
+	}
+}
+
 func TestServiceRejectsUnsupportedExplicitProvider(t *testing.T) {
 	service := NewService(Options{Config: testConfig(t, config.Settings{Model: "gpt-6-sol"})})
 

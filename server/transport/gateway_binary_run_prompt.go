@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -26,6 +27,10 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 		operation: operation, policy: gatewayBinaryCoreActiveOrdinary, progressEvent: &progressOperation,
 		request: func() proto.Message { return &runpromptpb.Request{} },
 		failure: func(_ *Gateway, _ *connectionState, message proto.Message, err error) proto.Message {
+			var rejected *serverapi.RunSelectionRejectedError
+			if errors.As(err, &rejected) {
+				return gatewayBinaryFailureResult(method, &chatsettingspb.MutationRejected{Reason: rejected.Reason})
+			}
 			var denied *serverapi.SubagentLaunchDeniedError
 			if errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
 				request := message.(*runpromptpb.Request)

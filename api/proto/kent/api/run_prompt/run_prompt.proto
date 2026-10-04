@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
+import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/session_launch/session_lifecycle.proto";
@@ -18,6 +19,12 @@ enum MessagePhase {
   MESSAGE_PHASE_UNSPECIFIED = 0;
   MESSAGE_PHASE_COMMENTARY = 1;
   MESSAGE_PHASE_FINAL = 2;
+}
+
+enum RunSelectionWarning {
+  RUN_SELECTION_WARNING_UNSPECIFIED = 0;
+  RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE = 1;
+  RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE = 2;
 }
 
 message Request {
@@ -41,6 +48,9 @@ message Success {
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;
   string result = 5;
+  repeated RunSelectionWarning selection_warnings = 6 [
+    (buf.validate.field).repeated.items.enum = {defined_only: true not_in: [0]}
+  ];
 }
 
 message Error {
@@ -68,6 +78,10 @@ message Error {
     kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
+    }];
+    kent.api.chat_settings.MutationRejected selection_rejected = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "selection_rejected"
     }];
   }
 }

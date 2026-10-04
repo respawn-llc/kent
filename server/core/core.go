@@ -299,6 +299,9 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		ReloadConfig: func() (config.App, error) {
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
+	}, sessionlaunch.ChatSettingsOwner{
+		Authority: s.safeBundles().Runtime.runtimeAuthority,
+		Registry:  s.safeBundles().Runtime.runtimeRegistry,
 	})
 }
 

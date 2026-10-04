@@ -20,13 +20,46 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
+
+type staticRunPromptService struct {
+	response *runpromptpb.Success
+}
+
+func (s staticRunPromptService) RunPrompt(
+	context.Context,
+	serverapi.RunPromptRequest,
+	serverapi.RunPromptProgressSink,
+) (*runpromptpb.Success, error) {
+	return s.response, nil
+}
+
+func TestRunPromptCarriesTypedSelectionWarningsIntoCLIWarnings(t *testing.T) {
+	result, err := runPrompt(t.Context(), staticRunPromptService{
+		response: &runpromptpb.Success{
+			SessionId: "session-id",
+			Duration:  durationpb.New(time.Millisecond),
+			SelectionWarnings: []runpromptpb.RunSelectionWarning{
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE,
+				runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE,
+			},
+		},
+	}, Options{}, "", "prompt", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 2 || strings.TrimSpace(result.Warnings[0]) == "" || strings.TrimSpace(result.Warnings[1]) == "" {
+		t.Fatalf("selection warning count/content = %q", result.Warnings)
+	}
+}
 
 func TestLoadRemoteAttachConfigRetainsInvocationWorkspaceForResume(t *testing.T) {
 	home := newAppTestHome(t)

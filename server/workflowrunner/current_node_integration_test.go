@@ -1001,7 +1001,7 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 			PersistedSessions: f.metadata,
 			ExecutionTargets:  f.metadata,
 			SessionProjects:   f.metadata, ManagedWorktreeRoots: f.metadata,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		PromptHistory:    f.metadata,
 		RuntimeAuthority: f.authority,
 	})

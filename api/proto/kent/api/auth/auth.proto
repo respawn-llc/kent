@@ -420,6 +420,7 @@ message ProviderCapabilitiesOverride {
   bool supports_server_side_context_edit = 8;
   bool supports_provider_verbosity = 9;
   bool is_openai_first_party = 10;
+  bool supports_fast_mode = 11;
 }
 
 message ConnectionDefinition {

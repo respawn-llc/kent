@@ -191,6 +191,7 @@ func readConnectionCapabilities(definition settingsFile) (ProviderCapabilitiesOv
 		to  *bool
 	}{
 		{"supports_responses_api", &result.SupportsResponsesAPI},
+		{"supports_fast_mode", &result.SupportsFastMode},
 		{"supports_responses_compact", &result.SupportsResponsesCompact},
 		{"supports_prompt_cache_key", &result.SupportsPromptCacheKey},
 		{"supports_native_web_search", &result.SupportsNativeWebSearch},

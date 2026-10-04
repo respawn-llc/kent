@@ -182,7 +182,7 @@ func prepareChatAgentEntry(app config.App, selector string, preparation RunPromp
 		if err != nil {
 			return fail(serverapi.ChatSettingsAgentInternalPreparation)
 		}
-		fastAvailable = true
+		fastAvailable = llm.SupportsFastModeProvider(capabilities)
 	} else {
 		if prepared.ProviderCapabilities == nil {
 			return fail(serverapi.ChatSettingsAgentInternalPreparation)

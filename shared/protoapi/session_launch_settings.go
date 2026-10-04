@@ -347,6 +347,7 @@ func modelCapabilitiesFromProto(value *sessionlaunchpb.ModelCapabilitiesOverride
 func providerCapabilitiesToProto(value config.ProviderCapabilitiesOverride) *authpb.ProviderCapabilitiesOverride {
 	return &authpb.ProviderCapabilitiesOverride{
 		ProviderId: value.ProviderID, SupportsResponsesApi: value.SupportsResponsesAPI,
+		SupportsFastMode:         value.SupportsFastMode,
 		SupportsResponsesCompact: value.SupportsResponsesCompact,
 		SupportsPromptCacheKey:   value.SupportsPromptCacheKey, SupportsNativeWebSearch: value.SupportsNativeWebSearch,
 		SupportsReasoningEncrypted:    value.SupportsReasoningEncrypted,
@@ -358,6 +359,7 @@ func providerCapabilitiesToProto(value config.ProviderCapabilitiesOverride) *aut
 func providerCapabilitiesFromProto(value *authpb.ProviderCapabilitiesOverride) config.ProviderCapabilitiesOverride {
 	return config.ProviderCapabilitiesOverride{
 		ProviderID: value.ProviderId, SupportsResponsesAPI: value.SupportsResponsesApi,
+		SupportsFastMode:         value.SupportsFastMode,
 		SupportsResponsesCompact: value.SupportsResponsesCompact,
 		SupportsPromptCacheKey:   value.SupportsPromptCacheKey, SupportsNativeWebSearch: value.SupportsNativeWebSearch,
 		SupportsReasoningEncrypted:    value.SupportsReasoningEncrypted,

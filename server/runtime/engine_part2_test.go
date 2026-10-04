@@ -653,7 +653,9 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("one")}, Usage: llm.Usage{WindowTokens: 200000}},
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("two")}, Usage: llm.Usage{WindowTokens: 200000}},
 		},
-		caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true},
+		caps: llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 	}
 
 	eng := mustNewExecTestEngine(t, store, client, Config{
@@ -690,7 +692,9 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-6-luna"}
-	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+	}}, cfg)
 
 	changed, err := eng.SetFastModeEnabled(true)
 	if err != nil {
@@ -700,7 +704,9 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 		t.Fatalf("expected fast mode enabled, changed=%v enabled=%v", changed, eng.FastModeEnabled())
 	}
 
-	restarted := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
+	restarted := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+	}}, cfg)
 	if restarted.FastModeEnabled() {
 		t.Fatal("expected fast mode disabled after restart")
 	}

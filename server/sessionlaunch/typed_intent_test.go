@@ -43,7 +43,7 @@ func TestServiceMapsTypedLaunchIntents(t *testing.T) {
 		StoreOptions:      persistence.Options(),
 		PersistedSessions: persistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	})
+	}, ChatSettingsOwner{})
 
 	createRequest := PlanRequest{
 		Mode:   launch.ModeInteractive,

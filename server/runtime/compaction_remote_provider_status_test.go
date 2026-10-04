@@ -273,6 +273,7 @@ func TestRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
 		caps: llm.ProviderCapabilities{
 			ProviderID:               "chatgpt-codex",
 			SupportsResponsesAPI:     true,
+			SupportsFastMode:         true,
 			SupportsResponsesCompact: true,
 			IsOpenAIFirstParty:       true,
 		},
