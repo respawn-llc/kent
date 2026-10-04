@@ -182,6 +182,9 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 	eng := mustNewTestEngine(t, store, mainClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:           "gpt-6-sol",
 		FastModeEnabled: true,
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 		Reviewer: ReviewerConfig{
 			Frequency:     "all",
 			Model:         "gpt-6-sol",
