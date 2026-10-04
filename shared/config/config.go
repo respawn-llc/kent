@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/protocol"
 	"core/shared/toolspec"
 	"net"
 	"path/filepath"
@@ -292,7 +291,14 @@ func GlobalAuthConfigPath(cfg App) string {
 }
 
 func ServerRPCURL(cfg App) string {
-	return "ws://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)) + protocol.RPCPath
+	return cfg.Connection().RPCURL()
+}
+
+func (cfg App) Connection() Connection {
+	return Connection{
+		WorkspaceRoot: cfg.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		ServerHost: cfg.Settings.ServerHost, ServerPort: cfg.Settings.ServerPort, Source: cfg.Source,
+	}
 }
 
 func ServerHTTPBaseURL(cfg App) string {

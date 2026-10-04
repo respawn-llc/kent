@@ -2,7 +2,9 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -14,12 +16,21 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 type controlledRunPrompt struct {
 	release   <-chan struct{}
 	sessionID string
+}
+
+type rejectedRunPrompt struct {
+	err error
+}
+
+func (s rejectedRunPrompt) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	return nil, s.err
 }
 
 func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromptRequest, sink serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
@@ -179,5 +190,75 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	}
 	if finalResult.GetSuccess().GetResult() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
+	}
+}
+
+func TestRunPromptBinaryPreservesLaunchDenials(t *testing.T) {
+	core, _ := newGatewayTestCore(t, true, true)
+	defer core.Close()
+	target := "blocked"
+	callerID := runtimeids.NewSessionID().String()
+	for _, tc := range []struct {
+		name   string
+		denied serverapi.SubagentLaunchDeniedError
+		caller *string
+	}{
+		{
+			name:   "not callable",
+			denied: serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialNotCallable, Target: &target},
+		},
+		{
+			name: "missing target",
+			denied: serverapi.SubagentLaunchDeniedError{
+				Kind: serverapi.SubagentLaunchDenialTargetMissing, Target: &target, AvailableRoles: []string{"worker", "fast"},
+			},
+		},
+		{
+			name:   "invalid target",
+			denied: serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialInvalidTarget},
+		},
+		{
+			name:   "missing parent",
+			denied: serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialParentMissing},
+		},
+		{
+			name:   "missing caller",
+			denied: serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
+			caller: &callerID,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway, err := NewGateway(runPromptTestDependencies{
+				GatewayDependencies: core,
+				run:                 rejectedRunPrompt{err: &tc.denied},
+			}, gatewayTestIdentity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(gateway.Handler())
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			client, err := remoteclient.DialRemoteURLForProject(ctx, "ws"+server.URL[len("http"):], core.ProjectID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+				Intent:          serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+				CallerSessionID: tc.caller,
+				Prompt:          "must not dispatch",
+			}, nil)
+			var denied *serverapi.SubagentLaunchDeniedError
+			if response != nil || !errors.As(err, &denied) || !reflect.DeepEqual(*denied, tc.denied) {
+				t.Fatalf("remote denial = %+v (%v), want %+v", denied, err, tc.denied)
+			}
+			if tc.caller != nil {
+				var missing *sessioncontract.SessionNotFoundError
+				if !errors.Is(err, sessioncontract.ErrSessionNotFound) || !errors.As(err, &missing) || missing.SessionID != *tc.caller {
+					t.Fatalf("missing caller lost typed session metadata: %v", err)
+				}
+			}
+		})
 	}
 }

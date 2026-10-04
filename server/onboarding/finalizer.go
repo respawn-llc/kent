@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,8 @@ type Finalizer struct {
 	settingsPath    string
 	homeDir         string
 	connections     *authservice.BootstrapService
+	baseline        config.Settings
+	baselineSources map[string]config.Origin
 }
 
 type Options struct {
@@ -35,6 +38,8 @@ type Options struct {
 	SettingsPath    string
 	HomeDir         string
 	Connections     *authservice.BootstrapService
+	Baseline        config.Settings
+	BaselineSources map[string]config.Origin
 }
 
 func NewFinalizer(options Options) (*Finalizer, error) {
@@ -44,6 +49,9 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 	}
 	if options.Connections == nil {
 		return nil, errors.New("connection setup owner is required")
+	}
+	if strings.TrimSpace(options.Baseline.Model) == "" {
+		return nil, errors.New("published onboarding baseline is required")
 	}
 	settingsPath := strings.TrimSpace(options.SettingsPath)
 	if settingsPath == "" {
@@ -60,6 +68,8 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 		settingsPath:    settingsPath,
 		homeDir:         homeDir,
 		connections:     options.Connections,
+		baseline:        options.Baseline,
+		baselineSources: maps.Clone(options.BaselineSources),
 	}, nil
 }
 
@@ -74,8 +84,8 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 		return nil, configAlreadyExists(settingsPath)
 	}
 	ledger := &mutationLedger{}
-	path, err := f.connections.FinishSetup(settingsPath, func(ctx context.Context, initial config.Settings) (config.Settings, config.OnboardingWriteOptions, error) {
-		settings, preserved, err := projectSettings(req, initial)
+	path, err := f.connections.FinishSetup(settingsPath, f.baseline, func(ctx context.Context, initial config.Settings) (config.Settings, config.OnboardingWriteOptions, error) {
+		settings, preserved, err := projectSettings(req, initial, f.baselineSources)
 		options := config.OnboardingWriteOptions{PreservedDefaults: preserved}
 		if err != nil {
 			return config.Settings{}, options, err
@@ -107,8 +117,14 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 	return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: path}, nil
 }
 
-func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings) (config.Settings, map[string]bool, error) {
+func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings, sources map[string]config.Origin) (config.Settings, map[string]bool, error) {
+	settings.EnabledTools = maps.Clone(settings.EnabledTools)
 	preserved := map[string]bool{}
+	for key, origin := range sources {
+		if origin.Declares(key) {
+			preserved[key] = true
+		}
+	}
 	effectiveModel := settings.Model
 	if req.Model != nil {
 		model, err := modelChoiceValue(req.Model)
@@ -153,21 +169,11 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		}
 		settings.ModelVerbosity = config.ModelVerbosity(value)
 	}
-	if req.ModelTimeoutSeconds != nil {
-		settings.Timeouts.ModelRequestSeconds = int(*req.ModelTimeoutSeconds)
-	}
 	if req.AskQuestion != nil {
 		if settings.EnabledTools == nil {
 			settings.EnabledTools = map[toolspec.ID]bool{}
 		}
 		settings.EnabledTools[toolspec.ToolAskQuestion] = *req.AskQuestion
-	}
-	for _, override := range req.ToolOverrides {
-		id, err := onboardingToolID(override.GetId())
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
-		settings.EnabledTools[id] = override.Enabled
 	}
 	if req.Supervisor != nil {
 		if err := applySupervisor(&settings, preserved, req.Supervisor); err != nil {
@@ -221,7 +227,8 @@ func modelChoiceValue(choice *onboardingpb.ModelChoice) (string, error) {
 func applyContextWindow(settings *config.Settings, model string, choice *onboardingpb.ContextWindowChoice) error {
 	switch choice.Kind {
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT:
-		return nil
+		defaults := config.DefaultOnboardingSettings()
+		llm.ApplyDerivedModelContextBudget(settings, model, defaults.ModelContextWindow, defaults.ContextCompactionThresholdTokens)
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
 		meta, ok := llm.LookupModelMetadata(model)
 		if !ok || meta.LargeContextWindowTokens <= 0 {
@@ -274,19 +281,25 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		return err
 	}
 	settings.Reviewer.Frequency = frequency
+	// A submitted Supervisor choice describes the whole visible selection:
+	// absent overrides mean inheritance. An absent Supervisor preserves baseline.
+	if choice.Model == nil {
+		delete(preserved, "reviewer.model")
+	}
+	if choice.Thinking == nil {
+		delete(preserved, "reviewer.thinking_level")
+	}
 	if choice.Model != nil {
 		model, err := modelChoiceValue(choice.Model)
 		if err != nil {
 			return err
 		}
-		if model != settings.Model {
-			settings.Reviewer.Model = model
-			preserved["reviewer.model"] = true
-		}
+		settings.Reviewer.Model = model
+		preserved["reviewer.model"] = true
 	}
-	reviewerModel := settings.Reviewer.Model
-	if strings.TrimSpace(reviewerModel) == "" {
-		reviewerModel = settings.Model
+	reviewerModel := settings.Model
+	if preserved["reviewer.model"] {
+		reviewerModel = settings.Reviewer.Model
 	}
 	if choice.Thinking != nil {
 		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
@@ -296,10 +309,8 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		if err != nil {
 			return err
 		}
-		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DISABLED || thinking != settings.ThinkingLevel {
-			settings.Reviewer.ThinkingLevel = thinking
-			preserved["reviewer.thinking_level"] = true
-		}
+		settings.Reviewer.ThinkingLevel = thinking
+		preserved["reviewer.thinking_level"] = true
 	}
 	return nil
 }
@@ -353,31 +364,6 @@ func onboardingCompaction(value onboardingpb.CompactionMode) (string, error) {
 		return "none", nil
 	default:
 		return "", invalidRequest("compaction", "unsupported_value")
-	}
-}
-
-func onboardingToolID(value onboardingpb.ToolID) (toolspec.ID, error) {
-	switch value {
-	case onboardingpb.ToolID_TOOL_ID_EXEC_COMMAND:
-		return toolspec.ToolExecCommand, nil
-	case onboardingpb.ToolID_TOOL_ID_WRITE_STDIN:
-		return toolspec.ToolWriteStdin, nil
-	case onboardingpb.ToolID_TOOL_ID_VIEW_IMAGE:
-		return toolspec.ToolViewImage, nil
-	case onboardingpb.ToolID_TOOL_ID_PATCH:
-		return toolspec.ToolPatch, nil
-	case onboardingpb.ToolID_TOOL_ID_EDIT:
-		return toolspec.ToolEdit, nil
-	case onboardingpb.ToolID_TOOL_ID_ASK_QUESTION:
-		return toolspec.ToolAskQuestion, nil
-	case onboardingpb.ToolID_TOOL_ID_COMPLETE_NODE:
-		return toolspec.ToolCompleteNode, nil
-	case onboardingpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
-		return toolspec.ToolTriggerHandoff, nil
-	case onboardingpb.ToolID_TOOL_ID_WEB_SEARCH:
-		return toolspec.ToolWebSearch, nil
-	default:
-		return "", invalidRequest("tool_overrides.id", "unsupported_value")
 	}
 }
 

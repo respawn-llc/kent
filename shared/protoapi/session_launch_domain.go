@@ -24,15 +24,7 @@ func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error 
 	case *sessionlaunchpb.SessionPlanError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *sessionlaunchpb.SessionPlanError_SubagentLaunchDenied:
-		kind, err := subagentLaunchDenialKindFromProto(detail.SubagentLaunchDenied.Kind)
-		if err != nil {
-			return err
-		}
-		return &serverapi.SubagentLaunchDeniedError{
-			Kind:           kind,
-			Target:         clonePointer(detail.SubagentLaunchDenied.Target),
-			AvailableRoles: append([]string(nil), detail.SubagentLaunchDenied.AvailableRoles...),
-		}
+		return SubagentLaunchDeniedFromProto(detail.SubagentLaunchDenied)
 	case *sessionlaunchpb.SessionPlanError_MaxDepthExceeded:
 		return protocol.NewMaxDepthExceededSubagentLaunchPolicyError(
 			int(detail.MaxDepthExceeded.AttemptedDepth),
@@ -76,16 +68,13 @@ func SessionPlanErrorToProto(
 	default:
 		var denied *serverapi.SubagentLaunchDeniedError
 		if errors.As(err, &denied) {
-			kind, conversionErr := subagentLaunchDenialKindToProto(denied.Kind)
+			details, conversionErr := SubagentLaunchDeniedToProto(denied)
 			if conversionErr != nil {
 				return nil, true, conversionErr
 			}
 			failure.Code = "subagent_launch_denied"
 			failure.Detail = &sessionlaunchpb.SessionPlanError_SubagentLaunchDenied{
-				SubagentLaunchDenied: &sessionlaunchpb.SubagentLaunchDeniedDetails{
-					Kind: kind, Target: clonePointer(denied.Target),
-					AvailableRoles: append([]string(nil), denied.AvailableRoles...),
-				},
+				SubagentLaunchDenied: details,
 			}
 			break
 		}
@@ -132,6 +121,33 @@ func SessionPlanErrorToProto(
 		return nil, true, validationErr
 	}
 	return failure, true, nil
+}
+
+func SubagentLaunchDeniedFromProto(details *sessionlaunchpb.SubagentLaunchDeniedDetails) error {
+	if err := Validate(details); err != nil {
+		return err
+	}
+	kind, err := subagentLaunchDenialKindFromProto(details.Kind)
+	if err != nil {
+		return err
+	}
+	return &serverapi.SubagentLaunchDeniedError{
+		Kind:           kind,
+		Target:         clonePointer(details.Target),
+		AvailableRoles: append([]string(nil), details.AvailableRoles...),
+	}
+}
+
+func SubagentLaunchDeniedToProto(denied *serverapi.SubagentLaunchDeniedError) (*sessionlaunchpb.SubagentLaunchDeniedDetails, error) {
+	kind, err := subagentLaunchDenialKindToProto(denied.Kind)
+	if err != nil {
+		return nil, err
+	}
+	details := &sessionlaunchpb.SubagentLaunchDeniedDetails{
+		Kind: kind, Target: clonePointer(denied.Target),
+		AvailableRoles: append([]string(nil), denied.AvailableRoles...),
+	}
+	return details, Validate(details)
 }
 
 func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {

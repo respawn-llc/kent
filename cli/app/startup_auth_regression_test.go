@@ -25,7 +25,11 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 	t.Cleanup(func() { _ = daemon.Close() })
 	t.Cleanup(serveAppServer(t, daemon))
 	waitForConfiguredRunPromptDaemon(t, workspace)
-	remote, err := attachConfiguredStartupRemote(t.Context(), cfg)
+	connection, err := config.LoadConnectionDiscovery(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := attachConfiguredStartupRemote(t.Context(), connection)
 	if err != nil {
 		t.Fatalf("attach before provider setup: %v", err)
 	}

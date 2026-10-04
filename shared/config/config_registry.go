@@ -190,6 +190,51 @@ func (s optionalStringSetting) subagentRoleValueDiffers(base settingsState, role
 	return strings.TrimSpace(*left) != strings.TrimSpace(*right)
 }
 
+type clientSettingDefinitions struct {
+	serverHost           scalarSetting[string]
+	serverPort           scalarSetting[int]
+	theme                scalarSetting[string]
+	debug                scalarSetting[bool]
+	notificationMethod   scalarSetting[string]
+	tuiNativeProgressBar scalarSetting[bool]
+	lifecycle            clientLifecycleSetting
+}
+
+var sharedClientSettingDefinitions = newClientSettingDefinitions()
+
+func newClientSettingDefinitions() clientSettingDefinitions {
+	return clientSettingDefinitions{
+		serverHost: newStringSetting("server_host", defaultServerHost,
+			func(state *settingsState, value string) { state.Settings.ServerHost = value },
+			func(state settingsState) string { return state.Settings.ServerHost },
+			"KENT_SERVER_HOST", nil, nil, settingDocOptions{}),
+		serverPort: newIntSetting("server_port", defaultServerPort,
+			func(state *settingsState, value int) { state.Settings.ServerPort = value },
+			func(state settingsState) int { return state.Settings.ServerPort },
+			"KENT_SERVER_PORT", nil, settingDocOptions{}),
+		theme: newStringSetting("theme", defaultTheme,
+			func(state *settingsState, value string) { state.Settings.Theme = value },
+			func(state settingsState) string { return state.Settings.Theme },
+			"KENT_THEME",
+			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
+			theme.Normalize,
+			settingDocOptions{cliOption: "--theme"}),
+		debug: newBoolSetting("debug", false,
+			func(state *settingsState, value bool) { state.Settings.Debug = value },
+			func(state settingsState) bool { return state.Settings.Debug },
+			"KENT_DEBUG", settingDocOptions{}),
+		notificationMethod: newStringSetting("notification_method", "auto",
+			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
+			func(state settingsState) string { return state.Settings.NotificationMethod },
+			"KENT_NOTIFICATION_METHOD", nil, nil, settingDocOptions{}),
+		tuiNativeProgressBar: newBoolSetting("tui_native_progress_bar", true,
+			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
+			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
+			"", settingDocOptions{}),
+		lifecycle: clientLifecycleSetting{},
+	}
+}
+
 var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
@@ -235,25 +280,9 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.ModelCapabilities.SupportsVisionInputs },
 			"KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
 			settingDocOptions{commented: true}),
-		newStringSetting("theme", defaultTheme,
-			func(state *settingsState, value string) { state.Settings.Theme = value },
-			func(state settingsState) string { return state.Settings.Theme },
-			"KENT_THEME",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
-			theme.Normalize,
-			settingDocOptions{cliOption: "--theme"}),
-		newStringSetting("notification_method", "auto",
-			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
-			func(state settingsState) string { return state.Settings.NotificationMethod },
-			"KENT_NOTIFICATION_METHOD",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newBoolSetting("tui_native_progress_bar", true,
-			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
-			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
-			"",
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.theme,
+		sharedClientSettingDefinitions.notificationMethod,
+		sharedClientSettingDefinitions.tuiNativeProgressBar,
 		newBoolSetting("tool_preambles", true,
 			func(state *settingsState, value bool) { state.Settings.ToolPreambles = value },
 			func(state settingsState) bool { return state.Settings.ToolPreambles },
@@ -264,24 +293,9 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.PriorityRequestMode },
 			"",
 			settingDocOptions{}),
-		newBoolSetting("debug", false,
-			func(state *settingsState, value bool) { state.Settings.Debug = value },
-			func(state settingsState) bool { return state.Settings.Debug },
-			"KENT_DEBUG",
-			settingDocOptions{}),
-		newStringSetting("server_host", defaultServerHost,
-			func(state *settingsState, value string) { state.Settings.ServerHost = value },
-			func(state settingsState) string { return state.Settings.ServerHost },
-			"KENT_SERVER_HOST",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newIntSetting("server_port", defaultServerPort,
-			func(state *settingsState, value int) { state.Settings.ServerPort = value },
-			func(state settingsState) int { return state.Settings.ServerPort },
-			"KENT_SERVER_PORT",
-			nil,
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.debug,
+		sharedClientSettingDefinitions.serverHost,
+		sharedClientSettingDefinitions.serverPort,
 		newStringSetting("web_search", "native",
 			func(state *settingsState, value string) { state.Settings.WebSearch = value },
 			func(state settingsState) string { return state.Settings.WebSearch },
@@ -380,7 +394,7 @@ func newSettingsRegistry() settingsRegistry {
 			func(state *settingsState, value *string) { state.Settings.Shell.PostprocessHook = value },
 			func(state settingsState) *string { return state.Settings.Shell.PostprocessHook },
 			"KENT_SHELL_POSTPROCESS_HOOK", settingDocOptions{}),
-		clientLifecycleSetting{},
+		sharedClientSettingDefinitions.lifecycle,
 		newStringSetting("cache_warning_mode", CacheWarningMode(defaultCacheWarningMode),
 			func(state *settingsState, value CacheWarningMode) { state.Settings.CacheWarningMode = value },
 			func(state settingsState) CacheWarningMode { return state.Settings.CacheWarningMode },

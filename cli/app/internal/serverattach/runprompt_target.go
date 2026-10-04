@@ -13,7 +13,7 @@ import (
 )
 
 type AttachRunPromptRequest struct {
-	Config           config.App
+	Config           config.Connection
 	AttachTimeout    time.Duration
 	DiscoveryTimeout time.Duration
 	DialProjectView  remoteattach.DialProjectView

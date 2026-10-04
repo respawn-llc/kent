@@ -97,14 +97,18 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 		Model:                 "gpt-5.4",
 	})
 
-	server := fixture.attachRemoteSessionServer(t, Options{
+	options := Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5.3-codex",
 		Tools:                 "shell",
-	}, newHeadlessAuthInteractor())
+	}
+	server := fixture.attachRemoteSessionServer(t, options, newHeadlessAuthInteractor())
 
-	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote interactive runtime override")
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Overrides: runPromptOverridesFromOptions(options),
+	}, io.Discard, "test remote interactive runtime override")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 	if plan.ActiveSettings.Model != "gpt-5.3-codex" {
 		t.Fatalf("model = %q, want gpt-5.3-codex", plan.ActiveSettings.Model)

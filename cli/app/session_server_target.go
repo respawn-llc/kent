@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"core/cli/app/internal/startupconfig"
 	"core/shared/client"
@@ -25,12 +26,12 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		return nil, err
 	}
 	closeRemote := true
+	remoteServer := newRemoteAppServerWithAuth(remote, cfg, resolved.Local)
 	defer func() {
 		if closeRemote {
-			returnErr = errors.Join(returnErr, remote.Close())
+			returnErr = errors.Join(returnErr, remoteServer.Close())
 		}
 	}()
-	remoteServer := newRemoteAppServerWithAuth(remote, cfg)
 	server = remoteServer
 	readinessResponse, err := remote.GetReadiness(ctx, &emptypb.Empty{})
 	if err != nil {
@@ -41,7 +42,7 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		if !serverRequiresOnboarding(readiness) {
 			return nil, newConfiguredServerPreflightError(cfg, "server is not ready", errors.New(readinessReason(readiness)))
 		}
-		result, err := runOnboardingFlow(ctx, cfg, remote, remote, remote)
+		result, err := runOnboardingFlow(ctx, cfg, resolved.Local, remote, remote, remote)
 		if err != nil {
 			return nil, err
 		}
@@ -55,17 +56,21 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 			return nil, newConfiguredServerPreflightError(cfg, "activate completed onboarding", errors.New(readinessReason(readiness)))
 		}
 	}
+	if sessionID := strings.TrimSpace(opts.SessionID); sessionID != "" {
+		if err := remoteServer.ReattachSession(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
 	if interactive {
 		if err := remoteServer.EnsureConnectionSetup(ctx); err != nil {
 			return nil, err
 		}
 	}
 	closeRemote = false
-	remoteServer.clientSettings = resolved.Client
 	return server, nil
 }
 
-func attachConfiguredStartupRemote(ctx context.Context, cfg config.App) (attached *client.Remote, returnErr error) {
+func attachConfiguredStartupRemote(ctx context.Context, cfg config.Connection) (attached *client.Remote, returnErr error) {
 	remote, err := client.DialConfiguredRemote(ctx, cfg)
 	if err != nil {
 		return nil, newConfiguredServerPreflightError(cfg, "attach", err)
@@ -110,9 +115,9 @@ func (e *configuredServerPreflightError) Unwrap() error {
 	return e.cause
 }
 
-func newConfiguredServerPreflightError(cfg config.App, operation string, cause error) error {
+func newConfiguredServerPreflightError(cfg config.Connection, operation string, cause error) error {
 	return &configuredServerPreflightError{
-		endpoint:  config.ServerRPCURL(cfg),
+		endpoint:  cfg.RPCURL(),
 		operation: operation,
 		cause:     cause,
 	}

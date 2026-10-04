@@ -5,8 +5,6 @@ import (
 	"math"
 	"runtime/debug"
 	"strings"
-
-	"core/shared/toolspec"
 )
 
 type onboardingInvariantDiagnostic struct {
@@ -146,19 +144,8 @@ func (selections onboardingSelections) invariantViolation() (onboardingInvariant
 	if violation, ok := importSelectionInvariantViolation("command_import", selections.commandImport); ok {
 		return violation, true
 	}
-	if selections.preserved.modelTimeoutSeconds != nil {
-		value := *selections.preserved.modelTimeoutSeconds
-		if value <= 0 || uint64(value) > math.MaxUint32 {
-			return onboardingInvariantViolation{VariantType: "preserved.model_timeout_seconds", VariantTag: fmt.Sprint(value)}, true
-		}
-	}
-	if selections.preserved.baselineModelContextWindow != nil && *selections.preserved.baselineModelContextWindow <= 0 {
-		return onboardingInvariantViolation{VariantType: "preserved.baseline_model_context_window", VariantTag: fmt.Sprint(*selections.preserved.baselineModelContextWindow)}, true
-	}
-	for _, id := range toolspec.CatalogIDs() {
-		if _, ok := selections.preserved.enabledTools[id]; !ok {
-			return onboardingInvariantViolation{VariantType: "preserved.enabled_tools", VariantTag: string(id)}, true
-		}
+	if selections.baselineModelContextWindow != nil && *selections.baselineModelContextWindow <= 0 {
+		return onboardingInvariantViolation{VariantType: "preserved.baseline_model_context_window", VariantTag: fmt.Sprint(*selections.baselineModelContextWindow)}, true
 	}
 	return onboardingInvariantViolation{}, false
 }

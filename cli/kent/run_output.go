@@ -70,9 +70,9 @@ func runErrorMessage(err error) string {
 			}
 			return fmt.Sprintf("subagent role %q is unavailable", target)
 		case serverapi.SubagentLaunchDenialNotCallable:
-			return "the requested subagent launch is not allowed for this Kent session"
+			return "Calling this subagent was explicitly disabled by the user, use another fitting role described in a developer reminder, proceed without using subagents, or if subagent launch was requested explicitly by the user, ask them how to proceed"
 		case serverapi.SubagentLaunchDenialCallerMissing:
-			return "the caller session no longer exists"
+			return fmt.Sprintf("The calling Kent session could not be found; it may have been deleted. Diagnostics: %v", err)
 		case serverapi.SubagentLaunchDenialParentMissing:
 			return "the parent session no longer exists"
 		default:

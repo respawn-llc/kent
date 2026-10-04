@@ -11,7 +11,9 @@ import (
 	"core/server/onboardingimports"
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 func TestImportErrorFactsPreserveItemKind(t *testing.T) {
@@ -140,10 +142,13 @@ func TestServiceRejectsUnsupportedExplicitProvider(t *testing.T) {
 
 func TestServiceProjectsDefaults(t *testing.T) {
 	service := NewService(Options{Config: testConfig(t, config.Settings{
-		Model:          "custom-model",
-		ThinkingLevel:  "ultra",
-		ModelVerbosity: config.ModelVerbosityHigh,
-		CompactionMode: config.CompactionModeNative,
+		Model:              "custom-model",
+		ThinkingLevel:      "ultra",
+		ModelVerbosity:     config.ModelVerbosityHigh,
+		CompactionMode:     config.CompactionModeNative,
+		ModelContextWindow: 123000,
+		EnabledTools:       map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
+		Reviewer:           config.ReviewerSettings{Frequency: "all"},
 	})})
 
 	resp, err := service.GetFacts(context.Background(), &capabilitypb.GetFactsRequest{})
@@ -162,6 +167,10 @@ func TestServiceProjectsDefaults(t *testing.T) {
 	}
 	if resp.Defaults.CompactionMode != string(config.CompactionModeNative) {
 		t.Fatalf("compaction default = %q", resp.Defaults.CompactionMode)
+	}
+	if resp.Defaults.GetContextWindowTokens() != 123000 || !resp.Defaults.AskQuestion ||
+		resp.Defaults.Supervisor.GetFrequency() != onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL {
+		t.Fatalf("visible onboarding defaults: %+v", resp.Defaults)
 	}
 	service = NewService(Options{Config: testConfig(t, config.Settings{
 		Model: "custom-model",

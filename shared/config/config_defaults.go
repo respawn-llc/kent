@@ -218,18 +218,25 @@ func shouldRenderReviewerThinking(settings Settings, preserved map[string]bool) 
 }
 
 func writeReviewerInheritanceLines(builder *strings.Builder, raw Settings, effective Settings, preserved map[string]bool) {
-	modelCommented := !(preserved != nil && preserved["reviewer.model"]) && strings.TrimSpace(raw.Reviewer.Model) == ""
+	modelCommented := reviewerValueInherited("reviewer.model", strings.TrimSpace(raw.Reviewer.Model) == "", preserved)
 	writeCommentedAssignment(builder, "model", effective.Reviewer.Model, modelCommented, "# inherited from main model unless overridden")
-	thinkingCommented := !(preserved != nil && preserved["reviewer.thinking_level"]) && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == ""
+	thinkingCommented := reviewerValueInherited("reviewer.thinking_level", strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "", preserved)
 	thinkingValue := any(effective.Reviewer.ThinkingLevel)
 	if preserved != nil && preserved["reviewer.thinking_level"] && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "" {
 		thinkingValue = raw.Reviewer.ThinkingLevel
 	}
 	writeCommentedAssignment(builder, "thinking_level", thinkingValue, thinkingCommented, "# inherited from main thinking_level unless overridden")
-	verbosityCommented := !(preserved != nil && preserved["reviewer.model_verbosity"]) && strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == ""
+	verbosityCommented := reviewerValueInherited("reviewer.model_verbosity", strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == "", preserved)
 	writeCommentedAssignment(builder, "model_verbosity", effective.Reviewer.ModelVerbosity, verbosityCommented, "# inherited from main model_verbosity unless overridden")
-	contextCommented := !(preserved != nil && preserved["reviewer.model_context_window"]) && raw.Reviewer.ModelContextWindow <= 0
+	contextCommented := reviewerValueInherited("reviewer.model_context_window", raw.Reviewer.ModelContextWindow <= 0, preserved)
 	writeCommentedAssignment(builder, "model_context_window", effective.Reviewer.ModelContextWindow, contextCommented, "# inherited from main model_context_window unless overridden")
+}
+
+func reviewerValueInherited(key string, absent bool, declarations map[string]bool) bool {
+	if declarations != nil {
+		return !declarations[key]
+	}
+	return absent
 }
 
 func writeCommentedAssignment(builder *strings.Builder, key string, value any, commented bool, trailingComment string) {

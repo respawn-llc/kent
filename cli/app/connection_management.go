@@ -29,8 +29,8 @@ func (s *remoteAppServer) EnsureConnectionSetup(ctx context.Context) error {
 func (s *remoteAppServer) manageConnections(ctx context.Context, catalog *authpb.ConnectionCatalog) error {
 	selectedTheme := s.PresentationTheme()
 	var workspace *string
-	if s.cfg.WorkspaceRoot != "" {
-		workspace = &s.cfg.WorkspaceRoot
+	if s.connection.WorkspaceRoot != "" {
+		workspace = &s.connection.WorkspaceRoot
 	}
 	var err error
 	options := []startupPickerOption{{ID: "add", Title: "Add connection"}}

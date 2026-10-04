@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +16,6 @@ import (
 	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -197,11 +198,108 @@ func TestSessionPickerIgnoresMouseSGRRunes(t *testing.T) {
 	}
 }
 
+func TestSessionPickerHeaderLoadingKeepsAnimatingAfterPagesComplete(t *testing.T) {
+	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
+		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+		},
+	})
+	main := m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestInitial)
+	subagents := m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestInitial)
+	m.Update(main())
+	m.Update(subagents())
+	_, tick := m.Update(sessionPickerSpinnerTickMsg{generation: *m.scheduledSpinnerGeneration})
+	if tick == nil {
+		t.Fatal("header loading must continue animating after Session pages finish")
+	}
+	m.Update(tick())
+	if m.spinnerFrame < 2 {
+		t.Fatal("header loading did not advance the spinner")
+	}
+	m.Update(m.collectHeaderFactsCmd()())
+	if m.reconcileSpinnerTick() != nil {
+		t.Fatal("completed header loading continued scheduling animation")
+	}
+}
+
+func TestSessionPickerHeaderRetryPreservesSelectionAndPages(t *testing.T) {
+	failure := errors.New("settings unavailable")
+	attempts := 0
+	summaries := make([]clientui.SessionSummary, 20)
+	for i := range summaries {
+		summaries[i] = pickerTestSummary(t, fmt.Sprintf("retry-session-%d", i), time.Now().UTC())
+	}
+	m := newTestSessionPickerModel(t, summaries, sessionPickerHeaderInfo{
+		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, failure
+			}
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+		},
+	})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	for range 15 {
+		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	selected := m.main.selected
+	offset := m.main.offset
+	activeTab := m.activeTab
+	pages := append([]sessionPickerPageSegment(nil), m.main.segments...)
+	_, retry := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if retry == nil || m.result != nil {
+		t.Fatal("Enter must retry failed header settings without opening the selected Session")
+	}
+	runSessionPickerCommands(t, m, retry)
+	if attempts != 2 || m.header.Model == "" {
+		t.Fatalf("header did not recover: attempts=%d model=%q", attempts, m.header.Model)
+	}
+	if m.main.selected != selected || !reflect.DeepEqual(m.main.segments, pages) || m.main.offset != offset || m.activeTab != activeTab {
+		t.Fatal("header retry changed Session selection, loaded pages, viewport, or active tab")
+	}
+	if m.headerFactsErr != nil {
+		t.Fatal("successful header retry retained its failure")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if _, ok := m.result.(sessionPickerOpenResult); !ok {
+		t.Fatal("Enter did not resume normal Session opening after header recovery")
+	}
+}
+
+func TestSessionPickerListFailureKeepsRetryPriorityOverHeaderFailure(t *testing.T) {
+	failure := errors.New("read unavailable")
+	failedMain := false
+	loader := &recordingSessionPageLoader{responses: func(request sessionPageRequest) sessionPageLoadResult {
+		if request.Category == sessioncontract.SessionCategoryMain && !failedMain {
+			failedMain = true
+			return sessionPageLoadResult{err: failure}
+		}
+		response := pickerPageResponse(t, request)
+		if request.Category == sessioncontract.SessionCategoryMain {
+			response.Sessions = []clientui.SessionSummary{pickerTestSummary(t, "recovered-session", time.Now().UTC())}
+		}
+		return sessionPageLoadResult{response: response}
+	}}
+	m := newSessionPickerModel(t.Context(), loader, "dark", sessionPickerHeaderInfo{
+		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
+			return nil, failure
+		},
+	})
+	runSessionPickerCommands(t, m, m.Init())
+	_, retry := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runSessionPickerCommands(t, m, retry)
+	if m.main.bodyPhase != sessionPickerBodyReady || !errors.Is(m.headerFactsErr, failure) {
+		t.Fatal("Enter must recover the failed active list before retrying header metadata")
+	}
+}
+
 func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	repoRoot := initStatusLineGitRepo(t, "picker-branch")
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-		Version:    "1.2.3",
-		ModelFacts: sessionPickerTestModelFacts("gpt-5", "high"),
+		Version: "1.2.3",
+		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -215,8 +313,9 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 
 	next, _ := m.Update(cmd())
 	updated := next.(*sessionPickerModel)
+	updated.Update(updated.collectHeaderFactsCmd()())
 	plain := stripANSIAndTrimRight(updated.renderHeader())
-	for _, want := range []string{"git picker-branch", "No auth · gpt-5 high"} {
+	for _, want := range []string{"git picker-branch", "gpt-5 high"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("expected async status value %q in header, got %q", want, plain)
 		}
@@ -228,7 +327,9 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	m := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version:       "1.2.3",
 		ServerAddress: "127.0.0.1:53082",
-		ModelFacts:    sessionPickerTestModelFacts("gpt-5", "high"),
+		loadHeaderFacts: func(context.Context) (*sessionPickerHeaderFacts, error) {
+			return &sessionPickerHeaderFacts{Model: sessionPickerTestModelFacts("gpt-5", "high")}, nil
+		},
 		StatusRequest: uiStatusRequest{
 			WorkspaceRoot: repoRoot,
 			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
@@ -247,34 +348,12 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
 		}
 	}
-	if height := lipgloss.Height(m.renderHeader()); height != 4 {
-		t.Fatalf("initial header height = %d, want static shell height 4", height)
-	}
-}
-
-func TestSessionPickerHeaderLoadsRemoteAuthStatus(t *testing.T) {
-	m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-		Version: "1.2.3",
-		StatusRequest: uiStatusRequest{
-			AuthStatus: &staticAuthStatusClient{response: authStatusResponse(authpb.AuthMethod_AUTH_METHOD_OAUTH)},
-		},
-	})
-	cmd := collectSessionPickerStatusCmd(m.header)
-	if cmd == nil {
-		t.Fatal("expected async status command")
-	}
-
-	next, _ := m.Update(cmd())
-	updated := next.(*sessionPickerModel)
-	plain := stripANSIAndTrimRight(updated.renderHeader())
-	if !strings.Contains(plain, "OpenAI Subscription") {
-		t.Fatalf("expected fast auth display in header, got %q", plain)
-	}
 }
 
 func TestSessionPickerStatusOmitsAbsentModel(t *testing.T) {
 	header := sessionPickerHeaderInfo{
 		StatusRequest: uiStatusRequest{
+			WorkspaceRoot: t.TempDir(),
 			Settings: config.Settings{
 				Model:          "server-default",
 				ThinkingLevel:  "high",
@@ -287,47 +366,10 @@ func TestSessionPickerStatusOmitsAbsentModel(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected async status command")
 	}
-	message, ok := cmd().(sessionPickerStatusMsg)
-	if !ok {
-		t.Fatalf("status message = %T", message)
-	}
-	if message.auth == nil {
-		t.Fatal("auth status is absent")
-	}
-	if message.model != nil {
-		t.Fatalf("absent model projected as %q", *message.model)
-	}
-}
-
-func TestSessionPickerHeaderLoadsAuthStatusVariants(t *testing.T) {
-	tests := []struct {
-		name   string
-		method authpb.AuthMethod
-		want   string
-	}{
-		{name: "no auth", method: authpb.AuthMethod_AUTH_METHOD_NONE, want: "No auth"},
-		{name: "api key", method: authpb.AuthMethod_AUTH_METHOD_API_KEY, want: "OpenAI API Key"},
-		{name: "oauth", method: authpb.AuthMethod_AUTH_METHOD_OAUTH, want: "OpenAI Subscription"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
-				Version: "1.2.3",
-				StatusRequest: uiStatusRequest{
-					AuthStatus: &staticAuthStatusClient{response: authStatusResponse(tt.method)},
-				},
-			})
-			cmd := collectSessionPickerStatusCmd(m.header)
-			if cmd == nil {
-				t.Fatal("expected async status command")
-			}
-
-			next, _ := m.Update(cmd())
-			plain := stripANSIAndTrimRight(next.(*sessionPickerModel).renderHeader())
-			if !strings.Contains(plain, tt.want) {
-				t.Fatalf("expected %q in header, got %q", tt.want, plain)
-			}
-		})
+	model := newTestSessionPickerModel(t, nil, header)
+	model.Update(cmd())
+	if model.header.Model != "" {
+		t.Fatalf("absent model projected as %q", model.header.Model)
 	}
 }
 
@@ -344,20 +386,18 @@ func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
 		CWD:           "~/very/long/repository/path",
 		Branch:        "main",
 		Model:         "gpt-5.1-ultra high",
-		Auth:          "OpenAI API Key",
 		ServerAddress: "127.0.0.1:53082",
 	})
 	m.width = 24
 
 	plain := stripANSIAndTrimRight(m.renderHeader())
-	if strings.Contains(plain, "git main · ~/very/long/repository/path") || strings.Contains(plain, "OpenAI API Key · gpt-5.1-ultra high") {
+	if strings.Contains(plain, "git main · ~/very/long/repository/path") {
 		t.Fatalf("expected narrow header to reflow main info, got %q", plain)
 	}
 	for _, want := range []string{
 		"Kent v1.2.3",
 		"git main",
 		"…",
-		"OpenAI API Key",
 		"gpt-5.1-ultra high",
 	} {
 		if !strings.Contains(plain, want) {
@@ -370,7 +410,6 @@ func TestSessionPickerHeaderRendersMissingRemoteAddressFallback(t *testing.T) {
 	m := newTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 		Version: "1.2.3",
 		CWD:     "~/repo",
-		Auth:    "No auth",
 		Model:   "gpt-5 high",
 	})
 	m.width = 80

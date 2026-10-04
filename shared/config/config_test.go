@@ -1532,7 +1532,7 @@ func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
 	}
 	// On platforms with a local RPC socket (unix), the socket directory is
 	// scoped by the same hash so client and server agree on the instance.
-	socketPath, ok, err := ServerLocalRPCSocketPath(App{PersistenceRoot: root})
+	socketPath, ok, err := ServerLocalRPCSocketPath(root)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -1668,21 +1668,21 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 	t.Run("default source returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceDefault}}}}
-		if got := ExplicitPersistenceRootID(cfg); got != "" {
+		if got := ExplicitPersistenceRootID(cfg.Connection()); got != "" {
 			t.Fatalf("default-source id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit default root returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
-		if got := ExplicitPersistenceRootID(cfg); got != "" {
+		if got := ExplicitPersistenceRootID(cfg.Connection()); got != "" {
 			t.Fatalf("explicit-default id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit isolated root returns hash", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceEnv}}}}
-		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+		if got, want := ExplicitPersistenceRootID(cfg.Connection()), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("explicit-iso id = %q, want %q", got, want)
 		}
 	})
@@ -1691,7 +1691,7 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 		// root; the explicit root must stay pinned rather than disabling the check.
 		t.Setenv("HOME", "")
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
-		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+		if got, want := ExplicitPersistenceRootID(cfg.Connection()), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("error-case id = %q, want %q (must pin on default-resolution failure)", got, want)
 		}
 	})

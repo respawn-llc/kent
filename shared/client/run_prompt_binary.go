@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"core/shared/protoapi"
@@ -9,6 +10,7 @@ import (
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 )
 
 func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
@@ -65,6 +67,15 @@ func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptReque
 				return nil, err
 			}
 			return decodeGeneratedResult(method, result, func(failure *runpromptpb.Error) error {
+				if details := failure.GetSubagentLaunchDenied(); details != nil {
+					return protoapi.SubagentLaunchDeniedFromProto(details)
+				}
+				if details := failure.GetCallerSessionNotFound(); details != nil {
+					return errors.Join(
+						&serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
+						&sessioncontract.SessionNotFoundError{SessionID: details.SessionId},
+					)
+				}
 				return generatedOperationFailure(failure.Code)
 			})
 		default:

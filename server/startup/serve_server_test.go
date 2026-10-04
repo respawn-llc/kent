@@ -466,7 +466,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -509,7 +509,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 
 	var localRemote *client.Remote
 	if !testsetup.Until(deadline, 10*time.Millisecond, func() bool {
-		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg)
+		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg.Connection())
 		return err == nil
 	}) {
 		t.Fatalf("DialConfiguredRemote: %v", err)
@@ -628,7 +628,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	startServingTestServer(t, server)
 	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
 	_ = healthResp.Body.Close()
-	remote, err := client.DialConfiguredRemote(context.Background(), server.Config())
+	remote, err := client.DialConfiguredRemote(context.Background(), server.Config().Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -713,7 +713,7 @@ model = "blocked-model"
 	healthResp := waitForServeResponse(t, http.DefaultClient, healthURL)
 	_ = healthResp.Body.Close()
 
-	remote, err := client.DialConfiguredRemote(context.Background(), cfg)
+	remote, err := client.DialConfiguredRemote(context.Background(), cfg.Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}

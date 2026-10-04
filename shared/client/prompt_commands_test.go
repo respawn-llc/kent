@@ -12,6 +12,7 @@ import (
 	"core/server/authservice"
 	"core/server/onboarding"
 	"core/server/promptcommands"
+	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
@@ -115,6 +116,7 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 		t.Fatal(err)
 	}
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		Baseline:        config.DefaultOnboardingSettings(),
 		PersistenceRoot: serverRoot,
 		WorkspaceRoot:   serverWorkspace,
 		HomeDir:         home,

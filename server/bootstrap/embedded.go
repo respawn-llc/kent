@@ -30,10 +30,6 @@ type ConfigPlan struct {
 	Client config.ClientSettings
 }
 
-func ValidateSessionExists(persistenceRoot string, sessionID string) error {
-	return launch.ValidateSessionExists(persistenceRoot, sessionID)
-}
-
 type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
@@ -42,19 +38,6 @@ type AuthSupport struct {
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
-	return resolveConfig(req, loadConfig)
-}
-
-// ResolveConnectionConfig preserves continuation discovery without resolving
-// Main Workspace private ownership before server attachment.
-func ResolveConnectionConfig(req Request) (ConfigPlan, error) {
-	return resolveConfig(req, func(opts config.LoadOptions, _ string, plan launch.BootstrapPlan) (ConfigPlan, error) {
-		app, client, err := config.LoadInteractiveConnectionDiscovery(plan.WorkspaceRoot, opts)
-		return ConfigPlan{Config: app, Client: client}, err
-	})
-}
-
-func resolveConfig(req Request, load func(config.LoadOptions, string, launch.BootstrapPlan) (ConfigPlan, error)) (ConfigPlan, error) {
 	persistenceRoot, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
 	if err != nil {
 		return ConfigPlan{}, err
@@ -67,8 +50,7 @@ func resolveConfig(req Request, load func(config.LoadOptions, string, launch.Boo
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	opts := req.LoadOptions
-	return load(opts, persistenceRoot, bootstrapPlan)
+	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
 }
 
 func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {

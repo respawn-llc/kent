@@ -5,6 +5,8 @@ description: Kent's local client-server architecture and background service mana
 
 Kent runs all its work through a local server process. Frontends are clients: TUI, desktop app, headless runs, and other local integrations all need the server to be running. To start the server, run `kent serve`.
 
+See [connection configuration](../config/#connecting-to-a-server) for address selection and session resume behavior.
+
 The server owns all long-running work: sessions, projects, runtime orchestration, background shells, tool execution, tasks, workflows, and storage.
 
 While annoying at times, this:

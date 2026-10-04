@@ -51,6 +51,7 @@
 - Setup must request Capability Facts after connection selection and refresh them only when that selection changes. Ordinary model and tool navigation must not refetch them.
 - Capability Facts uses the latest completely published startup configuration and settings available when Kent selects the request's snapshot.
 - Capability Facts must combine the completed pending connection selection with import-discovery observations performed for the request.
+- The TUI must seed operational setup choices from server-provided facts, not client configuration. Setup facts must include only the values needed by the human-facing setup flow. Operational settings that the flow does not show must remain server-owned rather than being sent through the client for preservation.
 - Capability Facts does not wait for an in-progress startup activation to publish newer settings. A separate setup attempt may observe a newer published snapshot.
 - Model facts include the complete built-in known-model list and each model's capabilities.
 - Model facts include one fallback for non-empty unknown model names, so every client applies the same behavior.

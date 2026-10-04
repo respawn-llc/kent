@@ -3,6 +3,7 @@ syntax = "proto3";
 package kent.api.capability;
 
 import "buf/validate/validate.proto";
+import "kent/api/onboarding/onboarding.proto";
 import "kent/api/shared/foundation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/capability;capabilitypb";
@@ -248,6 +249,9 @@ message DefaultFacts {
       "none"
     ]
   }];
+  optional uint32 context_window_tokens = 5 [(buf.validate.field).uint32.gt = 0];
+  bool ask_question = 6;
+  kent.api.onboarding.SupervisorChoice supervisor = 7 [(buf.validate.field).required = true];
 }
 
 message RecommendationFacts {}

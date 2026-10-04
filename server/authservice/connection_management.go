@@ -134,7 +134,7 @@ func (p *pendingConnection) settings(settings config.Settings) config.Settings {
 	return settings
 }
 
-func (s *BootstrapService) FinishSetup(path string, prepare func(context.Context, config.Settings) (config.Settings, config.OnboardingWriteOptions, error)) (string, error) {
+func (s *BootstrapService) FinishSetup(path string, baseline config.Settings, prepare func(context.Context, config.Settings) (config.Settings, config.OnboardingWriteOptions, error)) (string, error) {
 	s.finishMu.Lock()
 	defer s.finishMu.Unlock()
 	s.writeMu.Lock()
@@ -155,7 +155,7 @@ func (s *BootstrapService) FinishSetup(path string, prepare func(context.Context
 		pending.finishing = false
 		s.writeMu.Unlock()
 	}()
-	settings, options, err := prepare(s.ctx, pending.settings(config.DefaultOnboardingSettings()))
+	settings, options, err := prepare(s.ctx, pending.settings(baseline))
 	if err != nil {
 		return "", err
 	}
