@@ -66,6 +66,7 @@ message ProviderFact {
   bool supports_server_side_context_edit = 8;
   bool is_openai_first_party = 9;
   bool supports_provider_verbosity = 10;
+  bool supports_fast_mode = 11;
 }
 
 message ProviderFacts {

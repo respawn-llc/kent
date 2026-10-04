@@ -195,6 +195,9 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 		Model:                   "gpt-6-sol",
 		ContextWindowTokens:     400_000,
 		SupportedThinkingValues: []string{"high"},
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 	})
 	if err := eng.SetThinkingLevel(t.Context(), "high"); err != nil {
 		t.Fatalf("set thinking level: %v", err)

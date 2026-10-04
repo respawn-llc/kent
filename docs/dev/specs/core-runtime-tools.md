@@ -301,14 +301,15 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Fast Mode And Context Usage
 
-- Fast Mode is a persisted Session Chat setting when the active provider supports first-party Responses priority service.
+- Fast Mode is a persisted Session Chat setting available when current capability metadata for the selected Provider Connection declares support for Kent's priority service behavior. Built-in OpenAI and ChatGPT/Codex connections declare support by default; all other connections default to unsupported unless their current metadata explicitly declares support.
+- Fast Mode availability is resolved from current Provider Connection metadata without refreshing authentication or making provider network requests. Locked Session provider facts do not determine availability, and availability is not a Session Contract fact or prompt-cache identity input.
 - Changing Fast Mode during an Agent Step persists and publishes immediately, affects the next provider or compaction request, and never changes the request already running.
 - A Fast Mode change creates no transcript row.
 - A supported request uses the provider's priority service tier when Fast Mode is enabled.
 - Disabled Fast Mode omits the provider's priority service tier.
 - Enabling Fast Mode for an unsupported provider fails without changing the Session setting.
 - Reopening a Session restores its effective Fast Mode setting.
-- Fast Mode does not create another Session Contract generation or prompt-cache identity.
+- Changing Fast Mode does not create another Session Contract generation.
 - Reviewer and compaction requests inherit the Session's effective Fast Mode when their provider supports it.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
 - Compaction selection compares current usage with the configured thresholds.

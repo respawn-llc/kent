@@ -21,7 +21,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 
 func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
 		!locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
-		locked.Fast != nil {
+		locked.Fast == nil || !locked.Fast.Value {
 		t.Fatalf("locked projection = %+v", locked)
 	}
 

@@ -189,6 +189,7 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 		LlmProviderId:                 strings.TrimSpace(caps.ProviderID),
 		Role:                          role,
 		SupportsResponsesApi:          caps.SupportsResponsesAPI,
+		SupportsFastMode:              caps.SupportsFastMode,
 		SupportsNativeCompaction:      caps.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        caps.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       caps.SupportsNativeWebSearch,

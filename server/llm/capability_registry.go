@@ -194,6 +194,7 @@ func ProviderCapabilitiesFromOverride(override config.ProviderCapabilitiesOverri
 	return ProviderCapabilities{
 		ProviderID:                    providerID,
 		SupportsResponsesAPI:          override.SupportsResponsesAPI,
+		SupportsFastMode:              override.SupportsFastMode,
 		SupportsResponsesCompact:      override.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        override.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       override.SupportsNativeWebSearch,

@@ -19,6 +19,7 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:              "openai",
 		SupportsResponsesAPI:    true,
+		SupportsFastMode:        true,
 		SupportsNativeWebSearch: true,
 		IsOpenAIFirstParty:      true,
 	}

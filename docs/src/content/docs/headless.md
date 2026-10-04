@@ -24,6 +24,8 @@ Continue an existing headless session:
 kent run --continue <session-id> "<follow-up>"
 ```
 
+For a new session, the initial agent, model, and thinking selections are saved with the session.
+
 Control an active shared run from another shell or agent:
 
 ```bash
@@ -58,7 +60,6 @@ Roles select the model settings and context used by a headless Session.
 
 - Resuming a session selects its last-used role.
 - You can start a new interactive session with a specified role by running `kent --agent <role>`.
-- Once the agent starts, kent snapshots and locks some settings from its role - model, provider, tools, thinking, and others, to prevent cache invalidation because you cannot change the agent role without invalidating the caches, so **any further adjustments to roles or parameters will be ignored at least until the next compaction.**
 - To apply a role while reopening a specific Session, combine it with `--session` or `--continue`.
 - To open an interactive session with a role, run: `kent --agent <role_key>`.
 

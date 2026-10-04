@@ -193,20 +193,35 @@ func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
 
 func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
+	capabilities := ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:    "gpt-6-sol",
 		FastMode: true,
-	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	}, OpenAIAuthMode{}, capabilities)
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
 	if payload.ServiceTier != responses.ResponseNewParamsServiceTierPriority {
-		t.Fatalf("expected priority service tier for openai provider, got %q", payload.ServiceTier)
+		t.Fatalf("expected priority service tier for a fast-mode-capable connection, got %q", payload.ServiceTier)
 	}
 
 	jsonPayload := mustMarshalObject(t, payload)
 	if got := jsonPayload["service_tier"]; got != "priority" {
 		t.Fatalf("expected service_tier=priority, got %#v", got)
+	}
+
+	unsupportedPayload, err := transport.buildPayload(OpenAIRequest{
+		ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", FastMode: true,
+	}, OpenAIAuthMode{}, ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+	})
+	if err != nil {
+		t.Fatalf("build payload without the fast-mode capability: %v", err)
+	}
+	if unsupportedPayload.ServiceTier != "" {
+		t.Fatalf("service tier without fast-mode capability = %q, want omitted", unsupportedPayload.ServiceTier)
 	}
 }
 

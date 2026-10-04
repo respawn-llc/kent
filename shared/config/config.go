@@ -227,6 +227,7 @@ type ModelCapabilitiesOverride struct {
 type ProviderCapabilitiesOverride struct {
 	ProviderID                    string `toml:"provider_id"`
 	SupportsResponsesAPI          bool   `toml:"supports_responses_api"`
+	SupportsFastMode              bool   `toml:"supports_fast_mode"`
 	SupportsResponsesCompact      bool   `toml:"supports_responses_compact"`
 	SupportsPromptCacheKey        bool   `toml:"supports_prompt_cache_key"`
 	SupportsNativeWebSearch       bool   `toml:"supports_native_web_search"`

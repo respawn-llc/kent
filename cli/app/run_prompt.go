@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"core/cli/app/internal/startupconfig"
 	"core/shared/apicontract"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -42,14 +44,33 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	if response == nil && err != nil {
 		return RunPromptResult{}, err
 	}
+	warnings, warningErr := runPromptWarnings(response)
+	if warningErr != nil {
+		return RunPromptResult{}, errors.Join(err, warningErr)
+	}
 	result := RunPromptResult{
 		SessionID:   response.SessionId,
 		SessionName: response.SessionName,
 		Result:      response.Result,
 		Duration:    response.Duration.AsDuration(),
-		Warnings:    append([]string(nil), response.Warnings...),
+		Warnings:    warnings,
 	}
 	return result, err
+}
+
+func runPromptWarnings(response *runpromptpb.Success) ([]string, error) {
+	warnings := append([]string(nil), response.Warnings...)
+	for _, warning := range response.SelectionWarnings {
+		switch warning {
+		case runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE:
+			warnings = append(warnings, "Warning: your agent selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the agent.")
+		case runpromptpb.RunSelectionWarning_RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE:
+			warnings = append(warnings, "Warning: your model selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the model.")
+		default:
+			return nil, fmt.Errorf("Run response contains unsupported selection warning %d", warning)
+		}
+	}
+	return warnings, nil
 }
 
 func runPromptCallerSessionID(opts Options) *string {
