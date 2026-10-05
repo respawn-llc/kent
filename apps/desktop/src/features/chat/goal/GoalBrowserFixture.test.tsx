@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 
 import { ChatPromptPresenceProvider } from "@/app-facade";
 import { createTestServices, startupRoutes, TestAppProviders } from "@/test-support/app-services";
-import { TestSidebar } from "@/test-support/sidebar";
+import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 
 function renderFixture() {

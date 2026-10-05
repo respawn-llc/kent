@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { createBrowserNativeBridge } from "@app/native-bridge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";

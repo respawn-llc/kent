@@ -5,7 +5,7 @@ import { ChatPromptPresenceProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { TestAppProviders, createTestServices, startupRoutes } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
-import { TestSidebar } from "@/test-support/sidebar";
+import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { BoardRoute } from "./BoardRoute";
 
 const workflow = {

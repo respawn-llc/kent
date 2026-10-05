@@ -33,8 +33,12 @@ export function attentionNotifications(
           requireUnarySuccess(method, result);
         },
         handler: {
-          onOpen: () => emit({ kind: "open" }),
-          onError: (error) => emit({ kind: "error", error }),
+          onOpen: () => {
+            emit({ kind: "open" });
+          },
+          onError: (error) => {
+            emit({ kind: "error", error });
+          },
           onComplete(completion) {
             emit({ kind: "complete", code: completion.code ?? 0, message: completion.message ?? "" });
             return streamCompletionFailure(completion);
