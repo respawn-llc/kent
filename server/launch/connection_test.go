@@ -33,7 +33,7 @@ func TestSavedConnectionPrecedesCurrentRoleProviderPreparation(t *testing.T) {
 				`protocol = "responses"`,
 				`endpoint = "http://127.0.0.1:1/v1"`,
 				`[subagents.worker]`,
-				`model = "gpt-5"`,
+				`model = "gpt-6-sol"`,
 			}
 			if test.roleConnection != nil {
 				lines = append(lines, fmt.Sprintf("connection = %q", *test.roleConnection))
@@ -48,7 +48,7 @@ func TestSavedConnectionPrecedesCurrentRoleProviderPreparation(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := store.MarkModelDispatchLocked(session.LockedContract{
-				Model: "gpt-5", HasEnabledTools: true, EnabledTools: []string{"exec_command"}, WebSearchMode: "native",
+				Model: "gpt-6-sol", HasEnabledTools: true, EnabledTools: []string{"exec_command"}, WebSearchMode: "native",
 			}); err != nil {
 				t.Fatal(err)
 			}

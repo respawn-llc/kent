@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useContext, useMemo } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 
 import type { ProjectLabel, ProjectLabelCatalog } from "@/api";

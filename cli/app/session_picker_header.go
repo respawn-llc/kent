@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"core/cli/app/internal/status"
 	"core/shared/apicontract"
 	"core/shared/config"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
@@ -15,17 +17,35 @@ import (
 const sessionPickerHeaderHorizontalFrameWidth = 4
 
 type sessionPickerHeaderInfo struct {
-	Version       string
-	CWD           string
-	Branch        string
-	Model         string
-	Auth          string
-	StatusRequest uiStatusRequest
-	ServerAddress string
-	Notice        *startupPickerNotice
-	ModelFacts    *sessionPickerModelFacts
-	updateStatus  apicontract.ServerStatusService
+	Version         string
+	CWD             string
+	Branch          string
+	Model           string
+	Provider        sessionPickerProviderInfo
+	Debug           bool
+	StatusRequest   uiStatusRequest
+	ServerAddress   string
+	Notice          *startupPickerNotice
+	updateStatus    apicontract.ServerStatusService
+	loadHeaderFacts func(context.Context) (*sessionPickerHeaderFacts, error)
 }
+
+type sessionPickerHeaderFacts struct {
+	Model    *sessionPickerModelFacts
+	Provider sessionPickerProviderInfo
+}
+
+type sessionPickerProviderInfo interface {
+	isSessionPickerProviderInfo()
+}
+
+type sessionPickerConnectionCount int
+type sessionPickerSingleConnection struct {
+	auth status.AuthInfo
+}
+
+func (sessionPickerConnectionCount) isSessionPickerProviderInfo()  {}
+func (sessionPickerSingleConnection) isSessionPickerProviderInfo() {}
 
 type sessionPickerModelFacts struct {
 	Name          *string
@@ -82,7 +102,10 @@ func (m *sessionPickerModel) projectHeaderRows(maxWidth int) []sessionPickerHead
 		lines = append(lines, *updateLine)
 	}
 	lines = append(lines, m.renderHeaderPairLines(gitBranchHeaderSegment(info.Branch), info.CWD, maxWidth)...)
-	lines = append(lines, m.renderHeaderPairLines(info.Auth, info.Model, maxWidth)...)
+	lines = append(lines, m.renderHeaderPairLines(sessionPickerProviderSummary(info.Provider), info.Model, maxWidth)...)
+	if m.headerFactsLoading {
+		lines = append(lines, m.renderHeaderTextLine(pendingToolSpinnerFrame(m.spinnerFrame)+" Loading settings", maxWidth))
+	}
 	serverLine := "Server"
 	if info.ServerAddress != "" {
 		serverLine += " at " + info.ServerAddress
@@ -131,7 +154,7 @@ func (m *sessionPickerModel) projectUpdateHeaderRow(maxWidth int) *sessionPicker
 }
 
 func (m *sessionPickerModel) projectInvalidUpdateHeaderRow(cause string, maxWidth int) *sessionPickerHeaderLine {
-	if m.header.StatusRequest.Settings.Debug {
+	if m.header.Debug {
 		panic(fmt.Sprintf(
 			"session picker update header invariant violated: kind=%T cause=%q",
 			m.updateStatus.GetStatus(),
@@ -165,7 +188,6 @@ func (m *sessionPickerModel) normalizedHeaderInfo() sessionPickerHeaderInfo {
 	info.CWD = strings.TrimSpace(info.CWD)
 	info.Branch = strings.TrimSpace(info.Branch)
 	info.Model = strings.TrimSpace(info.Model)
-	info.Auth = strings.TrimSpace(info.Auth)
 	info.ServerAddress = strings.TrimSpace(info.ServerAddress)
 	return info
 }
@@ -225,7 +247,7 @@ func (m *sessionPickerModel) renderHeaderLines(lines []sessionPickerHeaderLine, 
 		style, valid := m.sessionPickerHeaderRowStyle(line.role)
 		if !valid {
 			cause := fmt.Sprintf("unknown header row role %d", line.role)
-			if m.header.StatusRequest.Settings.Debug {
+			if m.header.Debug {
 				panic("session picker header invariant violated: " + cause)
 			}
 			line.plain = truncateQueuedMessageLine(

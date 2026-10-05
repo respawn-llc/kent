@@ -2,13 +2,9 @@ package serverstatus
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	"core/internal/testharness/testsetup"
-	"core/server/auth"
-	"core/server/authservice"
 	"core/shared/config"
 	"core/shared/textutil"
 
@@ -18,7 +14,7 @@ import (
 )
 
 func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
-	readiness := requireServerReadiness(t, nil, config.App{
+	readiness := requireServerReadiness(t, config.App{
 		Settings: config.Settings{
 			Model: "base",
 			Workflow: config.WorkflowSettings{
@@ -60,13 +56,10 @@ func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
 }
 
 func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
-	readiness := requireServerReadiness(t, nil, config.App{
+	readiness := requireServerReadiness(t, config.App{
 		Settings: config.Settings{},
 	})
 
-	if readiness.AuthRequired {
-		t.Fatalf("AuthRequired = true, want false for non-OpenAI provider")
-	}
 	if !readiness.Ready {
 		t.Fatalf("Ready = false, want true when startup auth is not required")
 	}
@@ -75,43 +68,15 @@ func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 	}
 }
 
-func TestGetServerReadinessBlockedWhenStartupAuthRequiredButMissing(t *testing.T) {
-	readiness := requireServerReadiness(t, nil, config.App{
+func TestGetServerReadinessDoesNotRequireDefaultConnectionCredentials(t *testing.T) {
+	readiness := requireServerReadiness(t, config.App{
 		Settings: config.Settings{Connection: textutil.Value(config.ConnectionID("work")), Connections: map[config.ConnectionID]config.ProviderConnection{
 			"work": {Protocol: config.ConnectionChatGPT},
 		}},
 	})
 
-	if !readiness.AuthRequired {
-		t.Fatalf("AuthRequired = false, want true for OpenAI provider")
-	}
-	if readiness.Ready {
-		t.Fatalf("Ready = true, want false when required auth is missing")
-	}
-	if len(readiness.Causes) == 0 {
-		t.Fatalf("Causes empty, want a startup blocker cause")
-	}
-}
-
-type failingAuthStore struct{}
-
-func (failingAuthStore) Load(context.Context) (auth.State, error) {
-	return auth.State{}, errors.New("auth store unavailable")
-}
-
-func (failingAuthStore) Save(context.Context, auth.State) error { return nil }
-
-func TestGetServerReadinessSkipsAuthStateWhenStartupAuthNotRequired(t *testing.T) {
-	manager := auth.NewManager(failingAuthStore{}, nil)
-	app := testsetup.ProgrammaticConfig(t, config.Settings{})
-	service := NewServerStatusService(authservice.NewBootstrapService(authservice.NewConnectionResolver(app.PersistenceRoot, manager, nil), auth.OpenAIOAuthOptions{}), app, nil)
-
-	response, err := service.GetReadiness(context.Background(), &emptypb.Empty{})
-	if err != nil {
-		t.Fatalf("GetReadiness: %v", err)
-	}
-	if !response.Readiness.Ready || response.Readiness.AuthRequired {
-		t.Fatalf("readiness = %+v, want ready without required auth", response.Readiness)
+	if !readiness.Ready || len(readiness.Causes) != 0 {
+		t.Fatalf("provider credentials must not block server readiness: %+v", readiness)
 	}
 }
 
@@ -123,7 +88,7 @@ func TestServerStatusSeparatesReadinessFromLazyUpdateStatus(t *testing.T) {
 			t.Fatalf("Close: %v", err)
 		}
 	})
-	service := NewServerStatusService(nil, config.App{Settings: config.Settings{}}, updates)
+	service := NewServerStatusService(config.App{Settings: config.Settings{}}, updates)
 
 	if _, err := service.GetReadiness(context.Background(), &emptypb.Empty{}); err != nil {
 		t.Fatalf("GetReadiness: %v", err)
@@ -144,15 +109,9 @@ func TestServerStatusSeparatesReadinessFromLazyUpdateStatus(t *testing.T) {
 	}
 }
 
-func requireServerReadiness(t *testing.T, manager *auth.Manager, app config.App) *serverpb.Readiness {
+func requireServerReadiness(t *testing.T, app config.App) *serverpb.Readiness {
 	t.Helper()
-	bootstrap := authservice.NewBootstrapService(authservice.NewConnectionResolver(t.TempDir(), manager, nil), auth.OpenAIOAuthOptions{})
-	if app.Settings.Connection != nil {
-		root := t.TempDir()
-		testsetup.WriteProviderSettings(t, root, app.Settings)
-		bootstrap = authservice.NewBootstrapService(authservice.NewConnectionResolver(root, manager, nil), auth.OpenAIOAuthOptions{})
-	}
-	response, err := NewServerStatusService(bootstrap, app, nil).GetReadiness(context.Background(), &emptypb.Empty{})
+	response, err := NewServerStatusService(app, nil).GetReadiness(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("GetReadiness: %v", err)
 	}

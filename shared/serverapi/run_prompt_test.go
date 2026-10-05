@@ -32,7 +32,7 @@ func TestRunPromptOverridesRolePresenceAndAuth(t *testing.T) {
 		wantRoleName string
 	}{
 		{name: "empty", overrides: RunPromptOverrides{}, wantAny: false, wantRole: false},
-		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-5.6-sol"}, wantAny: true, wantRole: false},
+		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-6-sol"}, wantAny: true, wantRole: false},
 		{name: "default", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("default")}, wantAny: true, wantRole: true, wantAuth: false, wantDefault: true},
 		{name: "named", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr(" Worker ")}, wantAny: true, wantRole: true, wantAuth: true, wantRoleName: "worker"},
 	}

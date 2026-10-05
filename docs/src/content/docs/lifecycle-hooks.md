@@ -1,5 +1,5 @@
 ---
-title: Lifecycle Hooks
+title: Lifecycle hooks
 description: Run a local command when an interactive terminal session changes state.
 ---
 
@@ -29,7 +29,7 @@ Kent sends these categories to the configured command:
 | `session.start`  | `SessionStart`       | `kind` is `new` or `resumed`.                                      |
 | `task.complete`  | `Stop`               | `final_answer` and `work_performed` describe the completed run.    |
 | `task.error`     | `PostToolUseFailure` | `diagnostic` describes the runtime failure.                        |
-| `input.required` | `PermissionRequest`  | `kind` is `question` or `approval`; `summary` contains the prompt. |
+| `input.required` | `PermissionRequest`  | `kind` is `question` or `approval`. `summary` contains the prompt. |
 | `resource.limit` | `PreCompact`         | `compaction_mode` identifies the compaction mode that started.     |
 
 `category` is the canonical event name. `hook_event_name` is an OpenPeon-compatible alias.
@@ -65,14 +65,14 @@ This `task.complete` payload shows the schema:
 
 `schema_version` identifies the Kent payload schema. `cesp_version` and `hook_event_name` provide OpenPeon compatibility.
 
-`occurred_at` is a UTC timestamp. `focused` reports whether the terminal client had focus when it observed the event. `context` includes the session ID, session title, and workflow task ID when available; absent values are omitted.
+`occurred_at` is a UTC timestamp. `focused` reports whether the terminal client had focus when it observed the event. `context` includes the session ID, session title, and workflow task ID when available. Absent values are omitted.
 
 Payloads do not include filesystem paths, transcript history, tool input, command output, hidden reasoning, credentials, or internal runtime identifiers.
 
 ## Delivery
 
-Delivery is asynchronous and best-effort. Events are not persisted or retried, bursts may drop events, and invocations may overlap or complete out of order.
+Delivery is asynchronous and best-effort. Events are not persisted or retried. Bursts may drop events, and invocations may overlap or complete out of order.
 
-Each invocation has a 30-second timeout. Kent ignores stdout. Launch failures, non-zero exits, and timeouts produce a terminal notice using up to 4 KiB of stderr. Repeated failures may be combined into one notice with the total count and latest diagnostic. A failure does not disable the hook.
+Each invocation has a 30-second timeout. Kent ignores stdout. Launch failures, non-zero exits, and timeouts produce a terminal notice using up to 4 KiB of stderr. Repeated failures may be combined into one notice with the total count and latest diagnostic. A failure leaves the hook enabled.
 
-Closing the session cancels running hook commands without waiting for them; descendant processes may continue. Hook output and failures do not change agent or server behavior.
+Closing the session cancels running hook commands without waiting for them. Descendant processes may continue. Hook output and failures do not change agent or server behavior.

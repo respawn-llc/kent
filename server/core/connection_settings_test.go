@@ -35,17 +35,17 @@ func TestExistingSessionSettingsUseSavedConnectionBeforeCurrentCatalog(t *testin
 				}
 				if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(fmt.Sprintf(`
 connection = %q
-model = "gpt-5"
+model = "gpt-6-sol"
 [connections.work]
 protocol = "responses"
 endpoint = "http://127.0.0.1:1/v1"
 [reviewer]
 frequency = "off"
 [subagents.worker]
-model = "gpt-5-mini"
+model = "gpt-6-luna"
 %s
 [subagents.unavailable]
-model = "gpt-5-mini"
+model = "gpt-6-luna"
 connection = "missing"
 `, currentDefault, roleSelection)), 0o600); err != nil {
 					t.Fatal(err)
@@ -68,7 +68,7 @@ connection = "missing"
 				}
 				if locked {
 					if err := store.MarkModelDispatchLocked(session.LockedContract{
-						Model: "gpt-5", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
+						Model: "gpt-6-sol", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
 						ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
 					}); err != nil {
 						t.Fatal(err)
@@ -88,7 +88,7 @@ connection = "missing"
 				found := false
 				for _, choice := range current.AgentChoices {
 					found = found || choice.Role == "unavailable"
-					if choice.Role == "unavailable" && choice.GetModel() != "gpt-5-mini" {
+					if choice.Role == "unavailable" && choice.GetModel() != "gpt-6-luna" {
 						t.Fatalf("known configured model was omitted: %+v", choice)
 					}
 					if invalidDefault && choice.Role == config.BuiltInSubagentRoleFast && (choice.Model != nil || choice.Thinking != nil) {
@@ -168,7 +168,7 @@ func testSessionAgentDefaultRepair(t *testing.T, locked, distinctConnection bool
 		t.Helper()
 		if err := os.WriteFile(path, []byte(fmt.Sprintf(`
 connection = "work"
-model = "gpt-5"
+model = "gpt-6-sol"
 thinking_level = "medium"
 [connections.work]
 protocol = "responses"
@@ -184,7 +184,7 @@ model = %q
 			t.Fatal(err)
 		}
 	}
-	writeConfig("gpt-5-mini")
+	writeConfig("gpt-6-luna")
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ model = %q
 	}
 	if locked {
 		if err := store.MarkModelDispatchLocked(session.LockedContract{
-			Model: "gpt-5", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
+			Model: "gpt-6-sol", HasEnabledTools: true, EnabledTools: []string{"ask_question"}, WebSearchMode: "none",
 			ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
 		}); err != nil {
 			t.Fatal(err)
@@ -221,7 +221,7 @@ model = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig("gpt-5")
+	writeConfig("gpt-6-sol")
 	target := &chatsettingspb.SessionTarget{SessionId: before.SessionID}
 	read := func() *chatsettingspb.Settings {
 		t.Helper()

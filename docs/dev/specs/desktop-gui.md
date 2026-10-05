@@ -2,6 +2,10 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
+
+- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error instead of a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
+
 - On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
 
@@ -15,9 +19,10 @@
 - Desktop must retain available content and required drafts after failure and show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
 - Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
 - Processes observation and its failure presentation must follow the [Desktop Chat Processes contract](desktop-chat.md#tools-and-processes).
+- When the operator leaves a destination, Desktop must stop its observations and dispose of its pending local action handling. Submitted mutations must retain their ordinary completion behavior, including feedback and content refresh after navigation. Local disposal must not cancel accepted server work or discard drafts retained by navigation.
 - The Workflow editor must retain its five-second Script-path validation schedule after a failed check. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
 - Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Except for rapid Task Label assignment edits, Desktop must not queue mutations. Desktop must not automatically replay mutations after reconnection. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
-- Shared Task, Label, dependency, and Workflow actions, New Task creation, and Processes actions must show loading per submitted action instead of imposing a screen-wide busy restriction. Independent actions must be allowed to race without client reconciliation. Loading must prevent repeated submission of the same non-rapid action without blocking unrelated actions or local Draft editing. Validation and readiness restrictions remain applicable.
+- Shared Task, Label, dependency, and Workflow actions, New Task creation, and Processes actions must show loading per submitted action instead of imposing a screen-wide busy restriction. Independent actions must be allowed to race without client reconciliation. Loading must prevent repeated submission of the same non-rapid action without blocking unrelated actions or local Draft editing. Workflow linking has the narrow row-lifetime exception defined in [Workflow Library and Project links](workflow-editor.md#workflow-library-and-project-links). Validation and readiness restrictions remain applicable.
 - Start and Manual Move must share loading for the same Task until its request finishes. Other Tasks and unrelated actions must remain usable. Dependency confirmation and Execution Target selection must retain their interaction, with loading when the action is submitted.
 - When independent Task actions return competing confirmations, Board and Home must show the newest received confirmation in their single confirmation dialog. It must replace the previous confirmation without changing the displaced Task; the operator can start that Task's action again. Desktop must not queue confirmations or retain a confirmation backlog.
 - Board Manual Move previews must share per-Task Start/Move loading and participate in the same newest-confirmation presentation. Previewing or confirming one Task must not block unrelated Tasks.
@@ -68,6 +73,8 @@
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
 
 ## Projects And Workspaces
+
+- If native Project-created notifications exceed Home's bounded observation capacity, Home must stop that observation and show a temporary error. Home must not automatically restart the observation or replay notifications. This failure must not affect Project creation or accepted server work.
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key; the default name is the directory basename.

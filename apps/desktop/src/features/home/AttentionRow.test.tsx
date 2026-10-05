@@ -1,9 +1,14 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
+import { RegistryProvider, useAtomSet } from "@effect/atom-react";
+import { QueryClient } from "@tanstack/react-query";
 
 import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
 import { AttentionRow } from "./AttentionRow";
+import { createHomeViewModel } from "./HomeViewModel";
+import { createTestServices } from "@/test-support/app-services";
+import { createTestSidebarController } from "@/test-support/sidebar";
 
 const fixture = vi.hoisted(() => ({
   featureFlags: { desktopChatEnabled: true },
@@ -12,11 +17,6 @@ const fixture = vi.hoisted(() => ({
 
 vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppNavigation: () => ({ openSessionChat: fixture.openSessionChat }),
-}));
-
 beforeAll(async () => initializeI18n());
 beforeEach(() => {
   fixture.featureFlags.desktopChatEnabled = true;
@@ -24,22 +24,46 @@ beforeEach(() => {
 });
 
 function renderAttention(item: AttentionItem) {
-  const openSidebar = vi.fn();
+  const openSidebar = vi.fn(createTestSidebarController().open);
+  const model = createHomeViewModel({
+    services: createTestServices([]),
+    client: new QueryClient(),
+    push: vi.fn(),
+    t: appI18n.t,
+    openProject: vi.fn(async () => undefined),
+  });
+  function Row() {
+    const task = useAtomSet(model.attentionTask);
+    const chat = useAtomSet(model.attentionChat);
+    return (
+      <AttentionRow
+        item={item}
+        onTaskDetail={(item) => {
+          task({ item, open: openSidebar, mode: "shift" });
+        }}
+        onSessionChat={(target) => {
+          chat({ target, open: fixture.openSessionChat });
+        }}
+      />
+    );
+  }
   const view = render(
     <I18nextProvider i18n={appI18n}>
-      <AttentionRow item={item} openSidebar={openSidebar} sidebarMode="shift" />
+      <RegistryProvider>
+        <Row />
+      </RegistryProvider>
     </I18nextProvider>,
   );
   return { openSidebar, view };
 }
 
-it("splits a Session-bearing attention card between Chat header and Task Detail body", () => {
+it("opens Task Detail from the attention row and Chat only from its separate action", () => {
   const { openSidebar } = renderAttention(questionAttention);
   const row = screen.getByTestId("attention-row");
 
   expect(within(row).getAllByRole("button")).toHaveLength(2);
-  fireEvent.click(screen.getByTestId("attention-chat-header"));
-  fireEvent.click(screen.getByTestId("attention-task-detail-body"));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("task.openChat", { name: base.taskTitle }) }));
+  fireEvent.click(screen.getByRole("button", { name: `${base.taskShortID} ${base.taskTitle}` }));
 
   expect(fixture.openSessionChat).toHaveBeenCalledWith({
     projectID: "project-1",
@@ -136,7 +160,9 @@ it.each([
   ["Task Approval", approval, null],
 ] as const)("keeps the typed Chat affordance for %s", (_name, item, expectedTarget) => {
   const { openSidebar } = renderAttention(item);
-  const chatHeader = screen.queryByTestId("attention-chat-header");
+  const chatHeader = screen.queryByRole("button", {
+    name: appI18n.t("task.openChat", { name: item.taskTitle }),
+  });
 
   expect(chatHeader !== null).toBe(expectedTarget !== null);
   if (expectedTarget !== null) {
@@ -144,9 +170,8 @@ it.each([
     fireEvent.click(chatHeader);
     expect(fixture.openSessionChat).toHaveBeenCalledWith(expectedTarget);
   } else {
-    const row = screen.getByTestId("attention-row");
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    fireEvent.click(row);
+    fireEvent.click(screen.getByRole("button"));
     expect(openSidebar).toHaveBeenCalledOnce();
   }
 });
@@ -158,6 +183,6 @@ it("keeps production attention rows as one Task Detail interaction", () => {
 
   expect(within(row).queryByTestId("attention-chat-header")).not.toBeInTheDocument();
   expect(screen.getAllByRole("button")).toHaveLength(1);
-  fireEvent.click(row);
+  fireEvent.click(screen.getByRole("button"));
   expect(openSidebar).toHaveBeenCalledOnce();
 });

@@ -8,6 +8,6 @@ export function goalSidebarDestination(input: GoalSidebarInput): SidebarDestinat
     kind: "custom",
     sizing: { desiredWidthPx: 560, minWidthPx: 400 },
     title: "Goal",
-    content: createElement(GoalSidebarPage, { input }),
+    content: () => createElement(GoalSidebarPage, { input }),
   };
 }

@@ -52,7 +52,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote, err := client.DialConfiguredRemoteForProjectWorkspaceID(context.Background(), cfg, f.b.ProjectID, f.b.WorkspaceID)
+	remote, err := client.DialConfiguredRemoteForProjectWorkspaceID(context.Background(), cfg.Connection(), f.b.ProjectID, f.b.WorkspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}

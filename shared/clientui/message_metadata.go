@@ -42,3 +42,4 @@ const (
 
 const GoalNudgeCompactLabel = "Goal nudge"
 const SessionRebindCompactLabel = "Session moved"
+const RunningShellsCompactLabel = "Running shells reminder"

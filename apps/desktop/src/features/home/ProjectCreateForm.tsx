@@ -1,4 +1,6 @@
-import { type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useForm, type FieldErrors, type RegisterOptions, type UseFormRegisterReturn } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -10,9 +12,8 @@ import { useStatusController } from "@/app-facade";
 import { NativeDialogWindow } from "@/shared/native-dialog";
 import { Button, Dialog, TextInput } from "@/ui";
 import { cx } from "@/ui";
-import { useProjectCreation } from "./useHomeData";
+import { createProjectCreationModel, useProjectCreationActions } from "./ProjectCreationModel";
 
-const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
 const errorMessageSchema = z.string();
 
 export type ProjectDraft = Readonly<{
@@ -58,45 +59,15 @@ export function ProjectCreateDialog({
 
 export function ProjectCreateWindowRoute({ draft }: Readonly<{ draft: ProjectDraft }>) {
   const { t } = useTranslation();
-  const creation = useProjectCreation();
-  const { api, nativeBridge } = useAppServices();
+  const services = useAppServices();
+  const { nativeBridge } = services;
+  const client = useQueryClient();
   const navigation = useAppNavigation();
   const { push } = useStatusController();
 
-  async function submitDraft(values: ProjectDraft): Promise<void> {
-    try {
-      const plan = await api.planWorkspace(values.workspaceRoot);
-      if (plan.binding !== null) {
-        await nativeBridge.projectCreation.notifyCreated({ projectID: plan.binding.projectID });
-        await nativeBridge.window.closeCurrent();
-        return;
-      }
-      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
-        push({
-          id: "project-create-selection-required",
-          tone: "info",
-          title: t("home.workspaceSelectionRequired"),
-          body: t("home.workspaceSelectionRequiredBody"),
-        });
-        return;
-      }
-      const binding = await creation.mutateAsync({
-        name: values.name.trim(),
-        key: values.key.trim().toUpperCase(),
-        workspaceRoot: values.workspaceRoot,
-      });
-      await nativeBridge.projectCreation.notifyCreated({ projectID: binding.projectID });
-      void navigation.openProject(binding.projectID);
-      await nativeBridge.window.closeCurrent();
-    } catch (error) {
-      push({
-        id: "project-create-submit-error",
-        tone: "danger",
-        title: t("home.workspacePlanError"),
-        body: errorMessage(error),
-      });
-    }
-  }
+  const [model] = useState(() => createProjectCreationModel({ services, client, t, push }));
+  const creation = useAtomValue(model.state);
+  const actions = useProjectCreationActions(model);
 
   return (
     <NativeDialogWindow title={t("home.createProject")}>
@@ -105,7 +76,17 @@ export function ProjectCreateWindowRoute({ draft }: Readonly<{ draft: ProjectDra
         creationError={creation.error}
         draft={draft}
         isCreating={creation.isPending}
-        onSubmitDraft={(values) => void submitDraft(values)}
+        onSubmitDraft={(draft) => {
+          actions.submit({
+            draft,
+            notifyCreated: async (projectID) => nativeBridge.projectCreation.notifyCreated({ projectID }),
+            complete: async (projectID, outcome) => {
+              if (outcome === "created") void navigation.openProject(projectID);
+              await nativeBridge.window.closeCurrent();
+            },
+            selectionRequired: () => undefined,
+          });
+        }}
       />
     </NativeDialogWindow>
   );

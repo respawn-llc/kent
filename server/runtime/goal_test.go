@@ -65,7 +65,7 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 }
 
 func TestCommittedGoalReminderSurvivesCallerCancellation(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
 		t.Fatalf("pause Runtime FIFO: %v", err)
 	}

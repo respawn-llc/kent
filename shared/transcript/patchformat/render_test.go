@@ -88,7 +88,9 @@ func TestParseAllowsMoveOnlyUpdateFile(t *testing.T) {
 	}
 }
 
-func TestFormatPreservesRelativeOutsideWorkspacePath(t *testing.T) {
+func TestFormatCompactsOutsideWorkspacePath(t *testing.T) {
+	t.Setenv("HOME", "/workspace")
+	t.Setenv("USERPROFILE", "/workspace")
 	doc, err := Parse("*** Begin Patch\n*** Add File: ../outside.go\n+package outside\n*** End Patch\n")
 	if err != nil {
 		t.Fatalf("parse patch: %v", err)
@@ -98,7 +100,7 @@ func TestFormatPreservesRelativeOutsideWorkspacePath(t *testing.T) {
 	if len(changes.Files) != 1 {
 		t.Fatalf("expected one changed file, got %+v", changes.Files)
 	}
-	if changes.Files[0].Path.Relative != "../outside.go" {
-		t.Fatalf("expected outside-workspace relative path preserved, got %+v", changes.Files[0])
+	if changes.Files[0].Path.Relative != "~/outside.go" {
+		t.Fatalf("expected home-relative display path, got %+v", changes.Files[0])
 	}
 }

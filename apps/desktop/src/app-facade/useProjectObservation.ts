@@ -1,7 +1,7 @@
 import { useAtomRefresh, useAtomSuspense } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useMemo } from "react";
 import { errorMessage, type ProjectObservation } from "@/api";
 import { useStableCallback } from "@/ui";
@@ -31,7 +31,10 @@ export function useProjectObservation(
               Effect.catch((error) => Effect.succeed(error)),
             ),
           ),
-          Stream.scan<Error | null, Error | null>(null, (previous, error) => previous ?? error),
+          Stream.scan<Error | null, Error | null>(
+            () => null,
+            (previous, error) => previous ?? error,
+          ),
           Stream.prepend([null]),
         ),
         { initialValue: null },

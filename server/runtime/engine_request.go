@@ -177,7 +177,7 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 	if err != nil {
 		return requestAssembly{}, err
 	}
-	thinking, err := prepareNativeThinking(items, replacementEnd, e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	thinking, err := prepareNativeThinking(items, replacementEnd, llm.ProviderThinkingEffort(locked.Model, e.ThinkingLevel()), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
 	if err != nil {
 		return requestAssembly{}, err
 	}

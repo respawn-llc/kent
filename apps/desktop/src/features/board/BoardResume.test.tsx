@@ -109,10 +109,14 @@ it("resumes another Board card while the first Resume remains pending", async ()
   await act(async () => {
     b.resolve(applied);
   });
-  await waitFor(() => expect(second).not.toHaveAttribute("aria-busy", "true"));
+  await waitFor(() => {
+    expect(second).not.toHaveAttribute("aria-busy", "true");
+  });
   expect(first).toHaveAttribute("aria-busy", "true");
   await act(async () => {
     a.resolve(applied);
   });
-  await waitFor(() => expect(first).not.toHaveAttribute("aria-busy", "true"));
+  await waitFor(() => {
+    expect(first).not.toHaveAttribute("aria-busy", "true");
+  });
 });

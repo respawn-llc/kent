@@ -1,0 +1,16 @@
+.chat-composer-icon {
+  /* Match painted shapes, compensating for each glyph's viewBox whitespace. */
+  width: calc(var(--space-4) * 1.125);
+  height: calc(var(--space-4) * 1.125);
+  flex-shrink: 0;
+}
+
+.chat-composer-icon--worktree {
+  width: calc(var(--space-4) * 1.25);
+  height: calc(var(--space-4) * 1.25);
+}
+
+.chat-composer-icon--send {
+  width: var(--space-5);
+  height: var(--space-5);
+}

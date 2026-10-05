@@ -17,8 +17,8 @@
 }
 
 .chat-context-circle {
-  width: 1em;
-  height: 1em;
+  width: var(--space-4);
+  height: var(--space-4);
   flex-shrink: 0;
 }
 

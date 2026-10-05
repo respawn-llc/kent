@@ -1,9 +1,11 @@
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
+import type * as Stream from "effect/Stream";
+import { nativeObservation, type NativeOverflowReporter } from "./observation";
 
 export type NativeWindowFocusControls = Readonly<{
   isFocused(): Promise<boolean>;
   focusMain(): Promise<void>;
-  onFocusChanged(handler: (focused: boolean) => void): Promise<() => void>;
+  focusChanges(reportOverflow: NativeOverflowReporter): Stream.Stream<boolean, Error>;
 }>;
 
 export function createBrowserWindowFocusControls(): NativeWindowFocusControls {
@@ -16,23 +18,24 @@ export function createBrowserWindowFocusControls(): NativeWindowFocusControls {
         window.focus();
       }
     },
-    async onFocusChanged(handler: (focused: boolean) => void): Promise<() => void> {
-      if (typeof window === "undefined") {
-        return () => undefined;
-      }
-      const notifyFocused = (): void => {
-        handler(true);
-      };
-      const notifyBlurred = (): void => {
-        handler(false);
-      };
-      window.addEventListener("focus", notifyFocused);
-      window.addEventListener("blur", notifyBlurred);
-      return () => {
-        window.removeEventListener("focus", notifyFocused);
-        window.removeEventListener("blur", notifyBlurred);
-      };
-    },
+    focusChanges: (reportOverflow) =>
+      nativeObservation(async (handler) => {
+        if (typeof window === "undefined") {
+          return () => undefined;
+        }
+        const notifyFocused = (): void => {
+          handler(true);
+        };
+        const notifyBlurred = (): void => {
+          handler(false);
+        };
+        window.addEventListener("focus", notifyFocused);
+        window.addEventListener("blur", notifyBlurred);
+        return () => {
+          window.removeEventListener("focus", notifyFocused);
+          window.removeEventListener("blur", notifyBlurred);
+        };
+      }, reportOverflow),
   };
 }
 
@@ -48,10 +51,11 @@ export function createTauriWindowFocusControls(
       await window.show();
       await window.setFocus();
     },
-    async onFocusChanged(handler: (focused: boolean) => void): Promise<() => void> {
-      return getWindow().onFocusChanged((event) => {
-        handler(event.payload);
-      });
-    },
+    focusChanges: (reportOverflow) =>
+      nativeObservation(async (handler) => {
+        return getWindow().onFocusChanged((event) => {
+          handler(event.payload);
+        });
+      }, reportOverflow),
   };
 }

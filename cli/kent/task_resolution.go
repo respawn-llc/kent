@@ -48,7 +48,7 @@ func workflowTaskList(ctx context.Context, remote apicontract.WorkflowService, r
 
 func resolveWorkflowTaskID(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,
@@ -63,7 +63,7 @@ func resolveWorkflowTaskID(
 
 func resolveWorkflowTask(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,

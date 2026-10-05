@@ -38,7 +38,7 @@ export type {
 } from "./workflowEditorDraftTypes";
 
 export type WorkflowEditorDraftState = Readonly<{
-  acknowledgedConflictVersion: number;
+  acknowledgedConflictVersion: number | null;
   source: WorkflowDefinition;
   draft: DraftWorkflowDefinition;
   conflict: WorkflowDefinition | null;
@@ -117,7 +117,7 @@ export type WorkflowEditorDirtyState = Readonly<{
 
 export function initializeWorkflowEditorDraft(source: WorkflowDefinition): WorkflowEditorDraftState {
   return {
-    acknowledgedConflictVersion: 0,
+    acknowledgedConflictVersion: null,
     conflict: null,
     draft: draftDefinitionFromSource(source),
     graphVersion: 0,
@@ -248,7 +248,7 @@ function reduceLifecycleAction(
     case "keepEditing":
       return {
         ...state,
-        acknowledgedConflictVersion: state.conflict?.workflow.version ?? 0,
+        acknowledgedConflictVersion: state.conflict?.workflow.version ?? null,
         conflict: null,
       };
     case "reloadConflict":

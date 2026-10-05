@@ -37,7 +37,7 @@ func TestWorkflowPostCompletionCompactionKeepsCompletedOutputAndDormantMetaConte
 			Controller:     &externallyCompletedWorkflowController{},
 			Instructions:   workflowruntime.TaskInstructions{CurrentNode: currentNode},
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	workflowIdentity := workflowruntime.CurrentNodePromptIdentity(currentNode)
 	if err := steerTestActiveStep(engine, "assignment", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
@@ -160,7 +160,7 @@ func TestWorkflowPostCompletionCompactionRestoresBoundaryAndLazyContinuationCons
 		t.Fatalf("close source engine: %v", err)
 	}
 	reopenedStore := mustOpenTestSession(t, fixture.store.Dir())
-	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	mode, present := reopened.compactionRuntimeState().HistoryReplacementMode()
 	if !present || mode == nil || *mode != session.CompactionModeWorkflowPostCompletion {
 		t.Fatalf(
@@ -241,7 +241,7 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 
 func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t *testing.T) {
 	t.Parallel()
-	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, &session.LockedContract{Model: "gpt-5"})
+	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, &session.LockedContract{Model: "gpt-6-sol"})
 	if err := fixture.store.AdoptOriginalThinkingEffort("medium"); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t
 
 func TestWorkflowAssignmentApplicationPreservesPostCompletionBoundary(t *testing.T) {
 	t.Parallel()
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	mode := session.CompactionModeWorkflowPostCompletion
 	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
 		t.Fatalf("set post-completion replacement mode: %v", err)
@@ -312,7 +312,7 @@ func TestWorkflowResumeRestoresAssignmentAfterActualWorkflowCompaction(t *testin
 		mustCreateTestSession(t),
 		client,
 		config,
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	if err := steerTestActiveStep(engine, "assignment", steerMessagesWithPersistenceIntent(
 		steeringPriorityNormal,
@@ -415,7 +415,7 @@ func TestWorkflowPostCompletionBoundarySurvivesFailedWorkflowRequest(t *testing.
 				CurrentNode: mustTestCurrentNodeReference(t, "task", "node", nil),
 			},
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	mode := session.CompactionModeWorkflowPostCompletion
 	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
@@ -456,7 +456,7 @@ func TestWorkflowContinuationPreservesBoundaryAcrossFailedCACAttempt(t *testing.
 				CurrentNode: mustTestCurrentNodeReference(t, "task", "node", nil),
 			},
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	mode := session.CompactionModeWorkflowPostCompletion
 	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
@@ -506,7 +506,7 @@ func TestWorkflowPostCompletionRestoreIgnoresCacheRequestObservation(t *testing.
 
 func TestWorkflowPostCompletionBoundaryPreservesLocalDiagnosticSteering(t *testing.T) {
 	t.Parallel()
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	mode := session.CompactionModeWorkflowPostCompletion
 	if err := engine.compactionRuntimeState().SetHistoryReplacementMode(&mode); err != nil {
 		t.Fatalf("set post-completion replacement mode: %v", err)
@@ -611,7 +611,7 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 		mustCreateTestSession(t),
 		client,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", CompactionMode: "local"},
+		Config{Model: "gpt-6-sol", CompactionMode: "local"},
 	)
 	if err := steerTestActiveStep(engine, "user", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("local workflow carryover")}})); err != nil {
 		t.Fatalf("persist local workflow carryover prompt: %v", err)
@@ -659,7 +659,7 @@ func TestRemoteCompactionRefreshesWorkflowTaskAwareness(t *testing.T) {
 			TaskAwarenessSource: source,
 			Instructions:        workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task", "node", &branchKey)},
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	if err := steerTestActiveStep(engine, "stale", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{
 		Role:        llm.RoleDeveloper,
@@ -770,7 +770,7 @@ func TestWorkflowRequestAfterCompactionUsesOneCurrentAssignmentPrompt(t *testing
 					Controller:     &externallyCompletedWorkflowController{},
 					Instructions:   workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey)},
 				},
-				Config{Model: "gpt-5"},
+				Config{Model: "gpt-6-sol"},
 			)
 			currentNodeIdentity := workflowruntime.CurrentNodePromptIdentity(
 				mustTestCurrentNodeReference(t, "task", "node", &currentBranchKey),
@@ -841,7 +841,7 @@ func TestWorkflowCompactionResetsProtocolViolationBudget(t *testing.T) {
 			MaxInvalidCompletionAttempts: 3,
 			Controller:                   controller,
 		},
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist compaction input: %v", err)

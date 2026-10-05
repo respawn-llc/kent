@@ -12,7 +12,7 @@ import (
 func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 300,
 	})
@@ -36,7 +36,7 @@ func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T
 func TestShouldAutoCompactUsesModelVisibleEncryptedReasoningEstimate(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_500,
 	})
@@ -78,7 +78,7 @@ func TestShouldAutoCompactUsesModelVisibleEncryptedReasoningEstimate(t *testing.
 func TestShouldCompactBeforeUserMessageUsesEstimatedPromptGrowth(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		ContextWindowTokens:           1_000,
 		AutoCompactTokenLimit:         950,
 		PreSubmitCompactionLeadTokens: 50,
@@ -110,7 +110,7 @@ func TestPreSubmitCompactionRechecksEligibilityAgainstCurrentContext(t *testing.
 		remoteCompactionReplacement(100, 10, 1_000),
 	}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		ContextWindowTokens:           1_000,
 		AutoCompactTokenLimit:         950,
 		PreSubmitCompactionLeadTokens: 50,
@@ -147,7 +147,7 @@ func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t 
 	t.Parallel()
 	client := &contextWindowClient{contextWindow: 1_000}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   400_000,
 		AutoCompactTokenLimit: 360_000,
 	})
@@ -170,7 +170,7 @@ func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t 
 func TestShouldAutoCompactAccountsForReservedOutputBudget(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 900,
 		MaxTokens:             100,
@@ -184,7 +184,7 @@ func TestShouldAutoCompactAccountsForReservedOutputBudget(t *testing.T) {
 func TestShouldAutoCompactStaysFalseFarBelowThreshold(t *testing.T) {
 	t.Parallel()
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   400_000,
 		AutoCompactTokenLimit: 100_000,
 	})

@@ -37,37 +37,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func TestRoutePolicyAuthPolicyHandlesBlankAndUnknownMethods(t *testing.T) {
-	registration, err := productionGatewayRegistration()
-	if err != nil {
-		t.Fatalf("production Gateway registration: %v", err)
-	}
-	if err := registration.Validate(); err != nil {
-		t.Fatalf("validate production Gateway registration: %v", err)
-	}
-	executor := newRoutePolicyExecutor(&Gateway{registration: registration})
-	if err := executor.requireAuth(context.Background(), nil, ""); err != nil {
-		t.Fatalf("blank method auth: %v", err)
-	}
-	for name, operation := range registration.operations {
-		activeIdentity := name
-		if route, legacy := registration.legacy[name]; legacy {
-			activeIdentity = route.Method
-		}
-		authErr := executor.requireAuth(context.Background(), nil, activeIdentity)
-		requiresServerAuth := operation.Options.AuthenticationStage == sharedpb.AuthenticationStage_AUTHENTICATION_STAGE_SERVER
-		if requiresServerAuth && !errors.Is(authErr, serverapi.ErrServerAuthRequired) {
-			t.Fatalf("auth-required method %q error = %v, want server auth required", activeIdentity, authErr)
-		}
-		if !requiresServerAuth && authErr != nil {
-			t.Fatalf("pre-server method %q auth: %v", activeIdentity, authErr)
-		}
-	}
-	if err := executor.requireAuth(context.Background(), nil, "missing.method"); !errors.Is(err, serverapi.ErrServerAuthRequired) {
-		t.Fatalf("unknown method error = %v, want server auth required", err)
-	}
-}
-
 func TestRoutePolicyAllowsStatelessScopesWithoutGateway(t *testing.T) {
 	executor := routePolicyExecutor{}
 	for _, tc := range []struct {
@@ -680,7 +649,7 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
-	authSupport := newGatewayTestAuthSupport(t, true)
+	authSupport := newGatewayTestAuthSupport(t, resolvedA.Config.PersistenceRoot, true)
 	resolvedA.Config.Settings = testsetup.WriteProviderSettings(t, resolvedA.Config.PersistenceRoot, resolvedA.Config.Settings)
 	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
 	if err != nil {

@@ -13,17 +13,17 @@ func TestCompact(t *testing.T) {
 	for _, test := range []struct {
 		name, target, want string
 	}{
-		{"cwd file", filepath.Join(cwd, "AGENTS.md"), "AGENTS.md"},
-		{"nested file", filepath.Join(cwd, ".kent", "skills", "review", "SKILL.md"), ".kent/skills/review/SKILL.md"},
-		{"cwd itself", cwd, "."},
+		{"cwd file", filepath.Join(cwd, "AGENTS.md"), "./AGENTS.md"},
+		{"nested file", filepath.Join(cwd, ".kent", "skills", "review", "SKILL.md"), "./.kent/skills/review/SKILL.md"},
+		{"cwd itself", cwd, "./"},
 		{"home file", filepath.Join(home, ".kent", "AGENTS.md"), "~/.kent/AGENTS.md"},
 		{"home itself", home, "~"},
 		{"sibling", filepath.Join(home, "other", "AGENTS.md"), "~/other/AGENTS.md"},
 		{"cwd prefix collision", cwd + "-other/AGENTS.md", "~/project-other/AGENTS.md"},
 		{"home prefix collision", home + "-other/AGENTS.md", home + "-other/AGENTS.md"},
 		{"parent outside home", filepath.Dir(home), filepath.Dir(home)},
-		{"spaces", filepath.Join(cwd, "my skill", "SKILL.md"), "my skill/SKILL.md"},
-		{"dots in name", filepath.Join(cwd, "..notes", "file.md"), "..notes/file.md"},
+		{"spaces", filepath.Join(cwd, "my skill", "SKILL.md"), "./my skill/SKILL.md"},
+		{"dots in name", filepath.Join(cwd, "..notes", "file.md"), "./..notes/file.md"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := pathutil.Compact(test.target, cwd, home); got != filepath.ToSlash(test.want) {

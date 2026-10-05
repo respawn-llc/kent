@@ -53,8 +53,6 @@ export type ServerReadiness = Readonly<{
   serverID: string;
   serverVersion: string;
   protocolVersion: string;
-  authReady: boolean;
-  authRequired: boolean;
   endpoint: string;
   subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
