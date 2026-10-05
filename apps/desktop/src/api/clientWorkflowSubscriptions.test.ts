@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { RegistryProvider, useAtomSuspense } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";

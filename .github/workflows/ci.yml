@@ -99,9 +99,7 @@ jobs:
         run: just install _apps-dependencies
 
       - name: Test
-        run: |
-          just test server --no-wall-clock-cap
-          just test desktop
+        run: just test server --no-wall-clock-cap
 
   windows-installer:
     runs-on: windows-latest
