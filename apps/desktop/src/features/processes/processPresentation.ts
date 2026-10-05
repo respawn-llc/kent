@@ -20,9 +20,8 @@ export type ProcessPresentation = Readonly<{
 export function projectProcessPresentation(
   process: DesktopProcess,
   observationTime: number,
-  pendingTermination: boolean,
 ): ProcessPresentation {
-  const stopping = process.running && (process.killRequested || pendingTermination);
+  const stopping = process.running && process.killRequested;
   const state = process.state.trim();
   return {
     age: processAge(process, observationTime),

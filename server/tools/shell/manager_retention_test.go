@@ -34,6 +34,10 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	}
 
 	victimID := completedIDs[0]
+	victim, err := manager.Snapshot(victimID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range completedIDs[1:] {
 		if _, err := manager.Snapshot(id); err != nil {
 			t.Fatalf("refresh completed shell %s: %v", id, err)
@@ -42,6 +46,15 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	if got := len(manager.List()); got != completedRetentionLimit {
 		t.Fatalf("retained process count = %d, want %d", got, completedRetentionLimit)
 	}
+	evicted := make(chan struct{}, 1)
+	manager.SetBackgroundListChangeHandler(func(sessionID string) {
+		if sessionID == victim.OwnerSessionID {
+			select {
+			case evicted <- struct{}{}:
+			default:
+			}
+		}
+	})
 
 	running := startRetainedShell(
 		t,
@@ -52,6 +65,11 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	)
 	_ = manager.List()
 	startAndCompleteRetainedShell(t, manager, workdir, completedRetentionLimit+1)
+	select {
+	case <-evicted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("eviction did not notify the removed process's Session")
+	}
 
 	if _, err := manager.Snapshot(victimID); !errors.Is(err, ErrResultUnavailable) {
 		t.Fatalf("least-recently-accessed completed shell error = %v, want %v", err, ErrResultUnavailable)
@@ -123,6 +141,7 @@ func startRetainedShell(
 ) ExecResult {
 	t.Helper()
 	result, err := manager.Start(context.Background(), ExecRequest{
+		OwnerSessionID: fmt.Sprintf("session-%d", index),
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %s ]; do sleep 0.01; done", releaseName)},
 		DisplayCommand: "wait for release",

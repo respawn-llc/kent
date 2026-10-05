@@ -499,6 +499,17 @@ func (s *Core) ProcessViewClient() apicontract.ProcessViewService {
 	return processes
 }
 
+func (s *Core) ProcessObservationClient() apicontract.ProcessObservationService {
+	if s == nil {
+		return nil
+	}
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
+}
+
 func (s *Core) RuntimeControlClient() apicontract.RuntimeControlService {
 	if s == nil {
 		return nil

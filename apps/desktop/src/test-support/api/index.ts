@@ -48,6 +48,7 @@ import {
 
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
+export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
 
 type FakeJsonRoute = Readonly<{
   method: string;
