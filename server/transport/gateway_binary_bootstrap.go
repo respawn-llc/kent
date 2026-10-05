@@ -27,17 +27,29 @@ func registerBootstrapGatewayBinaryBindings(bindings map[string]gatewayBinaryBin
 			func() *emptypb.Empty { return &emptypb.Empty{} }, invokeBinaryServerReadiness, binaryServerReadinessFailure),
 		registerBootstrapUnary(bindings, serverService, "GetUpdateStatus", gatewayBinaryPreCoreOrdinary,
 			func() *emptypb.Empty { return &emptypb.Empty{} }, invokeBinaryUpdateStatus, binaryUpdateStatusFailure),
-		registerBootstrapUnary(bindings, authService, "GetBootstrapStatus", gatewayBinaryPreCoreExclusive,
+		registerBootstrapUnary(bindings, authService, "GetConnections", gatewayBinaryPreCoreOrdinary,
+			func() *authpb.GetConnectionsRequest { return &authpb.GetConnectionsRequest{} }, invokeBinaryGetConnections, binaryAuthFailure),
+		registerBootstrapUnary(bindings, authService, "ConfigureConnection", gatewayBinaryPreCoreOrdinary,
+			func() *authpb.ConfigureConnectionRequest { return &authpb.ConfigureConnectionRequest{} }, invokeBinaryConfigureConnection, binaryAuthFailure),
+		registerBootstrapUnary(bindings, authService, "GetBootstrapStatus", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.GetBootstrapStatusRequest { return &authpb.GetBootstrapStatusRequest{} }, invokeBinaryAuthBootstrapStatus, binaryAuthFailure),
-		registerBootstrapUnary(bindings, authService, "CompleteBootstrap", gatewayBinaryPreCoreExclusive,
+		registerBootstrapUnary(bindings, authService, "CompleteBootstrap", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.CompleteBootstrapRequest { return &authpb.CompleteBootstrapRequest{} }, invokeBinaryAuthCompleteBootstrap, binaryAuthFailure),
-		registerBootstrapUnary(bindings, authService, "GetStatus", gatewayBinaryPreCoreExclusive,
+		registerBootstrapUnary(bindings, authService, "GetStatus", gatewayBinaryPreCoreOrdinary,
 			func() *authpb.GetStatusRequest { return &authpb.GetStatusRequest{} }, invokeBinaryAuthStatus, binaryAuthFailure),
 		registerBootstrapUnary(bindings, onboardingService, "Finalize", gatewayBinaryPreCoreOrdinary,
 			func() *onboardingpb.FinalizeRequest { return &onboardingpb.FinalizeRequest{} }, invokeBinaryOnboardingFinalize, binaryOnboardingFinalizeFailure),
 		registerBootstrapUnary(bindings, capabilityService, "GetFacts", gatewayBinaryPreCoreOrdinary,
 			func() *capabilitypb.GetFactsRequest { return &capabilitypb.GetFactsRequest{} }, invokeBinaryCapabilityFacts, binaryCapabilityFactsFailure),
 	)
+}
+
+func invokeBinaryGetConnections(g *Gateway, ctx context.Context, _ *connectionState, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return g.deps.ConnectionManagementClient().GetConnections(ctx, req)
+}
+
+func invokeBinaryConfigureConnection(g *Gateway, ctx context.Context, _ *connectionState, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return g.deps.ConnectionManagementClient().ConfigureConnection(ctx, req)
 }
 
 func registerBootstrapUnary[
@@ -199,6 +211,9 @@ func binaryUpdateStatusFailure(err error) proto.Message {
 }
 
 func binaryAuthFailure(err error) proto.Message {
+	if failure := protoapi.ConnectionFailureToProto(err); failure != nil {
+		return failure
+	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return &authpb.AuthRequiredDetails{}
 	}

@@ -3,7 +3,7 @@ title: Quickstart
 description: Install Kent, authenticate on first launch, tune the most useful settings, and learn the main session workflows.
 ---
 
-## 1. Install Kent Server and CLI
+## 1. Install Kent server and CLI
 
 #### Homebrew (macOS Apple Silicon/Linux)
 
@@ -38,7 +38,7 @@ irm https://kent.sh/install.ps1 | iex
 
 Check the installed version with: `kent --version`
 
-## 2. Optional: Install the Background Service
+## 2. Optional: Install the background service
 
 Run this if you want one shared Kent server to start at login:
 
@@ -54,7 +54,7 @@ The desktop app lets you use Kent's [Workflows and Tasks](../workflows/) feature
 
 ![Kent Desktop showing a project kanban board with tasks grouped by workflow stage](/desktop/desktop-kanban.webp)
 
-### Manual Install
+### Manual install
 
 Download the installer for macOS Apple Silicon, Linux x86_64, or Windows x64 at [kent.sh/desktop](https://kent.sh/desktop), or install the macOS app via Homebrew:
 
@@ -69,25 +69,21 @@ The desktop app, due to the asynchronous nature of workflows, needs a [server](.
 
 :::
 
-# First Use
+## First use
 
 :::danger[Security Warning]
-Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
+Out of the box, Kent runs without a sandbox or tool-calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
 :::
 
-Start Kent CLI with: `kent`. The first run will ask you to pick an auth option and walk you through onboarding.
-The session picker shows when a newer Kent server release is available; update Kent through the installation channel you used.
+Start Kent CLI with `kent`. See [Authentication and connections](../authentication/) to use a subscription, API key, or local provider.
 
-Supported auth options:
-
-- OpenAI/Codex subscription OAuth via the startup sign-in picker.
-- No auth for custom providers. This option supports any provider like `ollama`, `omlx` local models, or third-party providers like GLM coding plan. The only requirement is that the provider supports the OpenAI Responses format.
+The session picker shows when a newer Kent server release is available. Update Kent through the installation channel you used.
 
 :::note
 Anthropic or Gemini subscriptions/models will not be supported until these companies allow third-party harnesses in their ToS.
 :::
 
-## Main TUI Workflows
+## Main terminal workflows
 
 - Press `F1` to invoke the help menu.
 - Use `Enter` to steer the model, `Tab` to queue messages. Slash commands can be queued too!
@@ -107,7 +103,7 @@ For the full command reference, see [Slash Commands](../slash-commands/).
 
 Kent reads settings from `~/.kent/config.toml`. The full reference is on the [Configuration](../config/) page.
 
-## Skills and Slash Commands
+## Skills and slash commands
 
 On first launch, the setup wizard can optionally import existing skills and slash-command directories from supported providers.
 
@@ -128,7 +124,7 @@ Changes take effect when a session starts or after compaction.
 
 ## Supervisor
 
-- Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the work done by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
+- Use `/supervisor` to toggle reviews for the current session. It reviews the model's work and adds about 15% to costs when it uses the main model. See [Configuration](../config/) to choose its model.
 
 ## Advanced
 

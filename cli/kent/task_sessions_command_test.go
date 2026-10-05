@@ -134,7 +134,7 @@ func TestRunTaskSessionsResolvesSelectors(t *testing.T) {
 			stub.response.TaskID = test.taskID
 			var stdout, stderr bytes.Buffer
 			if code := runTaskSessions(
-				t.Context(), config.App{}, stub, stub, test.projectRef, test.selector, 3, 7, false, &stdout, &stderr,
+				t.Context(), config.Connection{}, stub, stub, test.projectRef, test.selector, 3, 7, false, &stdout, &stderr,
 			); code != 0 {
 				t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 			}

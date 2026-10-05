@@ -32,7 +32,7 @@ func TestUnavailableShellToolsReturnPlaintextToTheModel(t *testing.T) {
 				{Assistant: llm.Message{Role: llm.RoleAssistant}, ToolCalls: []llm.ToolCall{call}},
 				finalTextResponse("done"),
 			}}
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			if _, err := engine.SubmitUserMessage(t.Context(), t.Name()); err != nil {
 				t.Fatal(err)
 			}
@@ -62,7 +62,7 @@ func TestUserShellAcceptanceOwnsExecutionAcrossCallerCancellation(t *testing.T) 
 			handler := &heldRuntimeShell{started: make(chan struct{}), release: make(chan struct{})}
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t,
 				tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}),
-				Config{Model: "gpt-5"})
+				Config{Model: "gpt-6-sol"})
 			release := sync.OnceFunc(func() { close(handler.release) })
 			t.Cleanup(release)
 			caller, cancel := context.WithCancel(t.Context())
@@ -137,7 +137,7 @@ func TestUserShellRealProcessLifecycle(t *testing.T) {
 			store := mustCreateTestSession(t)
 			handler := shelltool.NewExecCommandToolWithPostprocessor(workdir, 16_000, 200_000, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 			engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
-				tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}), Config{Model: "gpt-5"})
+				tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}), Config{Model: "gpt-6-sol"})
 			command := "echo complete"
 			if mode != "foreground" {
 				command = "touch started; while [ ! -f release ]; do sleep 0.02; done; echo complete"
@@ -199,7 +199,7 @@ func TestUserShellCommandIsUserContextInNextModelRequest(t *testing.T) {
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID:      toolspec.ToolExecCommand,
 		Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON(output)},
-	}), Config{Model: "gpt-5"})
+	}), Config{Model: "gpt-6-sol"})
 	if _, err := engine.SubmitUserShellCommand(t.Context(), command); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestUserShellCommandIsUserContextInNextModelRequest(t *testing.T) {
 
 func TestUserShellCommandSurvivesReopenWithoutBecomingARollbackTarget(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	command := "echo fixture"
 	if _, err := engine.SubmitUserShellCommand(t.Context(), command); err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestUserShellCommandSurvivesReopenWithoutBecomingARollbackTarget(t *testing
 	engine.Close()
 
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
-	reopened := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	reopened := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 	for _, entry := range reopened.ChatSnapshot().Entries {
 		if entry.MessageType != llm.MessageTypeUserShellCommand {
 			continue
@@ -278,7 +278,7 @@ func TestUserShellCommandLiveDeliveryKeepsOutputCollapsed(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var delivered []TranscriptCommittedRowFact
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			if event.Kind == EventConversationUpdated {
 				delivered = append(delivered, TranscriptCommittedRowFactsFromEvent(event)...)
@@ -313,7 +313,7 @@ func TestSubmitUserShellCommandPersistsErrorWithoutRegisteredHandler(t *testing.
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{}
-	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 
 	result, err := engine.SubmitUserShellCommand(context.Background(), "pwd")
 	if !errors.Is(err, errUnknownTool) {

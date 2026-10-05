@@ -136,6 +136,11 @@
 
 ## Workflow Library and Project links
 
+- Failed Workflow creation or linking must show an error notification and preserve the initiating form Draft or list.
+- Workflow creation and linking pages must present read failures with Retry in the page.
+- While a Workflow row remains displayed without interruption, its linking action must show loading and prevent repeated submission while pending.
+- If a Workflow row leaves the displayed list and later returns, its linking action may lose its loading state and repeat-submission protection.
+- An accepted link request must complete even after its row leaves the displayed list. Completion must change navigation only when the original destination still accepts it.
 - Project Workflow management uses **Link workflow** language.
 - Link workflow opens a global side panel listing reusable Workflows and offering **New workflow**.
 - Creating a Workflow from a Project's Link workflow flow creates a reusable Workflow, links it to that Project, and opens the editor. It becomes the Project default only when that Project has no default Workflow; it never replaces an existing default.

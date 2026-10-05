@@ -7,7 +7,7 @@ import type {
   QueryKey,
 } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { queryAtom } from "./queryAtom";
 
 export function queryReadActions<Q, E, A, D, K extends QueryKey>(observer: QueryObserver<Q, E, A, D, K>) {

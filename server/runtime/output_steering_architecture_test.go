@@ -7,7 +7,7 @@ import (
 )
 
 func TestResultGroupFlushConsumesWorkflowPostCompletionBoundaryOnlyAfterCommit(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	restoreStep := setTestActiveStep(engine, "step")
 	defer restoreStep()
 	prepareSimpleResultGroupCall(t, engine, "step", "first")
@@ -38,7 +38,7 @@ func TestResultGroupFlushConsumesWorkflowPostCompletionBoundaryOnlyAfterCommit(t
 }
 
 func TestMissingToolOutputRepairConsumesWorkflowPostCompletionBoundaryOnlyAfterRepair(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	restoreStep := setTestActiveStep(engine, "step")
 	defer restoreStep()
 	mode := session.CompactionModeWorkflowPostCompletion

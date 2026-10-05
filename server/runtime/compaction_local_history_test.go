@@ -30,7 +30,7 @@ func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testin
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
 	}}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	if err := steerTestActiveStep(engine, "before", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
@@ -111,7 +111,7 @@ func TestPreSubmitCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("pre-submit summary")},
 	}}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		CompactionMode:        "local",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 300,
@@ -179,7 +179,7 @@ func TestManualCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.T) {
 			tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: probe},
 			tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: probe},
 		),
-		Config{Model: "gpt-5", CompactionMode: "local"},
+		Config{Model: "gpt-6-sol", CompactionMode: "local"},
 	)
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist compaction input: %v", err)
@@ -241,7 +241,7 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 	t.Parallel()
 	client := &fakeCompactionClient{}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "none",
 	})
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {

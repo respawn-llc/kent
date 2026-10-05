@@ -12,6 +12,8 @@ import (
 
 	"core/internal/testharness/httpclient"
 	"core/server/auth"
+	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 )
@@ -49,7 +51,7 @@ func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
 			t.Errorf("unexpected OAuth endpoint %s", r.URL.Path)
 		}
 		call := exchanges.Add(1)
-		if call == 3 {
+		if call >= 3 {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -61,7 +63,7 @@ func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewBootstrapService(authServiceResolver(t, manager, nil), auth.OpenAIOAuthOptions{
+	service := NewBootstrapService(t.Context(), authServiceResolver(t, manager, nil), auth.OpenAIOAuthOptions{
 		HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
 			copy := r.Clone(r.Context())
 			copy.URL.Scheme, copy.URL.Host = target.Scheme, target.Host
@@ -69,7 +71,7 @@ func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
 		})},
 	})
 	request := &authpb.CompleteBootstrapRequest{
-		ConnectionId: textutil.Value("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
+		Target: protoapi.ExistingConnectionTarget("work"), Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE,
 		DeviceAuthorizationCode: textutil.Value("grant"), DeviceCodeVerifier: textutil.Value("verifier"),
 	}
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -89,5 +91,18 @@ func TestConnectionOAuthSignInReauthenticationAndFailure(t *testing.T) {
 		if state.Connections["personal"].AccessToken != "personal" || state.Connections["work"].AccessToken != fmt.Sprintf("work-%d", min(attempt, 2)) {
 			t.Fatal("sign-in changed another connection or replaced credentials after failure")
 		}
+	}
+	request.Target = &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_AddConnection{
+		AddConnection: &authpb.ConnectionDefinition{Id: "new-subscription", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT},
+	}}
+	if _, err := service.CompleteBootstrap(t.Context(), request); err == nil {
+		t.Fatal("failed Add sign-in reported success")
+	}
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: service.connections.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := app.Settings.Connections["new-subscription"]; present {
+		t.Fatal("failed Add sign-in saved a connection definition")
 	}
 }

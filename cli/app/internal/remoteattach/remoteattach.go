@@ -33,12 +33,12 @@ type ProjectViewRemote interface {
 	RequireRoot(rootID string) error
 }
 
-type DialProjectView func(context.Context, config.App) (ProjectViewRemote, error)
-type DialWorkspace func(context.Context, config.App, string, string) (*client.Remote, error)
+type DialProjectView func(context.Context, config.Connection) (ProjectViewRemote, error)
+type DialWorkspace func(context.Context, config.Connection, string, string) (*client.Remote, error)
 type Accept func(protocol.ServerIdentity) bool
 
 type HeadlessRequest struct {
-	Config           config.App
+	Config           config.Connection
 	AttachTimeout    time.Duration
 	DiscoveryTimeout time.Duration
 	DialProjectView  DialProjectView
@@ -50,7 +50,7 @@ type HeadlessRequest struct {
 }
 
 type InteractiveRequest struct {
-	Config          config.App
+	Config          config.Connection
 	AttachTimeout   time.Duration
 	DialProjectView DialProjectView
 	DialWorkspace   DialWorkspace
@@ -214,7 +214,7 @@ func resolveInteractiveBinding(ctx context.Context, projectViews apicontract.Pro
 	return &binding, err
 }
 
-func dialWorkspaceWithTimeout(ctx context.Context, cfg config.App, timeout time.Duration, dial DialWorkspace, projectID string, workspaceID string) (*client.Remote, error) {
+func dialWorkspaceWithTimeout(ctx context.Context, cfg config.Connection, timeout time.Duration, dial DialWorkspace, projectID string, workspaceID string) (*client.Remote, error) {
 	attachCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return dial(attachCtx, cfg, projectID, workspaceID)

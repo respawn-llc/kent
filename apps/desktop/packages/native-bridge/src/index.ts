@@ -3,6 +3,8 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import type * as Stream from "effect/Stream";
+import { nativeObservation, type NativeOverflowReporter } from "./observation";
 
 import {
   fitCurrentWindowToContent,
@@ -39,6 +41,7 @@ import {
 } from "./notifications";
 import { createBrowserWindowFocusControls, createTauriWindowFocusControls } from "./windowFocus";
 import { createBrowserUpdates, createTauriUpdates, type NativeUpdateBridge } from "./updates";
+export { nativeObservation, type NativeOverflowReporter } from "./observation";
 
 export type { NativeDialogContentSize, NativeDialogTheme, NativeDialogWindowOptions } from "./dialogs";
 export type {
@@ -76,7 +79,6 @@ export {
   type NativeNotificationTarget,
   type NativeNotificationTaskDetailTarget,
   type NativeNotificationBridge,
-  type NativeNotificationUnlisten,
   type TauriNativeNotificationOptions,
 } from "./notifications";
 export {
@@ -121,8 +123,8 @@ export type NativeBridge = Readonly<{
     closeCurrent(): Promise<void>;
     isFocused(): Promise<boolean>;
     focusMain(): Promise<void>;
-    onFocusChanged(handler: (focused: boolean) => void): Promise<NativeUnlisten>;
-    onFileDrop(handler: (paths: readonly string[]) => void): Promise<NativeUnlisten>;
+    focusChanges(reportOverflow: NativeOverflowReporter): Stream.Stream<boolean, Error>;
+    fileDrops(reportOverflow: NativeOverflowReporter): Stream.Stream<readonly string[], Error>;
     fitCurrentToContent(size: NativeDialogContentSize): Promise<void>;
     setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void>;
   }>;
@@ -132,11 +134,11 @@ export type NativeBridge = Readonly<{
   projectCreation: Readonly<{
     openWindow(draft: NativeProjectCreationDraft): Promise<void>;
     notifyCreated(binding: NativeProjectBinding): Promise<void>;
-    onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten>;
+    onCreated(handler: (binding: NativeProjectBinding) => void): Promise<() => void>;
   }>;
   projectDeletion: Readonly<{
     notifyDeleted(event: NativeProjectDeleted): Promise<void>;
-    onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten>;
+    deleted(reportOverflow: NativeOverflowReporter): Stream.Stream<NativeProjectDeleted, Error>;
   }>;
 }>;
 
@@ -184,8 +186,6 @@ export type NativeProjectBinding = Readonly<{
 export type NativeProjectDeleted = Readonly<{
   projectID: string;
 }>;
-
-export type NativeUnlisten = () => void;
 
 export const nativeDialogWindowHorizontalInsetPx = 16;
 const projectDeletedEvent = "app://project-deleted";
@@ -263,10 +263,8 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
       isFocused: browserWindowFocus.isFocused,
       focusMain: browserWindowFocus.focusMain,
-      onFocusChanged: browserWindowFocus.onFocusChanged,
-      async onFileDrop(): Promise<NativeUnlisten> {
-        return () => undefined;
-      },
+      focusChanges: browserWindowFocus.focusChanges,
+      fileDrops: (reportOverflow) => nativeObservation(async () => () => undefined, reportOverflow),
       async fitCurrentToContent(): Promise<void> {
         return Promise.resolve();
       },
@@ -286,7 +284,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       async notifyCreated(): Promise<void> {
         return Promise.resolve();
       },
-      async onCreated(): Promise<NativeUnlisten> {
+      async onCreated(): Promise<() => void> {
         return () => undefined;
       },
     },
@@ -298,12 +296,13 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
           }),
         );
       },
-      async onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten> {
-        projectDeletionHandlers.add(handler);
-        return () => {
-          projectDeletionHandlers.delete(handler);
-        };
-      },
+      deleted: (reportOverflow) =>
+        nativeObservation(async (handler) => {
+          projectDeletionHandlers.add(handler);
+          return () => {
+            projectDeletionHandlers.delete(handler);
+          };
+        }, reportOverflow),
     },
   };
 }
@@ -356,15 +355,16 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       isFocused: tauriWindowFocus.isFocused,
       focusMain: tauriWindowFocus.focusMain,
-      onFocusChanged: tauriWindowFocus.onFocusChanged,
-      async onFileDrop(handler): Promise<NativeUnlisten> {
-        if (platform === "windows") return () => undefined;
-        return getCurrentWebview().onDragDropEvent((event) => {
-          if (event.payload.type === "drop") {
-            handler(event.payload.paths);
-          }
-        });
-      },
+      focusChanges: tauriWindowFocus.focusChanges,
+      fileDrops: (reportOverflow) =>
+        nativeObservation(async (handler) => {
+          if (platform === "windows") return () => undefined;
+          return getCurrentWebview().onDragDropEvent((event) => {
+            if (event.payload.type === "drop") {
+              handler(event.payload.paths);
+            }
+          });
+        }, reportOverflow),
       async fitCurrentToContent(size: NativeDialogContentSize): Promise<void> {
         await fitCurrentWindowToContent(size);
       },
@@ -399,7 +399,7 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       async notifyCreated(binding: NativeProjectBinding): Promise<void> {
         await emitTo("main", "app://project-created", binding);
       },
-      async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten> {
+      async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<() => void> {
         return listen<NativeProjectBinding>("app://project-created", (event) => {
           handler(event.payload);
         });
@@ -409,11 +409,12 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       async notifyDeleted(event: NativeProjectDeleted): Promise<void> {
         await emitTo("main", projectDeletedEvent, event);
       },
-      async onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten> {
-        return listen<NativeProjectDeleted>(projectDeletedEvent, (event) => {
-          handler(event.payload);
-        });
-      },
+      deleted: (reportOverflow) =>
+        nativeObservation(async (handler) => {
+          return listen<NativeProjectDeleted>(projectDeletedEvent, (event) => {
+            handler(event.payload);
+          });
+        }, reportOverflow),
     },
   };
 }

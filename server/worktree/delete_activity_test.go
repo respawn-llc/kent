@@ -109,10 +109,10 @@ func deleteActivityRuntimePlan(
 ) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	settings := env.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = reviewerFrequency
-	settings.Reviewer.Model = "gpt-5"
+	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ThinkingLevel = "low"
 	var eventObserver func(runtime.Event)
 	if len(onEvent) > 0 {

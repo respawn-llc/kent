@@ -1,9 +1,4 @@
-import {
-  defaultWorkflowExecutionTargetPolicy,
-  emptyWorkflowDerivedWiring,
-  type WorkflowDefinition,
-  type WorkflowValidation,
-} from "@/api";
+import { type WorkflowValidation } from "@/api";
 import type { WorkflowGraphLayout } from "./workflowGraphLayout";
 
 export type WorkflowLayoutSnapshot = Readonly<{
@@ -13,23 +8,6 @@ export type WorkflowLayoutSnapshot = Readonly<{
 }>;
 
 export const emptyWorkflowValidation: WorkflowValidation = { errors: [], valid: true };
-
-export function emptyWorkflowDefinition(workflowID: string): WorkflowDefinition {
-  return {
-    edges: [],
-    nodeGroups: [],
-    nodes: [],
-    transitionGroups: [],
-    workflow: {
-      description: "",
-      version: 1,
-      id: workflowID,
-      name: "",
-      executionTargetPolicy: defaultWorkflowExecutionTargetPolicy,
-    },
-    derivedWiring: emptyWorkflowDerivedWiring,
-  };
-}
 
 export function mergeWorkflowValidations(
   draft: WorkflowValidation | null,

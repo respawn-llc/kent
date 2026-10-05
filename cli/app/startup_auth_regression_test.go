@@ -9,6 +9,7 @@ import (
 
 	serverstartup "core/server/startup"
 	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
@@ -24,7 +25,11 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 	t.Cleanup(func() { _ = daemon.Close() })
 	t.Cleanup(serveAppServer(t, daemon))
 	waitForConfiguredRunPromptDaemon(t, workspace)
-	remote, err := attachConfiguredStartupRemote(t.Context(), cfg)
+	connection, err := config.LoadConnectionDiscovery(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := attachConfiguredStartupRemote(t.Context(), connection)
 	if err != nil {
 		t.Fatalf("attach before provider setup: %v", err)
 	}
@@ -33,7 +38,8 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 	}
 }
 
-func TestStartupMissingConnectionCredentialsOpensLogin(t *testing.T) {
+func TestSelectedSessionMissingConnectionCredentialsOpensLogin(t *testing.T) {
+	useStartupTestTerminal(t)
 	_, workspace := newRegisteredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), []byte("connection = \"subscription\"\n[connections.subscription]\nprotocol = \"chatgpt-codex\"\n"), 0o600); err != nil {
@@ -51,7 +57,16 @@ func TestStartupMissingConnectionCredentialsOpensLogin(t *testing.T) {
 		opened = true
 		return authMethodPickerResult{Canceled: true}, nil
 	}}
-	_, err = startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, interactor, true)
+	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, interactor, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	if opened {
+		t.Fatal("startup checked provider credentials before selecting a Session")
+	}
+	intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
+	err = runSessionLifecycleWithOptions(t.Context(), server, interactor, sessionLifecycleOptions{Intent: &intent})
 	if !opened || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("login opened = %t, startup error = %v", opened, err)
 	}

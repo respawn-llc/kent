@@ -1,6 +1,6 @@
 import { useAtomSet } from "@effect/atom-react";
 import { Effect } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 const Fx = Effect;
 
 const action = Atom.fn(

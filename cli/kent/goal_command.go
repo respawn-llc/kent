@@ -314,7 +314,7 @@ func resolveGoalCommandSession(sessionFlag string) (sessionID string, agent bool
 }
 
 func openGoalCommandRemote(ctx context.Context) (goalCommandRemote, error) {
-	cfg, err := config.LoadConnectionDiscovery(".")
+	cfg, err := config.LoadConnectionDiscovery(".", config.LoadOptions{})
 	if err != nil {
 		return nil, err
 	}

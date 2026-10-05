@@ -1,47 +1,22 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RegistryProvider } from "@effect/atom-react";
+import { QueryClient } from "@tanstack/react-query";
+import { RegistryProvider, useAtomMount } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "@/api";
-import { AppServicesProvider } from "@/app-facade";
 import { createTestServices } from "@/test-support/app-services";
+import { appI18n } from "@/i18n";
+import { workflowEditorObservations } from "./workflowEditorObservation";
 
 const fixture = vi.hoisted(() => {
   const noHandler = (): WorkflowProjectEventHandler | null => null;
   return {
     push: vi.fn(),
-    translate: vi.fn((key: string) => key),
     workflowHandler: noHandler(),
   };
 });
 
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useTranslation: () => ({ t: fixture.translate }),
-}));
-
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppServices: () => ({
-    api: {
-      getWorkflow: async () => ({ workflow: { version: 1 } }),
-      listProjectWorkflowLinks: async () => [{ projectID: "project-1", workflowID: "workflow-1" }],
-      subscribeWorkflow: (_workflowID: string, handler: WorkflowProjectEventHandler) => {
-        fixture.workflowHandler = handler;
-        return { close: vi.fn() };
-      },
-      validateWorkflow: async () => ({ errors: [], valid: true }),
-    },
-  }),
-  useStatusController: () => ({ push: fixture.push }),
-}));
-
-import {
-  shouldNotifyWorkflowEditorRefresh,
-  shouldRefreshWorkflowEditor,
-  useWorkflowEditorData,
-} from "./useWorkflowEditorData";
+import { shouldNotifyWorkflowEditorRefresh, shouldRefreshWorkflowEditor } from "./workflowEditorEvents";
 
 function workflowEvent(
   action: WorkflowProjectEvent["action"],
@@ -61,7 +36,6 @@ function workflowEvent(
 describe("Workflow Editor event effects", () => {
   beforeEach(() => {
     fixture.push.mockClear();
-    fixture.translate.mockClear();
     fixture.workflowHandler = null;
   });
 
@@ -78,9 +52,28 @@ describe("Workflow Editor event effects", () => {
       defaultOptions: { queries: { retry: false } },
     });
     const invalidation = vi.spyOn(queryClient, "invalidateQueries");
-    const view = renderHook(() => useWorkflowEditorData("project-1", "workflow-1"), {
-      wrapper: queryWrapper(queryClient),
+    const services = createTestServices([]);
+    vi.spyOn(services.api, "subscribeWorkflow").mockImplementation((_id, handler) => {
+      fixture.workflowHandler = handler;
+      return { close: vi.fn() };
     });
+    const observations = workflowEditorObservations({
+      api: services.api,
+      client: queryClient,
+      projectID: "project-1",
+      workflowID: "workflow-1",
+      t: appI18n.t,
+      push: fixture.push,
+    });
+    const view = renderHook(
+      () => {
+        useAtomMount(observations.workflow);
+      },
+      {
+        wrapper: ({ children }: Readonly<{ children: ReactNode }>) =>
+          createElement(RegistryProvider, { children }),
+      },
+    );
     await waitFor(() => {
       expect(fixture.workflowHandler).not.toBeNull();
     });
@@ -140,15 +133,3 @@ describe("Workflow Editor event effects", () => {
     expect(shouldNotifyWorkflowEditorRefresh(event, "project-1", "workflow-1")).toBe(false);
   });
 });
-
-function queryWrapper(queryClient: QueryClient) {
-  const services = createTestServices([]);
-  return function QueryWrapper({ children }: Readonly<{ children: ReactNode }>) {
-    return createElement(QueryClientProvider, {
-      client: queryClient,
-      children: createElement(RegistryProvider, {
-        children: createElement(AppServicesProvider, { services, children }),
-      }),
-    });
-  };
-}

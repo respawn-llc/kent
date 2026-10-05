@@ -1,5 +1,5 @@
 export { useLocalSubscription } from "./useLocalSubscription";
-export type { AppLogger, AppLogLevel } from "./logging";
+export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
 export * from "./chatRuntime";

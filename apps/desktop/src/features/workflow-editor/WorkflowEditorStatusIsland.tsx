@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowGraphSaveImpact, WorkflowGraphSavePreview, WorkflowValidationError } from "@/api";
 import { normalizeWorkflowValidationErrors, WorkflowValidationIssues } from "@/shared/workflow-validation";
 import { Button, FloatingNoticeIsland } from "@/ui";
-import type { WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import type { WorkflowEditorView } from "./useWorkflowEditorView";
 
 export function WorkflowEditorStatusIsland({
   confirmationPreview,
@@ -15,7 +15,7 @@ export function WorkflowEditorStatusIsland({
   positionStrategy,
 }: Readonly<{
   confirmationPreview: WorkflowGraphSavePreview | null;
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   onCancelConfirmation: () => void;
   onConfirmSave: () => void;
   onDiscard: () => void;
@@ -25,7 +25,7 @@ export function WorkflowEditorStatusIsland({
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = normalizeWorkflowValidationErrors(statusIslandValidationErrors(controller));
   const hasIssues =
-    validationErrors.length > 0 || controller.saveBlockers.length > 0 || controller.saveError.length > 0;
+    validationErrors.length > 0 || controller.saveBlockers.length > 0 || controller.saveError !== null;
   if (!controller.dirty.dirty && controller.state.conflict === null && !hasIssues) {
     return null;
   }
@@ -51,7 +51,7 @@ export function WorkflowEditorStatusIsland({
           onDiscard={onDiscard}
         />
         {controller.state.conflict !== null ? <ConflictActions controller={controller} /> : null}
-        {controller.saveError.length > 0 ? (
+        {controller.saveError !== null ? (
           <p className="m-0 text-sm text-[var(--color-error)]">{controller.saveError}</p>
         ) : null}
         {controller.saveBlockers.length > 0 ? (
@@ -69,9 +69,7 @@ export function WorkflowEditorStatusIsland({
   );
 }
 
-function statusIslandValidationErrors(
-  controller: WorkflowEditorDraftController,
-): readonly WorkflowValidationError[] {
+function statusIslandValidationErrors(controller: WorkflowEditorView): readonly WorkflowValidationError[] {
   if (controller.dirty.graphDirty && controller.draftValidation === null) {
     // Background validation is disabled while the graph is dirty; fall back to
     // the structured result captured at the last blocked save attempt.
@@ -83,10 +81,8 @@ function statusIslandValidationErrors(
   return [...errorsOrEmpty(controller.draftValidation), ...errorsOrEmpty(controller.executionValidation)];
 }
 
-function statusIslandTone(controller: WorkflowEditorDraftController): "danger" | "neutral" {
-  return controller.draftValidation?.valid === false || controller.saveError.length > 0
-    ? "danger"
-    : "neutral";
+function statusIslandTone(controller: WorkflowEditorView): "danger" | "neutral" {
+  return controller.draftValidation?.valid === false || controller.saveError !== null ? "danger" : "neutral";
 }
 
 function errorsOrEmpty(
@@ -103,7 +99,7 @@ export function WorkflowEditorSaveActions({
   onDiscard,
 }: Readonly<{
   confirmationPreview: WorkflowGraphSavePreview | null;
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   onCancelConfirmation: () => void;
   onConfirmSave: () => void;
   onDiscard: () => void;
@@ -141,7 +137,7 @@ export function WorkflowEditorSaveActions({
   );
 }
 
-function ConflictActions({ controller }: Readonly<{ controller: WorkflowEditorDraftController }>) {
+function ConflictActions({ controller }: Readonly<{ controller: WorkflowEditorView }>) {
   const { t } = useTranslation();
   return (
     <div className="grid gap-[var(--space-2)]">

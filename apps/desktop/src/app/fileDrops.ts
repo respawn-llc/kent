@@ -1,8 +1,35 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import { useAtomSuspense } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/reactivity/Atom";
 
 import type { AppServices } from "@/app-facade";
 
 export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void {
+  const drops = useMemo(
+    () =>
+      Atom.make(
+        nativeBridge.window
+          .fileDrops(async () => logger.reportObservationOverflow("file-drop"))
+          .pipe(
+            Stream.runForEach((paths) =>
+              Effect.sync(() => {
+                insertFilePaths(paths);
+              }),
+            ),
+            Effect.catch((error) =>
+              Effect.promise(async () =>
+                logger.append("error", "Could not listen for native file drops", { error: String(error) }),
+              ),
+            ),
+            Effect.as(null),
+          ),
+        { initialValue: null },
+      ),
+    [nativeBridge, logger],
+  );
+  useAtomSuspense(drops);
   useEffect(() => {
     const preventFileNavigation = (event: DragEvent) => {
       if (event.dataTransfer?.types.includes("Files")) {
@@ -12,26 +39,11 @@ export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void 
     };
     document.addEventListener("dragover", preventFileNavigation, true);
     document.addEventListener("drop", preventFileNavigation, true);
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void nativeBridge.window
-      .onFileDrop((paths) => {
-        if (!disposed) insertFilePaths(paths);
-      })
-      .then((stop) => {
-        if (disposed) stop();
-        else unlisten = stop;
-      })
-      .catch((error: unknown) => {
-        void logger.append("error", "Could not listen for native file drops", { error: String(error) });
-      });
     return () => {
-      disposed = true;
-      unlisten?.();
       document.removeEventListener("dragover", preventFileNavigation, true);
       document.removeEventListener("drop", preventFileNavigation, true);
     };
-  }, [nativeBridge, logger]);
+  }, []);
 }
 
 function insertFilePaths(paths: readonly string[]): void {

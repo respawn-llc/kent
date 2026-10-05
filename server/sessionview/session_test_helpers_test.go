@@ -68,7 +68,7 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	settings := config.DefaultOnboardingSettings()
 	root := t.TempDir()
 	settings = testsetup.WriteProviderSettings(t, root, settings)
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     store.Meta().WorkspaceRoot,

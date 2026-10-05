@@ -59,7 +59,7 @@ func newSupervisorTurnHarness(t *testing.T) *supervisorTurnHarness {
 	}
 	reviewer := model(h.reviewer)
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "all"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{

@@ -312,7 +312,7 @@ func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
 
 func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.Engine {
 	t.Helper()
-	return newRegistryRuntime(t, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"}, func(_ *runtime.Engine, evt runtime.Event) {
+	return newRegistryRuntime(t, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"}, func(_ *runtime.Engine, evt runtime.Event) {
 		if onEvent != nil {
 			onEvent(evt)
 		}
@@ -1201,7 +1201,7 @@ func startRegistryBlockingRuntime(t *testing.T, registry *RuntimeRegistry) (*run
 		t,
 		client,
 		askquestion.NewRegistry(),
-		runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"},
+		runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 		func(engine *runtime.Engine, evt runtime.Event) {
 			if err := registry.PublishAuthorityRuntimeEvent(registryTestResourceRef(engine.SessionID()), evt); err != nil {
 				t.Errorf("PublishAuthorityRuntimeEvent: %v", err)

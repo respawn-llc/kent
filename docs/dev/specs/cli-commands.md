@@ -256,8 +256,17 @@
 - If no server is reachable, Run fails with guidance to use `kent serve` or `kent service install`.
 - `kent run --agent <role> "prompt"` selects a configured role.
 - `--fast` selects the built-in fast role and cannot be combined with `--agent`.
+- On first-party OpenAI connections, the built-in fast role must default to GPT-6 Luna when model overrides are allowed.
 - Named roles are file-only `[subagents.<role>]` settings and inherit main settings unless overridden.
 - Headless execution runs one non-interactive prompt with ordinary Session persistence.
+- For an existing Session selected with `--continue` or `--session`, Run must treat `--thinking-level` as a persistent Session Thinking selection. The server must resolve the permitted Agent and model, validate the requested Thinking, and save it through the ordinary Session settings owner before attempting continuation.
+- When `--thinking-level` is supplied for an unlocked existing Session, an explicitly selected Agent must supply the defaults, and explicit `--model` and `--thinking-level` values must override those defaults. Existing Agent and model locks must remain authoritative. Run must validate Thinking against the resulting effective selection.
+- When an existing Session's cache is locked, Run must ignore an explicit `--agent` selection and include the warning `Warning: your agent selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the agent.` Run must ignore an explicit `--model` selection and include the warning `Warning: your model selection was ignored to preserve the cache of an existing session. Start a new session or compact to change the model.`
+- A locked Session must still save and apply a supported `--thinking-level` against its retained Agent and model. Run must reject an unavailable Thinking value without changing Session settings or submitting the prompt.
+- If the requested combination is invalid, Run must reject it before saving either selection or submitting the prompt. A settings mutation failure must prevent prompt submission.
+- Run must distinguish invalid selections from internal failures through a structured selection rejection. Clients must explain how to correct the selection.
+- A successful settings change must remain saved if continuation later fails, including when the Session is busy. Saving settings for a dormant Session must not create a Runtime. Saving settings for a live Session must use the ordinary live settings behavior. Other Sessions must remain unchanged.
+- Run must not apply a saved existing-Session Thinking selection again as a temporary launch override. Omitting `--thinking-level` must preserve ordinary continuation behavior. New-Session creation behavior must remain unchanged.
 - New unnamed Sessions are named `<session-id> subagent`.
 - Without `--timeout`, Run must add no run-completion deadline.
 - When `--timeout` is given, the full run-completion timeout must start after launch preparation and prompt-history saving finish, immediately before prompt submission and result waiting.

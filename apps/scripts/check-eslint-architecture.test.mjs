@@ -327,6 +327,26 @@ test("Effect policy rejects union subscription signatures without a checker fail
   assert.equal(result.fatalErrorCount, 0);
 });
 
+test("native conversion permits private callback storage but not public callback observations", async () => {
+  const [allowed, forbidden] = await checkEffectPolicy([
+    join(
+      fixtureRoot,
+      "packages/native-bridge/src/allowed-effect-native-storage.ts",
+    ),
+    join(
+      fixtureRoot,
+      "packages/native-bridge/src/forbidden-effect-native-subscription.ts",
+    ),
+  ]);
+  assert.deepEqual(allowed.messages, []);
+  assert.equal(
+    forbidden.messages.filter(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ).length,
+    2,
+  );
+});
+
 test("staged contracts follow Effect values across application imports", async () => {
   const [result] = await checkEffectPolicy([
     join(

@@ -1,7 +1,7 @@
 import { MutationObserver, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { ApiService } from "@/api";
 import { queryAction, useAppServices, useAppNavigation } from "@/app-facade";

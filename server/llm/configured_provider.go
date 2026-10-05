@@ -20,6 +20,7 @@ func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settin
 	if contract, present := ProviderCapabilitiesFromLocked(locked); present {
 		effective = contract
 		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
+		effective.SupportsFastMode = actual.SupportsFastMode
 	}
 	return effective, nil
 }

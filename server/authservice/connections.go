@@ -66,6 +66,7 @@ type connectionSnapshot struct {
 	connection ResolvedConnection
 	oauth      *auth.OAuthMethod
 	failure    error
+	pending    *pendingConnection
 }
 
 func (r *ConnectionResolver) snapshot(ctx context.Context, raw *string) (connectionSnapshot, error) {

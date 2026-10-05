@@ -16,7 +16,7 @@ import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChatComposer } from "./ChatComposer";
 import { useChatComposer } from "./useChatComposer";
 import { useState } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import type { ChatSettingsTarget } from "@/api";
@@ -60,13 +60,13 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   );
   expect(await screen.findByRole("button", { name: "50%" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "50%" }));
-  await waitFor(() =>
+  await waitFor(() => {
     expect(
       screen.getByRole("button", {
         name: appI18n.t("chatComposer.context.compact"),
       }),
-    ).toBeEnabled(),
-  );
+    ).toBeEnabled();
+  });
   act(() =>
     handlers[0]?.onEvent({
       sequence: 3,
@@ -77,13 +77,13 @@ it("presents admitted usage and policy updates from the ordinary observation", a
       },
     }),
   );
-  await waitFor(() =>
+  await waitFor(() => {
     expect(
       screen.getByRole("button", {
         name: appI18n.t("chatComposer.context.compact"),
       }),
-    ).toBeDisabled(),
-  );
+    ).toBeDisabled();
+  });
   act(() => {
     handlers[0]?.onEvent({ sequence: 4, kind: "session_status", payload: initial.SessionStatus });
     handlers[0]?.onEvent({
