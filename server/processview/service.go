@@ -3,6 +3,7 @@ package processview
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	shelltool "core/server/tools/shell"
 	processpb "core/shared/protoapi/gen/kent/api/process"
@@ -16,10 +17,12 @@ type ProjectSessionMembership interface {
 type ProcessViewService struct {
 	processes  *shelltool.Manager
 	membership ProjectSessionMembership
+	mu         sync.Mutex
+	observers  map[*processObservation]struct{}
 }
 
 func NewProcessViewService(processes *shelltool.Manager, membership ProjectSessionMembership) *ProcessViewService {
-	return &ProcessViewService{processes: processes, membership: membership}
+	return &ProcessViewService{processes: processes, membership: membership, observers: make(map[*processObservation]struct{})}
 }
 
 func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.ListRequest) (*processpb.ListSuccess, error) {
@@ -40,6 +43,9 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 	snapshots := s.processes.List()
 	processes := make([]*processpb.BackgroundProcess, 0, len(snapshots))
 	for _, snapshot := range snapshots {
+		if !snapshot.Backgrounded {
+			continue
+		}
 		if _, matchesProject := projectSessions[snapshot.OwnerSessionID]; !matchesProject {
 			continue
 		}
