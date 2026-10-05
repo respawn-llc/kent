@@ -1,5 +1,5 @@
 import type { TranscriptRenderItem } from "@/app-facade";
-import { Island, StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { AnimatedSize, Island, StaticMarkdown, StreamingMarkdown } from "@/ui";
 
 import { MessageFooter } from "./MessageFooter";
 import type { MessageNeighbors } from "./messageNeighbors";
@@ -20,14 +20,18 @@ export function ChatAssistantMessage({
     >
       <div className="chat-message-width">
         <Island className="chat-message-island" level={1} radius="l" unpadded>
-          {item.state === "live" ? (
-            <StreamingMarkdown value={item.value.Text} />
-          ) : (
-            <StaticMarkdown value={item.value.Text} />
-          )}
-          {item.state === "committed" && (
-            <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
-          )}
+          <AnimatedSize className="justify-start">
+            <div className="chat-message-content">
+              {item.state === "live" ? (
+                <StreamingMarkdown value={item.value.Text} />
+              ) : (
+                <StaticMarkdown value={item.value.Text} />
+              )}
+              {item.state === "committed" && (
+                <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
+              )}
+            </div>
+          </AnimatedSize>
         </Island>
       </div>
     </div>

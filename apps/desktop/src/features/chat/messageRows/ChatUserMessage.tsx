@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Pencil } from "lucide-react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
-import { IconTooltipButton, Island, StaticMarkdown } from "@/ui";
+import { AnimatedSize, IconTooltipButton, Island, StaticMarkdown } from "@/ui";
 
 import "./messageRows.css";
 import { MessageFooter } from "./MessageFooter";
@@ -30,24 +30,28 @@ export function ChatUserMessage({
     >
       <div className="chat-message-width">
         <Island className="chat-message-island" level={1} radius="l" unpadded>
-          <StaticMarkdown value={item.value.Text} />
-          <MessageFooter
-            text={item.value.Text}
-            committedAt={item.value.committed_at_unix_ms}
-            edit={
-              item.value.RollbackTargetID == null ? null : (
-                <IconTooltipButton
-                  label={t("chatTranscript.edit")}
-                  onClick={() => {
-                    edit.onEdit(item);
-                  }}
-                  size="icon-sm"
-                >
-                  <Pencil className="size-4" />
-                </IconTooltipButton>
-              )
-            }
-          />
+          <AnimatedSize className="justify-start">
+            <div className="chat-message-content">
+              <StaticMarkdown value={item.value.Text} />
+              <MessageFooter
+                text={item.value.Text}
+                committedAt={item.value.committed_at_unix_ms}
+                edit={
+                  item.value.RollbackTargetID == null ? null : (
+                    <IconTooltipButton
+                      label={t("chatTranscript.edit")}
+                      onClick={() => {
+                        edit.onEdit(item);
+                      }}
+                      size="icon-sm"
+                    >
+                      <Pencil className="size-4" />
+                    </IconTooltipButton>
+                  )
+                }
+              />
+            </div>
+          </AnimatedSize>
         </Island>
       </div>
     </div>

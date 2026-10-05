@@ -1,9 +1,10 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { cn } from "./classes";
 import { motionDurationFromCSSVar } from "./motion";
 
-export function AnimatedSize({ children }: Readonly<{ children: ReactNode }>) {
+export function AnimatedSize({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   const content = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | null>(null);
   const reducedMotion = useReducedMotion();
@@ -22,7 +23,7 @@ export function AnimatedSize({ children }: Readonly<{ children: ReactNode }>) {
   }, []);
   return (
     <motion.div
-      className="flex min-h-0 flex-col justify-end overflow-hidden"
+      className={cn("flex min-h-0 flex-col justify-end overflow-hidden", className)}
       initial={false}
       animate={{ height: height ?? "auto" }}
       transition={{
