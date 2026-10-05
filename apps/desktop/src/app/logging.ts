@@ -1,6 +1,6 @@
 import type { NativeBridge } from "@app/native-bridge";
 
-import type { AppLogger, AppLogLevel } from "@/app-facade";
+import { createAppLogger, type AppLogLevel, type AppObservationLogger } from "@/app-facade";
 
 const maxLogBytes = 10 * 1024 * 1024;
 const redactedValue = "[redacted]";
@@ -13,7 +13,7 @@ export type GuiLogEntry = Readonly<{
   occurredAt: string;
 }>;
 
-export type GuiLogger = AppLogger &
+export type GuiLogger = AppObservationLogger &
   Readonly<{
     entries(): readonly GuiLogEntry[];
   }>;
@@ -50,10 +50,8 @@ export function createGuiLogger(nativeBridge: NativeBridge): GuiLogger {
   }
 
   return {
-    entries() {
-      return entries.slice();
-    },
-    append,
+    ...createAppLogger(append),
+    entries: () => entries.slice(),
   };
 }
 

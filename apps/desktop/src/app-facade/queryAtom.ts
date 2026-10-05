@@ -10,7 +10,7 @@ import {
   type MutationFilters,
   type MutationCache,
 } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 export type QuerySnapshot<R> = R extends unknown
   ? Readonly<Omit<R, "refetch" | "fetchNextPage" | "fetchPreviousPage" | "mutate" | "reset" | "promise">>

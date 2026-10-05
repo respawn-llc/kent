@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";

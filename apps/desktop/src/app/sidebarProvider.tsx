@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
 
 import {
   SidebarRootContext,
@@ -13,7 +14,7 @@ import {
   type SidebarNavigationOutcome,
   type SidebarWidthProfile,
 } from "@/app-facade";
-import { createSidebarStack, emptySidebarStackView, type SidebarStackView } from "./sidebarStack";
+import { createSidebarStack } from "./sidebarStack";
 import { SidebarCurrentPageContext, type SidebarCurrentPage } from "./sidebarPageContext";
 
 const defaultSidebarWidthProfile: SidebarWidthProfile = { kind: "custom", sizing: null };
@@ -23,36 +24,30 @@ export function SidebarProvider({
   children,
   policy,
 }: Readonly<{ children: ReactNode; policy: SidebarDestinationPolicy }>) {
-  const [view, setView] = useState<SidebarStackView>(emptySidebarStackView);
+  const [model] = useState(() => createSidebarStack(policy));
+  const stack = useAtomValue(model.controls);
+  const view = useAtomValue(model.view);
   const [sidebarWidths, setSidebarWidths] = useState<SidebarWidths>(() => [
     { profile: defaultSidebarWidthProfile, widthPx: defaultSidebarWidth() },
   ]);
-  const publish = useCallback((next: SidebarStackView) => {
-    const destination = next.entries.at(-1)?.destination;
-    if (destination !== undefined) {
-      const profile = sidebarWidthProfile(destination);
-      setSidebarWidths((current) =>
-        sidebarWidthForProfile(current, profile) === undefined
-          ? [...current, { profile, widthPx: defaultSidebarWidth(destination) }]
-          : current,
-      );
-    }
-    setView(next);
-  }, []);
-  const [stack] = useState(() => createSidebarStack(policy, publish));
   const current = view.entries.at(-1);
   const activeWidthProfile = useMemo(
     () => (current === undefined ? defaultSidebarWidthProfile : sidebarWidthProfile(current.destination)),
     [current],
   );
+  const destination = current?.destination;
+  if (destination !== undefined && sidebarWidthForProfile(sidebarWidths, activeWidthProfile) === undefined) {
+    setSidebarWidths([
+      ...sidebarWidths,
+      { profile: activeWidthProfile, widthPx: defaultSidebarWidth(destination) },
+    ]);
+  }
   const resize = useCallback(
     (width: ResolvedSidebarWidth) => {
       setSidebarWidths((current) => setSidebarWidthForProfile(current, activeWidthProfile, width.px));
     },
     [activeWidthProfile],
   );
-
-  useEffect(() => stack.dispose, [stack]);
 
   const availability = current?.capability.availability;
   const rootValue = useMemo(() => ({ open: stack.open }), [stack]);
@@ -78,23 +73,26 @@ export function SidebarProvider({
     }),
     [activeWidthProfile, availability, current, resize, sidebarWidths, stack, view],
   );
+  const Boundary = current?.Boundary;
+  const navigator = current?.navigator;
+  const retainedState = current?.retainedState;
   const pageValue = useMemo<SidebarCurrentPage | null>(() => {
-    if (current === undefined) {
+    if (Boundary === undefined || destination === undefined || navigator === undefined) {
       return null;
     }
-    return current.retainedState === undefined
+    return retainedState === undefined
       ? {
-          Boundary: current.Boundary,
-          destination: current.destination,
-          navigator: current.navigator,
+          Boundary,
+          destination,
+          navigator,
         }
       : {
-          Boundary: current.Boundary,
-          destination: current.destination,
-          navigator: current.navigator,
-          retainedState: current.retainedState,
+          Boundary,
+          destination,
+          navigator,
+          retainedState,
         };
-  }, [current]);
+  }, [Boundary, destination, navigator, retainedState]);
 
   return (
     <SidebarRootContext.Provider value={rootValue}>

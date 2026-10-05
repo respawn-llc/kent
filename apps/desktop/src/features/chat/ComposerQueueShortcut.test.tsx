@@ -46,7 +46,9 @@ it.each([
   }
   render(<Probe />, { wrapper: composerWrapper(services) });
   const editor = screen.getByRole("textbox", { name: "Composer shortcut" });
-  await waitFor(() => expect(editor).not.toBeDisabled());
+  await waitFor(() => {
+    expect(editor).not.toBeDisabled();
+  });
   fireEvent.keyDown(editor, { key: "Enter", ...(modifier === null ? {} : { [modifier]: true }) });
   if (intent !== null) {
     await waitFor(() => {

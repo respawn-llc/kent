@@ -228,7 +228,9 @@ describe("Task Detail live refresh", () => {
     act(() => {
       services.transport.emit("workflow.project", taskQuestionWaitingEvent);
     });
-    await waitFor(() => expect(screen.queryByText("ask-2")).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.queryByText("ask-2")).not.toBeInTheDocument();
+    });
     const beforeFailure = services.transport.calls.length;
     answer.reject(new Error("delivery failed"));
     await waitFor(() => {

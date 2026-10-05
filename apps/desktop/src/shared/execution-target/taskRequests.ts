@@ -1,5 +1,5 @@
 import type { MutationOptions, QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 type TaskRequestGroup = "start-move" | "resume" | "interrupt";
 
