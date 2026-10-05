@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { errorMessage } from "@/api";

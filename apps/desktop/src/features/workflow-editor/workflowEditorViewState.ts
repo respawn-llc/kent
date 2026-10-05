@@ -1,6 +1,6 @@
 import type { QueryObserverResult } from "@tanstack/react-query";
 import type { QuerySnapshot } from "@/app-facade";
-import type * as Atom from "effect/unstable/reactivity/Atom";
+import type * as Atom from "effect/reactivity/Atom";
 
 import type { WorkflowValidation } from "@/api";
 import type { WorkflowGraphLayout } from "./workflowGraphLayout";

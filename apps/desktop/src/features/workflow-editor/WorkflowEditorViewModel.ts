@@ -3,7 +3,7 @@ import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/rea
 import type { TFunction } from "i18next";
 import type { WorkflowGraphSavePreview } from "@/api";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { queryAtom, queryKeys, type AppServices, type StatusController } from "@/app-facade";
 import {
   initializeWorkflowEditorDraft,
