@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
 
@@ -20,7 +21,7 @@ func parseInitialBranchExecutionOptions(
 	executionTargetRaw string,
 	branchNameRaw string,
 	stderr io.Writer,
-) (*serverapi.WorkflowExecutionTargetSelection, *string, bool) {
+) (*taskpb.ExecutionTargetSelection, *string, bool) {
 	executionTarget, err := parseOptionalTaskExecutionTarget(executionTargetRaw, flagExplicit(fs, "execution-target"))
 	if err != nil {
 		fmt.Fprintln(stderr, err)

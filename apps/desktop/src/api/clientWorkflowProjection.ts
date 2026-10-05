@@ -128,7 +128,7 @@ export function workflowDefinition(value: pb.WorkflowDefinition | undefined): Wo
   };
 }
 
-function workflowValidationError(value: pb.WorkflowValidationError): WorkflowValidationError {
+export function workflowValidationError(value: pb.WorkflowValidationError): WorkflowValidationError {
   return {
     code: workflowValidationCode.decode(value.code),
     message: value.message,

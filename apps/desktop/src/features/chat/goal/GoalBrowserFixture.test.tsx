@@ -3,12 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { render, screen } from "@testing-library/react";
 
 import { ChatPromptPresenceProvider } from "@/app-facade";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createTestServices, startupRoutes, TestAppProviders } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 
 function renderFixture() {
-  const services = createTestServices([]);
+  const services = createTestServices(startupRoutes);
   render(
     <TestAppProviders services={services}>
       <ChatPromptPresenceProvider>

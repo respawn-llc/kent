@@ -17,7 +17,7 @@ export type KanbanGroupVM = Readonly<{
 export type KanbanColumnVM = Readonly<{
   id: string;
   name: string;
-  assigneeRole: string;
+  assigneeRole: string | null;
   taskCount: number;
 }>;
 

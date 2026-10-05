@@ -10,8 +10,9 @@ import (
 	"core/server/workflowstore"
 	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -102,12 +103,12 @@ func TestServiceWorkflowGraphSaveCurrentNodeDeletionIsBlocked(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
-	task := createWorkflowServiceTask(t, ctx, service, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID, WorkflowID: &workflowID, Title: "Active graph reference", LabelIDs: []string{},
+	task := createWorkflowServiceTask(t, ctx, service, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID, WorkflowId: proto.String(workflowID.String()), Title: "Active graph reference", LabelIds: []string{},
 	})
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	removedNodeID := started.CurrentNodes[0].NodeID
+	removedNodeID := started.CurrentNodes[0].NodeId
 	graph := workflowGraphDraftWithoutNode(before, removedNodeID, workflowServiceNodeIDByKind(t, before, "terminal"))
 
 	preview := previewWorkflowGraphAtomicDraft(t, ctx, service, before, graph)
@@ -128,11 +129,11 @@ func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) 
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	requireWorkflowServiceEdgeApproval(t, ctx, service, workflowID, "next")
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
-	task := createWorkflowServiceTask(t, ctx, service, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID, WorkflowID: &workflowID, Title: "Pending Approval reference", LabelIDs: []string{},
+	task := createWorkflowServiceTask(t, ctx, service, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID, WorkflowId: proto.String(workflowID.String()), Title: "Pending Approval reference", LabelIds: []string{},
 	})
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.ID), started.CurrentNodes[0])
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
+	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(task.Task.Id), started.CurrentNodes[0])
 	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source: source, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "approved"},
 	})
@@ -160,32 +161,32 @@ func TestServiceWorkflowGraphSaveAllowsCompletedSessionProvenanceDeletion(t *tes
 	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
-	task := createWorkflowServiceTask(t, ctx, service, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID, WorkflowID: &workflowID, Title: "Retained Session provenance", LabelIDs: []string{},
+	task := createWorkflowServiceTask(t, ctx, service, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID, WorkflowId: proto.String(workflowID.String()), Title: "Retained Session provenance", LabelIds: []string{},
 	})
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	beforeCompletion := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)
-	removedNodeID := started.CurrentNodes[0].NodeID
-	taskID := workflow.TaskID(task.Task.ID)
+	removedNodeID := started.CurrentNodes[0].NodeId
+	taskID := workflow.TaskID(task.Task.Id)
 	reference := workflowServiceCurrentNodeReference(t, taskID, started.CurrentNodes[0])
 	sessionID := bindWorkflowServiceSessionToTask(t, service, metadataStore, binding, taskID, started.CurrentNodes[0])
 	service.currentNodeExecution = newManualMoveExecutionStub(service)
-	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-		ActorKind: serverapi.WorkflowTaskCompleteActorUser, TaskID: task.Task.ID, TransitionID: "next",
-		OutputValues: map[string]string{"prior_summary": "completed"}, Force: true,
+	completed, err := service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+		ActorKind: taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER, TaskId: proto.String(task.Task.Id), TransitionId: proto.String("next"),
+		OutputValues: []*taskpb.NamedValue{{Name: "prior_summary", Value: "completed"}}, Force: true,
 	})
 	implementNodeID := workflowServiceNodeIDByKey(t, beforeCompletion, "implement")
-	if err != nil || completed.ForcedMove == nil || completed.ForcedMove.Outcome.Applied == nil ||
-		len(completed.ForcedMove.Outcome.Applied.CurrentNodes) != 1 ||
-		completed.ForcedMove.Outcome.Applied.CurrentNodes[0].NodeID != implementNodeID {
+	if err != nil || completed.GetForcedMove() == nil || completed.GetForcedMove().Outcome.GetApplied() == nil ||
+		len(completed.GetForcedMove().Outcome.GetApplied().CurrentNodes) != 1 ||
+		completed.GetForcedMove().Outcome.GetApplied().CurrentNodes[0].NodeId != implementNodeID {
 		t.Fatalf("CompleteWorkflowTask = %+v, err = %v", completed, err)
 	}
-	completed, err = service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
-		ActorKind: serverapi.WorkflowTaskCompleteActorUser, TaskID: task.Task.ID, TransitionID: "done", Force: true,
+	completed, err = service.CompleteWorkflowTask(ctx, &taskpb.CompleteRequest{
+		ActorKind: taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER, TaskId: proto.String(task.Task.Id), TransitionId: proto.String("done"), Force: true,
 	})
-	if err != nil || completed.ForcedMove == nil || completed.ForcedMove.Outcome.Applied == nil ||
-		len(completed.ForcedMove.Outcome.Applied.CurrentNodes) != 1 ||
-		completed.ForcedMove.Outcome.Applied.CurrentNodes[0].NodeID != workflowServiceNodeIDByKind(t, beforeCompletion, "terminal") {
+	if err != nil || completed.GetForcedMove() == nil || completed.GetForcedMove().Outcome.GetApplied() == nil ||
+		len(completed.GetForcedMove().Outcome.GetApplied().CurrentNodes) != 1 ||
+		completed.GetForcedMove().Outcome.GetApplied().CurrentNodes[0].NodeId != workflowServiceNodeIDByKind(t, beforeCompletion, "terminal") {
 		t.Fatalf("complete implement Node = %+v, err = %v", completed, err)
 	}
 	before := getWorkflowGraphAtomicDefinition(t, ctx, service, workflowID)

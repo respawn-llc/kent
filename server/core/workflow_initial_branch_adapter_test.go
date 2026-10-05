@@ -18,6 +18,8 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
 	"core/server/worktree"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 )
@@ -155,15 +157,15 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	originalRoot := materialized.Worktree.GetRegistered().GetGit().GetCanonicalRoot()
 	testsetup.RunGit(t, workspace, "worktree", "remove", originalRoot)
 	testsetup.RunGit(t, workspace, "branch", "-D", branchA)
-	request := serverapi.WorkflowTaskMoveRequest{TaskID: string(taskID), TargetNodeID: string(source.NodeID)}
+	request := &taskpb.MoveRequest{TaskId: string(taskID), TargetNodeId: string(source.NodeID)}
 	selection, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
-	if err != nil || selection.SelectionRequired == nil || selection.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+	if err != nil || selection.GetSelectionRequired() == nil || selection.GetSelectionRequired().GetOriginalTargetUnavailable() == nil {
 		t.Fatalf("missing original selection = %+v: %v", selection, err)
 	}
-	request.ExecutionTarget = &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
+	request.ExecutionTarget = &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD}
 	request.BranchName = &branchB
 	applied, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
-	if err != nil || applied.Applied == nil {
+	if err != nil || applied.GetApplied() == nil {
 		t.Fatalf("real replacement Move = %+v: %v", applied, err)
 	}
 	updated, err := store.GetTaskExecutionTargetContext(ctx, taskID)

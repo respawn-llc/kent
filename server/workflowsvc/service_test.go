@@ -1,6 +1,7 @@
 package workflowsvc
 
 import (
+	"buf.build/go/protovalidate"
 	"context"
 	"core/internal/testharness/workflowfixture"
 	"database/sql"
@@ -27,18 +28,22 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/server/worktree"
+	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/labelcontract"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 	"core/shared/worktreecontract"
-	proto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func nextWorkflowProjectEvent(t *testing.T, sub serverapi.WorkflowProjectSubscription) serverapi.WorkflowProjectEvent {
+func nextWorkflowProjectEvent(t *testing.T, sub apicontract.WorkflowEventSubscription) *pb.ProjectEvent {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -49,13 +54,13 @@ func nextWorkflowProjectEvent(t *testing.T, sub serverapi.WorkflowProjectSubscri
 	return event
 }
 
-func waitWorkflowProjectActions(t *testing.T, sub serverapi.WorkflowProjectSubscription, resource serverapi.WorkflowProjectEventResource, expected ...serverapi.WorkflowProjectEventAction) []serverapi.WorkflowProjectEvent {
+func waitWorkflowProjectActions(t *testing.T, sub apicontract.WorkflowEventSubscription, resource pb.ProjectEventResource, expected ...pb.ProjectEventAction) []*pb.ProjectEvent {
 	t.Helper()
-	remaining := make(map[serverapi.WorkflowProjectEventAction]bool, len(expected))
+	remaining := make(map[pb.ProjectEventAction]bool, len(expected))
 	for _, action := range expected {
 		remaining[action] = true
 	}
-	events := make([]serverapi.WorkflowProjectEvent, 0, len(expected))
+	events := make([]*pb.ProjectEvent, 0, len(expected))
 	for attempts := 0; attempts < 10 && len(remaining) > 0; attempts++ {
 		event := nextWorkflowProjectEvent(t, sub)
 		events = append(events, event)
@@ -69,9 +74,24 @@ func waitWorkflowProjectActions(t *testing.T, sub serverapi.WorkflowProjectSubsc
 	return events
 }
 
+func noLabelFilter() *taskpb.LabelFilter {
+	return &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}}
+}
+
 func isWorkflowServiceRequestFieldError(err error, field string) bool {
 	var validationErr serverapi.WorkflowRequestValidationError
-	return errors.As(err, &validationErr) && validationErr.Field == field
+	if errors.As(err, &validationErr) {
+		return validationErr.Field == field
+	}
+	var generated *protovalidate.ValidationError
+	if errors.As(err, &generated) {
+		for _, violation := range generated.Violations {
+			if violation.FieldDescriptor != nil && string(violation.FieldDescriptor.Name()) == field {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var workflowServiceGraphEntityIDs sync.Map
@@ -128,20 +148,20 @@ func TestServiceCreatesValidatesLinksAndStartsDefaultWorkflowTask(t *testing.T) 
 	}
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowServiceID(t, created.Workflow.Id))
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if !strings.HasPrefix(task.Task.ShortID, "WOR-1") || task.Task.WorkflowID != workflowServiceID(t, created.Workflow.Id) {
+	if !strings.HasPrefix(task.Task.ShortId, "WOR-1") || task.Task.WorkflowId != created.Workflow.Id {
 		t.Fatalf("task response = %+v", task.Task)
 	}
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	if len(started.CurrentNodes) != 1 || strings.TrimSpace(started.CurrentNodes[0].NodeID) == "" {
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
+	if len(started.CurrentNodes) != 1 || strings.TrimSpace(started.CurrentNodes[0].NodeId) == "" {
 		t.Fatalf("start response = %+v, want one Current Node", started)
 	}
-	_, err = service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	_, err = service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	})
 	var conflict *serverapi.WorkflowTaskStartConflictError
 	if !errors.As(err, &conflict) ||
-		conflict.TaskID != task.Task.ID ||
+		conflict.TaskID != task.Task.Id ||
 		conflict.Reason != serverapi.WorkflowTaskStartConflictAlreadyStarted {
 		t.Fatalf("StartWorkflowTask error = %T %+v, want public already-started conflict", err, err)
 	}
@@ -173,77 +193,80 @@ func TestServiceListWorkflowTasksValidatesAndDelegates(t *testing.T) {
 	ctx, service, projectID, workflowID, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
 	blankProjectID := " "
-	if _, err := service.ListWorkflowTasks(ctx, serverapi.WorkflowTaskListRequest{
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone}, ProjectID: &blankProjectID}); !isWorkflowServiceRequestFieldError(err, "project_id") {
+	if _, err := service.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+		LabelFilter: noLabelFilter(), ProjectId: &blankProjectID}); !isWorkflowServiceRequestFieldError(err, "project_id") {
 		t.Fatalf("blank project error = %#v, want project_id validation", err)
 	}
-	resp, err := service.ListWorkflowTasks(ctx, serverapi.WorkflowTaskListRequest{
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{Kind: serverapi.WorkflowTaskLabelFilterKindNone},
-		ProjectID:   &projectID,
-		WorkflowID:  &workflowID,
+	resp, err := service.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+		LabelFilter: noLabelFilter(),
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
 	})
 	if err != nil {
 		t.Fatalf("ListWorkflowTasks: %v", err)
 	}
-	if resp.Scope.WorkflowID == nil || *resp.Scope.WorkflowID != workflowID || len(resp.Tasks) != 1 || resp.Tasks[0].TaskID != taskID {
+	if resp.Scope.WorkflowId == nil || *resp.Scope.WorkflowId != workflowID.String() || len(resp.Tasks) != 1 || resp.Tasks[0].TaskId != taskID {
 		t.Fatalf("task list response = %+v, want workflow %s task %s", resp, workflowID, taskID)
 	}
 }
 
 func TestServiceCommentMutationsUpdateActivityAndPublishInvalidations(t *testing.T) {
 	ctx, service, projectID, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: projectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(projectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
-	added, err := service.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: "first", Author: "user", AuthorID: "nek"})
+	added, err := service.AddWorkflowTaskComment(ctx, &taskpb.CommentAddRequest{TaskId: taskID, Body: "first", Author: taskpb.CommentAuthorKind_COMMENT_AUTHOR_KIND_USER, AuthorId: proto.String("nek")})
 	if err != nil {
 		t.Fatalf("AddWorkflowTaskComment: %v", err)
 	}
-	if added.Comment.CreatedAtUnixMs == 0 || added.Comment.UpdatedAt == 0 {
+	if added.Comment.CreatedAt == nil || added.Comment.UpdatedAt == nil {
 		t.Fatalf("added comment missing timestamps: %+v", added.Comment)
 	}
-	if err := service.ReplaceWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentReplaceRequest{CommentID: added.Comment.ID, Body: "updated"}); err != nil {
+	if _, err := service.ReplaceWorkflowTaskComment(ctx, &taskpb.CommentReplaceRequest{CommentId: added.Comment.Id, Body: "updated"}); err != nil {
 		t.Fatalf("ReplaceWorkflowTaskComment: %v", err)
 	}
-	activity, err := service.ListWorkflowTaskActivity(ctx, serverapi.WorkflowTaskOffsetPageRequest{TaskID: taskID})
+	activity, err := service.ListWorkflowTaskActivity(ctx, &taskpb.TaskOffsetPageRequest{TaskId: taskID})
 	if err != nil {
 		t.Fatalf("ListWorkflowTaskActivity: %v", err)
 	}
-	if len(activity.Items) == 0 || activity.Items[0].Type != "comment" || activity.Items[0].Comment == nil || activity.Items[0].Comment.Body != "updated" {
+	if len(activity.Items) == 0 || activity.Items[0].GetComment() == nil || activity.Items[0].GetComment().Body != "updated" {
 		t.Fatalf("activity after replace = %+v", activity.Items)
 	}
-	if err := service.DeleteWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentDeleteRequest{CommentID: added.Comment.ID}); err != nil {
+	if _, err := service.DeleteWorkflowTaskComment(ctx, &taskpb.CommentDeleteRequest{CommentId: added.Comment.Id}); err != nil {
 		t.Fatalf("DeleteWorkflowTaskComment: %v", err)
 	}
-	activity, err = service.ListWorkflowTaskActivity(ctx, serverapi.WorkflowTaskOffsetPageRequest{TaskID: taskID})
+	activity, err = service.ListWorkflowTaskActivity(ctx, &taskpb.TaskOffsetPageRequest{TaskId: taskID})
 	if err != nil {
 		t.Fatalf("ListWorkflowTaskActivity after delete: %v", err)
 	}
 	for _, item := range activity.Items {
-		if item.Type == "comment" && item.Comment != nil && item.Comment.ID == added.Comment.ID {
+		if item.GetComment() != nil && item.GetComment().Id == added.Comment.Id {
 			t.Fatalf("deleted comment visible in activity: %+v", activity.Items)
 		}
 	}
-	waitWorkflowProjectActions(t, sub, "task", "comment_added", "comment_updated", "comment_deleted")
+	waitWorkflowProjectActions(t, sub, pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+		pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_ADDED,
+		pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_UPDATED,
+		pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_DELETED)
 }
 
 func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 	for _, body := range []string{"first", "second", "third"} {
-		if _, err := service.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{
-			TaskID: taskID,
+		if _, err := service.AddWorkflowTaskComment(ctx, &taskpb.CommentAddRequest{
+			TaskId: taskID,
 			Body:   body,
-			Author: "user",
+			Author: taskpb.CommentAuthorKind_COMMENT_AUTHOR_KIND_USER,
 		}); err != nil {
 			t.Fatalf("AddWorkflowTaskComment %q: %v", body, err)
 		}
 	}
-	offset := 0
-	limit := 2
-	first, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: taskID,
+	offset := int32(0)
+	limit := int32(2)
+	first, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: taskID,
 		Offset: &offset,
 		Limit:  &limit,
 	})
@@ -253,8 +276,8 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 	if len(first.Items) != 2 || first.NextOffset == nil || *first.NextOffset != 2 || first.TotalCount != 3 {
 		t.Fatalf("first comment page = %+v", first)
 	}
-	second, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: taskID,
+	second, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: taskID,
 		Offset: first.NextOffset,
 		Limit:  &limit,
 	})
@@ -264,9 +287,9 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 	if len(second.Items) != 1 || second.NextOffset != nil || second.TotalCount != 3 {
 		t.Fatalf("continued comment page = %+v", second)
 	}
-	beyondEnd := 3
-	empty, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: taskID,
+	beyondEnd := int32(3)
+	empty, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+		TaskId: taskID,
 		Offset: &beyondEnd,
 		Limit:  &limit,
 	})
@@ -276,13 +299,13 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 	if len(empty.Items) != 0 || empty.NextOffset != nil || empty.TotalCount != 3 {
 		t.Fatalf("beyond-end comment page = %+v", empty)
 	}
-	negativeOffset := -1
-	zeroLimit := 0
-	aboveLimit := serverapi.WorkflowPaginationMaxLimit + 1
+	negativeOffset := int32(-1)
+	zeroLimit := int32(0)
+	aboveLimit := int32(serverapi.WorkflowPaginationMaxLimit + 1)
 	for _, tt := range []struct {
 		name   string
-		offset *int
-		limit  *int
+		offset *int32
+		limit  *int32
 		field  string
 	}{
 		{name: "negative offset", offset: &negativeOffset, limit: &limit, field: "offset"},
@@ -290,8 +313,8 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 		{name: "limit above maximum", offset: &offset, limit: &aboveLimit, field: "limit"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskOffsetPageRequest{
-				TaskID: taskID,
+			_, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+				TaskId: taskID,
 				Offset: tt.offset,
 				Limit:  tt.limit,
 			})
@@ -322,7 +345,7 @@ func TestServiceTaskStartValidatesCurrentGraph(t *testing.T) {
 	if err != nil || !saved.Saved {
 		t.Fatalf("SaveWorkflowGraph invalid execution draft = %+v, err = %v", saved, err)
 	}
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{SetupOperationID: serverapi.NewWorkflowSetupOperationID(), TaskID: taskID}); err == nil {
+	if _, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{SetupOperationId: worktreecontract.NewSetupOperationID().String(), TaskId: taskID}); err == nil {
 		t.Fatalf("expected current graph validation error, got %v", err)
 	} else {
 		var validationErr workflowstore.WorkflowValidationError
@@ -335,17 +358,17 @@ func TestServiceTaskStartValidatesCurrentGraph(t *testing.T) {
 func TestServiceTaskStartRequiresSelectionWithoutApplyingAction(t *testing.T) {
 	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           taskID,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
 	})
 	if err != nil {
 		t.Fatalf("StartWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowTaskActionOutcomeSelectionRequired ||
-		response.Applied != nil ||
-		response.SelectionRequired == nil ||
-		response.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
+	if response.GetSelectionRequired() == nil ||
+		response.GetApplied() != nil ||
+		response.GetSelectionRequired() == nil ||
+		response.GetSelectionRequired().GetPolicyRequiresSelection() == nil {
 		t.Fatalf("start response = %+v, want policy selection requirement", response)
 	}
 }
@@ -364,9 +387,9 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				t.Fatal(err)
 			}
 			worktreeID := runtimeids.NewGraphEntityID()
-			bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, workflow.TaskID(task.Task.ID), worktreeID, root, true)
+			bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, workflow.TaskID(task.Task.Id), worktreeID, root, true)
 			requested, commit := "HEAD", strings.Repeat("a", 40)
-			started, err := service.currentNodeExecution.StartTask(ctx, workflow.TaskID(task.Task.ID), &workflowstore.ExecutionTargetCandidate{
+			started, err := service.currentNodeExecution.StartTask(ctx, workflow.TaskID(task.Task.Id), &workflowstore.ExecutionTargetCandidate{
 				Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeHead, RequestedRef: &requested, CommitOID: &commit, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
 				Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: binding.WorkspaceID, SourceWorkspaceRoot: binding.CanonicalRoot, Managed: &workflowstore.ManagedExecutionRoot{WorktreeID: worktreeID, Root: root}},
 			})
@@ -378,31 +401,35 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				t.Fatal(err)
 			}
 			terminal := workflowServiceNodeIDByKind(t, definition.Definition, "terminal")
-			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: task.Task.ID, TargetNodeID: terminal}); err != nil {
+			if _, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{TaskId: task.Task.Id, TargetNodeId: terminal}); err != nil {
 				t.Fatal(err)
 			}
 			infrastructure := &recordingExecutionTargetInfrastructure{
 				restoreErr: &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch},
 			}
 			service.executionTargets = infrastructure
-			before, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			before, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-				TaskID: task.Task.ID, TargetNodeID: string(started.Mutation.Created[0].Reference.NodeID),
+			response, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+				TaskId: task.Task.Id, TargetNodeId: string(started.Mutation.Created[0].Reference.NodeID),
 			})
-			if err != nil || response.SelectionRequired == nil ||
-				response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+			if err != nil || response.GetSelectionRequired() == nil ||
+				response.GetSelectionRequired().GetOriginalTargetUnavailable() == nil {
 				t.Fatalf("completed reopen = %+v: %v", response, err)
 			}
-			after, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			after, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 			if err != nil || !reflect.DeepEqual(before.Task, after.Task) {
 				t.Fatalf("selection changed completed Task: %+v -> %+v: %v", before.Task, after.Task, err)
 			}
-			move := serverapi.WorkflowTaskMoveRequest{
-				TaskID: task.Task.ID, TargetNodeID: string(started.Mutation.Created[0].Reference.NodeID),
-				ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetMode(mode)},
+			modeCode, err := protoapi.WorkflowExecutionTargetMode.Encode(string(mode))
+			if err != nil {
+				t.Fatal(err)
+			}
+			move := &taskpb.MoveRequest{
+				TaskId: task.Task.Id, TargetNodeId: string(started.Mutation.Created[0].Reference.NodeID),
+				ExecutionTarget: &taskpb.ExecutionTargetSelection{Mode: modeCode},
 			}
 			if mode == workflow.ExecutionTargetModeCustomRef {
 				move.ExecutionTarget.CustomRef = &requested
@@ -413,23 +440,23 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				t.Fatalf("healthy original allowed replacement: %v", err)
 			}
 			branch := "reopened"
-			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-				TaskID: move.TaskID, TargetNodeID: move.TargetNodeID, BranchName: &branch,
+			if _, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+				TaskId: move.TaskId, TargetNodeId: move.TargetNodeId, BranchName: &branch,
 			}); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
 				t.Fatalf("healthy original ignored replacement branch: %v", err)
 			}
-			if reused, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: move.TaskID, TargetNodeID: move.TargetNodeID}); err != nil || reused.Applied == nil {
+			if reused, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{TaskId: move.TaskId, TargetNodeId: move.TargetNodeId}); err != nil || reused.GetApplied() == nil {
 				t.Fatalf("healthy original was not reused: %+v: %v", reused, err)
 			}
-			reused, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(move.TaskID))
+			reused, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(move.TaskId))
 			if err != nil || !reflect.DeepEqual(reused.Task.ExecutionTarget, before.Task.ExecutionTarget) ||
 				!reflect.DeepEqual(reused.Task.ManagedWorktreeID, before.Task.ManagedWorktreeID) {
 				t.Fatalf("reuse changed target: %+v: %v", reused.Task, err)
 			}
-			if _, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: task.Task.ID, TargetNodeID: terminal}); err != nil {
+			if _, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{TaskId: task.Task.Id, TargetNodeId: terminal}); err != nil {
 				t.Fatal(err)
 			}
-			before, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			before, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -467,7 +494,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				}
 				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 				infrastructure.materializeErr = retained
-				var failure *serverapi.WorkflowSetupRetainedError
+				var failure *worktreecontract.SetupRetainedError
 				if response, err := service.MoveWorkflowTask(ctx, move); !errors.As(err, &failure) {
 					t.Fatalf("replacement setup failure = %T %v, response %+v", err, err, response)
 				}
@@ -476,15 +503,15 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 				}
 				infrastructure.materializeErr = nil
 			}
-			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 			if err != nil || !reflect.DeepEqual(before.Task, after.Task) {
 				t.Fatalf("failed preparation changed Task: %+v -> %+v: %v", before.Task, after.Task, err)
 			}
 			result, err := service.MoveWorkflowTask(ctx, move)
-			if err != nil || result.Applied == nil {
+			if err != nil || result.GetApplied() == nil {
 				t.Fatalf("replacement Move = %+v: %v", result, err)
 			}
-			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+			after, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 			if err != nil || after.Task.ExecutionTarget == nil || after.Task.ExecutionTarget.Mode != mode ||
 				after.Task.Body != before.Task.Body || after.Task.Title != before.Task.Title {
 				t.Fatalf("replacement target/content = %+v: %v", after.Task, err)
@@ -492,7 +519,7 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 			if mode != workflow.ExecutionTargetModeNone && infrastructure.materializeRequest.Purpose != worktree.TaskExecutionRootReplacement {
 				t.Fatal("replacement did not use unbound preparation")
 			}
-			move.TargetNodeID = workflowServiceNodeIDByKey(t, definition.Definition, "implement")
+			move.TargetNodeId = workflowServiceNodeIDByKey(t, definition.Definition, "implement")
 			infrastructure.restoreErr = nil
 			if _, err := service.MoveWorkflowTask(ctx, move); !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {
 				t.Fatalf("healthy locked target accepted replacement: %v", err)
@@ -514,43 +541,43 @@ func TestServiceManualMoveExecutableSelectsTargetThenStartsCurrentNode(t *testin
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
 
-	selectionRequired, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: targetNodeID,
+	selectionRequired, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: targetNodeID,
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask selection: %v", err)
 	}
-	if selectionRequired.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
-		selectionRequired.Applied != nil ||
-		selectionRequired.SelectionRequired == nil ||
-		selectionRequired.SelectionRequired.Details.GetPolicyRequiresSelection() == nil {
+	if selectionRequired.GetSelectionRequired() == nil ||
+		selectionRequired.GetApplied() != nil ||
+		selectionRequired.GetSelectionRequired() == nil ||
+		selectionRequired.GetSelectionRequired().GetPolicyRequiresSelection() == nil {
 		t.Fatalf("selection response = %+v, want execution-target selection", selectionRequired)
 	}
 	if len(execution.interruptTaskIDs) != 0 {
 		t.Fatalf("interruptions before execution-target selection = %v, want none", execution.interruptTaskIDs)
 	}
 
-	applied, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: targetNodeID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	applied, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: targetNodeID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask retry: %v", err)
 	}
-	if applied.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		applied.Applied == nil ||
-		len(applied.Applied.CurrentNodes) != 1 ||
-		applied.Applied.CurrentNodes[0].NodeID != targetNodeID {
+	if applied.GetApplied() == nil ||
+		applied.GetApplied() == nil ||
+		len(applied.GetApplied().CurrentNodes) != 1 ||
+		applied.GetApplied().CurrentNodes[0].NodeId != targetNodeID {
 		t.Fatalf("applied move response = %+v, want started target Current Node", applied)
 	}
 	if len(execution.started) != 1 || execution.started[0].NodeID != workflow.NodeID(targetNodeID) {
 		t.Fatalf("execution starts = %+v, want target Current Node", execution.started)
 	}
-	if len(execution.interruptTaskIDs) != 1 || execution.interruptTaskIDs[0] != workflow.TaskID(task.Task.ID) {
+	if len(execution.interruptTaskIDs) != 1 || execution.interruptTaskIDs[0] != workflow.TaskID(task.Task.Id) {
 		t.Fatalf("interruptions after target selection = %v, want selected task", execution.interruptTaskIDs)
 	}
 }
@@ -562,8 +589,8 @@ func TestServicePreviewManualMoveMapsOutcomes(t *testing.T) {
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
-	currentNodeID := started.CurrentNodes[0].NodeID
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
+	currentNodeID := started.CurrentNodes[0].NodeId
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
@@ -571,38 +598,38 @@ func TestServicePreviewManualMoveMapsOutcomes(t *testing.T) {
 	terminalID := workflowServiceNodeIDByKind(t, definition.Definition, "terminal")
 	implementID := workflowServiceNodeIDByKey(t, definition.Definition, "implement")
 
-	noOp, err := service.PreviewWorkflowTaskMove(ctx, serverapi.WorkflowTaskMovePreviewRequest{
-		TaskID: task.Task.ID, TargetNodeID: currentNodeID,
+	noOp, err := service.PreviewWorkflowTaskMove(ctx, &taskpb.MovePreviewRequest{
+		TaskId: task.Task.Id, TargetNodeId: currentNodeID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowTaskMove no-op: %v", err)
 	}
-	if noOp.Outcome != serverapi.WorkflowTaskMovePreviewOutcomeNoOp ||
-		noOp.NoOp == nil || len(noOp.NoOp.CurrentNodes) != 1 ||
-		noOp.NoOp.CurrentNodes[0].NodeID != currentNodeID {
+	if noOp.GetNoOp() == nil ||
+		noOp.GetNoOp() == nil || len(noOp.GetNoOp().CurrentNodes) != 1 ||
+		noOp.GetNoOp().CurrentNodes[0].NodeId != currentNodeID {
 		t.Fatalf("no-op preview = %+v", noOp)
 	}
 
-	direct, err := service.PreviewWorkflowTaskMove(ctx, serverapi.WorkflowTaskMovePreviewRequest{
-		TaskID: task.Task.ID, TargetNodeID: terminalID,
+	direct, err := service.PreviewWorkflowTaskMove(ctx, &taskpb.MovePreviewRequest{
+		TaskId: task.Task.Id, TargetNodeId: terminalID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowTaskMove direct: %v", err)
 	}
-	if direct.Outcome != serverapi.WorkflowTaskMovePreviewOutcomeDirect || direct.Direct == nil {
+	if direct.GetDirect() == nil || direct.GetDirect() == nil {
 		t.Fatalf("direct preview = %+v", direct)
 	}
 
-	transition, err := service.PreviewWorkflowTaskMove(ctx, serverapi.WorkflowTaskMovePreviewRequest{
-		TaskID: task.Task.ID, TargetNodeID: implementID,
+	transition, err := service.PreviewWorkflowTaskMove(ctx, &taskpb.MovePreviewRequest{
+		TaskId: task.Task.Id, TargetNodeId: implementID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowTaskMove transition: %v", err)
 	}
-	if transition.Outcome != serverapi.WorkflowTaskMovePreviewOutcomeTransition ||
-		transition.Transition == nil || len(transition.Transition.Choices) != 1 ||
-		transition.Transition.Choices[0].TransitionKey != "next" ||
-		transition.Transition.Choices[0].SourceNodeDisplayName != "Plan" {
+	if transition.GetTransition() == nil ||
+		transition.GetTransition() == nil || len(transition.GetTransition().Choices) != 1 ||
+		transition.GetTransition().Choices[0].TransitionKey != "next" ||
+		transition.GetTransition().Choices[0].SourceNodeDisplayName != "Plan" {
 		t.Fatalf("transition preview = %+v", transition)
 	}
 
@@ -615,29 +642,29 @@ func TestServiceManualMoveNoOpSkipsInterruptionAttentionAndEvent(t *testing.T) {
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	recorder := &workflowAttentionRecorder{}
 	service.attentionFinalizer = recorder
-	subscription, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{
-		ProjectID: binding.ProjectID,
+	subscription, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{
+		ProjectId: proto.String(binding.ProjectID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = subscription.Close() }()
 
-	moved, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID: task.Task.ID, TargetNodeID: started.CurrentNodes[0].NodeID,
+	moved, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId: task.Task.Id, TargetNodeId: started.CurrentNodes[0].NodeId,
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask no-op: %v", err)
 	}
-	if err := moved.Validate(); err != nil {
+	if err := protoapi.Validate(moved); err != nil {
 		t.Fatalf("no-op response validation: %v", err)
 	}
-	if moved.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeNoOp ||
-		moved.NoOp == nil || len(moved.NoOp.CurrentNodes) != 1 ||
-		moved.NoOp.CurrentNodes[0].NodeID != started.CurrentNodes[0].NodeID {
+	if moved.GetNoOp() == nil ||
+		moved.GetNoOp() == nil || len(moved.GetNoOp().CurrentNodes) != 1 ||
+		moved.GetNoOp().CurrentNodes[0].NodeId != started.CurrentNodes[0].NodeId {
 		t.Fatalf("no-op move response = %+v", moved)
 	}
 	if len(execution.interruptTaskIDs) != 0 {
@@ -660,7 +687,7 @@ func TestServiceManualMoveStaleFinalRevalidationReturnsNoOpWithoutSideEffects(t 
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
@@ -669,8 +696,8 @@ func TestServiceManualMoveStaleFinalRevalidationReturnsNoOpWithoutSideEffects(t 
 	execution.started = nil
 	recorder := &workflowAttentionRecorder{}
 	service.attentionFinalizer = recorder
-	subscription, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{
-		ProjectID: binding.ProjectID,
+	subscription, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{
+		ProjectId: proto.String(binding.ProjectID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
@@ -678,25 +705,25 @@ func TestServiceManualMoveStaleFinalRevalidationReturnsNoOpWithoutSideEffects(t 
 	defer func() { _ = subscription.Close() }()
 	execution.interruptHook = func() {
 		if _, err := workflowfixture.MoveTask(t, ctx, metadataStore, service.store, workflowstore.ManualMoveRequest{
-			TaskID:       workflow.TaskID(task.Task.ID),
+			TaskID:       workflow.TaskID(task.Task.Id),
 			TargetNodeID: workflow.NodeID(terminalID),
 		}); err != nil {
 			t.Errorf("stale move setup: %v", err)
 		}
 	}
 
-	moved, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID: task.Task.ID, TargetNodeID: terminalID,
+	moved, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId: task.Task.Id, TargetNodeId: terminalID,
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask stale no-op: %v", err)
 	}
-	if err := moved.Validate(); err != nil {
+	if err := protoapi.Validate(moved); err != nil {
 		t.Fatalf("stale no-op response validation: %v", err)
 	}
-	if moved.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeNoOp ||
-		moved.NoOp == nil || len(moved.NoOp.CurrentNodes) != 1 ||
-		moved.NoOp.CurrentNodes[0].NodeID != terminalID {
+	if moved.GetNoOp() == nil ||
+		moved.GetNoOp() == nil || len(moved.GetNoOp().CurrentNodes) != 1 ||
+		moved.GetNoOp().CurrentNodes[0].NodeId != terminalID {
 		t.Fatalf("stale no-op response = %+v", moved)
 	}
 	if len(execution.started) != 0 {
@@ -728,29 +755,29 @@ func TestServiceManualMoveApprovalAppliesImmediately(t *testing.T) {
 	targetNodeID := workflowServiceNodeIDByKey(t, definition.Definition, "implement")
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
-	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	execution.started = nil
 
-	moved, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: targetNodeID,
-		Values:       map[string]map[string]string{"plan": {"prior_summary": "manual plan"}},
+	moved, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: targetNodeID,
+		Values:       []*taskpb.NodeOutputValues{{NodeKey: "plan", Outputs: []*taskpb.NamedValue{{Name: "prior_summary", Value: "manual plan"}}}},
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask: %v", err)
 	}
-	if err := moved.Validate(); err != nil {
+	if err := protoapi.Validate(moved); err != nil {
 		t.Fatalf("MoveWorkflowTask response validation: %v", err)
 	}
-	if moved.Applied == nil ||
-		len(moved.Applied.CurrentNodes) != 1 ||
-		moved.Applied.CurrentNodes[0].NodeID != targetNodeID {
+	if moved.GetApplied() == nil ||
+		len(moved.GetApplied().CurrentNodes) != 1 ||
+		moved.GetApplied().CurrentNodes[0].NodeId != targetNodeID {
 		t.Fatalf("move response = %+v, want target Current Node", moved)
 	}
 	if len(execution.started) != 1 || execution.started[0].NodeID != workflow.NodeID(targetNodeID) {
 		t.Fatalf("execution starts = %+v, want target Current Node", execution.started)
 	}
-	approvals, err := service.store.ListPendingApprovals(ctx, workflow.TaskID(task.Task.ID))
+	approvals, err := service.store.ListPendingApprovals(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("ListPendingApprovals: %v", err)
 	}
@@ -773,24 +800,24 @@ func TestServiceManualMoveRevalidatesTaskQuiescenceBeforeDurableApply(t *testing
 	execution.quiescentErrors = []error{workflowexecution.ErrTaskExecutionNotQuiescent}
 	service.currentNodeExecution = execution
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: targetNodeID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: targetNodeID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if !errors.Is(err, workflowexecution.ErrTaskExecutionNotQuiescent) {
 		t.Fatalf("MoveWorkflowTask quiescence error = %v, want %v", err, workflowexecution.ErrTaskExecutionNotQuiescent)
 	}
-	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("ListCurrentNodes: %v", err)
 	}
 	if len(currentNodes) != 1 || currentNodes[0].Reference.NodeID == workflow.NodeID(targetNodeID) {
 		t.Fatalf("current nodes after rejected move = %+v, want original backlog Current Node", currentNodes)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
@@ -808,7 +835,7 @@ func TestServiceGraphMutationsUseStoreEditPolicyInsteadOfTaskWideQuiescence(t *t
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
@@ -920,7 +947,7 @@ func TestServiceWorkflowDeleteRevalidatesWorkflowTasksAtCommit(t *testing.T) {
 	if _, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()}); err != nil {
 		t.Fatalf("GetWorkflow after rejected mutations: %v", err)
 	}
-	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: taskID}); err != nil {
+	if _, err := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(taskID)}); err != nil {
 		t.Fatalf("GetWorkflowTask after rejected delete: %v", err)
 	}
 }
@@ -935,7 +962,7 @@ func TestServiceGraphSaveAndWorkflowDeleteWaitForConcurrentTaskMutation(t *testi
 		if err != nil {
 			t.Fatalf("GetWorkflow: %v", err)
 		}
-		waitForTaskMutationLane(t, service, workflow.TaskID(task.Task.ID), func() error {
+		waitForTaskMutationLane(t, service, workflow.TaskID(task.Task.Id), func() error {
 			_, err := service.SaveWorkflowGraph(ctx, &pb.GraphSaveRequest{
 				WorkflowId:      workflowID.String(),
 				ExpectedVersion: definition.Definition.Workflow.Version,
@@ -968,14 +995,15 @@ func TestServiceWorkflowTaskDeleteWaitsForConcurrentTaskMutation(t *testing.T) {
 	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
 	waitForTaskMutationLane(t, service, workflow.TaskID(taskID), func() error {
-		return service.DeleteWorkflowTask(ctx, serverapi.WorkflowTaskDeleteRequest{TaskID: taskID})
+		_, err := service.DeleteWorkflowTask(ctx, &taskpb.DeleteRequest{TaskId: taskID})
+		return err
 	}, func() {
-		if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: taskID}); err != nil {
+		if _, err := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(taskID)}); err != nil {
 			t.Fatalf("GetWorkflowTask while delete waits: %v", err)
 		}
 	})
 
-	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: taskID}); err == nil {
+	if _, err := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(taskID)}); err == nil {
 		t.Fatal("deleted workflow task remains readable after permit release")
 	}
 }
@@ -989,7 +1017,7 @@ func TestServiceWorkflowTaskReadDoesNotWaitForRuntimeLifecycleOwnership(t *testi
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	started, err := admitWorkflowServiceTask(ctx, service, taskID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
@@ -1073,7 +1101,7 @@ func TestServiceWorkflowTaskReadDoesNotWaitForRuntimeLifecycleOwnership(t *testi
 
 	readDone := make(chan error, 1)
 	go func() {
-		_, readErr := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID})
+		_, readErr := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(task.Task.Id)})
 		readDone <- readErr
 	}()
 	select {
@@ -1093,20 +1121,20 @@ func TestServiceWorkflowTaskReadDoesNotWaitForRuntimeLifecycleOwnership(t *testi
 func TestServiceTaskStartAppliesExplicitNoneSelectionAndLocksTarget(t *testing.T) {
 	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           taskID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if err != nil {
 		t.Fatalf("StartWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowTaskActionOutcomeApplied || response.Applied == nil {
+	if response.GetApplied() == nil || response.GetApplied() == nil {
 		t.Fatalf("start response = %+v, want applied", response)
 	}
-	if len(response.Applied.CurrentNodes) != 1 || strings.TrimSpace(response.Applied.CurrentNodes[0].NodeID) == "" {
+	if len(response.GetApplied().CurrentNodes) != 1 || strings.TrimSpace(response.GetApplied().CurrentNodes[0].NodeId) == "" {
 		t.Fatalf("start response = %+v, want one Current Node", response)
 	}
 	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(taskID))
@@ -1130,11 +1158,11 @@ func TestServiceAffectedStartNodeWithProvisionalWorktreeStartsAndLocksTarget(t *
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	worktreeRoot := filepath.Join(t.TempDir(), "task-worktree")
-	worktreeID := "worktree-" + task.Task.ID
+	worktreeID := "worktree-" + task.Task.Id
 	requestedRef := "HEAD"
 	resolvedRef := "refs/heads/main"
 	commitOID := strings.Repeat("a", 40)
-	bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, workflow.TaskID(task.Task.ID), worktreeID, worktreeRoot, true)
+	bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, workflow.TaskID(task.Task.Id), worktreeID, worktreeRoot, true)
 	infrastructure := &recordingExecutionTargetInfrastructure{
 		resolution: workflowstore.ExecutionTargetSnapshot{
 			Mode:         workflow.ExecutionTargetModeHead,
@@ -1150,18 +1178,18 @@ func TestServiceAffectedStartNodeWithProvisionalWorktreeStartsAndLocksTarget(t *
 	}
 	service.executionTargets = infrastructure
 
-	detail, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID})
+	detail, err := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(task.Task.Id)})
 	if err != nil || detail.Task.ExecutionTarget != nil || detail.Task.WorktreePath != nil || !detail.Task.Actions.CanStart {
 		t.Fatalf("provisional Task detail = %+v, %v; want hidden target facts and Start action", detail.Task, err)
 	}
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           task.Task.ID,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           task.Task.Id,
 	})
-	if err != nil || response.Applied == nil {
+	if err != nil || response.GetApplied() == nil {
 		t.Fatalf("StartWorkflowTask = %+v, %v; want applied", response, err)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
@@ -1182,7 +1210,7 @@ func TestServiceTaskStartAttemptsSetupOncePerExplicitAction(t *testing.T) {
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	requestedRef := "HEAD"
 	commitOID := strings.Repeat("b", 40)
-	worktreeID := "worktree-" + task.Task.ID
+	worktreeID := "worktree-" + task.Task.Id
 	worktreeRoot := filepath.Join(t.TempDir(), "task-worktree")
 	firstMaterialization := true
 	setupFailure := errors.New("setup process failed")
@@ -1205,7 +1233,7 @@ func TestServiceTaskStartAttemptsSetupOncePerExplicitAction(t *testing.T) {
 				RetainedWorktree: &worktreepb.RegisteredFacts{
 					Git: &worktreepb.GitFacts{CanonicalRoot: worktreeRoot, HeadObject: commitOID},
 					Kent: &worktreepb.KentFacts{
-						WorktreeId: worktreeID, CanonicalRoot: worktreeRoot, DisplayName: task.Task.ShortID,
+						WorktreeId: worktreeID, CanonicalRoot: worktreeRoot, DisplayName: task.Task.ShortId,
 					},
 				},
 			}
@@ -1216,28 +1244,28 @@ func TestServiceTaskStartAttemptsSetupOncePerExplicitAction(t *testing.T) {
 		},
 	}
 	service.executionTargets = infrastructure
-	before, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	before, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           task.Task.ID,
-		ExecutionTarget:  &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead},
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           task.Task.Id,
+		ExecutionTarget:  &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD},
 	})
-	if !errors.Is(err, setupFailure) || response.Applied != nil || len(infrastructure.setupRequirements) != 1 {
+	if !errors.Is(err, setupFailure) || response.GetApplied() != nil || len(infrastructure.setupRequirements) != 1 {
 		t.Fatalf("failed setup = %+v, %v; attempts %d", response, err, len(infrastructure.setupRequirements))
 	}
-	after, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	after, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("failed setup published execution: %+v, %v", after, err)
 	}
 	attemptFailure = nil
-	_, err = service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           task.Task.ID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeHead,
+	_, err = service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           task.Task.Id,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
 		},
 	})
 	if err != nil {
@@ -1249,7 +1277,7 @@ func TestServiceTaskStartAttemptsSetupOncePerExplicitAction(t *testing.T) {
 	}; !reflect.DeepEqual(infrastructure.setupRequirements, want) {
 		t.Fatalf("setup requirements = %v, want %v", infrastructure.setupRequirements, want)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext after retry: %v", err)
 	}
@@ -1262,10 +1290,10 @@ func TestServiceTaskStartAttemptsSetupOncePerExplicitAction(t *testing.T) {
 }
 
 func TestTaskSetupObservationPublishesRetryReadyFailure(t *testing.T) {
-	setupOperationID := serverapi.NewWorkflowSetupOperationID()
+	setupOperationID := worktreecontract.NewSetupOperationID()
 	recorder := &workflowTaskSetupEventRecorder{}
 	observation, err := newTaskSetupObservation(
-		setupOperationID.Domain(),
+		setupOperationID,
 		workflow.ExecutionTargetSelection{Mode: workflow.ExecutionTargetModeNone},
 		recorder,
 	)
@@ -1308,14 +1336,14 @@ func TestServiceTaskStartReturnsConfiguredTargetResolutionFailureBeforeCutover(t
 		},
 	}
 
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           task.Task.ID,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           task.Task.Id,
 	})
-	if err != nil || response.SelectionRequired == nil || response.Applied != nil {
+	if err != nil || response.GetSelectionRequired() == nil || response.GetApplied() != nil {
 		t.Fatalf("StartWorkflowTask = %+v, %v; want target selection without cutover", response, err)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
@@ -1340,20 +1368,20 @@ func TestServiceTaskStartCanSelectNoneAfterConfiguredTargetFailure(t *testing.T)
 	}
 	branchName := "feature/reselect-unavailable"
 
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 		BranchName:       &branchName,
 	})
 	if err != nil {
 		t.Fatalf("StartWorkflowTask unavailable target: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowTaskActionOutcomeSelectionRequired ||
-		response.SelectionRequired == nil ||
-		response.SelectionRequired.Details.GetConfiguredTargetUnavailable() == nil {
+	if response.GetSelectionRequired() == nil ||
+		response.GetSelectionRequired() == nil ||
+		response.GetSelectionRequired().GetConfiguredTargetUnavailable() == nil {
 		t.Fatalf("resume response = %+v, want configured target selection", response)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext before selection: %v", err)
 	}
@@ -1363,20 +1391,20 @@ func TestServiceTaskStartCanSelectNoneAfterConfiguredTargetFailure(t *testing.T)
 	}
 
 	service.executionTargets = &recordingExecutionTargetInfrastructure{}
-	response, err = service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	response, err = service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if err != nil {
 		t.Fatalf("StartWorkflowTask selected target: %v", err)
 	}
-	if response.Applied == nil {
+	if response.GetApplied() == nil {
 		t.Fatalf("resume response = %+v, want applied", response)
 	}
-	targetContext, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err = service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
@@ -1409,9 +1437,9 @@ func TestServiceTaskStartReturnsMaterializationFailure(t *testing.T) {
 		},
 	}
 
-	_, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	_, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	})
 	var preparationErr *worktree.GitRevisionResolutionError
 	if !errors.As(err, &preparationErr) {
@@ -1424,24 +1452,24 @@ func TestServiceTaskResumeNoOpsWhenTaskAlreadyResumed(t *testing.T) {
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := admitWorkflowServiceTask(ctx, service, workflow.TaskID(task.Task.ID)); err != nil {
+	if _, err := admitWorkflowServiceTask(ctx, service, workflow.TaskID(task.Task.Id)); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
 	service.currentNodeExecution = &currentNodeCompletionExecutionStub{store: service.store}
 
-	response, err := service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	response, err := service.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if err != nil {
 		t.Fatalf("ResumeWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeNoOp ||
-		response.NoOp == nil ||
-		len(response.NoOp.CurrentNodes) != 1 {
+	if response.GetNoOp() == nil ||
+		response.GetNoOp() == nil ||
+		len(response.GetNoOp().CurrentNodes) != 1 {
 		t.Fatalf("ResumeWorkflowTask = %+v, want no-op with current ready node", response)
 	}
 }
@@ -1451,10 +1479,10 @@ func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := admitWorkflowServiceTask(ctx, service, workflow.TaskID(task.Task.ID)); err != nil {
+	if _, err := admitWorkflowServiceTask(ctx, service, workflow.TaskID(task.Task.Id)); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
-	initialCurrentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	initialCurrentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("ListCurrentNodes: %v", err)
 	}
@@ -1492,13 +1520,13 @@ func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 		_ = authority.Close(context.Background())
 	})
 	service.currentNodeExecution = controller
-	request := serverapi.WorkflowTaskResumeRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	request := &taskpb.ResumeRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	}
 
 	type resumeResult struct {
-		response serverapi.WorkflowTaskResumeResponse
+		response *taskpb.ResumeSuccess
 		err      error
 	}
 	results := make(chan resumeResult, 2)
@@ -1516,12 +1544,12 @@ func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 		result := <-results
 		switch {
 		case result.err == nil:
-			switch result.response.Outcome {
-			case serverapi.WorkflowExecutionTargetActionOutcomeApplied:
+			switch result.response.Outcome.(type) {
+			case *taskpb.ResumeSuccess_Applied:
 				applied++
-			case serverapi.WorkflowExecutionTargetActionOutcomeNoOp:
+			case *taskpb.ResumeSuccess_NoOp:
 				noOp++
-				if result.response.NoOp == nil || len(result.response.NoOp.CurrentNodes) != 1 {
+				if result.response.GetNoOp() == nil || len(result.response.GetNoOp().CurrentNodes) != 1 {
 					t.Fatalf("no-op ResumeWorkflowTask response = %+v, want one Current Node", result.response)
 				}
 			default:
@@ -1542,7 +1570,7 @@ func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 		)
 	}
 
-	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.ID))
+	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("ListCurrentNodes after concurrent Resume: %v", err)
 	}
@@ -1554,7 +1582,7 @@ func TestServiceConcurrentTaskResumeKeepsOneAppliedWinner(t *testing.T) {
 		t.Fatalf("current nodes after concurrent Resume = %+v, want original node requeued once", currentNodes)
 	}
 
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext after concurrent Resume: %v", err)
 	}
@@ -1574,7 +1602,7 @@ func TestServiceTaskResumePromotesConcurrencyQueuedCurrentNodes(t *testing.T) {
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	node := workflow.CurrentNode{
 		Reference: workflow.CurrentNodeReference{
-			TaskID: workflow.TaskID(task.Task.ID),
+			TaskID: workflow.TaskID(task.Task.Id),
 			NodeID: workflow.NodeID("node-queued"),
 		},
 	}
@@ -1585,17 +1613,17 @@ func TestServiceTaskResumePromotesConcurrencyQueuedCurrentNodes(t *testing.T) {
 	}
 	service.currentNodeExecution = execution
 
-	response, err := service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-		TaskID:           task.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	response, err := service.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+		TaskId:           task.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	})
 	if err != nil {
 		t.Fatalf("ResumeWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		response.Applied == nil ||
-		len(response.Applied.CurrentNodes) != 1 ||
-		response.Applied.CurrentNodes[0].NodeID != string(node.Reference.NodeID) {
+	if response.GetApplied() == nil ||
+		response.GetApplied() == nil ||
+		len(response.GetApplied().CurrentNodes) != 1 ||
+		response.GetApplied().CurrentNodes[0].NodeId != string(node.Reference.NodeID) {
 		t.Fatalf("ResumeWorkflowTask response = %+v, want promoted Current Node", response)
 	}
 	if execution.resumeEligibilityCalls != 0 {
@@ -1616,15 +1644,15 @@ func TestServiceTaskStartReturnsTypedErrorForInvalidExplicitCustomRef(t *testing
 		},
 	}
 
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           taskID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode:      serverapi.WorkflowExecutionTargetModeCustomRef,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode:      pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_CUSTOM_REF,
 			CustomRef: &customRef,
 		},
 	})
-	if response.Applied != nil {
+	if response.GetApplied() != nil {
 		t.Fatalf("StartWorkflowTask = %+v; want no cutover", response)
 	}
 	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
@@ -1649,12 +1677,12 @@ func TestServiceAllowsInvalidDefaultBacklogButRejectsUnlinkedWorkflow(t *testing
 		t.Fatalf("CreateWorkflow unlinked: %v", err)
 	}
 	unlinkedWorkflowID := workflowServiceID(t, unlinked.Workflow.Id)
-	if _, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, WorkflowID: &unlinkedWorkflowID, Title: "Task", Body: "Body"}); err == nil {
+	if _, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{ProjectId: binding.ProjectID, WorkflowId: proto.String(unlinkedWorkflowID.String()), Title: "Task", Body: proto.String("Body")}); err == nil {
 		t.Fatalf("expected unlinked workflow task create to fail")
 	}
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowServiceID(t, unlinked.Workflow.Id))
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{SetupOperationID: serverapi.NewWorkflowSetupOperationID(), TaskID: task.Task.ID}); !errors.Is(err, workflowstore.ErrWorkflowValidationFailed) {
+	if _, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{SetupOperationId: worktreecontract.NewSetupOperationID().String(), TaskId: task.Task.Id}); !errors.Is(err, workflowstore.ErrWorkflowValidationFailed) {
 		t.Fatalf("expected invalid default workflow start error, got %v", err)
 	}
 }
@@ -1662,15 +1690,15 @@ func TestServiceAllowsInvalidDefaultBacklogButRejectsUnlinkedWorkflow(t *testing
 func TestServiceTaskCreateMapsNoLinkedWorkflowsSelectionError(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 
-	_, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID,
+	_, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID,
 		Title:     "No workflow",
 	})
-	var selectionErr *serverapi.WorkflowTaskCreateSelectionError
+	var selectionErr workflowstore.TaskWorkflowSelectionError
 	if !errors.As(err, &selectionErr) {
 		t.Fatalf("CreateWorkflowTask error = %v, want WorkflowTaskCreateSelectionError", err)
 	}
-	if selectionErr.Reason != serverapi.WorkflowTaskCreateSelectionReasonNoLinkedWorkflows ||
+	if selectionErr.Reason != workflowstore.TaskWorkflowSelectionNoLinkedWorkflows ||
 		selectionErr.ProjectID != binding.ProjectID ||
 		selectionErr.WorkflowID != nil {
 		t.Fatalf("selection error = %+v", selectionErr)
@@ -1681,16 +1709,16 @@ func TestServiceTaskCreateMapsExplicitWorkflowNotLinkedSelectionError(t *testing
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 
-	_, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID:  binding.ProjectID,
-		WorkflowID: &workflowID,
+	_, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId:  binding.ProjectID,
+		WorkflowId: proto.String(workflowID.String()),
 		Title:      "Unlinked workflow",
 	})
-	var selectionErr *serverapi.WorkflowTaskCreateSelectionError
+	var selectionErr workflowstore.TaskWorkflowSelectionError
 	if !errors.As(err, &selectionErr) {
 		t.Fatalf("CreateWorkflowTask error = %v, want WorkflowTaskCreateSelectionError", err)
 	}
-	if selectionErr.Reason != serverapi.WorkflowTaskCreateSelectionReasonWorkflowNotLinked ||
+	if selectionErr.Reason != workflowstore.TaskWorkflowSelectionWorkflowNotLinked ||
 		selectionErr.ProjectID != binding.ProjectID ||
 		selectionErr.WorkflowID == nil ||
 		*selectionErr.WorkflowID != workflowID {
@@ -1713,35 +1741,24 @@ func TestServiceTaskCreateMapsAmbiguousWorkflowSelectionError(t *testing.T) {
 		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_NEVER.Enum(),
 	})
 
-	_, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID,
+	_, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID,
 		Title:     "Ambiguous workflow",
 	})
-	var selectionErr *serverapi.WorkflowTaskCreateSelectionError
+	var selectionErr workflowstore.TaskWorkflowSelectionError
 	if !errors.As(err, &selectionErr) {
 		t.Fatalf("CreateWorkflowTask error = %v, want WorkflowTaskCreateSelectionError", err)
 	}
-	if selectionErr.Reason != serverapi.WorkflowTaskCreateSelectionReasonAmbiguousWithoutDefault ||
+	if selectionErr.Reason != workflowstore.TaskWorkflowSelectionAmbiguousWithoutDefault ||
 		selectionErr.ProjectID != binding.ProjectID ||
 		selectionErr.WorkflowID != nil {
 		t.Fatalf("selection error = %+v", selectionErr)
 	}
 }
 
-func TestServiceTaskCreateMapsRetryableStoreConflict(t *testing.T) {
-	err := workflowTaskCreateError(workflowstore.TaskCreateConflictError{
-		Reason: workflowstore.TaskCreateConflictSerialization,
-		Cause:  errors.New("database locked"),
-	}, "project-1")
-	var conflictErr *serverapi.WorkflowTaskCreateConflictError
-	if !errors.As(err, &conflictErr) || conflictErr.Reason != serverapi.WorkflowTaskCreateConflictReasonSerialization {
-		t.Fatalf("workflowTaskCreateError = %T %v, want typed serialization conflict", err, err)
-	}
-}
-
 func TestServiceCreatesAndListsProjectLabels(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(binding.ProjectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
@@ -1767,12 +1784,12 @@ func TestServiceCreatesAndListsProjectLabels(t *testing.T) {
 	}
 
 	event := nextWorkflowProjectEvent(t, sub)
-	if !stringPointerEquals(event.ProjectID, binding.ProjectID) ||
-		event.WorkflowID != nil ||
-		event.Resource != serverapi.WorkflowProjectEventResourceLabel ||
-		event.Action != serverapi.WorkflowProjectEventActionCreated ||
-		event.PrimaryEntityID != created.Label.Id ||
-		len(event.RelatedIDs) != 0 {
+	if !stringPointerEquals(event.ProjectId, binding.ProjectID) ||
+		event.WorkflowId != nil ||
+		event.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL ||
+		event.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_CREATED ||
+		event.PrimaryEntityId != created.Label.Id ||
+		len(event.RelatedIds) != 0 {
 		t.Fatalf("event = %+v, want project-scoped label created event", event)
 	}
 }
@@ -1786,7 +1803,7 @@ func TestServiceRenamesAndDeletesProjectLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflowProjectLabel: %v", err)
 	}
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(binding.ProjectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
@@ -1804,10 +1821,10 @@ func TestServiceRenamesAndDeletesProjectLabels(t *testing.T) {
 		t.Fatalf("renamed label = %+v", renamed.Label)
 	}
 	renameEvent := nextWorkflowProjectEvent(t, sub)
-	if renameEvent.Action != serverapi.WorkflowProjectEventActionRenamed ||
-		renameEvent.PrimaryEntityID != created.Label.Id ||
-		!stringPointerEquals(renameEvent.ProjectID, binding.ProjectID) ||
-		renameEvent.WorkflowID != nil {
+	if renameEvent.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_RENAMED ||
+		renameEvent.PrimaryEntityId != created.Label.Id ||
+		!stringPointerEquals(renameEvent.ProjectId, binding.ProjectID) ||
+		renameEvent.WorkflowId != nil {
 		t.Fatalf("rename event = %+v", renameEvent)
 	}
 
@@ -1822,10 +1839,10 @@ func TestServiceRenamesAndDeletesProjectLabels(t *testing.T) {
 		t.Fatalf("deleted response = %+v", deleted)
 	}
 	deleteEvent := nextWorkflowProjectEvent(t, sub)
-	if deleteEvent.Action != serverapi.WorkflowProjectEventActionDeleted ||
-		deleteEvent.PrimaryEntityID != created.Label.Id ||
-		!stringPointerEquals(deleteEvent.ProjectID, binding.ProjectID) ||
-		deleteEvent.WorkflowID != nil {
+	if deleteEvent.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DELETED ||
+		deleteEvent.PrimaryEntityId != created.Label.Id ||
+		!stringPointerEquals(deleteEvent.ProjectId, binding.ProjectID) ||
+		deleteEvent.WorkflowId != nil {
 		t.Fatalf("delete event = %+v", deleteEvent)
 	}
 }
@@ -1846,7 +1863,7 @@ func TestServiceReordersProjectLabelsAndOnlyPublishesChangedOrder(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CreateWorkflowProjectLabel Second: %v", err)
 	}
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(binding.ProjectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
@@ -1864,10 +1881,10 @@ func TestServiceReordersProjectLabelsAndOnlyPublishesChangedOrder(t *testing.T) 
 		t.Fatalf("applied order = %+v, want %+v", got, ordered)
 	}
 	event := nextWorkflowProjectEvent(t, sub)
-	if event.Resource != serverapi.WorkflowProjectEventResourceLabel ||
-		event.Action != serverapi.WorkflowProjectEventActionReordered ||
-		event.PrimaryEntityID != binding.ProjectID ||
-		!stringPointerEquals(event.ProjectID, binding.ProjectID) {
+	if event.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL ||
+		event.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_REORDERED ||
+		event.PrimaryEntityId != binding.ProjectID ||
+		!stringPointerEquals(event.ProjectId, binding.ProjectID) {
 		t.Fatalf("reorder event = %+v", event)
 	}
 
@@ -1897,22 +1914,22 @@ func TestServiceGetsAndUpdatesTaskLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflowProjectLabel alpha: %v", err)
 	}
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(binding.ProjectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
 
-	empty, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: task.Task.ID})
+	empty, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: task.Task.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflowTaskLabels empty: %v", err)
 	}
-	if empty.Assignment.TaskId != task.Task.ID || len(empty.Assignment.LabelIds) != 0 {
+	if empty.Assignment.TaskId != task.Task.Id || len(empty.Assignment.LabelIds) != 0 {
 		t.Fatalf("empty assignment = %+v", empty.Assignment)
 	}
 
 	updated, err := service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
-		TaskId:      task.Task.ID,
+		TaskId:      task.Task.Id,
 		AddLabelIds: []string{zulu.Label.Id, alpha.Label.Id},
 	})
 	if err != nil {
@@ -1922,16 +1939,16 @@ func TestServiceGetsAndUpdatesTaskLabels(t *testing.T) {
 		t.Fatalf("updated assignment = %+v, want project-order IDs", updated.Assignment)
 	}
 	event := nextWorkflowProjectEvent(t, sub)
-	if !stringPointerEquals(event.ProjectID, binding.ProjectID) ||
-		!workflowIDPointerEquals(event.WorkflowID, workflowID) ||
-		event.Resource != serverapi.WorkflowProjectEventResourceTask ||
-		event.Action != serverapi.WorkflowProjectEventActionLabelsChanged ||
-		event.PrimaryEntityID != task.Task.ID ||
-		len(event.RelatedIDs) != 0 {
+	if !stringPointerEquals(event.ProjectId, binding.ProjectID) ||
+		!workflowIDPointerEquals(event.WorkflowId, workflowID) ||
+		event.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK ||
+		event.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_LABELS_CHANGED ||
+		event.PrimaryEntityId != task.Task.Id ||
+		len(event.RelatedIds) != 0 {
 		t.Fatalf("event = %+v, want task labels-changed event", event)
 	}
 
-	reloaded, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: task.Task.ID})
+	reloaded, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: task.Task.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflowTaskLabels reloaded: %v", err)
 	}
@@ -1953,15 +1970,15 @@ func TestServiceCreatesWorkflowTaskWithAtomicLabels(t *testing.T) {
 		t.Fatalf("CreateWorkflowProjectLabel: %v", err)
 	}
 
-	created, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID,
+	created, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID,
 		Title:     "Labeled task",
-		LabelIDs:  []string{projectLabel.Label.Id},
+		LabelIds:  []string{projectLabel.Label.Id},
 	})
 	if err != nil {
 		t.Fatalf("CreateWorkflowTask: %v", err)
 	}
-	assignment, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: created.Task.ID})
+	assignment, err := service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: created.Task.Id})
 	if err != nil {
 		t.Fatalf("GetWorkflowTaskLabels: %v", err)
 	}
@@ -2009,7 +2026,7 @@ func TestServiceMapsWorkflowLabelFailures(t *testing.T) {
 	}); !errors.Is(err, workflowstore.ErrTaskLabelTaskNotFound) {
 		t.Fatalf("missing task error = %T %v", err, err)
 	}
-	for index := 1; index < serverapi.WorkflowLabelMaxIDs; index++ {
+	for index := 1; index < labelcontract.MaxProjectLabels; index++ {
 		if _, err := service.CreateWorkflowProjectLabel(ctx, &pb.ProjectLabelCreateRequest{
 			ProjectId: binding.ProjectID,
 			Name:      fmt.Sprintf("Label %03d", index),
@@ -2043,33 +2060,33 @@ func TestServiceMapsWorkflowTaskLabelScopeFailures(t *testing.T) {
 	}
 
 	if _, err := service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
-		TaskId:      task.Task.ID,
+		TaskId:      task.Task.Id,
 		AddLabelIds: []string{"11111111-1111-4111-8111-111111111111"},
 	}); !errors.Is(err, workflowstore.ErrTaskLabelNotFound) {
 		t.Fatalf("missing label error = %T %v", err, err)
 	}
 	if _, err := service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
-		TaskId:      task.Task.ID,
+		TaskId:      task.Task.Id,
 		AddLabelIds: []string{foreign.Label.Id},
 	}); !errors.Is(err, workflowstore.ErrTaskLabelWrongProject) {
 		t.Fatalf("wrong project error = %T %v", err, err)
 	}
-	if _, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: binding.ProjectID,
+	if _, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: binding.ProjectID,
 		Title:     "Foreign label",
-		LabelIDs:  []string{foreign.Label.Id},
-	}); !workflowLabelErrorHasReason(err, serverapi.WorkflowLabelErrorReasonWrongProject) {
+		LabelIds:  []string{foreign.Label.Id},
+	}); !errors.Is(err, workflowstore.ErrTaskLabelWrongProject) {
 		t.Fatalf("labeled task create wrong project error = %T %v", err, err)
 	}
-	raw101 := make([]string, serverapi.WorkflowLabelMaxIDs+1)
+	raw101 := make([]string, labelcontract.MaxProjectLabels+1)
 	for index := range raw101 {
 		raw101[index] = "not-a-uuid"
 	}
 	_, err = service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
-		TaskId:      task.Task.ID,
+		TaskId:      task.Task.Id,
 		AddLabelIds: raw101,
 	})
-	mutationErr := protoapi.WorkflowTaskLabelValidationDetail(task.Task.ID, err)
+	mutationErr := protoapi.WorkflowTaskLabelValidationDetail(task.Task.Id, err)
 	if mutationErr == nil || mutationErr.Reason != taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION ||
 		mutationErr.GetField() != "add_label_ids" {
 		t.Fatalf("invalid mutation error = %T %+v", err, err)
@@ -2440,12 +2457,12 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 	if workflowServiceID(t, preview.Impact.WorkflowId) != workflowID || preview.Impact.ProjectCount != 1 || preview.Impact.LinkCount != 1 || preview.Impact.TaskCount != 1 {
 		t.Fatalf("delete preview = %+v, want one project/link/task", preview)
 	}
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: projectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(projectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
-	workflowSub, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: workflowID})
+	workflowSub, err := service.SubscribeWorkflow(ctx, &pb.WorkflowSubscribeRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflow: %v", err)
 	}
@@ -2474,7 +2491,7 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 		t.Fatalf("confirmed delete = %+v, want deleted without blockers", deleted)
 	}
 	event := nextWorkflowProjectEvent(t, sub)
-	if !stringPointerEquals(event.ProjectID, projectID) || !workflowIDPointerEquals(event.WorkflowID, workflowID) || event.Resource != "workflow" || event.Action != "deleted" || event.PrimaryEntityID != workflowID.String() || len(event.RelatedIDs) != 0 {
+	if !stringPointerEquals(event.ProjectId, projectID) || !workflowIDPointerEquals(event.WorkflowId, workflowID) || event.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW || event.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DELETED || event.PrimaryEntityId != workflowID.String() || len(event.RelatedIds) != 0 {
 		t.Fatalf("event = %+v, want workflow deleted event", event)
 	}
 	eventCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -2483,10 +2500,10 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workflow subscription delete next: %v", err)
 	}
-	if workflowEvent.ProjectID != nil || !workflowIDPointerEquals(workflowEvent.WorkflowID, workflowID) || workflowEvent.Resource != "workflow" || workflowEvent.Action != "deleted" || workflowEvent.PrimaryEntityID != workflowID.String() || len(workflowEvent.RelatedIDs) != 0 {
+	if workflowEvent.ProjectId != nil || !workflowIDPointerEquals(workflowEvent.WorkflowId, workflowID) || workflowEvent.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW || workflowEvent.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DELETED || workflowEvent.PrimaryEntityId != workflowID.String() || len(workflowEvent.RelatedIds) != 0 {
 		t.Fatalf("workflow-scoped delete event = %+v, want projectless workflow delete event", workflowEvent)
 	}
-	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: taskID}); err == nil {
+	if _, err := service.GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: proto.String(taskID)}); err == nil {
 		t.Fatalf("deleted workflow task should not remain readable")
 	}
 }
@@ -2561,17 +2578,17 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 		t.Fatalf("preview mutated workflow definition = %+v", afterPreview.Definition)
 	}
 
-	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	sub, err := service.SubscribeWorkflowProject(ctx, &pb.ProjectSubscribeRequest{ProjectId: proto.String(binding.ProjectID)})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
-	workflowSub, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: workflowID})
+	workflowSub, err := service.SubscribeWorkflow(ctx, &pb.WorkflowSubscribeRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("SubscribeWorkflow: %v", err)
 	}
 	defer func() { _ = workflowSub.Close() }()
-	if _, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: runtimeids.NewWorkflowID()}); err == nil {
+	if _, err := service.SubscribeWorkflow(ctx, &pb.WorkflowSubscribeRequest{WorkflowId: runtimeids.NewWorkflowID().String()}); err == nil {
 		t.Fatal("SubscribeWorkflow accepted missing workflow")
 	}
 	customRef := "refs/tags/v1"
@@ -2611,8 +2628,8 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	if workflowServiceTransitionGroupByID(t, saved.Definition, startGroupID).Description != "Start implementation from the backlog." {
 		t.Fatalf("saved response transition description = %q, want edited transition description", workflowServiceTransitionGroupByID(t, saved.Definition, startGroupID).Description)
 	}
-	for _, event := range waitWorkflowProjectActions(t, sub, "workflow", "graph_saved") {
-		if !stringPointerEquals(event.ProjectID, binding.ProjectID) || !workflowIDPointerEquals(event.WorkflowID, workflowID) {
+	for _, event := range waitWorkflowProjectActions(t, sub, pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW, pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED) {
+		if !stringPointerEquals(event.ProjectId, binding.ProjectID) || !workflowIDPointerEquals(event.WorkflowId, workflowID) {
 			t.Fatalf("event = %+v, want linked workflow event", event)
 		}
 	}
@@ -2622,7 +2639,7 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workflow subscription next: %v", err)
 	}
-	if workflowEvent.ProjectID != nil || !workflowIDPointerEquals(workflowEvent.WorkflowID, workflowID) || workflowEvent.Resource != "workflow" || workflowEvent.Action != "graph_saved" {
+	if workflowEvent.ProjectId != nil || !workflowIDPointerEquals(workflowEvent.WorkflowId, workflowID) || workflowEvent.Resource != pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW || workflowEvent.Action != pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED {
 		t.Fatalf("workflow-scoped event = %+v, want graph_saved workflow event without project scope", workflowEvent)
 	}
 	canonical, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
@@ -2682,7 +2699,7 @@ func TestServiceWorkflowGraphSaveAllowsEmptyPromptButTaskStartRejects(t *testing
 	}
 
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{SetupOperationID: serverapi.NewWorkflowSetupOperationID(), TaskID: task.Task.ID}); err == nil {
+	if _, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{SetupOperationId: worktreecontract.NewSetupOperationID().String(), TaskId: task.Task.Id}); err == nil {
 		t.Fatalf("StartWorkflowTask empty prompt error = %v, want transition prompt required", err)
 	} else {
 		var validationErr workflowstore.WorkflowValidationError
@@ -3265,7 +3282,7 @@ type blockingWorkflowGraphEventPublisher struct {
 	startedOnce bool
 }
 
-func (p *blockingWorkflowGraphEventPublisher) PublishWorkflowEvent(context.Context, workflowstore.WorkflowEventRecord) error {
+func (p *blockingWorkflowGraphEventPublisher) PublishWorkflowEvent(context.Context, workflowcontract.Event) error {
 	p.mu.Lock()
 	shouldBlock := !p.startedOnce
 	if shouldBlock {
@@ -3336,7 +3353,7 @@ func newWorkflowServiceOrdinaryTaskFixture(t *testing.T) (context.Context, *Serv
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	return ctx, service, binding.ProjectID, workflowID, task.Task.ID
+	return ctx, service, binding.ProjectID, workflowID, task.Task.Id
 }
 
 func newWorkflowServiceTestContextWithMetadata(t *testing.T) (context.Context, *Service, metadata.Binding, *metadata.Store) {
@@ -3488,7 +3505,7 @@ func newWorkflowServiceReadModels(
 	if err != nil {
 		t.Fatalf("workflowview.NewTaskDetail: %v", err)
 	}
-	activity, err := workflowview.NewActivity(metadataStore, projector)
+	activity, err := workflowview.NewActivity(metadataStore)
 	if err != nil {
 		t.Fatalf("workflowview.NewActivity: %v", err)
 	}
@@ -3553,13 +3570,8 @@ func stringPointerEquals(value *string, expected string) bool {
 	return value != nil && *value == expected
 }
 
-func workflowIDPointerEquals(value *runtimeids.WorkflowID, expected runtimeids.WorkflowID) bool {
-	return value != nil && *value == expected
-}
-
-func workflowLabelErrorHasReason(err error, reason serverapi.WorkflowLabelErrorReason) bool {
-	var labelErr *serverapi.WorkflowLabelError
-	return errors.As(err, &labelErr) && labelErr.Reason == reason
+func workflowIDPointerEquals(value *string, expected runtimeids.WorkflowID) bool {
+	return value != nil && *value == expected.String()
 }
 
 func linkWorkflowServiceProject(t *testing.T, ctx context.Context, service *Service, req *pb.LinkProjectRequest) *pb.LinkProjectSuccess {
@@ -3580,7 +3592,7 @@ func linkDefaultWorkflowServiceProject(t *testing.T, ctx context.Context, servic
 	})
 }
 
-func createWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, req serverapi.WorkflowTaskCreateRequest) serverapi.WorkflowTaskCreateResponse {
+func createWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, req *taskpb.CreateRequest) *taskpb.CreateSuccess {
 	t.Helper()
 	task, err := service.CreateWorkflowTask(ctx, req)
 	if err != nil {
@@ -3610,27 +3622,27 @@ func setWorkflowServiceExecutionTargetPolicy(t *testing.T, ctx context.Context, 
 	}
 }
 
-func createDefaultWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, projectID string) serverapi.WorkflowTaskCreateResponse {
+func createDefaultWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, projectID string) *taskpb.CreateSuccess {
 	t.Helper()
-	return createWorkflowServiceTask(t, ctx, service, serverapi.WorkflowTaskCreateRequest{ProjectID: projectID, Title: "Task", Body: "Body"})
+	return createWorkflowServiceTask(t, ctx, service, &taskpb.CreateRequest{ProjectId: projectID, Title: "Task", Body: proto.String("Body")})
 }
 
-func startWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, taskID string) serverapi.WorkflowTaskStartApplied {
+func startWorkflowServiceTask(t *testing.T, ctx context.Context, service *Service, taskID string) *taskpb.StartApplied {
 	t.Helper()
-	started, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		TaskID:           taskID,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+	started, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if err != nil {
 		t.Fatalf("StartWorkflowTask: %v", err)
 	}
-	if err := started.Validate(); err != nil || started.Applied == nil {
+	if err := protoapi.Validate(started); err != nil || started.GetApplied() == nil {
 		t.Fatalf("StartWorkflowTask response = %+v, validation error = %v", started, err)
 	}
-	return *started.Applied
+	return started.GetApplied()
 }
 
 func createWorkflowServiceValidWorkflow(t *testing.T, ctx context.Context, service *Service) runtimeids.WorkflowID {

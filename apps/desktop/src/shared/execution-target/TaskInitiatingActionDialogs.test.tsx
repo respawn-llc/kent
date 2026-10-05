@@ -2,9 +2,10 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import { RpcError, type TaskStartResponse, type WorkflowExecutionTargetSelection } from "@/api";
+import { type TaskStartResponse, type WorkflowExecutionTargetSelection } from "@/api";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
+import { retainedSetupError, taskMoveBranchCollision } from "@/test-support/task-errors";
 import {
   startTaskInitiatingAction,
   resumeTaskInitiatingAction,
@@ -155,18 +156,7 @@ describe("TaskInitiatingActionDialogs", () => {
             },
           },
         };
-      if (calls === 2)
-        throw new RpcError({
-          code: -32060,
-          method: "workflow.task.move",
-          message: "collision",
-          data: {
-            type: "workflow_task_initial_branch_error",
-            reason: "local_collision",
-            branch_name: "taken",
-            ref: "refs/heads/taken",
-          },
-        });
+      if (calls === 2) return taskMoveBranchCollision();
       return appliedMove(action);
     });
     render(
@@ -457,47 +447,6 @@ function MoveHarness({
       />
     </>
   );
-}
-
-function retainedSetupError(recoveryDisposition: "retry_existing" | "fresh_replacement" = "retry_existing") {
-  const root = "/worktrees/task-1";
-  return new RpcError({
-    code: -32039,
-    message: "setup failed",
-    method: "workflow.task.move",
-    data: {
-      type: "worktree_setup_retained",
-      recovery_disposition: recoveryDisposition,
-      script_path: "/repo/setup.sh",
-      diagnostic: "setup failed twice",
-      retained_previous_worktree: null,
-      worktree: {
-        variant: "registered",
-        registered: {
-          git: {
-            canonical_root: root,
-            head_object: "abc",
-            branch_ref: null,
-            branch_name: null,
-            detached: false,
-            bare: false,
-            locked_reason: null,
-            prunable_reason: null,
-            is_main_worktree: false,
-            path_available: true,
-          },
-          kent: {
-            worktree_id: "worktree-1",
-            canonical_root: root,
-            display_name: "KENT-453",
-            managed: true,
-            created_branch: true,
-            origin_session_id: null,
-          },
-        },
-      },
-    },
-  });
 }
 
 function requireMove(

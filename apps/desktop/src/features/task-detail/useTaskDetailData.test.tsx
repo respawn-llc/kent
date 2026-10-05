@@ -1,14 +1,16 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PromptAnswerBatchResponse } from "@/api";
+import type { FakeRpcTransport } from "@/test-support/api";
+import { projectEventsFixture } from "@/test-support/project-events";
 
 import { appI18n } from "@/i18n";
 import {
   mountTaskDetailSurface,
   promptAnswerBatchRoute,
-  questionAttention,
   taskDetailResponse,
-  taskQuestionWaitingEvent,
+  taskQuestionPage as taskAttentionMany,
+  taskAttentionRoute as attentionRoute,
 } from "@/test-support/task-detail";
 
 describe("Task Detail live refresh", () => {
@@ -19,19 +21,16 @@ describe("Task Detail live refresh", () => {
     ]);
     const first = deferred<undefined>();
     const second = deferred<undefined>();
-    const staleAttention = { ...taskAttention("ask-2", 1), generated_at_unix_ms: 5 };
+    const staleAttention = taskAttentionMany([["ask-2", 1]], 5);
     const staleRead = deferred<ReturnType<typeof taskAttention>>();
     let answerCount = 0;
     let attentionReadCount = 0;
     mountTaskDetailSurface(taskDetailResponse, {
       routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: (): ReturnType<typeof taskAttention> | Promise<ReturnType<typeof taskAttention>> => {
-            attentionReadCount += 1;
-            return attentionReadCount === 2 ? staleRead.promise : attention;
-          },
-        },
+        attentionRoute(async () => {
+          attentionReadCount += 1;
+          return attentionReadCount === 2 ? staleRead.promise : attention;
+        }),
         promptAnswerBatchRoute(async () => {
           answerCount += 1;
           if (answerCount === 1) {
@@ -40,7 +39,7 @@ describe("Task Detail live refresh", () => {
             return answered("ask-1");
           }
           await second.promise;
-          attention = { items: [], generated_at_unix_ms: 5 };
+          attention = taskAttentionMany([], 5);
           return answered("ask-2");
         }),
       ],
@@ -80,10 +79,7 @@ describe("Task Detail live refresh", () => {
   it("skips a masked prompt when handing focus to the next actionable question", async () => {
     mountTaskDetailSurface(taskDetailResponse, {
       routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: () => taskAttentionWithOneOption("ask-1", "ask-2", "ask-3"),
-        },
+        attentionRoute(() => taskAttentionWithOneOption("ask-1", "ask-2", "ask-3")),
         promptAnswerBatchRoute(async () => new Promise<PromptAnswerBatchResponse>(() => undefined)),
       ],
     });
@@ -113,15 +109,12 @@ describe("Task Detail live refresh", () => {
     let attentionReadCount = 0;
     const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: (): ReturnType<typeof taskAttention> | Promise<ReturnType<typeof taskAttention>> => {
-            attentionReadCount += 1;
-            if (attentionReadCount === 2) return staleRead.promise;
-            if (attentionReadCount === 3) return backgroundRead.promise;
-            return attention;
-          },
-        },
+        attentionRoute(async () => {
+          attentionReadCount += 1;
+          if (attentionReadCount === 2) return staleRead.promise;
+          if (attentionReadCount === 3) return backgroundRead.promise;
+          return attention;
+        }),
         promptAnswerBatchRoute(async () => {
           await delivery.promise;
           return answered("ask-1");
@@ -136,12 +129,10 @@ describe("Task Detail live refresh", () => {
       expect(attentionReadCount).toBe(2);
     });
 
-    await waitForProjectSubscription(() => services.transport.subscriptions);
-    attention = { items: [], generated_at_unix_ms: 5 };
+    await waitForProjectSubscription(services.transport);
+    attention = taskAttentionMany([], 5);
     act(() => {
-      services.transport.emit("workflow.project", {
-        event: { ...taskQuestionWaitingEvent.event, action: "question_cleared" },
-      });
+      projectEventsFixture(services.transport).emit({ action: "question_cleared" });
     });
     await waitFor(() => {
       expect(attentionReadCount).toBe(3);
@@ -150,7 +141,7 @@ describe("Task Detail live refresh", () => {
       backgroundRead.resolve(attention);
     });
     await act(async () => {
-      staleRead.resolve({ ...taskAttention("ask-1", 1), generated_at_unix_ms: 5 });
+      staleRead.resolve(taskAttentionMany([["ask-1", 1]], 5));
     });
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
   });
@@ -162,15 +153,12 @@ describe("Task Detail live refresh", () => {
     let attentionReadCount = 0;
     const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: (): ReturnType<typeof taskAttention> | Promise<ReturnType<typeof taskAttention>> => {
-            attentionReadCount += 1;
-            if (attentionReadCount === 2) return backgroundRead.promise;
-            if (attentionReadCount === 3) return directRead.promise;
-            return taskAttention("ask-1", 1);
-          },
-        },
+        attentionRoute(async () => {
+          attentionReadCount += 1;
+          if (attentionReadCount === 2) return backgroundRead.promise;
+          if (attentionReadCount === 3) return directRead.promise;
+          return taskAttention("ask-1", 1);
+        }),
         promptAnswerBatchRoute(async () => {
           await delivery.promise;
           return answered("ask-1");
@@ -179,11 +167,9 @@ describe("Task Detail live refresh", () => {
     });
     const user = userEvent.setup();
     await waitForQuestionOptionCount(1);
-    await waitForProjectSubscription(() => services.transport.subscriptions);
+    await waitForProjectSubscription(services.transport);
     act(() => {
-      services.transport.emit("workflow.project", {
-        event: { ...taskQuestionWaitingEvent.event, action: "question_cleared" },
-      });
+      projectEventsFixture(services.transport).emit({ action: "question_cleared" });
     });
     await waitFor(() => {
       expect(attentionReadCount).toBe(2);
@@ -195,10 +181,10 @@ describe("Task Detail live refresh", () => {
       expect(attentionReadCount).toBe(3);
     });
     await act(async () => {
-      directRead.resolve({ items: [], generated_at_unix_ms: 5 });
+      directRead.resolve(taskAttentionMany([], 5));
     });
     await act(async () => {
-      backgroundRead.resolve({ ...taskAttention("ask-1", 1), generated_at_unix_ms: 4 });
+      backgroundRead.resolve(taskAttentionMany([["ask-1", 1]], 4));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
@@ -208,10 +194,7 @@ describe("Task Detail live refresh", () => {
     let attention = taskAttentionWithOneOption("ask-1", "ask-2", "ask-3");
     const answer = deferred<PromptAnswerBatchResponse>();
     const services = mountTaskDetailSurface(taskDetailResponse, {
-      routes: [
-        { method: "workflow.task.attention.list", handler: () => attention },
-        promptAnswerBatchRoute(async () => answer.promise),
-      ],
+      routes: [attentionRoute(() => attention), promptAnswerBatchRoute(async () => answer.promise)],
     });
     const user = userEvent.setup();
     await waitFor(() => {
@@ -226,12 +209,12 @@ describe("Task Detail live refresh", () => {
     });
     attention = taskAttentionWithOneOption("ask-1", "ask-3");
     act(() => {
-      services.transport.emit("workflow.project", taskQuestionWaitingEvent);
+      projectEventsFixture(services.transport).emit({ action: "question_waiting" });
     });
     await waitFor(() => {
       expect(screen.queryByText("ask-2")).not.toBeInTheDocument();
     });
-    const beforeFailure = services.transport.calls.length;
+    const beforeFailure = services.transport.descriptorCalls.length;
     answer.reject(new Error("delivery failed"));
     await waitFor(() => {
       expect(screen.getByText("ask-1")).toBeInTheDocument();
@@ -241,17 +224,14 @@ describe("Task Detail live refresh", () => {
       expect(radios[0]).not.toHaveFocus();
       expect(radios[2]).not.toHaveFocus();
     });
-    expect(services.transport.calls).toHaveLength(beforeFailure);
+    expect(services.transport.descriptorCalls).toHaveLength(beforeFailure);
   });
 
   it("shows the next batch question when its waiting event arrives after an answer", async () => {
     let attention = taskAttention("ask-1", 1);
     const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: () => attention,
-        },
+        attentionRoute(() => attention),
         promptAnswerBatchRoute(() => {
           attention = taskAttention("ask-2", 2);
           return answered("ask-1");
@@ -260,11 +240,11 @@ describe("Task Detail live refresh", () => {
     });
 
     await waitForQuestionOptionCount(1);
-    await waitForProjectSubscription(() => services.transport.subscriptions);
-    const subscriptionStarts = projectSubscriptionStartCount(services.transport.subscriptionStarts);
+    await waitForProjectSubscription(services.transport);
+    const subscriptionStarts = projectEventsFixture(services.transport).startCount;
     expect(subscriptionStarts).toBeGreaterThan(0);
     await services.api.answerPromptBatch({
-      sessionID: "session-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
       stepID: "22222222-2222-4222-8222-222222222222",
       entries: [
         {
@@ -277,41 +257,39 @@ describe("Task Detail live refresh", () => {
     });
 
     act(() => {
-      services.transport.emit("workflow.project", taskQuestionWaitingEventFor("ask-2"));
+      projectEventsFixture(services.transport).emit({
+        action: "question_waiting",
+        relatedIDs: ["33333333-3333-4333-8333-333333333333", "ask-2"],
+      });
     });
 
     await waitForQuestionOptionCount(2);
-    expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(subscriptionStarts);
+    expect(projectEventsFixture(services.transport).startCount).toBe(subscriptionStarts);
   });
 
   it("shows page recovery after observation failure until explicit Retry opens that observation", async () => {
     let attention = taskAttention("ask-1", 1);
     const services = mountTaskDetailSurface(taskDetailResponse, {
-      routes: [
-        {
-          method: "workflow.task.attention.list",
-          handler: () => attention,
-        },
-      ],
+      routes: [attentionRoute(() => attention)],
     });
 
     await waitForQuestionOptionCount(1);
-    await waitForProjectSubscription(() => services.transport.subscriptions);
-    const starts = projectSubscriptionStartCount(services.transport.subscriptionStarts);
+    await waitForProjectSubscription(services.transport);
+    const starts = projectEventsFixture(services.transport).startCount;
     act(() => {
-      services.transport.fail("workflow.subscribeProject", new Error("offline"));
+      projectEventsFixture(services.transport).fail(new Error("offline"));
     });
     attention = taskAttention("ask-2", 2);
     await screen.findByTestId("error-state");
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(starts);
+    expect(projectEventsFixture(services.transport).startCount).toBe(starts);
     const retry = await screen.findByRole("button", { name: appI18n.t("app.retry") });
     act(() => {
       retry.click();
     });
-    await waitForProjectSubscription(() => services.transport.subscriptions);
+    await waitForProjectSubscription(services.transport);
     act(() => {
-      services.transport.open("workflow.subscribeProject");
+      projectEventsFixture(services.transport).open();
     });
 
     await waitForQuestionOptionCount(2);
@@ -326,48 +304,12 @@ function taskAttention(askID: string, optionCount: number) {
   return taskAttentionMany([[askID, optionCount]]);
 }
 
-function taskAttentionMany(prompts: readonly (readonly [string, number])[]) {
-  return {
-    items: prompts.map(([askID, optionCount]) => ({
-      ...questionAttention,
-      id: `attention-${askID}`,
-      message: askID,
-      question: {
-        ...questionAttention.question,
-        tool_call_id: askID,
-        suggestions: Array.from({ length: optionCount }, (_, index) => `option-${String(index + 1)}`),
-      },
-    })),
-    generated_at_unix_ms: 3,
-  };
-}
-
 const taskAttentionWithOneOption = (...askIDs: readonly string[]) =>
   taskAttentionMany(askIDs.map((askID) => [askID, 1] as const));
 
-function projectSubscriptionStartCount(
-  subscriptions: readonly Readonly<{ method: string; params: unknown }>[],
-): number {
-  return subscriptions.filter((subscription) => subscription.method === "workflow.subscribeProject").length;
-}
-
-function taskQuestionWaitingEventFor(askID: string) {
-  return {
-    event: {
-      ...taskQuestionWaitingEvent.event,
-      related_ids: ["session-1", askID],
-    },
-  };
-}
-
-async function waitForProjectSubscription(
-  subscriptions: () => readonly Readonly<{ method: string; params: unknown }>[],
-) {
+async function waitForProjectSubscription(transport: FakeRpcTransport) {
   await waitFor(() => {
-    expect(subscriptions()).toContainEqual({
-      method: "workflow.subscribeProject",
-      params: { project_id: "project-1" },
-    });
+    expect(projectEventsFixture(transport).activeCount).toBeGreaterThan(0);
   });
 }
 

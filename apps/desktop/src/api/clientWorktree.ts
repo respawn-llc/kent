@@ -1,4 +1,10 @@
 import { create, operationName, type DescMethod } from "@app/server-api-contract";
+import type {
+  DeleteError as TaskDeleteError,
+  StartError as TaskStartError,
+  ResumeError as TaskResumeError,
+  MoveError as TaskMoveError,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   BranchCleanupMode,
   CreateErrorOwner,
@@ -253,6 +259,10 @@ export type WorktreeFailure =
   | EnterError
   | LeaveError
   | DeleteError
+  | TaskDeleteError
+  | TaskStartError
+  | TaskResumeError
+  | TaskMoveError
   | SetupStartError;
 
 export type WorktreeErrorDetail =

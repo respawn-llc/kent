@@ -8,7 +8,7 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
 	"core/server/workflow"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type CurrentNodeCompletionPlan struct {
@@ -175,9 +175,9 @@ func (s *Store) CommitCurrentNodeCompletion(ctx context.Context, prepared Curren
 		reportLegacyContinuationSourceAfterCommit(s.invariantPolicy, detail)
 	}
 	if len(mutation.Removed) != 0 {
-		event := WorkflowEventRecord{
+		event := workflowcontract.Event{
 			ProjectID: &prepared.plan.task.ProjectID, WorkflowID: &prepared.plan.task.WorkflowID,
-			Resource: serverapi.WorkflowProjectEventResourceTask, Action: serverapi.WorkflowProjectEventActionCompleted,
+			Resource: workflowcontract.EventResourceTask, Action: workflowcontract.EventActionCompleted,
 			PrimaryEntityID: prepared.plan.task.ID,
 		}
 		if err := s.PublishWorkflowEvent(ctx, event); err != nil {

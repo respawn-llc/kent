@@ -27,6 +27,7 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type RuntimeRegistry struct {
@@ -41,7 +42,7 @@ type RuntimeRegistry struct {
 	attentionBroker            *attentionnotify.Broker
 	attentionNavigation        func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)
 	questionBatches            *attentionnotify.QuestionBatchTracker
-	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
+	workflowEventPublisher     func(context.Context, workflowcontract.Event) error
 	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 	backgroundProcessSnapshots func() []shelltool.Snapshot
 }

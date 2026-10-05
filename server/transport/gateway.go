@@ -172,11 +172,7 @@ type connectionState struct {
 
 type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request)
 
-var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
-	protocol.MethodAttentionNotificationSubscribe: (*Gateway).serveAttentionNotificationSubscription,
-	protocol.MethodWorkflowSubscribe:              (*Gateway).serveWorkflowSubscription,
-	protocol.MethodWorkflowSubscribeProject:       (*Gateway).serveWorkflowProjectSubscription,
-}
+var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{}
 
 var gatewaySubscriptionHandlers = routeHandlersForKind(apicontract.KindSubscription, gatewaySubscriptionHandlerEntries)
 

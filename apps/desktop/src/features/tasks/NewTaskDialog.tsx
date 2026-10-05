@@ -5,7 +5,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import { decodeWorkflowTaskDependencyError, errorMessage, isProjectMissingError } from "@/api";
+import { WorkflowTaskDependencyError, errorMessage, isProjectMissingError } from "@/api";
 import {
   useAppServices,
   useStatusController,
@@ -87,9 +87,8 @@ type Translate = ReturnType<typeof useTranslation>["t"];
 type Logger = ReturnType<typeof useAppServices>["logger"];
 
 function newTaskCreateErrorBody(error: unknown, t: Translate, logger: Logger): string {
-  const dependencyError = decodeWorkflowTaskDependencyError(error);
-  if (dependencyError === null) return errorMessage(error);
-  const reason = dependencyError.reason;
+  if (!(error instanceof WorkflowTaskDependencyError)) return errorMessage(error);
+  const reason = error.reason;
   void logger.append("warn", "Dependency rejected.", { error: errorMessage(error), reason });
   return t("task.dependenciesRejected");
 }

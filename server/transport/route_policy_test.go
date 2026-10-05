@@ -39,19 +39,6 @@ import (
 
 func TestRoutePolicyAllowsStatelessScopesWithoutGateway(t *testing.T) {
 	executor := routePolicyExecutor{}
-	for _, tc := range []struct {
-		name   string
-		method string
-		params any
-	}{
-		{name: "notification", method: protocol.MethodWorkflowComplete, params: protocol.StreamCompleteParams{}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := executor.authorizeScope(context.Background(), &connectionState{}, routeForTest(t, tc.method), tc.params); err != nil {
-				t.Fatalf("authorize scope: %v", err)
-			}
-		})
-	}
 	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{},

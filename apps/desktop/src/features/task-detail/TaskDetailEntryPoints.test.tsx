@@ -79,9 +79,11 @@ it.each([
   });
   expect(openInCli !== null).toBe(!hasChat);
   if (openInCli !== null) {
+    const session = taskDetailResponse.task.liveSessions[0];
+    if (session === undefined) throw new Error("Live Session fixture is required.");
     fireEvent.click(openInCli);
     await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("kent --session=session-1");
+      expect(fixture.copyText).toHaveBeenCalledWith(`kent --session=${session.sessionId}`);
     });
   }
 
@@ -94,7 +96,7 @@ it.each([
     await waitFor(() => {
       expect(fixture.navigation.openSessionChat).toHaveBeenCalledWith({
         projectID: "project-1",
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
       });
     });
   }

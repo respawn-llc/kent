@@ -5,7 +5,10 @@ import (
 	"testing"
 
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestProjectTaskListGroupPagesProjectCanonicalRowDataInServerOrder(t *testing.T) {
@@ -44,27 +47,25 @@ func TestProjectTaskListGroupPagesProjectCanonicalRowDataInServerOrder(t *testin
 	}
 
 	projectID := fixture.binding.ProjectID
-	limit := 1
-	group := serverapi.WorkflowProjectTaskGroupBacklog
-	request := serverapi.WorkflowTaskListRequest{
-		ProjectID: &projectID,
+	limit := int32(1)
+	group := taskpb.ProjectTaskGroup_PROJECT_TASK_GROUP_BACKLOG
+	request := &taskpb.ListRequest{
+		ProjectId: &projectID,
 		Group:     &group,
-		LabelFilter: serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-			Named: &serverapi.WorkflowTaskNamedLabelFilter{
-				Mode:     serverapi.WorkflowTaskNamedLabelFilterModeAny,
-				LabelIDs: []string{alpha.ID.String()},
-			},
+		LabelFilter: &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+			Mode:     taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY,
+			LabelIds: []string{alpha.ID.String()},
+		}},
 		},
-		Sort: []serverapi.WorkflowTaskListSort{{
-			Field:     serverapi.WorkflowTaskListSortFieldUpdated,
-			Direction: serverapi.WorkflowTaskListSortDirectionDesc,
+		Sort: []*taskpb.ListSort{{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_UPDATED,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC,
 		}},
 		Limit: &limit,
 	}
-	wantLabels := []serverapi.WorkflowProjectLabel{
-		{ID: beta.ID.String(), Name: "Beta"},
-		{ID: alpha.ID.String(), Name: "Alpha"},
+	wantLabels := []*workflowpb.ProjectLabel{
+		{Id: beta.ID.String(), Name: "Beta"},
+		{Id: alpha.ID.String(), Name: "Alpha"},
 	}
 	var gotIDs []string
 	for index := 0; index < 2; index++ {
@@ -76,14 +77,16 @@ func TestProjectTaskListGroupPagesProjectCanonicalRowDataInServerOrder(t *testin
 			t.Fatalf("page %d tasks = %+v, want one Task", index, page.Tasks)
 		}
 		item := page.Tasks[0]
-		gotIDs = append(gotIDs, item.TaskID)
+		gotIDs = append(gotIDs, item.TaskId)
 		if item.WorkflowName == nil || *item.WorkflowName == "" {
 			t.Fatalf("project-wide item workflow name = %v", item.WorkflowName)
 		}
-		if !slices.Equal(item.Labels, wantLabels) {
+		if !slices.EqualFunc(item.Labels, wantLabels, func(left, right *workflowpb.ProjectLabel) bool {
+			return proto.Equal(left, right)
+		}) {
 			t.Fatalf("item labels = %+v", item.Labels)
 		}
-		if item.TaskID == string(first.ID) {
+		if item.TaskId == string(first.ID) {
 			if item.DependencyProgress == nil ||
 				item.DependencyProgress.SatisfiedCount != 0 ||
 				item.DependencyProgress.TotalCount != 1 {
@@ -108,11 +111,11 @@ func TestProjectTaskListGroupPagesProjectCanonicalRowDataInServerOrder(t *testin
 	}
 }
 
-func requireCurrentNodeTaskListIDs(t *testing.T, items []serverapi.WorkflowTaskListItem, want []string) {
+func requireCurrentNodeTaskListIDs(t *testing.T, items []*taskpb.ListItem, want []string) {
 	t.Helper()
 	got := make(map[string]bool, len(items))
 	for _, item := range items {
-		got[item.TaskID] = true
+		got[item.TaskId] = true
 	}
 	if len(got) != len(want) {
 		t.Fatalf("task list IDs = %v, want %v", got, want)
@@ -129,9 +132,9 @@ func TestCurrentNodeTaskListLabelExclusionsFilterTasks(t *testing.T) {
 	projectID := fixture.binding.ProjectID
 	for _, tt := range fixture.exclusionCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			response, err := fixture.tasks.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-				ProjectID:   &projectID,
-				WorkflowID:  &fixture.workflowID,
+			response, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+				ProjectId:   &projectID,
+				WorkflowId:  proto.String(fixture.workflowID.String()),
 				LabelFilter: tt.filter,
 			})
 			if err != nil {
@@ -185,25 +188,23 @@ func TestCurrentNodeTaskListDependencyFilterRunsBeforeSortAndPagination(t *testi
 
 	projectID := fixture.binding.ProjectID
 	workflowID := fixture.workflowID
-	limit := 1
+	limit := int32(1)
 	unblocked := true
-	alphaFilter := serverapi.WorkflowTaskLabelFilter{
-		Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-		Named: &serverapi.WorkflowTaskNamedLabelFilter{
-			Mode:     serverapi.WorkflowTaskNamedLabelFilterModeAny,
-			LabelIDs: []string{alpha.ID.String()},
-		},
+	alphaFilter := &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+		Mode:     taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY,
+		LabelIds: []string{alpha.ID.String()},
+	}},
 	}
-	request := serverapi.WorkflowTaskListRequest{
-		ProjectID:        &projectID,
-		WorkflowID:       &workflowID,
+	request := &taskpb.ListRequest{
+		ProjectId:        &projectID,
+		WorkflowId:       proto.String(workflowID.String()),
 		ColumnKeys:       []string{"agent"},
-		StatusKinds:      []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindActive},
+		StatusKinds:      []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE},
 		LabelFilter:      alphaFilter,
 		DependencyFilter: &unblocked,
-		Sort: []serverapi.WorkflowTaskListSort{{
-			Field:     serverapi.WorkflowTaskListSortFieldTitle,
-			Direction: serverapi.WorkflowTaskListSortDirectionAsc,
+		Sort: []*taskpb.ListSort{{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_TITLE,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC,
 		}},
 		Limit: &limit,
 	}
@@ -214,7 +215,7 @@ func TestCurrentNodeTaskListDependencyFilterRunsBeforeSortAndPagination(t *testi
 			t.Fatalf("TaskList.List: %v", err)
 		}
 		for _, item := range page.Tasks {
-			got = append(got, item.TaskID)
+			got = append(got, item.TaskId)
 		}
 		if page.NextOffset == nil {
 			break
@@ -233,12 +234,12 @@ func TestCurrentNodeTaskListDependencyFilterRunsBeforeSortAndPagination(t *testi
 	if err != nil {
 		t.Fatalf("TaskList.List blocked: %v", err)
 	}
-	if len(blockedPage.Tasks) != 1 || blockedPage.Tasks[0].TaskID != string(alphaBlocked.task.ID) {
+	if len(blockedPage.Tasks) != 1 || blockedPage.Tasks[0].TaskId != string(alphaBlocked.task.ID) {
 		t.Fatalf("blocked task-list page = %+v, want blocked Task %q", blockedPage.Tasks, alphaBlocked.task.ID)
 	}
 
 	request.DependencyFilter = &unblocked
-	request.AttentionKinds = []serverapi.WorkflowTaskAttentionKind{serverapi.WorkflowTaskAttentionKindQuestion}
+	request.AttentionKinds = []taskpb.TaskAttentionKind{taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_QUESTION}
 	noAttention, err := fixture.tasks.List(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("TaskList.List attention intersection: %v", err)

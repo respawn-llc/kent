@@ -45,6 +45,39 @@ var WorkflowNodeKind = workflowValueNames(map[pb.NodeKind]string{
 	pb.NodeKind_WORKFLOW_NODE_KIND_TERMINAL: "terminal",
 })
 
+var WorkflowEventResource = workflowValueNames(map[pb.ProjectEventResource]string{
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW:      "workflow",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK: "workflow_link",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK:          "task",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL:         "label",
+})
+
+var WorkflowEventAction = workflowValueNames(map[pb.ProjectEventAction]string{
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_CREATED:              "created",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_UPDATED:              "updated",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_RENAMED:              "renamed",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_REORDERED:            "reordered",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DELETED:              "deleted",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_GRAPH_SAVED:          "graph_saved",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_LINKED:               "linked",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DEFAULT_CHANGED:      "default_changed",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_UNLINKED:             "unlinked",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_STARTED:              "started",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_INTERRUPTED:          "interrupted",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_RESUMED:              "resumed",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_APPROVED:             "approved",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_MOVED:                "moved",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_CANCELED:             "canceled",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMPLETED:            "completed",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_ADDED:        "comment_added",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_UPDATED:      "comment_updated",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_DELETED:      "comment_deleted",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_WAITING:     "question_waiting",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_QUESTION_CLEARED:     "question_cleared",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_LABELS_CHANGED:       "labels_changed",
+	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_DEPENDENCIES_CHANGED: "dependencies_changed",
+})
+
 var WorkflowValidationMode = workflowValueNames(map[pb.ValidationMode]string{
 	pb.ValidationMode_WORKFLOW_VALIDATION_MODE_DRAFT:         "draft",
 	pb.ValidationMode_WORKFLOW_VALIDATION_MODE_TASK_CREATION: "task_creation",

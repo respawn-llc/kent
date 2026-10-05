@@ -594,19 +594,6 @@ export type SubscriptionMessageResult = Readonly<
   { kind: "active" } | { kind: "complete"; code: number; message: string }
 >;
 
-export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
-  switch (subscriptionMethod) {
-    case "workflow.subscribe":
-      return "workflow.complete";
-    case "workflow.subscribeProject":
-      return "workflow.project.complete";
-    case "attention.notification.subscribe":
-      return "attention.notification.complete";
-    default:
-      return null;
-  }
-}
-
 export function handleSubscriptionMessage(
   event: MessageEvent<unknown>,
   handler: RpcEventHandler,

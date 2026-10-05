@@ -1,12 +1,9 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
-
-	"core/shared/protocol"
 )
 
 type WorkflowTaskInitialBranchErrorReason string
@@ -33,31 +30,6 @@ func (e *WorkflowTaskInitialBranchError) Error() string {
 		return "workflow task initial branch failed"
 	}
 	return fmt.Sprintf("workflow task initial branch %q failed: %s", e.BranchName, e.Reason)
-}
-
-func (e *WorkflowTaskInitialBranchError) RPCErrorCode() int {
-	return protocol.ErrCodeWorkflowTaskInitialBranch
-}
-
-func (e *WorkflowTaskInitialBranchError) RPCErrorData() json.RawMessage {
-	if e == nil {
-		return nil
-	}
-	return marshalRPCErrorData(struct {
-		Type               string                               `json:"type"`
-		Reason             WorkflowTaskInitialBranchErrorReason `json:"reason"`
-		BranchName         string                               `json:"branch_name"`
-		Ref                *string                              `json:"ref,omitempty"`
-		Remote             *string                              `json:"remote,omitempty"`
-		ExistingBranchName *string                              `json:"existing_branch_name,omitempty"`
-	}{
-		Type:               "workflow_task_initial_branch_error",
-		Reason:             e.Reason,
-		BranchName:         e.BranchName,
-		Ref:                e.Ref,
-		Remote:             e.Remote,
-		ExistingBranchName: e.ExistingBranchName,
-	})
 }
 
 func (e *WorkflowTaskInitialBranchError) Validate() error {
@@ -90,31 +62,6 @@ func (e *WorkflowTaskInitialBranchError) Validate() error {
 		return errors.New("workflow task initial branch error reason is invalid")
 	}
 	return nil
-}
-
-func DecodeWorkflowTaskInitialBranchError(data json.RawMessage, message string) error {
-	var envelope struct {
-		Type               string                               `json:"type"`
-		Reason             WorkflowTaskInitialBranchErrorReason `json:"reason"`
-		BranchName         string                               `json:"branch_name"`
-		Ref                *string                              `json:"ref,omitempty"`
-		Remote             *string                              `json:"remote,omitempty"`
-		ExistingBranchName *string                              `json:"existing_branch_name,omitempty"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != "workflow_task_initial_branch_error" {
-		return errors.New(strings.TrimSpace(message))
-	}
-	result := &WorkflowTaskInitialBranchError{
-		Reason:             envelope.Reason,
-		BranchName:         envelope.BranchName,
-		Ref:                envelope.Ref,
-		Remote:             envelope.Remote,
-		ExistingBranchName: envelope.ExistingBranchName,
-	}
-	if err := result.Validate(); err != nil {
-		return errors.New(strings.TrimSpace(message))
-	}
-	return result
 }
 
 func validInitialBranchErrorString(value *string) bool {

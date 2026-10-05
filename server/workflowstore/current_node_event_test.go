@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"core/server/workflow"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type recordingCurrentNodeEventPublisher struct {
-	events []WorkflowEventRecord
+	events []workflowcontract.Event
 	err    error
 }
 
-func (p *recordingCurrentNodeEventPublisher) PublishWorkflowEvent(_ context.Context, event WorkflowEventRecord) error {
+func (p *recordingCurrentNodeEventPublisher) PublishWorkflowEvent(_ context.Context, event workflowcontract.Event) error {
 	p.events = append(p.events, event)
 	return p.err
 }
@@ -27,12 +27,12 @@ func TestCurrentNodeTaskEventPublicationUsesCommittedTaskIdentity(t *testing.T) 
 	publisher := &recordingCurrentNodeEventPublisher{}
 	store.SetWorkflowEventPublisher(publisher)
 
-	if err := store.publishCurrentNodeTaskEvent(ctx, workflow.TaskID(task.ID), serverapi.WorkflowProjectEventActionCompleted); err != nil {
+	if err := store.publishCurrentNodeTaskEvent(ctx, workflow.TaskID(task.ID), workflowcontract.EventActionCompleted); err != nil {
 		t.Fatalf("publishCurrentNodeTaskEvent: %v", err)
 	}
 	if len(publisher.events) != 1 || publisher.events[0].PrimaryEntityID != string(task.ID) ||
-		publisher.events[0].Resource != serverapi.WorkflowProjectEventResourceTask ||
-		publisher.events[0].Action != serverapi.WorkflowProjectEventActionCompleted {
+		publisher.events[0].Resource != workflowcontract.EventResourceTask ||
+		publisher.events[0].Action != workflowcontract.EventActionCompleted {
 		t.Fatalf("published events = %+v", publisher.events)
 	}
 }
@@ -45,7 +45,7 @@ func TestCurrentNodeTaskEventPublicationErrorIsReturnedAfterCommit(t *testing.T)
 	publisher := &recordingCurrentNodeEventPublisher{err: errors.New("wake unavailable")}
 	store.SetWorkflowEventPublisher(publisher)
 
-	err := store.publishCurrentNodeTaskEvent(ctx, workflow.TaskID(task.ID), serverapi.WorkflowProjectEventActionCompleted)
+	err := store.publishCurrentNodeTaskEvent(ctx, workflow.TaskID(task.ID), workflowcontract.EventActionCompleted)
 	if err == nil {
 		t.Fatal("publication error was swallowed")
 	}
@@ -69,7 +69,7 @@ func TestCompleteCurrentNodePublishesCompletionEventAfterCommittedMutation(t *te
 	}
 	if len(publisher.events) != 1 ||
 		publisher.events[0].PrimaryEntityID != string(task.ID) ||
-		publisher.events[0].Action != serverapi.WorkflowProjectEventActionCompleted {
+		publisher.events[0].Action != workflowcontract.EventActionCompleted {
 		t.Fatalf("completion events = %+v, want one completed task event", publisher.events)
 	}
 }

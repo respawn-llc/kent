@@ -72,9 +72,9 @@ export function createHomeAttentionPages(api: AppServices["api"], client: QueryC
 function globalAttentionQueryOptions(api: AppServices["api"]) {
   return infiniteQueryOptions({
     queryKey: queryKeys.attention,
-    queryFn: async ({ pageParam }) => api.listAttention(pageParam),
-    initialPageParam: "",
-    getNextPageParam: (lastPage) => (lastPage.nextPageToken.length > 0 ? lastPage.nextPageToken : undefined),
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => api.listAttention(pageParam),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => lastPage.nextPageToken ?? undefined,
     placeholderData: keepPreviousData,
   });
 }

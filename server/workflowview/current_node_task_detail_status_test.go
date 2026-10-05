@@ -13,9 +13,12 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"core/shared/protoapi"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestTaskDetailDependenciesUseOneStatusObservation(t *testing.T) {
@@ -73,13 +76,13 @@ func TestTaskDetailProjectsCurrentNodeAndDirectRetainedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TaskDetail.GetTask: %v", err)
 	}
-	if detail.Summary.ID != string(started.task.ID) ||
+	if detail.Summary.Id != string(started.task.ID) ||
 		len(detail.CurrentNodes) != 1 ||
-		detail.CurrentNodes[0].NodeID != string(fixture.agentNodeID) ||
-		detail.CurrentNodes[0].SessionID == nil ||
-		*detail.CurrentNodes[0].SessionID != sessionID.String() ||
+		detail.CurrentNodes[0].NodeId != string(fixture.agentNodeID) ||
+		detail.CurrentNodes[0].SessionId == nil ||
+		*detail.CurrentNodes[0].SessionId != sessionID.String() ||
 		detail.RetainedSessionCount != 1 ||
-		detail.Status.Kind != serverapi.WorkflowTaskStatusKindActive ||
+		detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
 		detail.Actions.CanDelete ||
 		detail.Actions.CanStart {
 		t.Fatalf("task detail = %+v, want Current Node and directly retained Session", detail)
@@ -183,11 +186,11 @@ func TestTaskDetailMaterializesAndOrdersLiveScripts(t *testing.T) {
 	}
 	branchA := "split_a"
 	branchB := "split_b"
-	want := []serverapi.WorkflowTaskCurrentScript{
-		{CurrentNode: serverapi.WorkflowTaskCurrentNode{NodeID: string(scriptNodeIDs[0]), TransitionBranchKey: &branchA}, Path: scriptPaths[0]},
-		{CurrentNode: serverapi.WorkflowTaskCurrentNode{NodeID: string(scriptNodeIDs[1]), TransitionBranchKey: &branchB}, Path: scriptPaths[1]},
+	want := []*taskpb.CurrentScript{
+		{CurrentNode: &taskpb.AttentionCurrentNode{NodeId: string(scriptNodeIDs[0]), TransitionBranchKey: &branchA}, Path: scriptPaths[0]},
+		{CurrentNode: &taskpb.AttentionCurrentNode{NodeId: string(scriptNodeIDs[1]), TransitionBranchKey: &branchB}, Path: scriptPaths[1]},
 	}
-	if projected.Status.Kind != serverapi.WorkflowTaskStatusKindRunning ||
+	if projected.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING ||
 		!projected.Actions.CanInterrupt ||
 		len(projected.LiveSessions) != 0 ||
 		!reflect.DeepEqual(projected.CurrentScripts, want) {
@@ -200,13 +203,13 @@ func TestTaskDetailProjectsLiveAgentStates(t *testing.T) {
 		name          string
 		queued        bool
 		approval      bool
-		wantStatus    serverapi.WorkflowTaskStatusKind
+		wantStatus    taskpb.TaskStatusKind
 		wantAttention int
 		wantInterrupt bool
 	}{
-		{name: "queued", queued: true, wantStatus: serverapi.WorkflowTaskStatusKindQueued},
-		{name: "running", wantStatus: serverapi.WorkflowTaskStatusKindRunning, wantInterrupt: true},
-		{name: "Approval", approval: true, wantStatus: serverapi.WorkflowTaskStatusKindWaitingApproval, wantAttention: 1},
+		{name: "queued", queued: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED},
+		{name: "running", wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING, wantInterrupt: true},
+		{name: "Approval", approval: true, wantStatus: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL, wantAttention: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -239,10 +242,10 @@ func TestTaskDetailProjectsLiveAgentStates(t *testing.T) {
 				t.Fatalf("TaskDetail.GetTask: %v", err)
 			}
 			if projected.Status.Kind != test.wantStatus ||
-				projected.AttentionCount != test.wantAttention ||
+				int(projected.AttentionCount) != test.wantAttention ||
 				projected.Actions.CanInterrupt != test.wantInterrupt ||
 				len(projected.LiveSessions) != 1 ||
-				projected.LiveSessions[0].SessionID != sessionID.String() ||
+				projected.LiveSessions[0].SessionId != sessionID.String() ||
 				len(projected.CurrentScripts) != 0 {
 				t.Fatalf("live Agent detail = %+v", projected)
 			}
@@ -297,14 +300,14 @@ func TestTaskListPaginatesStableSortAndEvaluatesOffsetAgainstEachRequest(t *test
 	}
 	projectID := fixture.binding.ProjectID
 	workflowID := fixture.workflowID
-	limit := 1
-	request := serverapi.WorkflowTaskListRequest{
-		ProjectID:   &projectID,
-		WorkflowID:  &workflowID,
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
-		Sort: []serverapi.WorkflowTaskListSort{{
-			Field:     serverapi.WorkflowTaskListSortFieldUpdated,
-			Direction: serverapi.WorkflowTaskListSortDirectionDesc,
+	limit := int32(1)
+	request := &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
+		LabelFilter: noLabelFilter(),
+		Sort: []*taskpb.ListSort{{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_UPDATED,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC,
 		}},
 		Limit: &limit,
 	}
@@ -317,7 +320,7 @@ func TestTaskListPaginatesStableSortAndEvaluatesOffsetAgainstEachRequest(t *test
 		if len(page.Tasks) != 1 {
 			t.Fatalf("stable page = %+v, want one Task", page.Tasks)
 		}
-		got = append(got, page.Tasks[0].TaskID)
+		got = append(got, page.Tasks[0].TaskId)
 		if page.NextOffset == nil {
 			break
 		}
@@ -333,15 +336,15 @@ func TestTaskListPaginatesStableSortAndEvaluatesOffsetAgainstEachRequest(t *test
 		t.Fatalf("stable pagination order = %v, want %v", got, want)
 	}
 
-	offset := 1
-	filtered, err := fixture.tasks.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-		ProjectID:   &projectID,
-		WorkflowID:  &workflowID,
-		StatusKinds: []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindInterrupted},
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
-		Sort: []serverapi.WorkflowTaskListSort{{
-			Field:     serverapi.WorkflowTaskListSortFieldTitle,
-			Direction: serverapi.WorkflowTaskListSortDirectionAsc,
+	offset := int32(1)
+	filtered, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
+		StatusKinds: []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
+		LabelFilter: noLabelFilter(),
+		Sort: []*taskpb.ListSort{{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_TITLE,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC,
 		}},
 		Offset: &offset,
 		Limit:  &limit,
@@ -349,7 +352,7 @@ func TestTaskListPaginatesStableSortAndEvaluatesOffsetAgainstEachRequest(t *test
 	if err != nil {
 		t.Fatalf("TaskList.List changed filter: %v", err)
 	}
-	if len(filtered.Tasks) != 1 || filtered.Tasks[0].TaskID != string(started[2].task.ID) {
+	if len(filtered.Tasks) != 1 || filtered.Tasks[0].TaskId != string(started[2].task.ID) {
 		t.Fatalf("changed-filter offset page = %+v, want second interrupted Task", filtered.Tasks)
 	}
 }
@@ -372,21 +375,21 @@ func TestTaskListSortsNumericShortIDAsSeventhSelector(t *testing.T) {
 	}
 	projectID := fixture.binding.ProjectID
 	workflowID := fixture.workflowID
-	limit := 3
-	offset := 8
-	sortSelectors := []serverapi.WorkflowTaskListSort{
-		{Field: serverapi.WorkflowTaskListSortFieldLabels, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldCreated, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldUpdated, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldStatus, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldColumn, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldTitle, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
-		{Field: serverapi.WorkflowTaskListSortFieldShortID, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
+	limit := int32(3)
+	offset := int32(8)
+	sortSelectors := []*taskpb.ListSort{
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_LABELS, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_CREATED, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_UPDATED, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_STATUS, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_COLUMN, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_TITLE, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
+		{Field: taskpb.ListSortField_LIST_SORT_FIELD_SHORT_ID, Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC},
 	}
-	request := serverapi.WorkflowTaskListRequest{
-		ProjectID:   &projectID,
-		WorkflowID:  &workflowID,
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+	request := &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
+		LabelFilter: noLabelFilter(),
 		Sort:        sortSelectors,
 		Offset:      &offset,
 		Limit:       &limit,
@@ -404,7 +407,7 @@ func TestTaskListSortsNumericShortIDAsSeventhSelector(t *testing.T) {
 	}
 
 	request.Offset = nil
-	request.Sort[6].Direction = serverapi.WorkflowTaskListSortDirectionDesc
+	request.Sort[6].Direction = taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC
 	descending, err := fixture.tasks.List(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("TaskList.List descending: %v", err)
@@ -418,10 +421,10 @@ func TestTaskListSortsNumericShortIDAsSeventhSelector(t *testing.T) {
 	}
 }
 
-func workflowTaskListItemIDs(tasks []serverapi.WorkflowTaskListItem) []string {
+func workflowTaskListItemIDs(tasks []*taskpb.ListItem) []string {
 	ids := make([]string, 0, len(tasks))
 	for _, task := range tasks {
-		ids = append(ids, task.TaskID)
+		ids = append(ids, task.TaskId)
 	}
 	return ids
 }
@@ -429,11 +432,11 @@ func workflowTaskListItemIDs(tasks []serverapi.WorkflowTaskListItem) []string {
 func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	projectID := fixture.binding.ProjectID
-	list := func(offset *int, limit int) serverapi.WorkflowTaskListResponse {
+	list := func(offset *int32, limit int32) *taskpb.ListSuccess {
 		t.Helper()
-		page, err := fixture.tasks.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-			ProjectID:   &projectID,
-			LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+		page, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+			ProjectId:   &projectID,
+			LabelFilter: noLabelFilter(),
 			Offset:      offset,
 			Limit:       &limit,
 		})
@@ -445,18 +448,18 @@ func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T)
 
 	none := list(nil, 20)
 	if len(none.Tasks) != 0 ||
-		none.MatchingWorkflowCardinality != serverapi.WorkflowTaskListMatchingWorkflowCardinalityNone {
+		none.MatchingWorkflowCardinality != taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_NONE {
 		t.Fatalf("empty project-wide page = %+v", none)
 	}
 
 	task := fixture.createBacklogTask(t, "Only workflow task")
 	one := list(nil, 20)
 	if len(one.Tasks) != 1 ||
-		one.Tasks[0].TaskID != string(task.ID) ||
-		one.Tasks[0].WorkflowID != fixture.workflowID ||
+		one.Tasks[0].TaskId != string(task.ID) ||
+		one.Tasks[0].WorkflowId != fixture.workflowID.String() ||
 		one.Tasks[0].WorkflowName == nil ||
 		one.Tasks[0].ColumnKeys != nil ||
-		one.MatchingWorkflowCardinality != serverapi.WorkflowTaskListMatchingWorkflowCardinalityOne {
+		one.MatchingWorkflowCardinality != taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_ONE {
 		t.Fatalf("one-workflow project-wide page = %+v", one)
 	}
 
@@ -484,20 +487,20 @@ func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T)
 	}
 	multiple := list(nil, 20)
 	if len(multiple.Tasks) != 3 ||
-		multiple.MatchingWorkflowCardinality != serverapi.WorkflowTaskListMatchingWorkflowCardinalityMultiple {
+		multiple.MatchingWorkflowCardinality != taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE {
 		t.Fatalf("multiple-workflow project-wide page = %+v", multiple)
 	}
 	for _, item := range multiple.Tasks {
-		if item.WorkflowID.IsZero() || item.WorkflowName == nil || item.ColumnKeys != nil {
+		if item.WorkflowName == nil || item.ColumnKeys != nil {
 			t.Fatalf("multiple-workflow project-wide item = %+v", item)
 		}
 	}
 
-	offset := 4
+	offset := int32(4)
 	beyondEnd := list(&offset, 1)
 	if len(beyondEnd.Tasks) != 0 ||
 		beyondEnd.NextOffset != nil ||
-		beyondEnd.MatchingWorkflowCardinality != serverapi.WorkflowTaskListMatchingWorkflowCardinalityMultiple {
+		beyondEnd.MatchingWorkflowCardinality != taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE {
 		t.Fatalf("multiple-workflow beyond-end page = %+v", beyondEnd)
 	}
 }
@@ -520,33 +523,29 @@ func TestTaskListDefaultSortUsesCurrentStatusBeforeActivity(t *testing.T) {
 	fixture.setTaskUpdatedAt(t, backlog.ID, 2_000)
 	projectID := fixture.binding.ProjectID
 	workflowID := fixture.workflowID
-	limit := 20
+	limit := int32(20)
 
-	list, err := fixture.tasks.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-		ProjectID:   &projectID,
-		WorkflowID:  &workflowID,
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+	list, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
+		LabelFilter: noLabelFilter(),
 		Limit:       &limit,
 	})
 	if err != nil {
 		t.Fatalf("TaskList.List: %v", err)
 	}
-	got := make([]serverapi.WorkflowTaskStatusKind, 0, len(list.Tasks))
+	got := make([]taskpb.TaskStatusKind, 0, len(list.Tasks))
 	for _, task := range list.Tasks {
 		got = append(got, task.Status.Kind)
 	}
-	want := []serverapi.WorkflowTaskStatusKind{
-		serverapi.WorkflowTaskStatusKindInterrupted,
-		serverapi.WorkflowTaskStatusKindBacklog,
-		serverapi.WorkflowTaskStatusKindActive,
-	}
+	want := []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED, taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG, taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE}
 	if !slices.Equal(got, want) {
 		t.Fatalf("default Task List status order = %v, want %v", got, want)
 	}
 	activeItem := list.Tasks[2]
 	if activeItem.WorkflowName != nil ||
 		activeItem.ColumnKeys == nil ||
-		!slices.Equal(*activeItem.ColumnKeys, []string{"agent"}) {
+		!slices.Equal(activeItem.ColumnKeys.Values, []string{"agent"}) {
 		t.Fatalf("Workflow-narrowed active Task = %+v, want ordered Current Node column", activeItem)
 	}
 }
@@ -568,8 +567,8 @@ func TestProjectTaskGroupCountsObserveLiveStatusesAcrossLinkedWorkflows(t *testi
 	}
 	fixture.quiescence.blocked[active.task.ID] = true
 
-	counts, err := fixture.tasks.CountGroups(fixture.ctx, serverapi.WorkflowProjectTaskGroupCountsRequest{
-		ProjectID: fixture.binding.ProjectID,
+	counts, err := fixture.tasks.CountGroups(fixture.ctx, &taskpb.ProjectTaskGroupCountsRequest{
+		ProjectId: fixture.binding.ProjectID,
 	})
 	if err != nil {
 		t.Fatalf("CountGroups: %v", err)
@@ -577,7 +576,7 @@ func TestProjectTaskGroupCountsObserveLiveStatusesAcrossLinkedWorkflows(t *testi
 	if counts.Counts.Active != 1 || counts.Counts.Backlog != 2 || counts.Counts.Done != 0 {
 		t.Fatalf("counts = %+v, want active=1 backlog=2 done=0", counts.Counts)
 	}
-	if !reflect.DeepEqual(counts.Definitions, serverapi.WorkflowProjectTaskGroupDefinitions()) {
+	if !reflect.DeepEqual(counts.Definitions, protoapi.TaskGroupDefinitions()) {
 		t.Fatalf("definitions = %+v, want canonical Project Task groups", counts.Definitions)
 	}
 }
@@ -618,24 +617,21 @@ func TestTaskListPreservesAllLiveAttentionThroughCanonicalStatus(t *testing.T) {
 		t.Fatalf("NewTaskList: %v", err)
 	}
 	projectID := fixture.binding.ProjectID
-	limit := 20
-	page, err := taskList.List(fixture.ctx, serverapi.WorkflowTaskListRequest{
-		ProjectID:      &projectID,
-		StatusKinds:    []serverapi.WorkflowTaskStatusKind{serverapi.WorkflowTaskStatusKindWaitingQuestion},
-		AttentionKinds: []serverapi.WorkflowTaskAttentionKind{serverapi.WorkflowTaskAttentionKindApproval},
-		LabelFilter:    serverapi.WorkflowTaskLabelFilterNone(),
+	limit := int32(20)
+	page, err := taskList.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId:      &projectID,
+		StatusKinds:    []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION},
+		AttentionKinds: []taskpb.TaskAttentionKind{taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_APPROVAL},
+		LabelFilter:    noLabelFilter(),
 		Limit:          &limit,
 	})
 	if err != nil {
 		t.Fatalf("TaskList.List: %v", err)
 	}
 	if len(page.Tasks) != 1 ||
-		page.Tasks[0].TaskID != string(started.task.ID) ||
-		page.Tasks[0].Status.Kind != serverapi.WorkflowTaskStatusKindWaitingQuestion ||
-		!slices.Equal(page.Tasks[0].Status.AttentionTypes, []serverapi.WorkflowTaskAttentionKind{
-			serverapi.WorkflowTaskAttentionKindApproval,
-			serverapi.WorkflowTaskAttentionKindQuestion,
-		}) {
+		page.Tasks[0].TaskId != string(started.task.ID) ||
+		page.Tasks[0].Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION ||
+		!slices.Equal(page.Tasks[0].Status.AttentionTypes, []taskpb.TaskAttentionKind{taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_APPROVAL, taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_QUESTION}) {
 		t.Fatalf("live question-and-approval Task List page = %+v", page)
 	}
 }
@@ -687,35 +683,27 @@ func TestTaskListProjectsDurableDoneRunningAndQueued(t *testing.T) {
 	}
 	projectID := fixture.binding.ProjectID
 	workflowID := fixture.workflowID
-	limit := 1
-	request := serverapi.WorkflowTaskListRequest{
-		ProjectID:  &projectID,
-		WorkflowID: &workflowID,
-		StatusKinds: []serverapi.WorkflowTaskStatusKind{
-			serverapi.WorkflowTaskStatusKindDone,
-			serverapi.WorkflowTaskStatusKindRunning,
-			serverapi.WorkflowTaskStatusKindQueued,
-		},
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
-		Sort: []serverapi.WorkflowTaskListSort{{
-			Field:     serverapi.WorkflowTaskListSortFieldStatus,
-			Direction: serverapi.WorkflowTaskListSortDirectionAsc,
+	limit := int32(1)
+	request := &taskpb.ListRequest{
+		ProjectId:   &projectID,
+		WorkflowId:  proto.String(workflowID.String()),
+		StatusKinds: []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE, taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING, taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED},
+		LabelFilter: noLabelFilter(),
+		Sort: []*taskpb.ListSort{{
+			Field:     taskpb.ListSortField_LIST_SORT_FIELD_STATUS,
+			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_ASC,
 		}},
 		Limit: &limit,
 	}
 	wantIDs := []string{string(done.task.ID), string(running.task.ID), string(queued.task.ID)}
-	wantKinds := []serverapi.WorkflowTaskStatusKind{
-		serverapi.WorkflowTaskStatusKindDone,
-		serverapi.WorkflowTaskStatusKindRunning,
-		serverapi.WorkflowTaskStatusKindQueued,
-	}
+	wantKinds := []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE, taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING, taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED}
 	for index := range wantIDs {
 		page, err := taskList.List(fixture.ctx, request)
 		if err != nil {
 			t.Fatalf("TaskList.List page %d: %v", index, err)
 		}
 		if len(page.Tasks) != 1 ||
-			page.Tasks[0].TaskID != wantIDs[index] ||
+			page.Tasks[0].TaskId != wantIDs[index] ||
 			page.Tasks[0].Status.Kind != wantKinds[index] {
 			t.Fatalf("status page %d = %+v, want %s/%s", index, page.Tasks, wantIDs[index], wantKinds[index])
 		}
@@ -746,7 +734,7 @@ func TestTaskDetailProjectsDurableCurrentStateMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatalf("TaskDetail.GetTask: %v", err)
 		}
-		if detail.Status.Kind != serverapi.WorkflowTaskStatusKindInterrupted ||
+		if detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
 			detail.AttentionCount != 1 ||
 			!detail.Actions.CanResume {
 			t.Fatalf("interrupted detail = %+v", detail)
@@ -770,10 +758,10 @@ func TestTaskDetailProjectsDurableCurrentStateMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatalf("TaskDetail.GetTask: %v", err)
 		}
-		if detail.Status.Kind != serverapi.WorkflowTaskStatusKindWaitingApproval ||
+		if detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL ||
 			detail.AttentionCount != 1 ||
 			len(detail.CurrentNodes) != 1 ||
-			detail.CurrentNodes[0].NodeID != string(fixture.agentNodeID) {
+			detail.CurrentNodes[0].NodeId != string(fixture.agentNodeID) {
 			t.Fatalf("waiting-Approval detail = %+v", detail)
 		}
 	})
@@ -791,7 +779,7 @@ func TestTaskDetailProjectsDurableCurrentStateMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatalf("TaskDetail.GetTask: %v", err)
 		}
-		if detail.Status.Kind != serverapi.WorkflowTaskStatusKindDone ||
+		if detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
 			!detail.Summary.Done ||
 			detail.AttentionCount != 0 {
 			t.Fatalf("done detail = %+v", detail)

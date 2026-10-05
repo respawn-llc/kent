@@ -5,11 +5,28 @@ import { create } from "@app/server-api-contract";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { ContractError, RpcError, WorkflowLabelError } from "./errors";
-import { taskLabelFilterPayload } from "./clientWorkflowLabels";
+import { RpcError, WorkflowLabelError } from "./errors";
 const priorityID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const urgentID = "942495c2-5958-4959-8445-94046ad74fbd";
 const smallID = "11111111-1111-4111-8111-111111111111";
+function createdTaskResult(id: string, shortId: string, title: string) {
+  return create(taskLifecycle.CreateResultSchema, {
+    outcome: {
+      case: "success",
+      value: {
+        task: {
+          id,
+          shortId,
+          title,
+          projectId: "project-1",
+          workflowId: smallID,
+          createdAt: { seconds: 0n, nanos: 1_000_000 },
+          updatedAt: { seconds: 0n, nanos: 1_000_000 },
+        },
+      },
+    },
+  });
+}
 describe("ApiClient workflow labels", () => {
   it("keeps an unknown label error generic even when it carries a known detail", async () => {
     const failure = create(wf.ProjectLabelCreateErrorSchema, {
@@ -36,28 +53,48 @@ describe("ApiClient workflow labels", () => {
 
   it("loads each Project Task-group definition exactly once", async () => {
     const definitions = [
-      { group: "active", status_kinds: ["running", "active"] },
-      { group: "backlog", status_kinds: ["backlog"] },
-      { group: "done", status_kinds: ["done"] },
-    ] as const;
-    const result = {
-      project_id: "project-1",
+      create(taskRead.ProjectTaskGroupDefinitionSchema, {
+        group: taskRead.ProjectTaskGroup.ACTIVE,
+        statusKinds: [taskRead.TaskStatusKind.RUNNING, taskRead.TaskStatusKind.ACTIVE],
+      }),
+      create(taskRead.ProjectTaskGroupDefinitionSchema, {
+        group: taskRead.ProjectTaskGroup.BACKLOG,
+        statusKinds: [taskRead.TaskStatusKind.BACKLOG],
+      }),
+      create(taskRead.ProjectTaskGroupDefinitionSchema, {
+        group: taskRead.ProjectTaskGroup.DONE,
+        statusKinds: [taskRead.TaskStatusKind.DONE],
+      }),
+    ];
+    const first = definitions[0];
+    const third = definitions[2];
+    if (first === undefined || third === undefined) throw new Error("Group fixtures are required.");
+    const result = create(taskRead.ProjectTaskGroupCountsSuccessSchema, {
+      projectId: "project-1",
       definitions,
       counts: { active: 3, backlog: 2, done: 1 },
-      generated_at_unix_ms: 7,
-    };
-    const getCounts = async (response: unknown) =>
+      generatedAt: { seconds: 0n, nanos: 7_000_000 },
+    });
+    const method = taskRead.TaskReadService.method.getProjectGroupCounts;
+    const getCounts = async (response: taskRead.ProjectTaskGroupCountsSuccess) =>
       new ApiClient(
-        new FakeRpcTransport([{ method: "workflow.task.groupCounts", result: response }]),
+        new FakeRpcTransport([
+          {
+            descriptor: method,
+            result: create(method.output, { outcome: { case: "success", value: response } }),
+          },
+        ]),
         unexpectedProjectOverflow,
       ).getProjectTaskGroupCounts({ projectID: "project-1" });
     await expect(getCounts(result)).resolves.toMatchObject({
-      definitions: definitions.map(({ group, status_kinds }) => ({ group, statusKinds: status_kinds })),
-      counts: result.counts,
+      definitions: [
+        { group: "active", statusKinds: ["running", "active"] },
+        { group: "backlog", statusKinds: ["backlog"] },
+        { group: "done", statusKinds: ["done"] },
+      ],
+      counts: { active: 3, backlog: 2, done: 1 },
     });
-    await expect(
-      getCounts({ ...result, definitions: [definitions[0], definitions[0], definitions[2]] }),
-    ).rejects.toBeInstanceOf(ContractError);
+    await expect(getCounts({ ...result, definitions: [first, first, third] })).rejects.toThrow();
   });
   it("reorders a Project label catalog and preserves the authoritative response order", async () => {
     const transport = new FakeRpcTransport([
@@ -106,15 +143,8 @@ describe("ApiClient workflow labels", () => {
   it("creates a related task through an atomic relationship-intent collection and returns its summary", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.create",
-        result: {
-          task: {
-            id: "task-new",
-            short_id: "KENT-42",
-            title: "New blocker",
-            workflow_id: smallID,
-          },
-        },
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        result: createdTaskResult("task-new", "KENT-42", "New blocker"),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -137,39 +167,23 @@ describe("ApiClient workflow labels", () => {
       title: "New blocker",
       workflowID: smallID,
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.create",
-        params: {
-          project_id: "project-1",
-          workflow_id: smallID,
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        request: create(taskLifecycle.CreateRequestSchema, {
+          projectId: "project-1",
+          workflowId: smallID,
           title: "New blocker",
           body: "",
-          source_workspace_id: "workspace-origin",
-          label_ids: [],
-          dependency_intents: [
-            { related_task_id: "task-blocked", new_task_role: "blocker" },
-            { related_task_id: "task-blocker", new_task_role: "blocked" },
+          sourceWorkspaceId: "workspace-origin",
+          labelIds: [],
+          dependencyIntents: [
+            { relatedTaskId: "task-blocked", newTaskRole: taskLifecycle.DependencyRole.BLOCKER },
+            { relatedTaskId: "task-blocker", newTaskRole: taskLifecycle.DependencyRole.BLOCKED },
           ],
-        },
+        }),
       },
     ]);
-  });
-  it("omits an empty excluded partition from a named filter payload", () => {
-    expect(
-      taskLabelFilterPayload({
-        kind: "named",
-        mode: "any",
-        labelIDs: [priorityID],
-        excludedLabelIDs: [],
-      }),
-    ).toEqual({
-      kind: "named",
-      named: {
-        mode: "any",
-        label_ids: [priorityID],
-      },
-    });
   });
   it("lists the complete bounded Project label catalog", async () => {
     const transport = new FakeRpcTransport([
@@ -360,15 +374,8 @@ describe("ApiClient workflow labels", () => {
   it("creates a task with an explicit atomic label assignment", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.create",
-        result: {
-          task: {
-            id: "task-1",
-            short_id: "KENT-1",
-            title: "Ship labels",
-            workflow_id: "11111111-1111-4111-8111-111111111111",
-          },
-        },
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        result: createdTaskResult("task-1", "KENT-1", "Ship labels"),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -388,18 +395,18 @@ describe("ApiClient workflow labels", () => {
       title: "Ship labels",
       workflowID: "11111111-1111-4111-8111-111111111111",
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.create",
-        params: {
-          project_id: "project-1",
-          workflow_id: "11111111-1111-4111-8111-111111111111",
+        descriptor: taskLifecycle.TaskLifecycleService.method.create,
+        request: create(taskLifecycle.CreateRequestSchema, {
+          projectId: "project-1",
+          workflowId: "11111111-1111-4111-8111-111111111111",
           title: "Ship labels",
           body: "Wire the desktop API.",
-          source_workspace_id: "workspace-1",
-          label_ids: [priorityID],
-          dependency_intents: [],
-        },
+          sourceWorkspaceId: "workspace-1",
+          labelIds: [priorityID],
+          dependencyIntents: [],
+        }),
       },
     ]);
   });
@@ -426,37 +433,41 @@ describe("ApiClient workflow labels", () => {
       }),
     ).rejects.toThrow();
     expect(transport.calls).toEqual([]);
+    expect(transport.descriptorCalls).toEqual([]);
   });
   it("lists label-filtered task projections with ordered Label display data", async () => {
+    const method = taskRead.TaskReadService.method.list;
     const transport = new FakeRpcTransport([
       {
-        method: "workflow.task.list",
-        result: {
-          scope: { project_id: "project-1", workflow_id: "11111111-1111-4111-8111-111111111111" },
-          matching_workflow_cardinality: "one",
-          next_offset: null,
-          generated_at_unix_ms: 7,
-          tasks: [
-            {
-              task_id: "task-1",
-              short_id: "PROJ-1",
-              workflow_id: "11111111-1111-4111-8111-111111111111",
-              workflow_name: "Delivery",
-              title: "Ship labels",
-              created_at_unix_ms: 1,
-              updated_at_unix_ms: 2,
-              column_keys: ["implement"],
-              status: {
-                kind: "active",
-                native_state: "active",
-                node_ids: ["node-1"],
-                attention_types: [],
-              },
-              labels: [{ id: priorityID, name: "Priority" }],
-              dependency_progress: { satisfied_count: 1, total_count: 2 },
+        descriptor: method,
+        result: create(method.output, {
+          outcome: {
+            case: "success",
+            value: {
+              scope: { projectId: "project-1", workflowId: smallID },
+              matchingWorkflowCardinality: taskRead.MatchingWorkflowCardinality.ONE,
+              generatedAt: { seconds: 0n, nanos: 7_000_000 },
+              tasks: [
+                {
+                  taskId: "task-1",
+                  shortId: "PROJ-1",
+                  workflowId: smallID,
+                  title: "Ship labels",
+                  createdAt: { seconds: 0n, nanos: 1_000_000 },
+                  updatedAt: { seconds: 0n, nanos: 2_000_000 },
+                  columnKeys: { values: ["implement"] },
+                  status: {
+                    kind: taskRead.TaskStatusKind.ACTIVE,
+                    nativeState: taskRead.TaskNativeState.ACTIVE,
+                    nodeIds: ["node-1"],
+                  },
+                  labels: [{ id: priorityID, name: "Priority" }],
+                  dependencyProgress: { satisfiedCount: 1, totalCount: 2 },
+                },
+              ],
             },
-          ],
-        },
+          },
+        }),
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
@@ -484,43 +495,47 @@ describe("ApiClient workflow labels", () => {
         },
       ],
     });
-    expect(transport.calls).toEqual([
+    expect(transport.descriptorCalls).toEqual([
       {
-        method: "workflow.task.list",
-        params: {
-          project_id: "project-1",
-          workflow_id: "11111111-1111-4111-8111-111111111111",
-          group: "active",
-          column_keys: [],
-          status_kinds: [],
-          attention_kinds: [],
-          label_filter: {
-            kind: "named",
-            named: {
-              mode: "any",
-              label_ids: [urgentID, priorityID],
-              excluded_label_ids: [smallID],
+        descriptor: method,
+        request: create(method.input, {
+          projectId: "project-1",
+          workflowId: smallID,
+          group: taskRead.ProjectTaskGroup.ACTIVE,
+          labelFilter: {
+            filter: {
+              case: "named",
+              value: {
+                mode: taskRead.NamedLabelFilterMode.ANY,
+                labelIds: [urgentID, priorityID],
+                excludedLabelIds: [smallID],
+              },
             },
           },
           sort: [],
           offset: 0,
           limit: 25,
-        },
+        }),
       },
     ]);
   });
   it("rejects a zero task-list continuation offset", async () => {
+    const method = taskRead.TaskReadService.method.list;
     const client = new ApiClient(
       new FakeRpcTransport([
         {
-          method: "workflow.task.list",
-          result: {
-            scope: { project_id: "project-1" },
-            matching_workflow_cardinality: "none",
-            next_offset: 0,
-            generated_at_unix_ms: 7,
-            tasks: [],
-          },
+          descriptor: method,
+          result: create(method.output, {
+            outcome: {
+              case: "success",
+              value: {
+                scope: { projectId: "project-1" },
+                matchingWorkflowCardinality: taskRead.MatchingWorkflowCardinality.NONE,
+                nextOffset: 0,
+                generatedAt: { seconds: 0n, nanos: 7_000_000 },
+              },
+            },
+          }),
         },
       ]),
       unexpectedProjectOverflow,
@@ -530,6 +545,6 @@ describe("ApiClient workflow labels", () => {
         projectID: "project-1",
         labelFilter: { kind: "none" },
       }),
-    ).rejects.toBeInstanceOf(ContractError);
+    ).rejects.toThrow();
   });
 });

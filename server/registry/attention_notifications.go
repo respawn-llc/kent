@@ -9,11 +9,13 @@ import (
 
 	"core/server/attentionnotify"
 	askquestion "core/server/tools"
+	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker, navigation func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)) *RuntimeRegistry {
@@ -28,14 +30,18 @@ func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Bro
 	return r
 }
 
-func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	if err := req.Validate(); err != nil {
+func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
-	return r.attentionBroker.SubscribeDesktop()
+	sub, err := r.attentionBroker.SubscribeDesktop()
+	if err != nil {
+		return nil, err
+	}
+	return &attentionSubscription{native: sub}, nil
 }
 
 func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {

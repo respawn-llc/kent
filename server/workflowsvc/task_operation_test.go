@@ -13,7 +13,10 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"core/shared/worktreecontract"
 )
 
 func admitWorkflowServiceTask(ctx context.Context, service *Service, taskID workflow.TaskID) (workflowstore.StartTaskResult, error) {
@@ -33,7 +36,7 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	other := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	before, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +65,7 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	releaseSetup := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseSetup)
 	ref, oid := "HEAD", strings.Repeat("a", 40)
-	root, worktreeID := filepath.Join(t.TempDir(), "managed"), "worktree-"+task.Task.ID
+	root, worktreeID := filepath.Join(t.TempDir(), "managed"), "worktree-"+task.Task.Id
 	targets := &recordingExecutionTargetInfrastructure{
 		resolution: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeHead, RequestedRef: &ref, CommitOID: &oid, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
 		materialize: func(id workflow.TaskID) (ExecutionTargetMaterialization, error) {
@@ -76,14 +79,14 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	clientCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type result struct {
-		response serverapi.WorkflowTaskStartResponse
+		response *taskpb.StartSuccess
 		err      error
 	}
 	finished := make(chan result, 1)
 	go func() {
-		response, err := service.StartWorkflowTask(clientCtx, serverapi.WorkflowTaskStartRequest{
-			TaskID: task.Task.ID, SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-			ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead},
+		response, err := service.StartWorkflowTask(clientCtx, &taskpb.StartRequest{
+			TaskId: task.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+			ExecutionTarget: &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD},
 		})
 		finished <- result{response: response, err: err}
 	}()
@@ -105,15 +108,15 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	}
 	otherFinished := make(chan result, 1)
 	go func() {
-		response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-			TaskID: other.Task.ID, SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-			ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeNone},
+		response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+			TaskId: other.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+			ExecutionTarget: &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE},
 		})
 		otherFinished <- result{response: response, err: err}
 	}()
 	select {
 	case got := <-otherFinished:
-		if got.err != nil || got.response.Applied == nil {
+		if got.err != nil || got.response.GetApplied() == nil {
 			t.Fatalf("unrelated Start failed: %+v", got)
 		}
 	case <-time.After(5 * time.Second):
@@ -122,7 +125,7 @@ func TestServiceAcceptedStartPreparesBeforeCutoverAndSurvivesClientCancellation(
 	releaseSetup()
 	select {
 	case got := <-finished:
-		if got.err != nil || got.response.Applied == nil {
+		if got.err != nil || got.response.GetApplied() == nil {
 			t.Fatalf("client cancellation prevented accepted Start: %+v", got)
 		}
 	case <-time.After(5 * time.Second):

@@ -305,7 +305,7 @@ describe("Sidebar destination completion ownership", () => {
       expect(navigator.close).toHaveBeenCalledOnce();
       expect(fixture.openSessionChat).toHaveBeenCalledWith({
         projectID: "project-1",
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
       });
     });
 
