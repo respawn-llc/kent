@@ -111,10 +111,8 @@ const fixture = vi.hoisted<{
   resumeRequests: 0,
 }));
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppNavigation: () => ({ openProject: vi.fn() }),
-  useAppServices: () => ({
+vi.mock("@/app-facade", async (importOriginal) => {
+  const services = {
     api: {
       listWorkflows: async () => ({
         nextOffset: null,
@@ -146,11 +144,16 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     logger: { append: vi.fn() },
     nativeBridge: { capabilities: { platform: "macos" } },
     storageNamespace: null,
-  }),
-  useOwnedSidebarRoots: () => ({ open: fixture.open }),
-  useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
-  useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
-}));
+  };
+  return {
+    ...(await importOriginal()),
+    useAppNavigation: () => ({ openProject: vi.fn() }),
+    useAppServices: () => services,
+    useOwnedSidebarRoots: () => ({ open: fixture.open }),
+    useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
+    useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
+  };
+});
 
 vi.mock("./projectTaskListData", async (importOriginal) => {
   const actual = await importOriginal<typeof ProjectTaskListData>();
