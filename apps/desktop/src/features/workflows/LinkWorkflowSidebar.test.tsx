@@ -50,7 +50,9 @@ it("lets another Workflow link while the first mounted row is pending", async ()
   await waitFor(() => {
     expect(link).toHaveBeenCalledTimes(1);
   });
-  await waitFor(() => expect(first).toBeDisabled());
+  await waitFor(() => {
+    expect(first).toBeDisabled();
+  });
   expect(second).toBeEnabled();
   fireEvent.click(second);
   await waitFor(() => {
