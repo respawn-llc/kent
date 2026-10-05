@@ -9,7 +9,7 @@ import { Button, identifierInputAttributes, showStatusToast, TextInput } from "@
 import { DetailSection, InspectorStack, ValidationDetails } from "./WorkflowInspectorPrimitives";
 import type { DraftWorkflowNode } from "./workflowEditorDraft";
 import { useWorkflowScriptPathValidationQuery } from "./workflowEditorQueries";
-import type { WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import type { WorkflowEditorView } from "./useWorkflowEditorView";
 import { FieldSummary } from "./WorkflowInspectorSharedSections";
 import { derivedNodeWiring, type Translate } from "./workflowInspectorWiring";
 import { workflowValidationErrorKey } from "./workflowValidationErrorKey";
@@ -20,7 +20,7 @@ export function ScriptNodeDraftDetails({
   node,
   validation,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   node: DraftWorkflowNode;
   validation: WorkflowValidation;

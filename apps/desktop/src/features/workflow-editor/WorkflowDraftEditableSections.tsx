@@ -19,7 +19,7 @@ import {
 import { cx, fieldInputClassName } from "@/ui";
 import { DetailSection } from "./WorkflowInspectorPrimitives";
 import { type DraftWorkflowEdge, type DraftWorkflowNode } from "./workflowEditorDraft";
-import { type WorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
+import { type WorkflowEditorView } from "./useWorkflowEditorView";
 import {
   transitionKeyedParameterPlaceholderExample,
   workflowPromptTemplatePlaceholders,
@@ -212,7 +212,7 @@ export function EditableEdgeParameters({
   edge,
   protectedParameterVisibility,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   edge: DraftWorkflowEdge;
   protectedParameterVisibility?: Readonly<{
     target_assignee?: boolean;
@@ -277,7 +277,7 @@ function SortableEdgeParameter({
   parameter,
   sortable,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   edgeID: string;
   parameter: WorkflowParameter & Readonly<{ rowID: string }>;
   sortable: ReorderableListItemRenderProps;
@@ -387,7 +387,7 @@ export function EditableJoinProviders({
   definition,
   node,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
+  controller: WorkflowEditorView;
   definition: WorkflowDefinition;
   node: DraftWorkflowNode;
 }>) {

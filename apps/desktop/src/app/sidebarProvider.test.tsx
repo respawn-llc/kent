@@ -21,8 +21,9 @@ const policy: SidebarDestinationPolicy = {
   retainedState: (_destination, state) => state,
 };
 
+const emptyContent = () => null;
 function destination(title: string): SidebarDestination {
-  return { kind: "custom", title, content: null };
+  return { kind: "custom", title, content: emptyContent };
 }
 
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
@@ -99,7 +100,7 @@ function ShellHarness() {
     const root = roots.open({
       kind: "custom",
       title: "A",
-      content: <div data-testid="page-a" />,
+      content: () => <div data-testid="page-a" />,
     });
     return root.release;
   }, [roots]);
@@ -127,7 +128,7 @@ function ShellHarness() {
           page?.navigator.push({
             kind: "custom",
             title: "B",
-            content: <div data-testid="page-b" />,
+            content: () => <div data-testid="page-b" />,
           });
         }}
         type="button"
@@ -437,7 +438,7 @@ describe("SidebarProvider stack", () => {
         a.push({
           kind: "custom",
           title: "Wide",
-          content: null,
+          content: () => null,
           sizing: { desiredWidthPx: 700, minWidthPx: 400 },
         }),
       ).toBe("accepted");
