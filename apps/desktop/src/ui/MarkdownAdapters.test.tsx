@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "@/ui";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 
 function taskBodyText(expected: string): HTMLElement {
   return screen.getByText(expected, { selector: "span" });
@@ -73,11 +74,13 @@ describe("Markdown adapters", () => {
 
   it("sanitizes HTML and blocks hostile links", async () => {
     render(
-      <StaticMarkdown
-        value={
-          'before <span title="valid title">inner</span> [safe](https://example.com) [unsafe](javascript:alert(1)) [data-unsafe](data:text/html,blocked)'
-        }
-      />,
+      <TestAppProviders services={createTestServices([])}>
+        <StaticMarkdown
+          value={
+            'before <span title="valid title">inner</span> [safe](https://example.com) [unsafe](javascript:alert(1)) [data-unsafe](data:text/html,blocked)'
+          }
+        />
+      </TestAppProviders>,
     );
 
     expect(await screen.findByText("inner")).toBeInTheDocument();
@@ -88,32 +91,64 @@ describe("Markdown adapters", () => {
   });
 
   it.each([StaticMarkdown, StreamingMarkdown])(
-    "opens Markdown links directly through external browser navigation",
+    "opens Markdown links directly through the native browser-opening action",
     async (Markdown) => {
       const user = userEvent.setup();
-      const navigation = vi.fn((event: MouseEvent) => {
-        const allowed = !event.defaultPrevented;
-        // The native shell handles this unprevented anchor click. Prevent
-        // jsdom from navigating while observing that same handoff.
-        event.preventDefault();
-        return allowed;
-      });
-      document.addEventListener("click", navigation);
-      try {
-        render(<Markdown value="[Upstream issue](https://github.com/vercel/streamdown/issues/592)" />);
-        const link = await screen.findByRole("link");
-        expect(link).toHaveAttribute("href", "https://github.com/vercel/streamdown/issues/592");
-        expect(link).toHaveAttribute("target", "_blank");
+      const services = createTestServices([]);
+      const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
+      render(
+        <TestAppProviders services={services}>
+          <Markdown value="[Upstream issue](https://github.com/vercel/streamdown/issues/592)" />
+        </TestAppProviders>,
+      );
+      const link = await screen.findByRole("link");
 
-        await user.click(link);
+      await user.click(link);
 
-        expect(navigation).toHaveReturnedWith(true);
-        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-      } finally {
-        document.removeEventListener("click", navigation);
-      }
+      expect(open).toHaveBeenCalledExactlyOnceWith("https://github.com/vercel/streamdown/issues/592");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     },
   );
+
+  it("keeps unfinished streaming links inert until the destination is complete", async () => {
+    const user = userEvent.setup();
+    const services = createTestServices([]);
+    const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
+    const content = (value: string) => (
+      <TestAppProviders services={services}>
+        <StreamingMarkdown value={value} />
+      </TestAppProviders>
+    );
+    const view = render(content("[Upstream issue](https://github.com/vercel/streamdown/issues/"));
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(open).not.toHaveBeenCalled();
+
+    view.rerender(content("[Upstream issue](https://github.com/vercel/streamdown/issues/592)"));
+    await user.click(await screen.findByRole("link"));
+
+    expect(open).toHaveBeenCalledExactlyOnceWith("https://github.com/vercel/streamdown/issues/592");
+  });
+
+  it("reports a failed native browser-opening action through app diagnostics", async () => {
+    const user = userEvent.setup();
+    const services = createTestServices([]);
+    const failure = new Error("Browser opening failed");
+    vi.spyOn(services.nativeBridge.links, "openExternal").mockRejectedValue(failure);
+    render(
+      <TestAppProviders services={services}>
+        <StaticMarkdown value="[Upstream issue](https://github.com/vercel/streamdown/issues/592)" />
+      </TestAppProviders>,
+    );
+
+    await user.click(screen.getByRole("link"));
+
+    expect(services.logger.entries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: "warn", context: { error: failure.message } }),
+      ]),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 
   it("renders a 50,000-character value exactly", async () => {
     const value = "x".repeat(50_000);
