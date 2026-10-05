@@ -5,7 +5,6 @@ import (
 
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
-	"core/shared/toolspec"
 )
 
 type onboardingThemeKind string
@@ -130,27 +129,21 @@ type onboardingThinkingEdit struct {
 	kind onboardingThinkingEditKind
 }
 
-type onboardingPreservedInputs struct {
-	modelTimeoutSeconds        *int
-	enabledTools               map[toolspec.ID]bool
-	baselineModelContextWindow *int
-}
-
 type onboardingSelections struct {
-	theme                   onboardingThemeSelection
-	model                   onboardingModelSelection
-	contextWindow           onboardingContextSelection
-	thinking                onboardingThinkingSelection
-	verbosity               onboardingVerbositySelection
-	askQuestion             bool
-	supervisor              onboardingSupervisorSelection
-	compaction              onboardingCompactionSelection
-	skillImport             onboardingImportSelection
-	commandImport           onboardingImportSelection
-	skillEnablement         map[string]bool
-	pendingPrimaryThinking  onboardingThinkingEdit
-	pendingReviewerThinking onboardingThinkingEdit
-	preserved               onboardingPreservedInputs
+	theme                      onboardingThemeSelection
+	model                      onboardingModelSelection
+	contextWindow              onboardingContextSelection
+	thinking                   onboardingThinkingSelection
+	verbosity                  onboardingVerbositySelection
+	askQuestion                bool
+	supervisor                 onboardingSupervisorSelection
+	compaction                 onboardingCompactionSelection
+	skillImport                onboardingImportSelection
+	commandImport              onboardingImportSelection
+	skillEnablement            map[string]bool
+	pendingPrimaryThinking     onboardingThinkingEdit
+	pendingReviewerThinking    onboardingThinkingEdit
+	baselineModelContextWindow *int
 }
 
 func modelFactForFacts(facts *capabilitypb.Facts, model string) *capabilitypb.ModelFact {
@@ -215,8 +208,8 @@ func (selections onboardingSelections) contextWindowTokens(fact *capabilitypb.Mo
 			return int(*fact.ContextWindowTokens)
 		}
 	}
-	if selections.preserved.baselineModelContextWindow != nil {
-		return *selections.preserved.baselineModelContextWindow
+	if selections.baselineModelContextWindow != nil {
+		return *selections.baselineModelContextWindow
 	}
 	return 0
 }

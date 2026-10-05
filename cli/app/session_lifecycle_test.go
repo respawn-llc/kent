@@ -77,8 +77,8 @@ func TestMaybeHandlePickedSessionWorkspaceChangeCanonicalizesAliases(t *testing.
 	action, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		&remoteAppServer{
-			cfg:      config.App{WorkspaceRoot: aliasRoot, Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"}},
+			connection: config.Connection{WorkspaceRoot: aliasRoot},
+			retarget:   &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"}},
 		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         realRoot,
 			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
@@ -102,8 +102,8 @@ func TestMaybeHandlePickedSessionWorkspaceChangeUsesRemoteServerBindingRoot(t *t
 	action, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		&remoteAppServer{
-			cfg:      config.App{WorkspaceRoot: "/source-client-workspace", Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"}},
+			connection: config.Connection{WorkspaceRoot: "/source-client-workspace"},
+			retarget:   &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"}},
 		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         "/target-server-workspace",
 			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
@@ -320,7 +320,6 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 
 type narrowSessionLifecycleServer struct {
 	lifecycle      apicontract.SessionLifecycleService
-	cfg            config.App
 	reauthenticate func(context.Context, authInteractor) error
 }
 
@@ -328,13 +327,11 @@ func (s narrowSessionLifecycleServer) SessionLifecycleClient() apicontract.Sessi
 	return s.lifecycle
 }
 
-func (s narrowSessionLifecycleServer) Config() config.App { return s.cfg }
-
-func (s narrowSessionLifecycleServer) Reauthenticate(ctx context.Context, interactor authInteractor, _ bool) error {
+func (s narrowSessionLifecycleServer) Reauthenticate(ctx context.Context) error {
 	if s.reauthenticate == nil {
 		return nil
 	}
-	return s.reauthenticate(ctx, interactor)
+	return s.reauthenticate(ctx, nil)
 }
 
 type reattachSessionLifecycleServer struct {

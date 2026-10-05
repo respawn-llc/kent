@@ -116,7 +116,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Settings.Model = "gpt-5"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{}
 	cfg.Settings.MaxSubagentDepth = 2
@@ -135,7 +135,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 				CwdRelpath:       ".",
 				EffectiveWorkdir: workspace,
 			}},
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 		PromptHistory:    history,
 	})

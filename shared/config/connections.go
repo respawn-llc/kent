@@ -15,8 +15,9 @@ type ConnectionReplacement struct {
 }
 
 const (
-	ConnectionResponses ConnectionProtocol = "responses"
-	ConnectionChatGPT   ConnectionProtocol = "chatgpt-codex"
+	ConnectionResponses            ConnectionProtocol = "responses"
+	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
+	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
 )
 
 type ProviderConnection struct {
@@ -32,9 +33,9 @@ type ConnectionReferenceError struct {
 
 func (e *ConnectionReferenceError) Error() string {
 	if e.Connection == nil {
-		return "select a provider connection with the connection setting"
+		return "Kent has no provider connection selected. Run kent in an interactive terminal to set one up, or choose a connection in the server's global config.toml. See " + DocsURL + "/authentication/"
 	}
-	return fmt.Sprintf("provider connection %q is not defined in the server global configuration", *e.Connection)
+	return fmt.Sprintf("Kent cannot use connection %q because it is missing from the server's global config.toml. Add that connection, or select an existing one. See %s/authentication/", *e.Connection, DocsURL)
 }
 
 // SelectedConnection reads an already effective reference; role inheritance and
@@ -190,6 +191,7 @@ func readConnectionCapabilities(definition settingsFile) (ProviderCapabilitiesOv
 		to  *bool
 	}{
 		{"supports_responses_api", &result.SupportsResponsesAPI},
+		{"supports_fast_mode", &result.SupportsFastMode},
 		{"supports_responses_compact", &result.SupportsResponsesCompact},
 		{"supports_prompt_cache_key", &result.SupportsPromptCacheKey},
 		{"supports_native_web_search", &result.SupportsNativeWebSearch},

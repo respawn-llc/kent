@@ -162,12 +162,6 @@ func lockedPreparedChatSettings(
 	fallback launch.PreparedChatSettings,
 	effective session.ChatSettings,
 ) (launch.PreparedChatSettings, error) {
-	capabilities, ok := llm.ProviderCapabilitiesFromLocked(&locked)
-	if !ok {
-		return launch.PreparedChatSettings{}, errors.New(
-			"caching-locked Chat provider contract is required",
-		)
-	}
 	fallback.SupportedThinkingValues = nil
 	if llm.LockedContractSupportsReasoningEffort(&locked, locked.Model) {
 		fallback.SupportedThinkingValues = launch.SupportedChatThinkingValues(
@@ -178,7 +172,6 @@ func lockedPreparedChatSettings(
 	fallback.Baseline.Thinking = effective.Thinking
 	fallback.Baseline.Fast = effective.Fast
 	fallback.Baseline.Questions = effective.Questions
-	fallback.FastAvailable = llm.SupportsFastModeProvider(capabilities)
 	fallback.QuestionsAvailable = slices.Contains(
 		locked.EnabledTools,
 		string(toolspec.ToolAskQuestion),

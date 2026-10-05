@@ -24,6 +24,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	creackpty "github.com/creack/pty"
 )
 
 type configuredDaemonFixture struct {
@@ -197,6 +199,7 @@ func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.Se
 }
 
 func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) {
+	useStartupTestTerminal(t)
 	_, workspace := newRegisteredAppWorkspace(t)
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
 	defer fakeResponses.Close()
@@ -206,7 +209,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	pickerCalls := 0
@@ -216,13 +219,14 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 			if pickerCalls > 1 {
 				t.Fatal("no-auth selection must not re-enter the auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
 	firstServer, err := startSessionServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, firstInteractor, true)
 	if err != nil {
 		t.Fatalf("first startSessionServer: %v", err)
@@ -249,7 +253,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	secondServer, err := startSessionServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, secondInteractor, true)
 	if err != nil {
 		t.Fatalf("second startSessionServer: %v", err)
@@ -267,6 +271,31 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	if hits.Load() != 2 {
 		t.Fatalf("expected fake LLM calls twice, got %d", hits.Load())
 	}
+}
+
+func useStartupTestTerminal(t *testing.T) {
+	t.Helper()
+	master, terminal, err := creackpty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdout := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = terminal, terminal
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, master)
+		close(drained)
+	}()
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout = stdin, stdout
+		if err := terminal.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := master.Close(); err != nil {
+			t.Error(err)
+		}
+		<-drained
+	})
 }
 
 func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T) {
@@ -328,7 +357,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -396,8 +425,8 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	if got, want := fixture.serverA.ProjectID(), fixture.serverB.ProjectID(); got != want {
 		t.Fatalf("project id mismatch across clients: a=%q b=%q", got, want)
 	}
-	if fixture.serverA.Config().WorkspaceRoot == fixture.serverB.Config().WorkspaceRoot {
-		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Config().WorkspaceRoot)
+	if fixture.serverA.Connection().WorkspaceRoot == fixture.serverB.Connection().WorkspaceRoot {
+		t.Fatalf("expected distinct workspace roots across clients, both=%q", fixture.serverA.Connection().WorkspaceRoot)
 	}
 	if fixture.planB.SessionID != fixture.planA.SessionID {
 		t.Fatalf("expected second client to attach same session, a=%q b=%q", fixture.planA.SessionID, fixture.planB.SessionID)
@@ -473,7 +502,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	})
 
 	fixture.daemon = configured.daemon
@@ -484,11 +513,11 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		t.Fatalf("loadSessionServerConfig workspace B: %v", err)
 	}
 	cfgB := resolvedB.Config
-	remoteB, err := client.DialRemoteURL(context.Background(), config.ServerRPCURL(cfgB))
+	remoteB, err := client.DialRemoteURL(context.Background(), cfgB.RPCURL())
 	if err != nil {
 		t.Fatalf("DialRemote workspace B: %v", err)
 	}
-	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB)
+	fixture.serverB = newRemoteAppServerWithAuth(remoteB, cfgB, resolvedB.Local)
 	t.Cleanup(func() { closeInteractiveSessionServer(t, fixture.serverB) })
 
 	fixture.planA, fixture.runtimePlanA = prepareAppRuntimePlan(t, fixture.serverA, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote multi-client runtime A")

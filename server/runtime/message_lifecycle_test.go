@@ -18,7 +18,7 @@ func TestSteeringDrainIncludesMessagesAcceptedDuringDrain(t *testing.T) {
 	var admissionErr error
 	injectDuringDrain := false
 	engine = mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			if event.Kind == EventPendingWorkChanged && injectDuringDrain {
 				injectDuringDrain = false
@@ -57,7 +57,7 @@ func TestQueuedInputBatchRemainsCommittedOnObserverFailure(t *testing.T) {
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	metaStepID := runtimeTestStepID("queued-steer-meta")
 	restoreStep := setTestActiveStep(engine, metaStepID)
 	if err := engine.ensureMetaContextForRequest(t.Context(), metaStepID); err != nil {

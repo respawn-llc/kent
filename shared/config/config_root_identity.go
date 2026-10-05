@@ -148,7 +148,7 @@ func PersistenceRootHash(persistenceRoot string) string {
 // root stays pinned rather than silently disabling the check, so an isolated-root
 // client never falls back to a different server on the same TCP endpoint. The
 // source kind is set by config.Load (see resolveConfigRoot).
-func ExplicitPersistenceRootID(cfg App) string {
+func ExplicitPersistenceRootID(cfg Connection) string {
 	switch cfg.Source.Sources["persistence_root"].Kind {
 	case SourceCLI, SourceEnv:
 		if isDefault, err := IsDefaultPersistenceRoot(cfg.PersistenceRoot); err == nil && isDefault {

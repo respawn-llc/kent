@@ -19,7 +19,7 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 	var mu sync.Mutex
 	var restored []InterruptedHumanInput
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			if event.HumanInputInterrupted != nil {
 				mu.Lock()
@@ -75,7 +75,7 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 
 func TestPostTurnQueueStartsAfterActiveTurnCompletes(t *testing.T) {
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("queued work handled"), Phase: textutil.Value(llm.MessagePhaseFinal)}}}}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	started := make(chan struct{})
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -142,7 +142,7 @@ func TestPostTurnQueueStartsImmediatelyWhenRuntimeIsIdle(t *testing.T) {
 			Phase:   textutil.Value(llm.MessagePhaseFinal),
 		},
 	}}}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	queued, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("queued input"))
 	if err != nil {
@@ -171,7 +171,7 @@ func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client, started, releaseProvider := newGatedHookClient(finalTextResponse("original answer"), finalTextResponse("queued answer"))
 			defer releaseProvider()
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			done := make(chan error, 1)
 			go func() {
 				_, err := engine.SubmitUserMessage(t.Context(), "start")
@@ -219,7 +219,7 @@ func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
 }
 
 func TestQueuedUserMessageCallerCancellationStopsWaitAndPreventsLaterAcceptance(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	caller, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	accepting := make(chan struct{})
@@ -254,7 +254,7 @@ func TestConcurrentQueueRemovalDoesNotKeepLaterSendRunning(t *testing.T) {
 		t.Run(fmt.Sprintf("fail=%t", fail), func(t *testing.T) {
 			client, started, release := newGatedHookClient(finalTextResponse("initial"), finalTextResponse("later"))
 			defer release()
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			initialDone := make(chan error, 1)
 			go func() {
 				_, err := engine.SubmitUserMessage(t.Context(), "start")

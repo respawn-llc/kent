@@ -42,17 +42,71 @@ func TestConnectionCapabilitiesPreserveLockedRequestContract(t *testing.T) {
 	}
 }
 
+func TestFastModeUsesCurrentConnectionCapabilityWithLockedProviderFacts(t *testing.T) {
+	locked := &session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
+		ProviderID: "anthropic",
+	}}
+	tests := []struct {
+		name       string
+		connection config.ProviderConnection
+	}{
+		{
+			name: "first-party default",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses,
+				Endpoint: openaiTestOptionalString("https://api.openai.com/v1"),
+			},
+		},
+		{
+			name: "explicit compatible capability",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses,
+				Endpoint: openaiTestOptionalString("http://localhost:1234/v1"),
+				Capabilities: config.ProviderCapabilitiesOverride{
+					ProviderID: "local-provider", SupportsResponsesAPI: true, SupportsFastMode: true,
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id := config.ConnectionID("current")
+			settings := config.Settings{
+				Model: "custom-model", Connection: &id,
+				Connections: map[config.ConnectionID]config.ProviderConnection{id: test.connection},
+			}
+			resolved, err := ResolveEffectiveProviderCapabilities(locked, settings)
+			if err != nil {
+				t.Fatalf("ResolveEffectiveProviderCapabilities: %v", err)
+			}
+			if resolved.ProviderID != "anthropic" {
+				t.Fatalf("locked request provider = %q, want anthropic", resolved.ProviderID)
+			}
+			if !SupportsFastModeProvider(resolved) {
+				t.Fatalf("current connection fast-mode capability was not used: %+v", resolved)
+			}
+		})
+	}
+}
+
 func TestConnectionCapabilityOverrides(t *testing.T) {
 	id := config.ConnectionID("local")
 	settings := config.Settings{Connection: &id, Connections: map[config.ConnectionID]config.ProviderConnection{
 		id: {
 			Protocol: config.ConnectionResponses, Endpoint: openaiTestOptionalString("http://localhost:1234"),
-			Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "custom", SupportsResponsesAPI: true, SupportsProviderVerbosity: true},
+			Capabilities: config.ProviderCapabilitiesOverride{
+				ProviderID: "custom", SupportsResponsesAPI: true,
+				SupportsFastMode: true, SupportsProviderVerbosity: true,
+			},
 		},
 	}}
 	resolved, err := ResolveEffectiveProviderCapabilities(nil, settings)
 	if err != nil || resolved.ProviderID != "custom" || !resolved.SupportsProviderVerbosity {
 		t.Fatalf("connection capability override = %+v, %v", resolved, err)
+	}
+	if !SupportsFastModeProvider(resolved) {
+		t.Fatalf("selected connection did not project its fast-mode capability: %+v", resolved)
 	}
 }
 
@@ -67,6 +121,9 @@ func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
 	if !openai.SupportsPromptCacheKey {
 		t.Fatalf("expected openai prompt cache key support, got %+v", openai)
 	}
+	if !openai.SupportsFastMode {
+		t.Fatalf("expected first-party OpenAI fast-mode support, got %+v", openai)
+	}
 	if !openai.SupportsProviderVerbosity {
 		t.Fatalf("expected openai provider verbosity support, got %+v", openai)
 	}
@@ -80,6 +137,9 @@ func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {
 	}
 	if !oauth.SupportsPromptCacheKey {
 		t.Fatalf("expected chatgpt-codex prompt cache key support, got %+v", oauth)
+	}
+	if !oauth.SupportsFastMode {
+		t.Fatalf("expected ChatGPT subscription fast-mode support, got %+v", oauth)
 	}
 	if !oauth.SupportsProviderVerbosity {
 		t.Fatalf("expected chatgpt-codex provider verbosity support, got %+v", oauth)
@@ -139,6 +199,7 @@ func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVaria
 	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
 		ProviderID:                    "chatgpt-codex",
 		SupportsResponsesAPI:          true,
+		SupportsFastMode:              true,
 		SupportsResponsesCompact:      true,
 		SupportsNativeWebSearch:       true,
 		SupportsReasoningEncrypted:    true,
@@ -151,7 +212,8 @@ func TestHTTPTransportPreservesConfiguredCapabilitiesOverrideAcrossEndpointVaria
 	if err != nil {
 		t.Fatalf("ProviderCapabilities: %v", err)
 	}
-	if caps.ProviderID != "chatgpt-codex" || !caps.SupportsResponsesCompact || !caps.IsOpenAIFirstParty {
+	if caps.ProviderID != "chatgpt-codex" || !caps.SupportsResponsesCompact ||
+		!caps.SupportsFastMode || !caps.IsOpenAIFirstParty {
 		t.Fatalf("capabilities = %+v, want configured capabilities override", caps)
 	}
 }
@@ -367,14 +429,25 @@ func TestRequiredToolChoiceSupportReturnsTypedErrorForNonResponsesAdapter(t *tes
 }
 
 func TestSupportsFastModeProvider(t *testing.T) {
-	if !SupportsFastModeProvider(ProviderCapabilities{ProviderID: "chatgpt-codex", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}) {
-		t.Fatal("expected chatgpt-codex to support fast mode")
+	if !SupportsFastModeProvider(ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}) {
+		t.Fatal("expected an explicitly capable compatible provider to support fast mode")
 	}
-	if !SupportsFastModeProvider(ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}) {
-		t.Fatal("expected openai provider to support fast mode")
+	if SupportsFastModeProvider(ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+	}) {
+		t.Fatal("first-party identity must not imply fast-mode support without the capability")
 	}
-	if SupportsFastModeProvider(ProviderCapabilities{ProviderID: "azure-openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: false}) {
-		t.Fatal("did not expect non-first-party provider to support fast mode")
+	for _, providerID := range []string{"openai", "chatgpt-codex"} {
+		caps, err := InferProviderCapabilities(providerID)
+		if err != nil || !SupportsFastModeProvider(caps) {
+			t.Fatalf("%s built-in contract should support fast mode: caps=%+v err=%v", providerID, caps, err)
+		}
+	}
+	compatible, err := InferProviderCapabilities("openai-compatible")
+	if err != nil || SupportsFastModeProvider(compatible) {
+		t.Fatalf("compatible provider should default to no fast-mode support: caps=%+v err=%v", compatible, err)
 	}
 }
 

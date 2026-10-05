@@ -54,11 +54,33 @@ func (s *recordingPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context
 	return metadata.PromptHistoryRecord{}, nil
 }
 
-type blockingPromptHistoryStore struct{}
+type gatedPromptHistoryStore struct {
+	started     chan struct{}
+	release     chan struct{}
+	startedOnce sync.Once
+	releaseOnce sync.Once
+}
 
-func (s *blockingPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Context, _ metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
-	<-ctx.Done()
-	return metadata.PromptHistoryRecord{}, ctx.Err()
+func (s *gatedPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Context, _ metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
+	s.startedOnce.Do(func() { close(s.started) })
+	select {
+	case <-s.release:
+		return metadata.PromptHistoryRecord{}, nil
+	case <-ctx.Done():
+		return metadata.PromptHistoryRecord{}, ctx.Err()
+	}
+}
+
+func (s *gatedPromptHistoryStore) Release() {
+	s.releaseOnce.Do(func() { close(s.release) })
+}
+
+type failingPromptHistoryStore struct {
+	err error
+}
+
+func (s failingPromptHistoryStore) RecordPromptHistoryEntry(context.Context, metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
+	return metadata.PromptHistoryRecord{}, s.err
 }
 
 type fixedSessionExecutionTargetResolver struct {
@@ -258,7 +280,7 @@ func newTestHeadlessSessionLaunch(
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
 		}},
-	})
+	}, sessionlaunch.ChatSettingsOwner{})
 }
 
 type fixedSessionProjectResolver struct{}
@@ -319,7 +341,7 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 	runtimePlan, err := launcher.prepareRuntime(context.Background(), launch.SessionPlan{
 		Descriptor: descriptor,
 		ActiveSettings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, "http://127.0.0.1:1")),
 		BaseSettings: config.Settings{
@@ -368,7 +390,7 @@ func newSelectedRunPromptFixture(t *testing.T, providerURL string, history promp
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
@@ -443,7 +465,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
@@ -456,7 +478,7 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 	})
 	sessionID := mustRunPromptSessionID(t, store.Meta().SessionID)
@@ -598,7 +620,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Settings.Model = "gpt-5"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.ThinkingLevel = "medium"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
@@ -615,7 +637,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority:       authority,
 		PromptHistory:          meta,
 		ManagedWorktreeBaseDir: managedBase,
@@ -726,7 +748,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = root
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: false}
 	cfg.Settings = testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	hiddenSettings := cfg.Settings
@@ -798,7 +820,7 @@ func TestWorkflowCallerDeniedTargetLeavesNoHeadlessLaunchArtifacts(t *testing.T)
 		StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: meta,
 		SessionProjects:   meta, ManagedWorktreeRoots: meta,
-	})
+	}, sessionlaunch.ChatSettingsOwner{})
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    sessionLauncher,
 		RuntimeAuthority: authority,
@@ -961,7 +983,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		t.Fatalf("config.Load: %v", err)
 	}
 	cfg.PersistenceRoot = root
-	cfg.Settings.Model = "gpt-5.6-sol"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.Workflow = config.WorkflowSettings{Subagents: true}
 	workerSettings := cfg.Settings
@@ -1002,7 +1024,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			StoreOptions:      meta.AuthoritativeSessionStoreOptions(),
 			PersistedSessions: meta,
 			SessionProjects:   meta, ManagedWorktreeRoots: meta,
-		}),
+		}, sessionlaunch.ChatSettingsOwner{}),
 		RuntimeAuthority: authority,
 		PromptHistory:    meta,
 	})
@@ -1146,7 +1168,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, "http://wrong.invalid")),
@@ -1226,35 +1248,71 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 
 func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 	t.Run("prompt history", func(t *testing.T) {
-		providerCalls := 0
+		var providerCalls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			providerCalls++
-			modelstub.WriteCompletedResponseStream(w, "unexpected", 1, 1)
+			providerCalls.Add(1)
+			modelstub.WriteCompletedResponseStream(w, "history delayed run", 1, 1)
 		}))
 		defer server.Close()
 
-		fixture := newSelectedRunPromptFixture(t, server.URL, &blockingPromptHistoryStore{})
-		_, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-			Intent:  serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, fixture.store.Meta().SessionID)),
-			Prompt:  "hello",
-			Timeout: 100 * time.Millisecond,
-		}, nil)
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("RunPrompt error = %v, want deadline exceeded", err)
+		history := &gatedPromptHistoryStore{
+			started: make(chan struct{}),
+			release: make(chan struct{}),
 		}
+		defer history.Release()
+		fixture := newSelectedRunPromptFixture(t, server.URL, history)
 		sessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
-		_, active := fixture.authority.SessionExecution(sessionID)
-		if providerCalls != 0 || active {
-			t.Fatalf("provider calls=%d runtime active=%t, want 0/false", providerCalls, active)
+		type result struct {
+			response *runpromptpb.Success
+			err      error
+		}
+		done := make(chan result, 1)
+		go func() {
+			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+				Intent:  serverapi.OpenExistingSessionLaunchIntent(sessionID),
+				Prompt:  "hello",
+				Timeout: 2 * time.Second,
+			}, nil)
+			done <- result{response: response, err: err}
+		}()
+
+		select {
+		case <-history.started:
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for prompt history")
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("RunPrompt returned before prompt history was released: response=%+v err=%v", got.response, got.err)
+		case <-time.After(2500 * time.Millisecond):
+		}
+		if got := providerCalls.Load(); got != 0 {
+			t.Fatalf("provider calls=%d while prompt history was pending, want 0", got)
+		}
+
+		history.Release()
+		select {
+		case got := <-done:
+			if got.err != nil {
+				t.Fatalf("RunPrompt error after prompt history release: %v", got.err)
+			}
+			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.Result != "history delayed run" {
+				t.Fatalf("RunPrompt response=%+v, want selected session and delayed result", got.response)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("RunPrompt did not finish after prompt history release")
 		}
 	})
 
 	t.Run("runtime", func(t *testing.T) {
+		const runTimeout = 2 * time.Second
 		started := make(chan struct{})
 		release := make(chan struct{})
 		var startedOnce sync.Once
+		var providerCalls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedOnce.Do(func() { close(started) })
+			providerCalls.Add(1)
 			<-release
 		}))
 		defer func() {
@@ -1262,7 +1320,12 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			server.Close()
 		}()
 
-		fixture := newSelectedRunPromptFixture(t, server.URL, nil)
+		history := &gatedPromptHistoryStore{
+			started: make(chan struct{}),
+			release: make(chan struct{}),
+		}
+		defer history.Release()
+		fixture := newSelectedRunPromptFixture(t, server.URL, history)
 		type result struct {
 			response *runpromptpb.Success
 			err      error
@@ -1272,11 +1335,27 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
 				Intent:  serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, fixture.store.Meta().SessionID)),
 				Prompt:  "hello",
-				Timeout: 5 * time.Second,
+				Timeout: runTimeout,
 			}, nil)
 			done <- result{response: response, err: err}
 		}()
 
+		select {
+		case <-history.started:
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for prompt history")
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("RunPrompt returned before prompt history was released: response=%+v err=%v", got.response, got.err)
+		case <-time.After(runTimeout + 500*time.Millisecond):
+		}
+		if got := providerCalls.Load(); got != 0 {
+			t.Fatalf("provider calls=%d while prompt history was pending, want 0", got)
+		}
+
+		historyReleasedAt := time.Now()
+		history.Release()
 		select {
 		case <-started:
 		case <-time.After(10 * time.Second):
@@ -1290,6 +1369,9 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			if got.response.SessionId != fixture.store.Meta().SessionID {
 				t.Fatalf("partial response session = %q, want %q", got.response.SessionId, fixture.store.Meta().SessionID)
 			}
+			if elapsed := time.Since(historyReleasedAt); elapsed < runTimeout-100*time.Millisecond {
+				t.Fatalf("RunPrompt expired after %s from prompt history release, want at least %s", elapsed, runTimeout-100*time.Millisecond)
+			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("RunPrompt did not finish after timeout")
 		}
@@ -1298,6 +1380,113 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			t.Fatal("timed out headless execution remained active")
 		}
 	})
+
+	t.Run("omitted timeout", func(t *testing.T) {
+		history := &gatedPromptHistoryStore{
+			started: make(chan struct{}),
+			release: make(chan struct{}),
+		}
+		defer history.Release()
+
+		providerStarted := make(chan struct{})
+		providerRelease := make(chan struct{})
+		var providerStartedOnce sync.Once
+		var providerReleaseOnce sync.Once
+		var providerCalls atomic.Int32
+		releaseProvider := func() {
+			providerReleaseOnce.Do(func() { close(providerRelease) })
+		}
+		defer releaseProvider()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			providerCalls.Add(1)
+			providerStartedOnce.Do(func() { close(providerStarted) })
+			<-providerRelease
+			modelstub.WriteCompletedResponseStream(w, "unbounded run", 1, 1)
+		}))
+		defer server.Close()
+
+		fixture := newSelectedRunPromptFixture(t, server.URL, history)
+		sessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+		type result struct {
+			response *runpromptpb.Success
+			err      error
+		}
+		done := make(chan result, 1)
+		go func() {
+			response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+				Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+				Prompt: "hello",
+			}, nil)
+			done <- result{response: response, err: err}
+		}()
+
+		select {
+		case <-history.started:
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for prompt history")
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("RunPrompt returned before prompt history was released: response=%+v err=%v", got.response, got.err)
+		case <-time.After(500 * time.Millisecond):
+		}
+		if got := providerCalls.Load(); got != 0 {
+			t.Fatalf("provider calls=%d while prompt history was pending, want 0", got)
+		}
+
+		history.Release()
+		select {
+		case <-providerStarted:
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for provider request")
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("RunPrompt returned while provider was pending: response=%+v err=%v", got.response, got.err)
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		releaseProvider()
+		select {
+		case got := <-done:
+			if got.err != nil {
+				t.Fatalf("RunPrompt error after provider release: %v", got.err)
+			}
+			if got.response.SessionId != fixture.store.Meta().SessionID || got.response.Result != "unbounded run" {
+				t.Fatalf("RunPrompt response=%+v, want selected session and unbounded result", got.response)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("RunPrompt did not finish after provider release")
+		}
+	})
+}
+
+func TestInProcessRunPromptFailsBeforeProviderWhenPromptHistoryFails(t *testing.T) {
+	var providerCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls.Add(1)
+	}))
+	defer server.Close()
+
+	historyErr := errors.New("prompt history failed")
+	fixture := newSelectedRunPromptFixture(t, server.URL, failingPromptHistoryStore{err: historyErr})
+	sessionID := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+	response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+		Prompt: "hello",
+	}, nil)
+	if !errors.Is(err, historyErr) {
+		t.Fatalf("RunPrompt error = %v, want prompt history failure", err)
+	}
+	if response != nil {
+		t.Fatalf("RunPrompt response = %+v, want no success response", response)
+	}
+	if got := providerCalls.Load(); got != 0 {
+		t.Fatalf("provider calls=%d after prompt history failure, want 0", got)
+	}
+	if _, active := fixture.authority.SessionExecution(sessionID); active {
+		t.Fatal("prompt history failure left runtime active")
+	}
 }
 
 func TestInProcessRunPromptPublishesCommentaryBeforeHeadlessAskFollowupFails(t *testing.T) {
@@ -1435,7 +1624,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 		WorkspaceRoot:   store.Meta().WorkspaceRoot,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:               "gpt-5",
+			Model:               "gpt-6-sol",
 			ThinkingLevel:       "medium",
 			ShellOutputMaxChars: 16_000,
 			EnabledTools:        map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
@@ -1605,7 +1794,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 	cfg := config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-5"}),
+		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...)
@@ -1657,7 +1846,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),

@@ -11,7 +11,7 @@ import (
 )
 
 func TestRetirementBeforeSteerAcceptanceRejectsTheMessage(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	_, err := engine.Steer(t.Context(), "do not lose this message", func(commit func() (bool, error)) (bool, error) {
 		if !engine.BeginRetirement() {
 			t.Fatal("idle Runtime could not begin retirement before message acceptance")
@@ -30,7 +30,7 @@ func TestCloseRejectsUserTurnsAndSteeringWithoutNewWork(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)

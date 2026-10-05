@@ -101,7 +101,7 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
 
 	if _, err := transport.Generate(context.Background(), OpenAIRequest{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,

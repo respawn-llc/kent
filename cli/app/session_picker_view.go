@@ -41,7 +41,7 @@ func (m *sessionPickerModel) View() string {
 	out.WriteString(m.renderHeader())
 	activeTab := m.activeTab
 	m.startupStatus.activeTab = &activeTab
-	if status := newSessionPickerStatusSurface(m.startupStatus).RenderStatus(m.width); status != "" {
+	if status := m.renderPickerStatus(); status != "" {
 		out.WriteString("\n\n")
 		out.WriteString(status)
 	}
@@ -102,7 +102,7 @@ func (m *sessionPickerModel) visibleLineBudget() int {
 	statusLines := 0
 	activeTab := m.activeTab
 	m.startupStatus.activeTab = &activeTab
-	if newSessionPickerStatusSurface(m.startupStatus).RenderStatus(m.width) != "" {
+	if m.renderPickerStatus() != "" {
 		statusLines = 2
 	}
 	rows := m.height - lipgloss.Height(m.renderHeader()) - tabLines - 2 - statusLines
@@ -110,6 +110,17 @@ func (m *sessionPickerModel) visibleLineBudget() int {
 		return 1
 	}
 	return rows
+}
+
+func (m *sessionPickerModel) renderPickerStatus() string {
+	projection := projectStartupPickerStatus(m.startupStatus)
+	if projection.Failure == nil && m.headerFactsErr != nil {
+		projection.Notice = startupPickerNotice{
+			Text: "Could not load settings. Press Enter to retry. " + m.headerFactsErr.Error(),
+			Kind: startupPickerNoticeError, Diagnostic: m.headerFactsErr,
+		}
+	}
+	return renderStartupPickerStatus(projection, m.width)
 }
 
 func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPreview bool) string {

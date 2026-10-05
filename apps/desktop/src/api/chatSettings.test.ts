@@ -32,7 +32,7 @@ const sessionTarget = { projectID: projectTarget.projectID, kind: "session", ses
 
 function choice(role = "default") {
   return {
-    agent: { role, model: "gpt-5", thinking: "medium", tools: ["ask_question"], agentCallable: true },
+    agent: { role, model: "gpt-6-sol", thinking: "medium", tools: ["ask_question"], agentCallable: true },
     baseline: {
       agentRole: role,
       supervisor: SupervisorValue.AFTER_EDITS,

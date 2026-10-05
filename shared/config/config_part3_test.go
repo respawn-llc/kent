@@ -191,7 +191,7 @@ provider_identifier = "role-agent"
 
 func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInheritance(t *testing.T) {
 	settings := configRegistry.defaultState().Settings
-	settings.Model = "gpt-5.6-sol"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = ""
 	settings.Reviewer = ReviewerSettings{
 		Frequency:      "edits",
@@ -205,7 +205,7 @@ func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInher
 	if err != nil {
 		t.Fatalf("normalize settings for persistence: %v", err)
 	}
-	if normalized.Reviewer.Model != "gpt-5.6-sol" {
+	if normalized.Reviewer.Model != "gpt-6-sol" {
 		t.Fatalf("expected reviewer model to inherit main model, got %q", normalized.Reviewer.Model)
 	}
 	if normalized.Reviewer.ThinkingLevel != "" {
@@ -380,7 +380,7 @@ func TestLoadRejectsRemovedUseNativeCompactionSetting(t *testing.T) {
 }
 
 func TestLoadRejectsUnrelatedUnknownSettingKeys(t *testing.T) {
-	if err := loadConfigTestFileError(t, "model = \"gpt-5\"\nfoo = 1\n", LoadOptions{}); err == nil {
+	if err := loadConfigTestFileError(t, "model = \"gpt-6-sol\"\nfoo = 1\n", LoadOptions{}); err == nil {
 		t.Fatal("expected unknown settings key error")
 	} else if !unknownSettingsKeyReported(err, "foo") {
 		t.Fatalf("expected unknown key name in error, got %v", err)

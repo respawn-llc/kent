@@ -323,25 +323,25 @@ func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, new
 	return resp, nil
 }
 
-func openBindingCommandRemote(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemote(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, remote, err := openBindingCommandRemoteLifecycle(ctx, path)
 	if err != nil && remote != nil {
 		_ = remote.Close()
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	return cfg, remote, err
 }
 
-func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, err := loadBindingCommandConfig(path)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, bindingCommandRPCTimeout)
 	defer cancel()
 	remote, err := client.DialConfiguredRemote(dialCtx, cfg)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	// When the operator selected an explicit non-default persistence root, only
 	// operate on a server actually serving that root so project/binding commands
@@ -377,19 +377,19 @@ func resolveWorkspaceBinding(ctx context.Context, projectViews apicontract.Proje
 	return client.ProjectBindingFromProto(resp.Binding)
 }
 
-func loadBindingCommandConfig(path string) (config.App, error) {
+func loadBindingCommandConfig(path string) (config.Connection, error) {
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
 		trimmedPath = "."
 	}
 	absPath, err := filepath.Abs(trimmedPath)
 	if err != nil {
-		return config.App{}, err
+		return config.Connection{}, err
 	}
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.LoadConnectionDiscovery(absPath)
+	return config.LoadConnectionDiscovery(absPath, config.LoadOptions{})
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered
