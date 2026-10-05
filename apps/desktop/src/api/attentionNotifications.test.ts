@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import type { AttentionNotificationEvent } from "./attentionNotifications";

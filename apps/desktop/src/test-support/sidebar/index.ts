@@ -1,35 +1,9 @@
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRouter,
-  RouterContextProvider,
-} from "@tanstack/react-router";
 import type {
   SidebarDestination,
   SidebarPageNavigator,
   SidebarRootController,
   SidebarShellController,
 } from "@/app-facade";
-import { SidebarRootOwner } from "@/app-facade";
-import { AppChrome } from "@/app";
-import { createElement, type ReactNode } from "react";
-import { useState } from "react";
-
-export function TestSidebar({ children }: Readonly<{ children: ReactNode }>) {
-  const [router] = useState(() =>
-    createRouter({
-      history: createMemoryHistory({ initialEntries: ["/"] }),
-      routeTree: createRootRoute(),
-    }),
-  );
-  return createElement(RouterContextProvider, {
-    router,
-    children: createElement(AppChrome, {
-      children: createElement(SidebarRootOwner, { children }),
-    }),
-  });
-}
-
 export function createTestSidebarNavigator(
   overrides: Partial<SidebarPageNavigator> = {},
 ): SidebarPageNavigator {
