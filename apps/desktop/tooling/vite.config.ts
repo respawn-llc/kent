@@ -9,6 +9,8 @@ const protocolVersionDefinition = z
   .object({ version: z.string().min(1) })
   .parse(JSON.parse(readFileSync(new URL("../../../shared/protocol/version.json", import.meta.url), "utf8")));
 
+const testExclude = [...configDefaults.exclude, "eslint-fixtures/**", "**/dist/**"];
+
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   clearScreen: false,
@@ -53,10 +55,26 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "jsdom",
-    exclude: [...configDefaults.exclude, "eslint-fixtures/**"],
+    exclude: testExclude,
     globals: true,
+    pool: "threads",
     maxWorkers: 2,
     setupFiles: ["./test/setup.ts"],
+    // Logic/transport tests do not need a browser. Hook tests in .test.ts
+    // explicitly opt into jsdom with @vitest-environment.
+    projects: [
+      {
+        extends: true,
+        test: { name: "node", include: ["**/*.test.ts"], environment: "node" },
+      },
+      {
+        extends: true,
+        test: {
+          name: "dom",
+          exclude: [...testExclude, "**/*.test.ts"],
+          environment: "jsdom",
+        },
+      },
+    ],
   },
 });

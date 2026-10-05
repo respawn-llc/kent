@@ -1,24 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
+import { decodeWorkflowTaskDependencyError, errorMessage, isProjectMissingError } from "@/api";
 import {
-  decodeWorkflowTaskDependencyError,
-  errorMessage,
-  isProjectMissingError,
-  type ApiService,
-  type WorkspaceCatalogRow,
-} from "@/api";
-import {
-  projectWorkspaceQueryOptions,
-  queryKeys,
   useAppServices,
   useStatusController,
   useTextFieldSubmitShortcut,
-  workspaceCatalogInfiniteQueryOptions,
   type NewTaskPreparedDependency,
   type SidebarPageNavigator,
 } from "@/app-facade";
@@ -37,12 +28,6 @@ import {
 } from "@/shared/task-dependencies";
 import { useCreateTask } from "@/shared/task-mutations";
 import {
-  projectWorkspaceSelectorProjection,
-  updateWorkspaceSelection,
-  type WorkspaceSelectionState,
-} from "@/shared/workspaces";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
   Badge,
   Button,
   FieldShell,
@@ -51,9 +36,9 @@ import {
   Spinner,
   TextArea,
   TextInput,
-  type SelectFieldPaging,
 } from "@/ui";
 import { cx } from "@/ui";
+import { useNewTaskWorkspaceCatalog } from "./NewTaskWorkspaceModel";
 
 const newTaskSchema = z.object({
   title: z.string().trim().min(1),
@@ -173,7 +158,7 @@ function NewTaskFormContent({
   const { t } = useTranslation();
   const { api, logger } = useAppServices();
   const { dismiss, push } = useStatusController();
-  const restored = useMemo(() => decodeNewTaskRetainedState(retainedState), [retainedState]);
+  const [restored] = useState(() => decodeNewTaskRetainedState(retainedState));
   const authoredSourceWorkspaceID = restored?.formValues.sourceWorkspaceID ?? initialSourceWorkspaceID;
   const workspaceCatalog = useNewTaskWorkspaceCatalog(api, projectID, authoredSourceWorkspaceID, t);
   const catalog = useProjectLabelCatalog();
@@ -436,143 +421,6 @@ function NewTaskFormContent({
       </Button>
     </form>
   );
-}
-
-function useNewTaskWorkspaceCatalog(
-  api: ApiService,
-  projectID: string,
-  initialSourceWorkspaceID: string | undefined,
-  t: ReturnType<typeof useTranslation>["t"],
-) {
-  const workspaces = useNewTaskWorkspaceQuery(api, projectID);
-  const queryClient = useQueryClient();
-  const initiatingWorkspace = useQuery(
-    projectWorkspaceQueryOptions(api, projectID, initialSourceWorkspaceID),
-  );
-  const [workspaceSelection, dispatchWorkspaceSelection] = useReducer(
-    updateWorkspaceSelection,
-    initialSourceWorkspaceID,
-    (workspaceID): WorkspaceSelectionState => ({
-      catalog: { state: "pending" },
-      initiating: workspaceID === undefined ? undefined : { state: "pending" },
-      selection: { state: "uncommitted" },
-    }),
-  );
-  const catalogRestartedRef = useRef(false);
-  const restartedProjectRef = useRef<string | undefined>(undefined);
-  const firstRetainedOffset = workspaces.data?.pages[0]?.offset;
-  useEffect(() => {
-    if (restartedProjectRef.current !== projectID) {
-      restartedProjectRef.current = projectID;
-      catalogRestartedRef.current = false;
-    }
-    if (firstRetainedOffset !== undefined && firstRetainedOffset > 0 && !catalogRestartedRef.current) {
-      catalogRestartedRef.current = true;
-      void queryClient.resetQueries({
-        exact: true,
-        queryKey: queryKeys.projectWorkspaceCatalog(projectID),
-      });
-    }
-  }, [firstRetainedOffset, projectID, queryClient]);
-  const defaultWorkspace = workspaces.data?.pages[0]?.workspaces.find((workspace) => workspace.isDefault);
-  useEffect(() => {
-    if (defaultWorkspace !== undefined) {
-      dispatchWorkspaceSelection({ type: "catalog-loaded", defaultWorkspace });
-    }
-  }, [defaultWorkspace]);
-  useEffect(() => {
-    if (initialSourceWorkspaceID === undefined) return;
-    if (initiatingWorkspace.data?.kind === "attached") {
-      dispatchWorkspaceSelection({
-        type: "initiating-attached",
-        row: initiatingWorkspace.data.workspace,
-      });
-      return;
-    }
-    if (initiatingWorkspace.data?.kind === "not_attached") {
-      dispatchWorkspaceSelection({ type: "initiating-not-attached" });
-      return;
-    }
-    if (initiatingWorkspace.isError) {
-      dispatchWorkspaceSelection({ type: "initiating-failed", error: initiatingWorkspace.error });
-    }
-  }, [
-    initialSourceWorkspaceID,
-    initiatingWorkspace.data,
-    initiatingWorkspace.error,
-    initiatingWorkspace.isError,
-  ]);
-  const selectedWorkspace =
-    workspaceSelection.selection.state === "committed" ? workspaceSelection.selection.row : undefined;
-  const workspaceProjection = useMemo(
-    () =>
-      projectWorkspaceSelectorProjection({
-        catalogPages: workspaces.data?.pages ?? [],
-        initiatingRow:
-          workspaceSelection.initiating?.state === "attached" ? workspaceSelection.initiating.row : undefined,
-        selectedSnapshot: selectedWorkspace,
-        catalogExhausted: workspaces.data !== undefined && !workspaces.hasNextPage,
-      }),
-    [selectedWorkspace, workspaceSelection.initiating, workspaces.data, workspaces.hasNextPage],
-  );
-  const workspacePaging = workspacePagingState(workspaces, t);
-  return {
-    initiatingWorkspace,
-    retryInitiatingWorkspace() {
-      dispatchWorkspaceSelection({ type: "initiating-retry" });
-      void initiatingWorkspace.refetch();
-    },
-    selectedWorkspace,
-    selectWorkspace(row: WorkspaceCatalogRow) {
-      dispatchWorkspaceSelection({ type: "user-selected", row });
-    },
-    workspaceItems: workspaceProjection.rows,
-    workspacePaging,
-    workspaceProjection,
-    workspaceSelection,
-    workspaces,
-  };
-}
-
-function workspacePagingState(
-  workspaces: ReturnType<typeof useNewTaskWorkspaceQuery>,
-  t: ReturnType<typeof useTranslation>["t"],
-): SelectFieldPaging {
-  return {
-    hasNextPage: workspaces.hasNextPage,
-    initialBoundary: workspaces.isPending
-      ? { state: "loading", label: t("states.loading") }
-      : workspaces.isError && workspaces.data === undefined
-        ? {
-            state: "error",
-            message: errorMessage(workspaces.error),
-            retryLabel: t("app.retry"),
-            onRetry: () => {
-              void workspaces.refetch();
-            },
-          }
-        : undefined,
-    loadKey: workspaces.data?.pages.at(-1)?.nextOffset?.toString(),
-    nextBoundary: workspaces.isFetchingNextPage
-      ? { state: "loading", label: t("app.loadingMore") }
-      : workspaces.isFetchNextPageError
-        ? {
-            state: "error",
-            message: errorMessage(workspaces.error),
-            retryLabel: t("app.retry"),
-            onRetry: () => {
-              void workspaces.fetchNextPage();
-            },
-          }
-        : undefined,
-    onLoadNext: () => {
-      void workspaces.fetchNextPage();
-    },
-  };
-}
-
-function useNewTaskWorkspaceQuery(api: ApiService, projectID: string) {
-  return useInfiniteQuery(workspaceCatalogInfiniteQueryOptions(api, projectID));
 }
 
 function NewTaskLabels({
