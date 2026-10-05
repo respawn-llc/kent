@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { ChatGoalSetResult, ChatSessionTarget } from "@/api";
 import { ChatOperationError, ContractError, RpcError } from "@/api";
 import type { NewChatGoalHostDelivery } from "./goalBinding";
