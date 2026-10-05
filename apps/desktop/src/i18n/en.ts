@@ -355,6 +355,8 @@ export const englishResources = {
       interruptFailed: "Task interrupt failed",
       resumeFailed: "Task resume failed",
       deleteFailed: "Task delete failed",
+      deleteTaskWorktreeBlocked:
+        "Task deletion is blocked by its worktree. Finish or move the other work using it, then retry.",
       invalidWorkflow: "Workflow validation blocks automation. Backlog tasks and comments remain available.",
       workflowIssues: "Workflow issues",
       invalidWorkflowUnknown: "Workflow must be fixed before automation can run.",

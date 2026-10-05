@@ -2,7 +2,7 @@ import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { TFunction } from "i18next";
-import { errorMessage, isTaskMissingError, type TaskDetail } from "@/api";
+import { errorMessage, isTaskMissingError, WorktreeError, type TaskDetail } from "@/api";
 import { queryAction, queryAtom, type AppServices, type StatusController } from "@/app-facade";
 import { taskActionErrorMessage } from "@/shared/task-mutations";
 import type { TaskDetailCompletion } from "./TaskDetailCommentActions";
@@ -100,7 +100,10 @@ export function createTaskDetailLifecycleActions({
       },
       onError: (error) => {
         push({
-          body: errorMessage(error),
+          body:
+            error instanceof WorktreeError && error.detail.kind === "blocked"
+              ? t("board.deleteTaskWorktreeBlocked")
+              : errorMessage(error),
           id: "task-detail-delete-error",
           title: t("board.deleteTaskWindowError"),
           tone: "danger",

@@ -1,206 +1,23 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
+import {
+  createSearchTestServices,
+  searchResponse,
+  shortIDSearchResponse,
+  shortIDContinuationFixture,
+  searchRoute,
+} from "@/test-support/task-search";
 
 import { appI18n } from "@/i18n";
 import { SidebarRootContext, type SidebarRootController } from "@/app-facade";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { TestAppProviders } from "@/test-support/app-services";
 import {
   TaskSearchGlobalTrigger,
   TaskSearchHost,
   TaskSearchProjectTrigger,
   TaskSearchProvider,
 } from "./TaskSearchChrome";
-
-const searchResponse = {
-  mode: "literal",
-  groups: [
-    {
-      project_id: "project-1",
-      project_key: "KNT",
-      task_id: "task-1",
-      short_id: "KNT-1",
-      workflow_id: "workflow-1",
-      title: "Search the board",
-      status: {
-        kind: "active",
-        native_state: "active",
-        node_ids: ["node-1"],
-        attention_types: [],
-      },
-      total_hit_count: 4,
-      hits: [
-        {
-          ordinal: 1,
-          source: { kind: "title" },
-          literal: {
-            before: "",
-            match: "Search",
-            after: " the board",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 2,
-          source: { kind: "body" },
-          literal: {
-            before: "Build ",
-            match: "search",
-            after: " UI",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 3,
-          source: { kind: "comment", comment_id: "comment-1" },
-          literal: {
-            before: "Please ",
-            match: "search",
-            after: " comments",
-            left_truncated: true,
-            right_truncated: true,
-          },
-        },
-      ],
-    },
-    {
-      project_id: "project-1",
-      project_key: "KNT",
-      task_id: "task-2",
-      short_id: "KNT-2",
-      workflow_id: "workflow-2",
-      title: "Second result",
-      status: {
-        kind: "done",
-        native_state: "terminal",
-        node_ids: [],
-        attention_types: [],
-      },
-      total_hit_count: 1,
-      hits: [
-        {
-          ordinal: 1,
-          source: { kind: "body" },
-          literal: {
-            before: "Another ",
-            match: "search",
-            after: " result",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-      ],
-    },
-  ],
-} as const;
-
-const shortIDSearchResponse = {
-  mode: "literal",
-  groups: [
-    {
-      project_id: "project-1",
-      project_key: "KNT",
-      task_id: "task-exact",
-      short_id: "KNT-345",
-      workflow_id: "workflow-1",
-      title: "Exact identifier",
-      status: {
-        kind: "active",
-        native_state: "active",
-        node_ids: ["node-1"],
-        attention_types: [],
-      },
-      total_hit_count: 6,
-      hits: [
-        {
-          ordinal: 1,
-          source: { kind: "short_id" },
-          literal: {
-            before: "KNT-",
-            match: "345",
-            after: "",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 2,
-          source: { kind: "title" },
-          literal: {
-            before: "",
-            match: "Preview two",
-            after: "",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 3,
-          source: { kind: "body" },
-          literal: {
-            before: "",
-            match: "Preview three",
-            after: "",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 4,
-          source: { kind: "comment", comment_id: "comment-1" },
-          literal: {
-            before: "",
-            match: "Preview four",
-            after: "",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-        {
-          ordinal: 5,
-          source: { kind: "body" },
-          literal: {
-            before: "",
-            match: "Preview five",
-            after: "",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-      ],
-    },
-    {
-      project_id: "project-1",
-      project_key: "KNT",
-      task_id: "task-text",
-      short_id: "KNT-999",
-      workflow_id: "workflow-1",
-      title: "345 title match",
-      status: {
-        kind: "backlog",
-        native_state: "active",
-        node_ids: [],
-        attention_types: [],
-      },
-      total_hit_count: 1,
-      hits: [
-        {
-          ordinal: 1,
-          source: { kind: "title" },
-          literal: {
-            before: "",
-            match: "345",
-            after: " title match",
-            left_truncated: false,
-            right_truncated: false,
-          },
-        },
-      ],
-    },
-  ],
-} as const;
 
 const openSidebarRoot = vi.fn<SidebarRootController["open"]>(() => ({
   lifecycle: Promise.resolve("closed" as const),
@@ -222,12 +39,7 @@ describe("Board Task Search", () => {
 
   it("debounces a Project-scoped Comment-inclusive search", async () => {
     const pendingSearch = new Promise<never>(() => undefined);
-    const services = createTestServices([
-      {
-        method: "workflow.task.search",
-        handler: async () => pendingSearch,
-      },
-    ]);
+    const services = createSearchTestServices([searchRoute(async () => pendingSearch)]);
 
     renderSearch(services, "project-1");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
@@ -239,31 +51,28 @@ describe("Board Task Search", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(299);
     });
-    expect(services.transport.dedicatedCalls).toHaveLength(0);
+    expect(services.searches).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
 
-    expect(services.transport.dedicatedCalls).toMatchObject([
+    expect(services.searches.mock.calls.map(([request]) => request)).toMatchObject([
       {
-        method: "workflow.task.search",
-        params: {
-          mode: "literal",
-          query: "search",
-          context: 20,
-          case_sensitive: false,
-          include_comments: true,
-          project_ids: ["project-1"],
-          page_size: 40,
-        },
+        mode: "literal",
+        query: "search",
+        context: 20,
+        caseSensitive: false,
+        includeComments: true,
+        projectIDs: ["project-1"],
+        pageSize: 40,
       },
     ]);
-    expect(services.transport.dedicatedCalls[0]?.options?.signal).toBeInstanceOf(AbortSignal);
+    expect(services.searches.mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal);
   });
 
   it("opens global Search from the shortcut without a Project filter", async () => {
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
 
     renderSearch(services, null);
     fireEvent.keyDown(window, { code: "KeyS", metaKey: true });
@@ -276,25 +85,22 @@ describe("Board Task Search", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    expect(services.transport.dedicatedCalls).toMatchObject([
+    expect(services.searches.mock.calls.map(([request]) => request)).toMatchObject([
       {
-        method: "workflow.task.search",
-        params: {
-          mode: "literal",
-          query: "search",
-          context: 20,
-          case_sensitive: false,
-          include_comments: true,
-          page_size: 40,
-        },
+        mode: "literal",
+        query: "search",
+        context: 20,
+        caseSensitive: false,
+        includeComments: true,
+        pageSize: 40,
       },
     ]);
-    expect(services.transport.dedicatedCalls[0]?.params).not.toHaveProperty("project_ids");
+    expect(services.searches.mock.calls[0]?.[0].projectIDs ?? []).toEqual([]);
   });
 
   it("opens a global Search result as an owned sidebar root", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
 
     renderSearch(services, null);
     fireEvent.keyDown(window, { code: "KeyS", metaKey: true });
@@ -314,7 +120,7 @@ describe("Board Task Search", () => {
 
   it("replaces an open Project Search with the single global dialog", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
 
     renderSearch(services, "project-open");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
@@ -325,15 +131,15 @@ describe("Board Task Search", () => {
     fireEvent.keyDown(window, { code: "KeyS", metaKey: true });
 
     await waitFor(() => {
-      expect(services.transport.dedicatedCalls).toHaveLength(2);
-      expect(services.transport.dedicatedCalls.at(-1)?.params).not.toHaveProperty("project_ids");
+      expect(services.searches).toHaveBeenCalledTimes(2);
+      expect(services.searches.mock.calls.at(-1)?.[0].projectIDs ?? []).toEqual([]);
     });
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
   it("keeps input focus while arrows choose a Task and Enter opens it", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const onOpenTask = vi.fn();
 
     renderSearch(services, "project-keyboard", onOpenTask);
@@ -361,7 +167,7 @@ describe("Board Task Search", () => {
 
   it("selects the exact numeric Short ID without duplicating its preview", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: shortIDSearchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => shortIDSearchResponse)]);
     const onOpenTask = vi.fn();
 
     renderSearch(services, "project-short-id", onOpenTask);
@@ -390,16 +196,8 @@ describe("Board Task Search", () => {
 
   it("derives continuation previews and remaining hits from that returned group", async () => {
     vi.useRealTimers();
-    const continuationResponse = {
-      ...shortIDSearchResponse,
-      groups: [
-        {
-          ...shortIDSearchResponse.groups[0],
-          hits: shortIDSearchResponse.groups[0].hits.slice(1),
-        },
-      ],
-    };
-    const services = createTestServices([{ method: "workflow.task.search", result: continuationResponse }]);
+    const continuationResponse = shortIDContinuationFixture();
+    const services = createSearchTestServices([searchRoute(() => continuationResponse)]);
 
     renderSearch(services, "project-continuation");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
@@ -416,21 +214,21 @@ describe("Board Task Search", () => {
 
   it("retains one query while rerunning Search in the next Project scope", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const view = renderSearch(services, "project-first");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
     const input = screen.getByRole("searchbox", { name: appI18n.t("taskSearch.input") });
     fireEvent.change(input, { target: { value: "search" } });
     await waitFor(() => {
-      expect(services.transport.dedicatedCalls).toHaveLength(1);
+      expect(services.searches).toHaveBeenCalledOnce();
     });
 
     view.rerender(renderProjectSearchTree(services, "project-second"));
 
     expect(screen.getByRole("searchbox", { name: appI18n.t("taskSearch.input") })).toHaveValue("search");
     await waitFor(() => {
-      expect(services.transport.dedicatedCalls.at(-1)?.params).toMatchObject({
-        project_ids: ["project-second"],
+      expect(services.searches.mock.calls.at(-1)?.[0]).toMatchObject({
+        projectIDs: ["project-second"],
         query: "search",
       });
     });
@@ -438,7 +236,7 @@ describe("Board Task Search", () => {
 
   it("retains each Project selection while switching Project scope", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const view = renderSearch(services, "project-first");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
     const firstInput = screen.getByRole("searchbox", { name: appI18n.t("taskSearch.input") });
@@ -464,7 +262,7 @@ describe("Board Task Search", () => {
 
   it("keeps the prior Task result actionable while a replacement query debounces", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const onOpenTask = vi.fn();
 
     renderSearch(services, "project-retained", onOpenTask);
@@ -485,11 +283,8 @@ describe("Board Task Search", () => {
   it("falls back to the first result when a refresh removes the remembered selection", async () => {
     vi.useRealTimers();
     const refreshedResponse = { ...searchResponse, groups: searchResponse.groups.slice(0, 1) };
-    const services = createTestServices([
-      {
-        method: "workflow.task.search",
-        handler: (_params, callIndex) => (callIndex === 0 ? searchResponse : refreshedResponse),
-      },
+    const services = createSearchTestServices([
+      searchRoute((callIndex) => (callIndex === 0 ? searchResponse : refreshedResponse)),
     ]);
 
     renderSearch(services, "project-refresh");
@@ -507,7 +302,7 @@ describe("Board Task Search", () => {
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
 
     await waitFor(() => {
-      expect(services.transport.dedicatedCalls).toHaveLength(2);
+      expect(services.searches).toHaveBeenCalledTimes(2);
       expect(screen.getAllByRole("option")).toHaveLength(1);
     });
     expect(screen.getByRole("option")).toHaveAttribute("aria-selected", "true");
@@ -515,7 +310,7 @@ describe("Board Task Search", () => {
 
   it("cancels a pending Task activation when Search reopens during exit", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const onOpenTask = vi.fn();
 
     renderSearch(services, null, onOpenTask);
@@ -537,7 +332,7 @@ describe("Board Task Search", () => {
 
   it("selects on pointer movement but ignores stationary pointer events after keyboard selection", async () => {
     vi.useRealTimers();
-    const services = createTestServices([{ method: "workflow.task.search", result: searchResponse }]);
+    const services = createSearchTestServices([searchRoute(() => searchResponse)]);
 
     renderSearch(services, "project-pointer-intent");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
@@ -565,7 +360,7 @@ describe("Board Task Search", () => {
 });
 
 function renderSearch(
-  services: ReturnType<typeof createTestServices>,
+  services: ReturnType<typeof createSearchTestServices>,
   projectID: string | null,
   onOpenTask = vi.fn(),
 ): ReturnType<typeof render> {
@@ -588,7 +383,7 @@ function renderSearch(
 }
 
 function renderProjectSearchTree(
-  services: ReturnType<typeof createTestServices>,
+  services: ReturnType<typeof createSearchTestServices>,
   projectID: string,
 ): ReactElement {
   return (

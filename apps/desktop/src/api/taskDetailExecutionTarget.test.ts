@@ -1,10 +1,26 @@
+import { create } from "@app/server-api-contract";
+import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { taskDetailResponse } from "@/test-support/task-detail";
-import { taskDetailSchema } from "./schemas/workflowBoard";
+import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
+import { ApiClient } from "./client";
+
+async function getTask(task: pb.TaskDetail) {
+  return new ApiClient(
+    new FakeRpcTransport([
+      {
+        descriptor: pb.TaskReadService.method.get,
+        result: create(pb.GetResultSchema, { outcome: { case: "success", value: { task } } }),
+      },
+    ]),
+    unexpectedProjectOverflow,
+  ).getTask("task-1");
+}
 
 describe("task detail execution target contract", () => {
-  it("maps durable target facts, recorded worktree path, and current executions", () => {
-    const detail = taskDetailSchema.parse(taskDetailResponse);
-
+  it("maps durable target facts, recorded worktree path, and current executions", async () => {
+    const detail = await getTask(taskDetailResponse.task);
     expect(detail.executionTarget).toEqual({
       mode: "head",
       requestedRef: "HEAD",
@@ -19,17 +35,17 @@ describe("task detail execution target contract", () => {
         effectiveThinking: null,
         nodeID: "node-1",
         transitionBranchKey: null,
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
       },
     ]);
     expect(detail.liveSessions).toEqual([
       {
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
         sessionName: "Review chat",
         nodeDisplayName: "Code Review",
       },
       {
-        sessionID: "session-2",
+        sessionID: "44444444-4444-4444-8444-444444444444",
         sessionName: null,
         nodeDisplayName: "Implementation",
       },
@@ -37,25 +53,19 @@ describe("task detail execution target contract", () => {
     expect(detail.currentScripts).toEqual([]);
   });
 
-  it("rejects the removed ID-only live Session contract", () => {
-    const task = {
-      ...taskDetailResponse.task,
-      live_session_ids: ["session-1"],
-    };
-    Reflect.deleteProperty(task, "live_sessions");
-
-    expect(() => taskDetailSchema.parse({ task })).toThrow();
-  });
-
-  it("distinguishes unlocked and source-workspace targets", () => {
-    const unlocked = taskDetailSchema.parse(withExecutionTarget(undefined));
-    const sourceTarget = taskDetailSchema.parse(
-      withExecutionTarget({
-        mode: "none",
-        provenance: "resolved",
+  it("distinguishes unlocked and source-workspace targets", async () => {
+    const unlocked = await getTask(
+      create(pb.TaskDetailSchema, { ...taskDetailResponse.task, executionTarget: undefined }),
+    );
+    const sourceTarget = await getTask(
+      create(pb.TaskDetailSchema, {
+        ...taskDetailResponse.task,
+        executionTarget: create(pb.ExecutionTargetSchema, {
+          mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
+          provenance: pb.ExecutionTargetProvenance.RESOLVED,
+        }),
       }),
     );
-
     expect(unlocked.executionTarget).toBeNull();
     expect(sourceTarget.executionTarget).toEqual({
       mode: "none",
@@ -66,134 +76,50 @@ describe("task detail execution target contract", () => {
     });
   });
 
-  it("rejects removed operational facts and missing required current arrays", () => {
-    expect(() =>
-      taskDetailSchema.parse(
-        withExecutionTarget({
-          mode: "head",
-          requested_ref: "HEAD",
-          commit_oid: "0123456789abcdef0123456789abcdef01234567",
-          provenance: "resolved",
-          effective_root: "/tmp/worktree",
-        }),
-      ),
-    ).toThrow();
-
-    const withoutSessions = { ...taskDetailResponse.task };
-    Reflect.deleteProperty(withoutSessions, "current_nodes");
-    expect(() => taskDetailSchema.parse({ task: withoutSessions })).toThrow();
-
-    expect(() =>
-      taskDetailSchema.parse({
-        task: {
-          ...taskDetailResponse.task,
-          current_scripts: null,
-        },
-      }),
-    ).toThrow();
-  });
-
-  it("accepts session-backed Current Nodes and sessionless Current Scripts", () => {
+  it("accepts session-backed Current Nodes and sessionless Current Scripts", async () => {
     const executionIDs = Array.from({ length: 201 }, (_, index) => index.toString());
-    const currentNodes = executionIDs.map((executionID) => ({
-      node_id: `node-${executionID}`,
-      transition_branch_key: null,
-      session_id: `session-${executionID}`,
-    }));
-    const currentScripts = executionIDs.map((executionID) => ({
-      current_node: {
-        node_id: `script-node-${executionID}`,
-        transition_branch_key: null,
-        session_id: null,
-      },
-      path: "script",
-    }));
-
-    const detail = taskDetailSchema.parse({
-      task: {
-        ...taskDetailResponse.task,
-        current_nodes: currentNodes,
-        current_scripts: currentScripts,
-      },
-    });
-
+    const currentNodes = executionIDs.map((id) =>
+      create(AttentionCurrentNodeSchema, { nodeId: `node-${id}`, sessionId: `session-${id}` }),
+    );
+    const currentScripts = executionIDs.map((id) =>
+      create(pb.CurrentScriptSchema, {
+        currentNode: { nodeId: `script-node-${id}` },
+        path: "script",
+      }),
+    );
+    const detail = await getTask(
+      create(pb.TaskDetailSchema, { ...taskDetailResponse.task, currentNodes, currentScripts }),
+    );
     expect(detail.currentNodes).toEqual(
       currentNodes.map((node) => ({
         effectiveAssignee: null,
         effectiveThinking: null,
-        nodeID: node.node_id,
-        transitionBranchKey: node.transition_branch_key,
-        sessionID: node.session_id,
+        nodeID: node.nodeId,
+        transitionBranchKey: null,
+        sessionID: node.sessionId,
       })),
     );
     expect(detail.currentScripts).toEqual(
       currentScripts.map((script) => ({
-        currentNode: {
-          nodeID: script.current_node.node_id,
-          transitionBranchKey: script.current_node.transition_branch_key,
-          sessionID: script.current_node.session_id,
-        },
+        currentNode: { nodeID: script.currentNode?.nodeId, transitionBranchKey: null, sessionID: null },
         path: script.path,
       })),
     );
   });
 
-  it("normalizes an omitted Current Script Session ID to null", () => {
-    const detail = taskDetailSchema.parse({
-      task: {
-        ...taskDetailResponse.task,
-        current_scripts: [
-          {
-            current_node: {
-              node_id: "node-script",
-              transition_branch_key: null,
-            },
-            path: "scripts/run",
-          },
-        ],
-      },
-    });
-
-    expect(detail.currentScripts[0]?.currentNode.sessionID).toBeNull();
-  });
-
-  it("rejects a Current Script with a Session", () => {
-    expect(() =>
-      taskDetailSchema.parse({
-        task: {
+  it("rejects a Current Script with a Session", async () => {
+    await expect(
+      getTask(
+        create(pb.TaskDetailSchema, {
           ...taskDetailResponse.task,
-          current_scripts: [
-            {
-              current_node: {
-                node_id: "node-script",
-                transition_branch_key: null,
-                session_id: "session-1",
-              },
+          currentScripts: [
+            create(pb.CurrentScriptSchema, {
+              currentNode: { nodeId: "node-script", sessionId: "session-1" },
               path: "scripts/run",
-            },
+            }),
           ],
-        },
-      }),
-    ).toThrow();
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });
-
-function withExecutionTarget(executionTarget: unknown) {
-  return {
-    task: {
-      ...taskDetailResponse.task,
-      live_sessions: [
-        {
-          session_id: "session-1",
-          session_name: "Review chat",
-          node_display_name: "Code Review",
-        },
-        {
-          session_id: "session-2",
-          node_display_name: "Implementation",
-        },
-      ],
-      execution_target: executionTarget,
-    },
-  };
-}

@@ -23,6 +23,7 @@ import (
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type Core struct {
@@ -45,7 +46,7 @@ func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromp
 
 type unavailableAttentionNotificationClient struct{}
 
-func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
 	return nil, serverapi.ErrStreamUnavailable
 }
 

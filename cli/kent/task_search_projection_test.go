@@ -6,32 +6,32 @@ import (
 	"strings"
 	"testing"
 
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestTaskSearchPlainProjectionPreservesHitKindsAndRemainingCount(t *testing.T) {
 	commentID := "comment-1"
-	response := serverapi.TaskSearchResponse{
-		Mode: serverapi.TaskSearchModeLiteral,
-		Groups: []serverapi.TaskSearchGroup{{
-			ProjectID:     "project-1",
+	response := &taskpb.SearchSuccess{
+		Mode: taskpb.SearchMode_SEARCH_MODE_LITERAL,
+		Groups: []*taskpb.SearchGroup{{
+			ProjectId:     "project-1",
 			ProjectKey:    "KNT",
-			TaskID:        "task-1",
-			ShortID:       "KNT-1",
-			WorkflowID:    "workflow-1",
+			TaskId:        "task-1",
+			ShortId:       "KNT-1",
+			WorkflowId:    "11111111-1111-4111-8111-111111111111",
 			Title:         "Task",
-			Status:        serverapi.WorkflowTaskStatus{Kind: serverapi.WorkflowTaskStatusKindBacklog, NativeState: serverapi.WorkflowTaskNativeStateActive},
+			Status:        &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE},
 			TotalHitCount: 4,
-			Hits: []serverapi.TaskSearchHit{
+			Hits: []*taskpb.SearchHit{
 				{
 					Ordinal: 1,
-					Source:  serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKindTitle},
-					Literal: &serverapi.TaskSearchLiteralHit{Before: "left\t", Match: "needle", After: "\nright", LeftTruncated: true},
+					Source:  &taskpb.SearchSource{Kind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE},
+					Match:   &taskpb.SearchHit_Literal{Literal: &taskpb.SearchLiteralHit{Before: "left\t", Match: "needle", After: "\nright", LeftTruncated: true}},
 				},
 				{
 					Ordinal: 3,
-					Source:  serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKindComment, CommentID: &commentID},
-					Literal: &serverapi.TaskSearchLiteralHit{Match: "needle", RightTruncated: true},
+					Source:  &taskpb.SearchSource{Kind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT, CommentId: &commentID},
+					Match:   &taskpb.SearchHit_Literal{Literal: &taskpb.SearchLiteralHit{Match: "needle", RightTruncated: true}},
 				},
 			},
 		}},
@@ -68,21 +68,21 @@ func TestTaskSearchPlainProjectionPreservesHitKindsAndRemainingCount(t *testing.
 }
 
 func TestTaskSearchPlainProjectionUsesHeaderForShortIDHit(t *testing.T) {
-	response := serverapi.TaskSearchResponse{
-		Mode: serverapi.TaskSearchModeLiteral,
-		Groups: []serverapi.TaskSearchGroup{{
-			ProjectID:     "project-1",
+	response := &taskpb.SearchSuccess{
+		Mode: taskpb.SearchMode_SEARCH_MODE_LITERAL,
+		Groups: []*taskpb.SearchGroup{{
+			ProjectId:     "project-1",
 			ProjectKey:    "KNT",
-			TaskID:        "task-1",
-			ShortID:       "KNT-345",
-			WorkflowID:    "workflow-1",
+			TaskId:        "task-1",
+			ShortId:       "KNT-345",
+			WorkflowId:    "11111111-1111-4111-8111-111111111111",
 			Title:         "Task",
-			Status:        serverapi.WorkflowTaskStatus{Kind: serverapi.WorkflowTaskStatusKindBacklog, NativeState: serverapi.WorkflowTaskNativeStateActive},
+			Status:        &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE},
 			TotalHitCount: 4,
-			Hits: []serverapi.TaskSearchHit{{
+			Hits: []*taskpb.SearchHit{{
 				Ordinal: 1,
-				Source:  serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKindShortID},
-				Literal: &serverapi.TaskSearchLiteralHit{Match: "345"},
+				Source:  &taskpb.SearchSource{Kind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID},
+				Match:   &taskpb.SearchHit_Literal{Literal: &taskpb.SearchLiteralHit{Match: "345"}},
 			}},
 		}},
 	}
@@ -103,9 +103,9 @@ func TestTaskSearchPlainRendererWritesCompleteHierarchyWithoutBlankMetadataRows(
 			ShortID: "KNT-1",
 			Title:   "Task",
 			Lines: []taskSearchPlainLine{
-				{Kind: taskSearchPlainLineKindHit, FTS5: &serverapi.TaskSearchFTS5Hit{Snippet: "one"}},
+				{Kind: taskSearchPlainLineKindHit, FTS5: &taskpb.SearchFts5Hit{Snippet: "one"}},
 				{Kind: taskSearchPlainLineKindCommentHeading},
-				{Kind: taskSearchPlainLineKindHit, FTS5: &serverapi.TaskSearchFTS5Hit{Snippet: "two"}},
+				{Kind: taskSearchPlainLineKindHit, FTS5: &taskpb.SearchFts5Hit{Snippet: "two"}},
 			},
 			RemainingHitCount: 1,
 		}},
@@ -131,7 +131,7 @@ func TestTaskSearchPlainRendererWritesCompleteHierarchyWithoutBlankMetadataRows(
 func TestTaskSearchPlainFragmentUsesOnlyStructuredLiteralEllipsesAndFoldsWhitespace(t *testing.T) {
 	literal, err := taskSearchPlainFragment(taskSearchPlainLine{
 		Kind: taskSearchPlainLineKindHit,
-		Literal: &serverapi.TaskSearchLiteralHit{
+		Literal: &taskpb.SearchLiteralHit{
 			Before:         "  before\t",
 			Match:          "needle",
 			After:          "\nafter  ",
@@ -147,7 +147,7 @@ func TestTaskSearchPlainFragmentUsesOnlyStructuredLiteralEllipsesAndFoldsWhitesp
 	}
 	raw, err := taskSearchPlainFragment(taskSearchPlainLine{
 		Kind: taskSearchPlainLineKindHit,
-		FTS5: &serverapi.TaskSearchFTS5Hit{Snippet: "  raw\tfragment  "},
+		FTS5: &taskpb.SearchFts5Hit{Snippet: "  raw\tfragment  "},
 	})
 	if err != nil {
 		t.Fatalf("taskSearchPlainFragment FTS5: %v", err)
@@ -158,20 +158,20 @@ func TestTaskSearchPlainFragmentUsesOnlyStructuredLiteralEllipsesAndFoldsWhitesp
 }
 
 func TestTaskSearchPlainProjectionOmitsConditionalCommentAndRemainingLines(t *testing.T) {
-	response := serverapi.TaskSearchResponse{
-		Mode: serverapi.TaskSearchModeFTS5,
-		Groups: []serverapi.TaskSearchGroup{{
-			ProjectID:     "project-1",
+	response := &taskpb.SearchSuccess{
+		Mode: taskpb.SearchMode_SEARCH_MODE_FTS5,
+		Groups: []*taskpb.SearchGroup{{
+			ProjectId:     "project-1",
 			ProjectKey:    "KNT",
-			TaskID:        "task-1",
-			ShortID:       "KNT-1",
-			WorkflowID:    "workflow-1",
+			TaskId:        "task-1",
+			ShortId:       "KNT-1",
+			WorkflowId:    "11111111-1111-4111-8111-111111111111",
 			Title:         "Task",
-			Status:        serverapi.WorkflowTaskStatus{Kind: serverapi.WorkflowTaskStatusKindBacklog, NativeState: serverapi.WorkflowTaskNativeStateActive},
+			Status:        &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE},
 			TotalHitCount: 2,
-			Hits: []serverapi.TaskSearchHit{
-				{Ordinal: 1, Source: serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKindTitle}, FTS5: &serverapi.TaskSearchFTS5Hit{Snippet: "one"}},
-				{Ordinal: 2, Source: serverapi.TaskSearchSource{Kind: serverapi.TaskSearchSourceKindBody}, FTS5: &serverapi.TaskSearchFTS5Hit{Snippet: "two"}},
+			Hits: []*taskpb.SearchHit{
+				{Ordinal: 1, Source: &taskpb.SearchSource{Kind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_TITLE}, Match: &taskpb.SearchHit_Fts5{Fts5: &taskpb.SearchFts5Hit{Snippet: "one"}}},
+				{Ordinal: 2, Source: &taskpb.SearchSource{Kind: taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_BODY}, Match: &taskpb.SearchHit_Fts5{Fts5: &taskpb.SearchFts5Hit{Snippet: "two"}}},
 			},
 		}},
 	}
@@ -200,8 +200,8 @@ func TestTaskSearchPlainRendererPrintsEmptyResponseWithoutMetadataRows(t *testin
 
 func TestTaskSearchPlainRendererRejectsInvalidHitPayloads(t *testing.T) {
 	t.Parallel()
-	literal := &serverapi.TaskSearchLiteralHit{Match: "literal"}
-	fts5 := &serverapi.TaskSearchFTS5Hit{Snippet: "raw"}
+	literal := &taskpb.SearchLiteralHit{Match: "literal"}
+	fts5 := &taskpb.SearchFts5Hit{Snippet: "raw"}
 	for _, test := range []struct {
 		name string
 		line taskSearchPlainLine

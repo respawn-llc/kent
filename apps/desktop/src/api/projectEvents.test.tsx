@@ -5,12 +5,19 @@ import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";
 import { Component, type ReactElement } from "react";
 
-import { createTestServices } from "@/test-support/app-services";
+import { createTestServices, startupRoutes } from "@/test-support/app-services";
+import { create } from "@app/server-api-contract";
+import {
+  ProjectEventSchema,
+  ProjectEventAction,
+  ProjectEventResource,
+  ProjectSubscriptionService,
+} from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import type { ProjectObservation } from "./projectEvents";
 
 it("opens a Project observation only while mounted and closes it on disposal", async () => {
-  const { api, transport } = createTestServices([]);
-  const subscribe = vi.spyOn(transport, "subscribe");
+  const { api, transport } = createTestServices(startupRoutes);
+  const subscribe = vi.spyOn(transport, "subscribeDescriptor");
   const events = api.subscribeProject("project-1");
   expect(subscribe).not.toHaveBeenCalled();
   const observation = Atom.make(Stream.runForEach(events, () => Effect.void).pipe(Effect.as(null)), {
@@ -40,9 +47,9 @@ it("opens a Project observation only while mounted and closes it on disposal", a
 });
 
 it("retains 1,000 queued observations and reports each incoming overflow without ending production observation", async () => {
-  const { api, transport, logger } = createTestServices([]);
+  const { api, transport, logger } = createTestServices(startupRoutes);
   const received: ProjectObservation[] = [];
-  const subscribe = vi.spyOn(transport, "subscribe");
+  const subscribe = vi.spyOn(transport, "subscribeDescriptor");
   const observation = Atom.make(
     Stream.runForEach(api.subscribeProject("project-1"), (value) =>
       Effect.sync(() => {
@@ -65,7 +72,11 @@ it("retains 1,000 queued observations and reports each incoming overflow without
   });
   await act(async () => {
     for (let index = 0; index < 1002; index++) {
-      transport.emit("workflow.project", wireEvent(index));
+      transport.emitDescriptor(
+        ProjectSubscriptionService.method.subscribe,
+        ProjectSubscriptionService.method.event,
+        wireEvent(index),
+      );
     }
   });
   expect(received.filter((value) => value.kind === "event")).toHaveLength(1000);
@@ -75,30 +86,32 @@ it("retains 1,000 queued observations and reports each incoming overflow without
     primaryEntityID: "task-1000",
   });
   await act(async () => {
-    transport.emit("workflow.project", wireEvent(1002));
+    transport.emitDescriptor(
+      ProjectSubscriptionService.method.subscribe,
+      ProjectSubscriptionService.method.event,
+      wireEvent(1002),
+    );
   });
   expect(received.at(-1)).toMatchObject({ kind: "event", event: { primaryEntityID: "task-1002" } });
 });
 
 function wireEvent(index: number) {
-  return {
-    event: {
-      resource: "task",
-      action: "updated",
-      occurred_at_unix_ms: 1,
-      primary_entity_id: `task-${String(index)}`,
-      project_id: "project-1",
-      workflow_id: "11111111-1111-4111-8111-111111111111",
-    },
-  };
+  return create(ProjectEventSchema, {
+    resource: ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK,
+    action: ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_UPDATED,
+    occurredAt: { seconds: 0n, nanos: 1_000_000 },
+    primaryEntityId: `task-${String(index)}`,
+    projectId: "project-1",
+    workflowId: "11111111-1111-4111-8111-111111111111",
+  });
 }
 
 it("surfaces debug overflow at the mounted React boundary and closes observation", async () => {
   vi.stubEnv("KENT_DEBUG", "true");
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
   try {
-    const { api, transport, logger } = createTestServices([]);
-    const subscribe = vi.spyOn(transport, "subscribe");
+    const { api, transport, logger } = createTestServices(startupRoutes);
+    const subscribe = vi.spyOn(transport, "subscribeDescriptor");
     const caught = vi.fn();
     const observation = Atom.make(
       Stream.runForEach(api.subscribeProject("project-1"), () => Effect.void).pipe(Effect.as(null)),
@@ -132,7 +145,12 @@ it("surfaces debug overflow at the mounted React boundary and closes observation
     if (subscription?.type !== "return") throw new Error("Project observation did not subscribe.");
     const close = vi.spyOn(subscription.value, "close");
     await act(async () => {
-      for (let index = 0; index < 1001; index++) transport.emit("workflow.project", wireEvent(index));
+      for (let index = 0; index < 1001; index++)
+        transport.emitDescriptor(
+          ProjectSubscriptionService.method.subscribe,
+          ProjectSubscriptionService.method.event,
+          wireEvent(index),
+        );
     });
     await waitFor(() => {
       expect(caught).toHaveBeenCalledTimes(1);

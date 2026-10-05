@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"core/server/attentionnotify"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
-	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type sessionAttentionSubscription struct {
-	native serverapi.AttentionNotificationSubscription
+	native *attentionnotify.Subscription
 }
 
 func (s *sessionAttentionSubscription) Close() error {
@@ -55,27 +55,16 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 			if pending.Question == nil {
 				return nil, fmt.Errorf("attention Question state is required")
 			}
-			question := pending.Question
-			displayCount, err := protoapi.Int32(question.DisplayCount, "display count")
+			question, err := attentionQuestionState(pending.Question)
 			if err != nil {
 				return nil, err
 			}
-			materializedCount, err := protoapi.Int32(question.MaterializedCount, "materialized count")
-			if err != nil {
-				return nil, err
-			}
-			notification.State = &attentionpb.Notification_Question{Question: &attentionpb.QuestionState{
-				PreparedAskIds: question.PreparedAskIDs, MaterializedAskIds: question.MaterializedAskIDs,
-				CurrentUnresolvedAskIds: question.CurrentUnresolvedAskIDs, SkippedAskIds: question.SkippedAskIDs,
-				Preview: question.Preview, DisplayCount: displayCount, MaterializedCount: materializedCount,
-			}}
+			notification.State = &attentionpb.Notification_Question{Question: question}
 		case clientui.AttentionNotificationKindApproval:
 			if pending.Approval == nil {
 				return nil, fmt.Errorf("attention Approval state is required")
 			}
-			notification.State = &attentionpb.Notification_Approval{Approval: &attentionpb.ApprovalState{
-				Message: pending.Approval.Message, AccessTargets: protoapi.FileAccessTargetsToProto(pending.Approval.AccessTargets),
-			}}
+			notification.State = &attentionpb.Notification_Approval{Approval: attentionApprovalState(pending.Approval)}
 		default:
 			return nil, fmt.Errorf("invalid Session attention kind %q", pending.Kind)
 		}
@@ -84,6 +73,28 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 		return nil, fmt.Errorf("invalid attention event type %q", event.Type)
 	}
 	return result, protoapi.Validate(result)
+}
+
+func attentionQuestionState(question *clientui.AttentionNotificationQuestionState) (*attentionpb.QuestionState, error) {
+	displayCount, err := protoapi.Int32(question.DisplayCount, "display count")
+	if err != nil {
+		return nil, err
+	}
+	materializedCount, err := protoapi.Int32(question.MaterializedCount, "materialized count")
+	if err != nil {
+		return nil, err
+	}
+	return &attentionpb.QuestionState{
+		PreparedAskIds: question.PreparedAskIDs, MaterializedAskIds: question.MaterializedAskIDs,
+		CurrentUnresolvedAskIds: question.CurrentUnresolvedAskIDs, SkippedAskIds: question.SkippedAskIDs,
+		Preview: question.Preview, DisplayCount: displayCount, MaterializedCount: materializedCount,
+	}, nil
+}
+
+func attentionApprovalState(approval *clientui.AttentionNotificationApprovalState) *attentionpb.ApprovalState {
+	return &attentionpb.ApprovalState{
+		Message: approval.Message, AccessTargets: protoapi.FileAccessTargetsToProto(approval.AccessTargets),
+	}
 }
 
 func sessionAttentionID(id clientui.AttentionNotificationID) (*attentionpb.NotificationID, error) {

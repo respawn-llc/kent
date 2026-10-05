@@ -6,7 +6,9 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/attention/attention.proto";
+import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
@@ -248,6 +250,23 @@ message ConfiguredExecutionTargetUnavailableDetails {
   };
 }
 
+enum LockedExecutionTargetCause {
+  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
+  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
+  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
+  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
+  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
+  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
+  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
+}
+
+message LockedExecutionTargetDetails {
+  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
 message InterruptedCurrentNodeDetails {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -262,6 +281,7 @@ message InterruptedCurrentNodeDetails {
     option (buf.validate.oneof).required = true;
     GenericInterruptionDetails generic = 3;
     ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 4;
+    LockedExecutionTargetDetails original_execution_target_unavailable = 5;
   }
 
   option (buf.validate.message).cel = {
@@ -272,7 +292,7 @@ message InterruptedCurrentNodeDetails {
 }
 
 message QuestionAttention {
-  string message = 1 [
+  optional string message = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_task.question_attention_message_nonblank"
@@ -290,6 +310,12 @@ message QuestionAttention {
     }
   ];
   AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_message"
+    message: "message is required unless an approval has access targets"
+    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"
@@ -396,6 +422,8 @@ message AttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -430,6 +458,8 @@ message TaskAttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -534,6 +564,7 @@ message WorkflowTaskAttentionTarget {
 
 message SessionPromptAttentionTarget {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message AttentionNotificationTarget {
@@ -669,6 +700,8 @@ message AttentionNotificationStartError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -692,7 +725,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.attention.list"
     };
   }
   rpc ListTask(TaskAttentionListRequest) returns (TaskAttentionListResult) {
@@ -702,7 +734,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.attention.list"
     };
   }
 }
@@ -716,7 +747,6 @@ service AttentionNotificationService {
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Event"}
       completion: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Complete"}
-      legacy_wire_name: "attention.notification.subscribe"
     };
   }
   rpc Event(AttentionNotificationEvent) returns (google.protobuf.Empty) {
@@ -725,7 +755,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -734,7 +763,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification.complete"
     };
   }
 }

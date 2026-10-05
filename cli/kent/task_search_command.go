@@ -11,6 +11,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
 
@@ -42,21 +44,36 @@ func taskSearchSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	mode := serverapi.TaskSearchModeLiteral
+	mode := taskpb.SearchMode_SEARCH_MODE_LITERAL
 	if *fts5 {
-		mode = serverapi.TaskSearchModeFTS5
+		mode = taskpb.SearchMode_SEARCH_MODE_FTS5
 	}
-	request := serverapi.TaskSearchRequest{
+	contextCount, err := protoapi.Int32(*contextSize, "context")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	pageCount, err := protoapi.Int32(*pageSize, "page_size")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	request := &taskpb.SearchRequest{
 		Mode:            mode,
 		Query:           strings.TrimSpace(positionals[0]),
-		Context:         *contextSize,
+		Context:         contextCount,
 		CaseSensitive:   *caseSensitive,
 		IncludeComments: *includeComments,
 		StatusKinds:     statusKinds,
-		PageSize:        *pageSize,
+		PageSize:        pageCount,
 	}
 	if flagExplicit(fs, "offset") {
-		request.Offset = offset
+		value, err := protoapi.Int32(*offset, "offset")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		request.Offset = &value
 	}
 	if err := validateTaskSearchCommandRequest(request); err != nil {
 		writeTaskSearchError(stderr, err)
@@ -83,7 +100,7 @@ func runTaskSearch(
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRefs []string,
-	request serverapi.TaskSearchRequest,
+	request *taskpb.SearchRequest,
 	jsonOut bool,
 	stdout io.Writer,
 	stderr io.Writer,
@@ -93,7 +110,7 @@ func runTaskSearch(
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	request.ProjectIDs = projectIDs
+	request.ProjectIds = projectIDs
 	response, err := searchWorkflowTasks(ctx, workflows, request)
 	if err != nil {
 		return writeTaskSearchError(stderr, err)
@@ -101,8 +118,14 @@ func runTaskSearch(
 	return writeTaskSearchResponse(stdout, stderr, response, jsonOut)
 }
 
-func validateTaskSearchCommandRequest(request serverapi.TaskSearchRequest) error {
-	return request.Validate()
+func validateTaskSearchCommandRequest(request *taskpb.SearchRequest) error {
+	if err := protoapi.Validate(request); err != nil {
+		return err
+	}
+	if request.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
+		return serverapi.ValidateTaskSearchLiteralQuery(request.Query)
+	}
+	return nil
 }
 
 func resolveTaskSearchProjectIDs(ctx context.Context, cfg config.Connection, remote apicontract.ProjectViewService, refs []string) ([]string, error) {
@@ -121,7 +144,7 @@ func resolveTaskSearchProjectIDs(ctx context.Context, cfg config.Connection, rem
 	return slices.Compact(ids), nil
 }
 
-func parseTaskSearchStatusKinds(raw []string) ([]serverapi.WorkflowTaskStatusKind, error) {
+func parseTaskSearchStatusKinds(raw []string) ([]taskpb.TaskStatusKind, error) {
 	statuses, err := parseTaskListStatusKinds(raw)
 	if err != nil {
 		return nil, err
@@ -130,19 +153,24 @@ func parseTaskSearchStatusKinds(raw []string) ([]serverapi.WorkflowTaskStatusKin
 	return statuses, nil
 }
 
-func searchWorkflowTasks(ctx context.Context, remote apicontract.WorkflowService, request serverapi.TaskSearchRequest) (serverapi.TaskSearchResponse, error) {
+func searchWorkflowTasks(ctx context.Context, remote apicontract.WorkflowService, request *taskpb.SearchRequest) (*taskpb.SearchSuccess, error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
 	return remote.SearchWorkflowTasks(rpcCtx, request)
 }
 
-func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response serverapi.TaskSearchResponse, jsonOut bool) int {
-	if err := response.Validate(); err != nil {
+func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response *taskpb.SearchSuccess, jsonOut bool) int {
+	if err := protoapi.Validate(response); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if jsonOut {
-		if exitCode := writeCommandJSON(stdout, stderr, response); exitCode != 0 {
+		output, err := taskSearchOutput(response)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if exitCode := writeCommandJSON(stdout, stderr, output); exitCode != 0 {
 			return exitCode
 		}
 	} else {
@@ -157,7 +185,7 @@ func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response server
 		}
 	}
 	if response.NextOffset != nil {
-		if err := writeNextOffset(stderr, *response.NextOffset); err != nil {
+		if err := writeNextOffset(stderr, int(*response.NextOffset)); err != nil {
 			return 1
 		}
 	}

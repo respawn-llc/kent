@@ -53,6 +53,11 @@ func registerWorkflowLabelGatewayBinaryBindings(bindings map[string]gatewayBinar
 }
 
 func binaryWorkflowTaskLabelFailure[Request interface{ GetTaskId() string }](request Request, err error) proto.Message {
+	taskID := request.GetTaskId()
+	return binaryWorkflowTaskLabelFailureDetail(&taskID, err)
+}
+
+func binaryWorkflowTaskLabelFailureDetail(taskID *string, err error) proto.Message {
 	if errors.Is(err, serverapi.ErrServerAuthRequired) {
 		return &authpb.AuthRequiredDetails{}
 	}
@@ -73,14 +78,13 @@ func binaryWorkflowTaskLabelFailure[Request interface{ GetTaskId() string }](req
 			ProjectId: &foreign.TaskProjectID, TaskId: &foreign.TaskID, LabelId: &foreign.LabelID,
 		}
 	case errors.As(err, &mutation):
-		taskID := request.GetTaskId()
 		field := mutation.Field
 		if mutation.Reason == workflowstore.TaskLabelMutationOverlap {
 			field = "remove_label_ids"
 		}
 		detail := &taskpb.LabelErrorDetails{
 			Reason: taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION,
-			TaskId: &taskID, LabelId: mutation.LabelID, Field: &field,
+			TaskId: taskID, LabelId: mutation.LabelID, Field: &field,
 		}
 		if mutation.Limit != nil {
 			limit := int32(*mutation.Limit)

@@ -1,7 +1,7 @@
 import type * as Stream from "effect/Stream";
 import { subscriptionStream } from "./subscriptionStream";
 import type { DescriptorRpcTransport } from "./transport";
-import { workflowProjectEventRpcHandler, type WorkflowProjectEvent } from "./workflowProjectEvents";
+import { subscribeWorkflowProject, type WorkflowProjectEvent } from "./workflowProjectEvents";
 
 export type ProjectObservation =
   | Readonly<{ kind: "open" }>
@@ -18,24 +18,20 @@ export function projectEvents(
 ): Stream.Stream<ProjectObservation> {
   return subscriptionStream<ProjectObservation>(
     (offer) =>
-      transport.subscribe(
-        "workflow.subscribeProject",
-        { project_id: projectID },
-        workflowProjectEventRpcHandler("workflow.project", {
-          onOpen: () => {
-            offer({ kind: "open" });
-          },
-          onEvent: (event) => {
-            if (event.projectID === null || event.projectID === projectID) offer({ kind: "event", event });
-          },
-          onComplete: (code, message) => {
-            offer({ kind: "complete", code, message });
-          },
-          onError: (error) => {
-            offer({ kind: "error", error });
-          },
-        }),
-      ),
+      subscribeWorkflowProject(transport, projectID, {
+        onOpen: () => {
+          offer({ kind: "open" });
+        },
+        onEvent: (event) => {
+          if (event.projectID === null || event.projectID === projectID) offer({ kind: "event", event });
+        },
+        onComplete: (code, message) => {
+          offer({ kind: "complete", code, message });
+        },
+        onError: (error) => {
+          offer({ kind: "error", error });
+        },
+      }),
     async (observation) => reportOverflow(projectID, observation),
   );
 }

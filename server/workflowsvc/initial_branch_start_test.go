@@ -13,7 +13,9 @@ import (
 	"core/server/workflow"
 	"core/server/workflowstore"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"core/shared/worktreecontract"
 )
 
 func TestServiceTaskStartMaterializesLatestTaskScopedPendingBranch(t *testing.T) {
@@ -29,7 +31,7 @@ func TestServiceTaskStartMaterializesLatestTaskScopedPendingBranch(t *testing.T)
 	branchA := "feature/request-a"
 	branchB := "feature/request-b"
 	materializedBranch := ""
-	worktreeID := "worktree-" + task.Task.ID
+	worktreeID := "worktree-" + task.Task.Id
 	worktreeRoot := filepath.Join(t.TempDir(), "task-worktree")
 	targets := &recordingExecutionTargetInfrastructure{
 		resolution: workflowstore.ExecutionTargetSnapshot{
@@ -61,13 +63,13 @@ func TestServiceTaskStartMaterializesLatestTaskScopedPendingBranch(t *testing.T)
 	}
 	service.executionTargets = targets
 
-	if _, err := service.preflightInitiatingActionTarget(ctx, workflow.TaskID(task.Task.ID), nil, &branchA); err != nil {
+	if _, err := service.preflightInitiatingActionTarget(ctx, workflow.TaskID(task.Task.Id), nil, &branchA); err != nil {
 		t.Fatalf("initial branch preflight: %v", err)
 	}
-	response, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(), TaskID: task.Task.ID, BranchName: &branchB,
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(), TaskId: task.Task.Id, BranchName: &branchB,
 	})
-	if err != nil || response.Applied == nil {
+	if err != nil || response.GetApplied() == nil {
 		t.Fatalf("StartWorkflowTask = %+v, %v; want placed task", response, err)
 	}
 	if materializedBranch != branchB {
@@ -77,7 +79,7 @@ func TestServiceTaskStartMaterializesLatestTaskScopedPendingBranch(t *testing.T)
 		*targets.materializeRequest.InitialBranchAssertion != branchB {
 		t.Fatalf("materialization assertion = %v, want originating request %q", targets.materializeRequest.InitialBranchAssertion, branchB)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}

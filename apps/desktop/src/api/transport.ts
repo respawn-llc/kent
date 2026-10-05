@@ -120,7 +120,7 @@ export type DescriptorRpcTransport = RpcTransport &
     callDescriptor<Method extends DescMethod>(
       method: Method,
       request: MessageShape<Method["input"]>,
-      options?: RpcCallOptions,
+      options?: RpcDedicatedCallOptions,
     ): Promise<MessageShape<Method["output"]>>;
     callDescriptorAttachedProject<Method extends DescMethod>(
       input: AttachedProjectDescriptorCall<Method>,

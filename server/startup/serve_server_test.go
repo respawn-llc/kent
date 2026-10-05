@@ -29,6 +29,7 @@ import (
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -337,7 +338,7 @@ func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.
 		t.Fatalf("restart: %v", err)
 	}
 	t.Cleanup(func() { _ = restarted.Close() })
-	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{TaskID: string(taskID)})
+	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), &taskpb.GetRequest{TaskId: proto.String(string(taskID))})
 	if err != nil {
 		t.Fatalf("GetWorkflowTask after restart: %v", err)
 	}
@@ -408,9 +409,9 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := client.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID:  server.ProjectID(),
-		WorkflowID: &workflowID,
+	task, err := client.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId:  server.ProjectID(),
+		WorkflowId: proto.String(workflowID.String()),
 		Title:      "Recover admitted current node",
 	})
 	if err != nil {
@@ -420,11 +421,11 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.ID), &workflowstore.ExecutionTargetCandidate{
+	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.Id), &workflowstore.ExecutionTargetCandidate{
 		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
 		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
 	})
@@ -439,7 +440,7 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 		t.Fatalf("StartTask created current nodes = %+v, want one", started.Mutation.Created)
 	}
 	currentNode := started.Mutation.Created[0].Reference
-	return workflow.TaskID(task.Task.ID), currentNode
+	return workflow.TaskID(task.Task.Id), currentNode
 }
 
 func TestServeRequiresContext(t *testing.T) {

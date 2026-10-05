@@ -29,6 +29,12 @@ func workflowLabelRequestValidation(projectID string) func(error) error {
 func (e *WorkflowLabelError) Error() string {
 	var reason string
 	switch detail := e.Detail.(type) {
+	case *taskpb.LabelNotFoundDetails:
+		reason = "label_not_found"
+	case *taskpb.WrongProjectDetails:
+		reason = "wrong_project"
+	case *taskpb.InvalidFilterDetails:
+		reason = "invalid_filter"
 	case *pb.LabelInvalidNameDetails:
 		reason = "invalid_name"
 	case *pb.LabelNameConflictDetails:

@@ -2,13 +2,17 @@ package workflowsvc
 
 import (
 	"context"
+	"core/shared/protoapi"
 	"errors"
 	"testing"
 
 	"core/server/workflow"
 	"core/server/workflowstore"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type countingTaskDependencyReadModel struct {
@@ -16,9 +20,9 @@ type countingTaskDependencyReadModel struct {
 	unsatisfiedBlocker *int
 }
 
-func (r *countingTaskDependencyReadModel) GetTaskDependencies(context.Context, string) (serverapi.WorkflowTaskDependencies, error) {
+func (r *countingTaskDependencyReadModel) GetTaskDependencies(context.Context, string) (*taskpb.TaskDependencies, error) {
 	r.count++
-	return serverapi.WorkflowTaskDependencies{}, errors.New("unexpected dependency projection")
+	return &taskpb.TaskDependencies{}, errors.New("unexpected dependency projection")
 }
 
 func (r *countingTaskDependencyReadModel) CountUnsatisfiedBlockers(context.Context, string) (int, error) {
@@ -29,27 +33,27 @@ func (r *countingTaskDependencyReadModel) CountUnsatisfiedBlockers(context.Conte
 	return 0, errors.New("unexpected dependency count")
 }
 
-func (r *countingTaskDependencyReadModel) ListTaskDependencies(context.Context, string, *serverapi.WorkflowTaskDependencyDirection) (serverapi.WorkflowTaskDependencyListResponse, error) {
+func (r *countingTaskDependencyReadModel) ListTaskDependencies(context.Context, string, *taskpb.DependencyDirection) (*taskpb.DependencyListSuccess, error) {
 	r.count++
-	return serverapi.WorkflowTaskDependencyListResponse{}, errors.New("unexpected dependency list")
+	return &taskpb.DependencyListSuccess{}, errors.New("unexpected dependency list")
 }
 
 func TestStartDependencyPreflightWarnsBeforeExecutionTargetWorkAndProceedSkipsRecheck(t *testing.T) {
 	ctx, service, projectID, workflowID, _ := newWorkflowServiceOrdinaryTaskFixture(t)
-	blocker, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: projectID, WorkflowID: &workflowID, Title: "blocker", LabelIDs: []string{},
+	blocker, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: projectID, WorkflowId: proto.String(workflowID.String()), Title: "blocker", LabelIds: []string{},
 	})
 	if err != nil {
 		t.Fatalf("create blocker: %v", err)
 	}
-	blocked, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID: projectID, WorkflowID: &workflowID, Title: "blocked", LabelIDs: []string{},
+	blocked, err := service.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId: projectID, WorkflowId: proto.String(workflowID.String()), Title: "blocked", LabelIds: []string{},
 	})
 	if err != nil {
 		t.Fatalf("create blocked: %v", err)
 	}
-	if _, err := service.AddWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyAddRequest{
-		BlockerTaskID: blocker.Task.ID, BlockedTaskID: blocked.Task.ID,
+	if _, err := service.AddWorkflowTaskDependency(ctx, &taskpb.DependencyAddRequest{
+		BlockerTaskId: blocker.Task.Id, BlockedTaskId: blocked.Task.Id,
 	}); err != nil {
 		t.Fatalf("add dependency: %v", err)
 	}
@@ -57,42 +61,42 @@ func TestStartDependencyPreflightWarnsBeforeExecutionTargetWorkAndProceedSkipsRe
 	service.executionTargets = targets
 	branchName := "feature/dependency-warning"
 
-	warning, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           blocked.Task.ID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	warning, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           blocked.Task.Id,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 		BranchName:       &branchName,
 	})
 	if err != nil {
 		t.Fatalf("start warning: %v", err)
 	}
-	if warning.Outcome != serverapi.WorkflowTaskActionOutcomeDependencyConfirmationRequired ||
-		warning.UnsatisfiedDependencyCount == nil || *warning.UnsatisfiedDependencyCount != 1 {
+	if warning.GetDependencyConfirmationRequired() == nil ||
+		warning.GetDependencyConfirmationRequired().UnsatisfiedDependencyCount != 1 {
 		t.Fatalf("warning = %+v", warning)
 	}
-	if err := warning.Validate(); err != nil {
+	if err := protoapi.Validate(warning); err != nil {
 		t.Fatalf("warning Validate: %v", err)
 	}
 	if targets.resolveSelection != (workflow.ExecutionTargetSelection{}) || targets.materializeTaskID != "" || targets.restoreTaskID != "" {
 		t.Fatalf("target infrastructure used during warning: %+v", targets)
 	}
-	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(blocked.Task.ID))
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(blocked.Task.Id))
 	if err != nil {
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
 	if targetContext.Task.PendingInitialManagedBranchName == nil ||
-		*targetContext.Task.PendingInitialManagedBranchName != blocked.Task.ShortID {
-		t.Fatalf("pending branch after dependency warning = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, blocked.Task.ShortID)
+		*targetContext.Task.PendingInitialManagedBranchName != blocked.Task.ShortId {
+		t.Fatalf("pending branch after dependency warning = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, blocked.Task.ShortId)
 	}
 
-	proceeded, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:                     blocked.Task.ID,
-		SetupOperationID:           serverapi.NewWorkflowSetupOperationID(),
+	proceeded, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:                     blocked.Task.Id,
+		SetupOperationId:           worktreecontract.NewSetupOperationID().String(),
 		ProceedDespiteDependencies: true,
 	})
 	if err != nil {
 		t.Fatalf("proceeded start: %v", err)
 	}
-	if proceeded.Outcome == serverapi.WorkflowTaskActionOutcomeDependencyConfirmationRequired {
+	if proceeded.GetDependencyConfirmationRequired() != nil {
 		t.Fatalf("proceeded start returned dependency warning: %+v", proceeded)
 	}
 }
@@ -101,7 +105,7 @@ func TestStartRequestValidationReturnsBeforeDependencyReader(t *testing.T) {
 	ctx, service, _, _, _ := newWorkflowServiceOrdinaryTaskFixture(t)
 	reader := &countingTaskDependencyReadModel{}
 	service.readModels.TaskDependencies = reader
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{}); err == nil {
+	if _, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{}); err == nil {
 		t.Fatal("invalid start request returned nil error")
 	}
 	if reader.count != 0 {
@@ -116,11 +120,11 @@ func TestStartDependencyPreflightReturnsBeforeTargetInfrastructure(t *testing.T)
 	service.readModels.TaskDependencies = reader
 	service.executionTargets = nil
 
-	_, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{
-		TaskID:           taskID,
-		SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeHead,
+	_, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           taskID,
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
 		},
 	})
 	if err != nil {
@@ -145,12 +149,12 @@ func TestExecutableMoveWithProceedSkipsDependencyReaderBeforeTargetInfrastructur
 	service.currentNodeExecution = newManualMoveExecutionStub(service)
 	service.executionTargets = nil
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:                     task.Task.ID,
-		TargetNodeID:               workflowServiceNodeIDByKey(t, definition.Definition, "plan"),
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:                     task.Task.Id,
+		TargetNodeId:               workflowServiceNodeIDByKey(t, definition.Definition, "plan"),
 		ProceedDespiteDependencies: true,
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeHead,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
 		},
 	})
 	if !errors.Is(err, errExecutionTargetInfrastructureRequired) {
@@ -167,9 +171,9 @@ func TestExecutableMoveDependencyPreflightRequiresExplicitProceed(t *testing.T) 
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	blocker := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	blocked := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := service.AddWorkflowTaskDependency(ctx, serverapi.WorkflowTaskDependencyAddRequest{
-		BlockerTaskID: blocker.Task.ID,
-		BlockedTaskID: blocked.Task.ID,
+	if _, err := service.AddWorkflowTaskDependency(ctx, &taskpb.DependencyAddRequest{
+		BlockerTaskId: blocker.Task.Id,
+		BlockedTaskId: blocked.Task.Id,
 	}); err != nil {
 		t.Fatalf("AddWorkflowTaskDependency: %v", err)
 	}
@@ -183,18 +187,18 @@ func TestExecutableMoveDependencyPreflightRequiresExplicitProceed(t *testing.T) 
 	targets := &recordingExecutionTargetInfrastructure{}
 	service.executionTargets = targets
 
-	warning, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       blocked.Task.ID,
-		TargetNodeID: targetNodeID,
+	warning, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       blocked.Task.Id,
+		TargetNodeId: targetNodeID,
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask warning: %v", err)
 	}
-	if warning.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeDependencyConfirmationRequired ||
-		warning.UnsatisfiedDependencyCount == nil || *warning.UnsatisfiedDependencyCount != 1 {
+	if warning.GetDependencyConfirmationRequired() == nil ||
+		warning.GetDependencyConfirmationRequired().UnsatisfiedDependencyCount != 1 {
 		t.Fatalf("warning = %+v", warning)
 	}
-	if err := warning.Validate(); err != nil {
+	if err := protoapi.Validate(warning); err != nil {
 		t.Fatalf("warning Validate: %v", err)
 	}
 	if len(execution.interruptTaskIDs) != 0 || len(execution.started) != 0 {
@@ -204,20 +208,20 @@ func TestExecutableMoveDependencyPreflightRequiresExplicitProceed(t *testing.T) 
 		t.Fatalf("target infrastructure used during dependency warning: %+v", targets)
 	}
 
-	proceeded, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:                     blocked.Task.ID,
-		TargetNodeID:               targetNodeID,
-		ExecutionTarget:            &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeNone},
+	proceeded, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:                     blocked.Task.Id,
+		TargetNodeId:               targetNodeID,
+		ExecutionTarget:            &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE},
 		ProceedDespiteDependencies: true,
 	})
 	if err != nil {
 		t.Fatalf("MoveWorkflowTask proceeded: %v", err)
 	}
-	if proceeded.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		proceeded.Applied == nil || len(proceeded.Applied.CurrentNodes) != 1 {
+	if proceeded.GetApplied() == nil ||
+		proceeded.GetApplied() == nil || len(proceeded.GetApplied().CurrentNodes) != 1 {
 		t.Fatalf("proceeded response = %+v", proceeded)
 	}
-	if proceeded.UnsatisfiedDependencyCount != nil {
+	if proceeded.GetDependencyConfirmationRequired() != nil {
 		t.Fatalf("proceeded response retained dependency count: %+v", proceeded)
 	}
 }
@@ -227,7 +231,7 @@ func TestExecutableMoveWithProceedSkipsDependencyReaderBeforeTargetCompatibility
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	startWorkflowServiceTask(t, ctx, service, task.Task.Id)
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
@@ -236,15 +240,13 @@ func TestExecutableMoveWithProceedSkipsDependencyReaderBeforeTargetCompatibility
 	service.readModels.TaskDependencies = reader
 	service.currentNodeExecution = newManualMoveExecutionStub(service)
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:                     task.Task.ID,
-		TargetNodeID:               workflowServiceNodeIDByKey(t, definition.Definition, "implement"),
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:                     task.Task.Id,
+		TargetNodeId:               workflowServiceNodeIDByKey(t, definition.Definition, "implement"),
 		ProceedDespiteDependencies: true,
-		Values: map[string]map[string]string{
-			"plan": {"prior_summary": "manual plan"},
-		},
-		ExecutionTarget: &serverapi.WorkflowExecutionTargetSelection{
-			Mode: serverapi.WorkflowExecutionTargetModeNone,
+		Values:                     []*taskpb.NodeOutputValues{{NodeKey: "plan", Outputs: []*taskpb.NamedValue{{Name: "prior_summary", Value: "manual plan"}}}},
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE,
 		},
 	})
 	if !errors.Is(err, workflowstore.ErrExecutionTargetAlreadyLocked) {

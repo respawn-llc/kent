@@ -254,7 +254,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: definitions: %w", err)
 	}
 	workflowTaskProjector := workflowview.NewTaskProjector()
-	workflowActivity, err := workflowview.NewActivity(metadataStore, workflowTaskProjector)
+	workflowActivity, err := workflowview.NewActivity(metadataStore)
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: activity: %w", err)

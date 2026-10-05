@@ -69,6 +69,8 @@ function rpcErrorCode(code: string): number {
       return rpcErrorCodes.workspaceNotRegistered;
     case "project_not_found":
       return rpcErrorCodes.projectNotFound;
+    case "task_not_found":
+      return rpcErrorCodes.workflowTaskNotFound;
     case "project_unavailable":
       return rpcErrorCodes.projectUnavailable;
     case "auth_required":

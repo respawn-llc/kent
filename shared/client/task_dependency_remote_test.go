@@ -4,30 +4,24 @@ import (
 	"errors"
 	"testing"
 
-	"core/shared/protocol"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestProtocolErrorDecodesWorkflowTaskDependencyError(t *testing.T) {
-	currentCount := 50
-	limit := 50
-	source := &serverapi.WorkflowTaskDependencyError{
-		Reason:        serverapi.WorkflowTaskDependencyErrorReasonBlockerLimit,
-		BlockerTaskID: "task-blocker",
-		BlockedTaskID: "task-blocked",
-		CurrentCount:  &currentCount,
-		Limit:         &limit,
+func TestGeneratedTaskDependencyErrorPreservesLimitFacts(t *testing.T) {
+	detail := &taskpb.DependencyErrorDetails{
+		Reason:        taskpb.DependencyErrorReason_DEPENDENCY_ERROR_REASON_BLOCKER_LIMIT,
+		BlockerTaskId: "task-blocker", BlockedTaskId: "task-blocked",
+		CurrentCount: proto.Int32(50), Limit: proto.Int32(50),
 	}
-	decoded := protocolError(&protocol.ResponseError{
-		Code:    source.RPCErrorCode(),
-		Message: source.Error(),
-		Data:    source.RPCErrorData(),
-	})
-	var typed *serverapi.WorkflowTaskDependencyError
-	if !errors.As(decoded, &typed) {
-		t.Fatalf("decoded error = %T, want *WorkflowTaskDependencyError", decoded)
-	}
-	if typed.Reason != source.Reason {
-		t.Fatalf("decoded reason = %q, want %q", typed.Reason, source.Reason)
+	method := bootstrapMethod(taskpb.File_kent_api_workflow_task_lifecycle_proto, "TaskDependencyService", "Add")
+	_, err := decodeGeneratedResult(method, &taskpb.DependencyAddResult{
+		Outcome: &taskpb.DependencyAddResult_Error{Error: &taskpb.DependencyAddError{
+			Code: "dependency", Detail: &taskpb.DependencyAddError_Dependency{Dependency: detail},
+		}},
+	}, taskDependencyGeneratedError[*taskpb.DependencyAddError])
+	var typed *TaskDependencyError
+	if !errors.As(err, &typed) || !proto.Equal(typed.Detail, detail) {
+		t.Fatalf("dependency limit facts lost: %v", err)
 	}
 }

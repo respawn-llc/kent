@@ -21,10 +21,12 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/google/uuid"
 )
@@ -182,7 +184,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	if err != nil {
 		t.Fatalf("NewTaskSearch: %v", err)
 	}
-	activity, err := NewActivity(metadataStore, projector)
+	activity, err := NewActivity(metadataStore)
 	if err != nil {
 		t.Fatalf("NewActivity: %v", err)
 	}
@@ -617,15 +619,15 @@ func currentNodeViewNodeIDByKind(t *testing.T, definition workflow.Definition, k
 	return ""
 }
 
-func workflowViewBoardColumn(t *testing.T, board serverapi.WorkflowBoard, nodeID workflow.NodeID) serverapi.WorkflowBoardColumn {
+func workflowViewBoardColumn(t *testing.T, board *taskpb.Board, nodeID workflow.NodeID) *taskpb.BoardColumn {
 	t.Helper()
 	for _, column := range board.Columns {
-		if column.Node.NodeID == string(nodeID) {
+		if column.Node.NodeId == string(nodeID) {
 			return column
 		}
 	}
 	t.Fatalf("board column for node %q missing", nodeID)
-	return serverapi.WorkflowBoardColumn{}
+	return &taskpb.BoardColumn{}
 }
 
 func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *DefinitionProjection {
@@ -639,6 +641,10 @@ func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *Definit
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func noLabelFilter() *taskpb.LabelFilter {
+	return &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}}
 }
 
 func intPointer(value int) *int {
@@ -657,7 +663,7 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
-func equalStatusKinds(left, right []serverapi.WorkflowTaskStatusKind) bool {
+func equalStatusKinds(left, right []taskpb.TaskStatusKind) bool {
 	if len(left) != len(right) {
 		return false
 	}

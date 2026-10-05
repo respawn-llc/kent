@@ -5,6 +5,7 @@ import { QueryClient } from "@tanstack/react-query";
 
 import {
   RpcError,
+  WorkflowTaskDependencyError,
   type ApiService,
   rpcErrorCodes,
   type TaskDependencyDirection,
@@ -611,17 +612,21 @@ describe("New Task Workspace catalog integration", () => {
     loadAttachedCatalog();
     state.searchResults = [candidate("task-related")];
     state.create.mockRejectedValueOnce(
-      new RpcError({
-        code: rpcErrorCodes.workflowTaskDependency,
-        message: "workflow task dependency error: reciprocal_dependency",
-        method: "workflow.task.create",
-        data: {
-          type: "workflow_task_dependency_error",
+      new WorkflowTaskDependencyError(
+        new RpcError({
+          code: rpcErrorCodes.workflowTaskDependency,
+          message: "workflow task dependency error: reciprocal_dependency",
+          method: "test.create",
+        }),
+        {
           reason: "reciprocal_dependency",
-          blocker_task_id: "task-created",
-          blocked_task_id: "task-related",
+          blockerTaskID: "task-created",
+          blockedTaskID: "task-related",
+          missingTaskID: null,
+          currentCount: null,
+          limit: null,
         },
-      }),
+      ),
     );
     const user = userEvent.setup();
     render(

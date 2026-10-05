@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type currentNodeLabelFilterFixture struct {
@@ -63,50 +65,48 @@ func newCurrentNodeLabelFilterFixture(t *testing.T) currentNodeLabelFilterFixtur
 
 type currentNodeLabelFilterCase struct {
 	name   string
-	filter serverapi.WorkflowTaskLabelFilter
+	filter *taskpb.LabelFilter
 	want   []string
 }
 
 func (f currentNodeLabelFilterFixture) exclusionCases() []currentNodeLabelFilterCase {
-	named := func(mode serverapi.WorkflowTaskNamedLabelFilterMode, included []string, excluded []string) serverapi.WorkflowTaskLabelFilter {
-		return serverapi.WorkflowTaskLabelFilter{
-			Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-			Named: &serverapi.WorkflowTaskNamedLabelFilter{
-				Mode:             mode,
-				LabelIDs:         included,
-				ExcludedLabelIDs: excluded,
-			},
+	named := func(mode taskpb.NamedLabelFilterMode, included []string, excluded []string) *taskpb.LabelFilter {
+		return &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+			Mode:             mode,
+			LabelIds:         included,
+			ExcludedLabelIds: excluded,
+		}},
 		}
 	}
 	return []currentNodeLabelFilterCase{
 		{
 			name:   "mixed OR",
-			filter: named(serverapi.WorkflowTaskNamedLabelFilterModeAny, []string{f.gamma}, []string{f.alpha, f.beta}),
+			filter: named(taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY, []string{f.gamma}, []string{f.alpha, f.beta}),
 			want:   []string{f.taskIDs["alpha"], f.taskIDs["beta"], f.taskIDs["gamma"], f.taskIDs["unlabeled"]},
 		},
 		{
 			name:   "mixed AND",
-			filter: named(serverapi.WorkflowTaskNamedLabelFilterModeAll, []string{f.gamma}, []string{f.alpha, f.beta}),
+			filter: named(taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ALL, []string{f.gamma}, []string{f.alpha, f.beta}),
 			want:   []string{f.taskIDs["gamma"]},
 		},
 		{
 			name:   "excluded-only OR",
-			filter: named(serverapi.WorkflowTaskNamedLabelFilterModeAny, nil, []string{f.alpha, f.beta}),
+			filter: named(taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY, nil, []string{f.alpha, f.beta}),
 			want:   []string{f.taskIDs["alpha"], f.taskIDs["beta"], f.taskIDs["gamma"], f.taskIDs["unlabeled"]},
 		},
 		{
 			name:   "excluded-only AND",
-			filter: named(serverapi.WorkflowTaskNamedLabelFilterModeAll, nil, []string{f.alpha, f.beta}),
+			filter: named(taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ALL, nil, []string{f.alpha, f.beta}),
 			want:   []string{f.taskIDs["gamma"], f.taskIDs["unlabeled"]},
 		},
 	}
 }
 
-func requireCurrentNodeBoardCardIDs(t *testing.T, cards []serverapi.WorkflowBoardTaskCard, want []string) {
+func requireCurrentNodeBoardCardIDs(t *testing.T, cards []*taskpb.BoardTaskCard, want []string) {
 	t.Helper()
 	got := make(map[string]bool, len(cards))
 	for _, card := range cards {
-		got[card.TaskID] = true
+		got[card.TaskId] = true
 	}
 	if len(got) != len(want) {
 		t.Fatalf("board card IDs = %v, want %v", got, want)
@@ -122,22 +122,22 @@ func TestCurrentNodeBoardLabelExclusionsFilterCountsAndCards(t *testing.T) {
 	fixture := newCurrentNodeLabelFilterFixture(t)
 	for _, tt := range fixture.exclusionCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			board, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
-				ProjectID:   fixture.binding.ProjectID,
-				WorkflowID:  &fixture.workflowID,
+			board, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+				ProjectId:   fixture.binding.ProjectID,
+				WorkflowId:  proto.String(fixture.workflowID.String()),
 				LabelFilter: tt.filter,
 			})
 			if err != nil {
 				t.Fatalf("Board.Get: %v", err)
 			}
 			column := workflowViewBoardColumn(t, board, fixture.agentNodeID)
-			if column.TaskCount != len(tt.want) {
+			if int(column.TaskCount) != len(tt.want) {
 				t.Fatalf("agent column count = %d, want %d", column.TaskCount, len(tt.want))
 			}
-			page, err := fixture.board.ListNodeCards(fixture.ctx, serverapi.WorkflowBoardNodeCardsListRequest{
-				ProjectID:   fixture.binding.ProjectID,
-				WorkflowID:  fixture.workflowID,
-				NodeID:      string(fixture.agentNodeID),
+			page, err := fixture.board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+				ProjectId:   fixture.binding.ProjectID,
+				WorkflowId:  fixture.workflowID.String(),
+				NodeId:      string(fixture.agentNodeID),
 				LabelFilter: tt.filter,
 			})
 			if err != nil {
@@ -193,17 +193,15 @@ func TestCurrentNodeBoardDependencyFilterCountsAndCombinesWithLabels(t *testing.
 		t.Fatalf("ManualMoveTask: %v", err)
 	}
 
-	labelFilter := serverapi.WorkflowTaskLabelFilter{
-		Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-		Named: &serverapi.WorkflowTaskNamedLabelFilter{
-			Mode:     serverapi.WorkflowTaskNamedLabelFilterModeAny,
-			LabelIDs: []string{alpha.ID.String()},
-		},
+	labelFilter := &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
+		Mode:     taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY,
+		LabelIds: []string{alpha.ID.String()},
+	}},
 	}
 	tests := []struct {
 		name             string
 		dependencyFilter *bool
-		labelFilter      serverapi.WorkflowTaskLabelFilter
+		labelFilter      *taskpb.LabelFilter
 		wantCount        int
 	}{
 		{name: "all", wantCount: 4},
@@ -214,12 +212,12 @@ func TestCurrentNodeBoardDependencyFilterCountsAndCombinesWithLabels(t *testing.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filter := tt.labelFilter
-			if filter.Kind == "" {
-				filter = serverapi.WorkflowTaskLabelFilterNone()
+			if filter == nil {
+				filter = noLabelFilter()
 			}
-			board, err := fixture.board.Get(fixture.ctx, serverapi.WorkflowBoardRequest{
-				ProjectID:        fixture.binding.ProjectID,
-				WorkflowID:       &fixture.workflowID,
+			board, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+				ProjectId:        fixture.binding.ProjectID,
+				WorkflowId:       proto.String(fixture.workflowID.String()),
 				LabelFilter:      filter,
 				DependencyFilter: tt.dependencyFilter,
 			})
@@ -227,7 +225,7 @@ func TestCurrentNodeBoardDependencyFilterCountsAndCombinesWithLabels(t *testing.
 				t.Fatalf("Board.Get: %v", err)
 			}
 			column := workflowViewBoardColumn(t, board, fixture.agentNodeID)
-			if column.TaskCount != tt.wantCount {
+			if int(column.TaskCount) != tt.wantCount {
 				t.Fatalf("agent column count = %d, want %d", column.TaskCount, tt.wantCount)
 			}
 		})

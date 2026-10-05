@@ -15,10 +15,50 @@ import (
 	remoteclient "core/shared/client"
 	"core/shared/clientui"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestGatewayAttentionSubscriptionAllowsMissingProviderCredentials(t *testing.T) {
+	app, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = app.Close() }()
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	subscription, err := remote.SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = subscription.Close() }()
+}
+
+func TestGatewayAttentionReadsAllowMissingProviderCredentials(t *testing.T) {
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	task := createGatewaySearchableTask(t, appCore)
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	_, err = remote.ListWorkflowAttention(t.Context(), &taskpb.AttentionListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := remote.ListWorkflowTaskAttention(t.Context(), &taskpb.TaskAttentionListRequest{TaskId: task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil {
+		t.Fatal("List Task attention returned nil response")
+	}
+}
 
 func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly(t *testing.T) {
 	appCore, _, broker, server := newGatewayAttentionTestServer(t)
@@ -36,7 +76,7 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	desktop, err := remote.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
+	desktop, err := remote.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
@@ -48,12 +88,12 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 	beginGatewayPendingPrompt(t, broker, sessionTwo.Meta().SessionID, gatewayTaskBatchAskRequest("ask-b", "project-b", "task-b", sessionTwo.Meta().SessionID))
 	first := nextGatewayAttentionEvent(t, desktop)
 	second := nextGatewayAttentionEvent(t, desktop)
-	if first.Pending.Target.ProjectID != "project-a" || second.Pending.Target.ProjectID != "project-b" {
+	if first.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-a" || second.GetPending().GetTarget().GetWorkflowTask().GetProjectId() != "project-b" {
 		t.Fatalf("desktop cross-project events = %+v then %+v", first, second)
 	}
 
 	beginGatewayPendingPrompt(t, broker, sessionOne.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	if event := nextGatewayAttentionEvent(t, desktop); event.Pending == nil || event.Pending.Target.ProjectID != "project-1" || event.Pending.Target.SessionID != sessionOne.Meta().SessionID {
+	if event := nextGatewayAttentionEvent(t, desktop); event.GetPending().GetTarget().GetSessionPrompt().GetProjectId() != "project-1" || event.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != sessionOne.Meta().SessionID {
 		t.Fatalf("desktop generic session prompt = %+v", event)
 	}
 }
@@ -218,7 +258,7 @@ func gatewayTaskBatchAskRequest(askID string, projectID string, taskID string, s
 
 const gatewayAttentionStepID = "11111111-1111-4111-8111-111111111111"
 
-func nextGatewayAttentionEvent(t *testing.T, sub serverapi.AttentionNotificationSubscription) clientui.AttentionNotificationEvent {
+func nextGatewayAttentionEvent(t *testing.T, sub apicontract.AttentionNotificationSubscription) *taskpb.AttentionNotificationEvent {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

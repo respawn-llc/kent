@@ -2,8 +2,6 @@
 
 ## Authority And Compatibility
 
-The global Desktop attention stream is the sole exception to this specification's Protobuf schema, generated-contract, and binary-transport requirements, as defined below.
-
 - Protobuf schemas are the sole editable authority for the Kent server API.
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
 - Kent carries serialized Protobuf messages in typed binary WebSocket envelopes. It does not expose gRPC or Connect transport semantics.
@@ -20,10 +18,10 @@ The global Desktop attention stream is the sole exception to this specification'
 
 ### Global Desktop Attention Stream
 
-- The global Desktop attention stream must use its JSON-only contract.
+- The global Desktop attention stream must use the generated Protobuf contract and binary transport.
 - Its Session prompt target must include the owning Project identity and Session identity supplied by the server.
 - Session-scoped operations, including Session attention, pending Question and Approval reads, batch answers, transcript hydration and events, and attached-Session descriptors, must use only their generated Protobuf contracts.
-- The global Desktop attention exception must not introduce a parallel transport or fallback decoding for any operation.
+- The global Desktop attention stream must not introduce a parallel transport or fallback decoding for any operation.
 
 ## Operations And Transport
 
@@ -77,6 +75,13 @@ The global Desktop attention stream is the sole exception to this specification'
 - Third-party and provider identifiers remain validated string fields unless their owning contract defines another representation.
 - Generated TypeScript uses the standard Protobuf `bigint` representation for `int64` and `uint64`.
 - JavaScript-facing 64-bit values must remain within the JavaScript safe-integer range.
+
+### Task requests
+
+- Task pagination offsets must be between 0 and 2,147,483,647.
+- Task continuation offsets must be between 1 and 2,147,483,647.
+- Task Search must accept Project and status filter arrays in any order.
+- Each Task Search filter array must contain unique values.
 
 ## Results And Errors
 

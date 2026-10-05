@@ -12,7 +12,9 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
 )
 
 func TestServiceTaskResumeEligibilityRejectsExplicitBranchBeforePendingMutation(t *testing.T) {
@@ -21,7 +23,7 @@ func TestServiceTaskResumeEligibilityRejectsExplicitBranchBeforePendingMutation(
 	setWorkflowServiceExecutionTargetPolicy(t, ctx, service, workflowID, &pb.ExecutionTargetConfiguration{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD})
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
 	controller, err := workflowexecution.NewCurrentNodeController(service.store, initialBranchControllerRunner{}, authority, service.taskMutations, workflowexecution.CurrentNodeControllerConfig{
 		AgentConcurrency: 1,
@@ -41,8 +43,8 @@ func TestServiceTaskResumeEligibilityRejectsExplicitBranchBeforePendingMutation(
 	targets := &recordingExecutionTargetInfrastructure{}
 	service.executionTargets = targets
 	branchName := "feature/ineligible-resume"
-	_, err = service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-		TaskID: task.Task.ID, SetupOperationID: serverapi.NewWorkflowSetupOperationID(), BranchName: &branchName,
+	_, err = service.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+		TaskId: task.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(), BranchName: &branchName,
 	})
 	var conflict *workflowexecution.TaskResumeConflictError
 	if !errors.As(err, &conflict) || conflict.TaskID != taskID {
@@ -52,7 +54,7 @@ func TestServiceTaskResumeEligibilityRejectsExplicitBranchBeforePendingMutation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.Task.PendingInitialManagedBranchName == nil || *target.Task.PendingInitialManagedBranchName != task.Task.ShortID {
+	if target.Task.PendingInitialManagedBranchName == nil || *target.Task.PendingInitialManagedBranchName != task.Task.ShortId {
 		t.Fatalf("ineligible Resume changed pending branch: %+v", target.Task)
 	}
 	if targets.initialBranchInspections != 0 || targets.materializeRequest.TaskID != "" {
@@ -65,8 +67,8 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
-	worktreeID := "worktree-" + task.Task.ID
+	taskID := workflow.TaskID(task.Task.Id)
+	worktreeID := "worktree-" + task.Task.Id
 	root := filepath.Join(t.TempDir(), "task-worktree")
 	bindWorkflowServiceManagedWorktree(t, ctx, metadataStore, binding.WorkspaceID, taskID, worktreeID, root, false)
 	target, err := service.store.GetTaskExecutionTargetContext(ctx, taskID)
@@ -84,17 +86,17 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 	if err := service.store.InterruptCurrentNode(ctx, started.Mutation.Created[0].Reference, workflow.CurrentNodeInterruptionReasonUserInterrupt, workflow.NewCurrentNodeInterruptionDetail(string(workflow.CurrentNodeInterruptionReasonUserInterrupt), nil)); err != nil {
 		t.Fatal(err)
 	}
-	requestedBranch, existingBranch := "feature/attempted-rename", task.Task.ShortID
+	requestedBranch, existingBranch := "feature/attempted-rename", task.Task.ShortId
 	expected := &serverapi.WorkflowTaskInitialBranchError{
 		Reason:     serverapi.WorkflowTaskInitialBranchErrorReasonPostCreationMismatch,
 		BranchName: requestedBranch, ExistingBranchName: &existingBranch,
 	}
 	targets := &recordingExecutionTargetInfrastructure{initialBranchAssertionErr: expected}
 	service.executionTargets = targets
-	response, err := service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-		TaskID: task.Task.ID, SetupOperationID: serverapi.NewWorkflowSetupOperationID(), BranchName: &requestedBranch,
+	response, err := service.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+		TaskId: task.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(), BranchName: &requestedBranch,
 	})
-	if !errors.Is(err, expected) || response.Applied != nil {
+	if !errors.Is(err, expected) || response.GetApplied() != nil {
 		t.Fatalf("Resume branch mismatch = %+v, %v", response, err)
 	}
 	if targets.restoreTaskID != "" {
@@ -102,10 +104,10 @@ func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T
 	}
 	targets.initialBranchAssertionErr = nil
 	targets.restoreErr = &serverapi.WorkflowLockedExecutionTargetError{Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch}
-	response, err = service.ResumeWorkflowTask(ctx, serverapi.WorkflowTaskResumeRequest{
-		TaskID: task.Task.ID, SetupOperationID: serverapi.NewWorkflowSetupOperationID(),
+	response, err = service.ResumeWorkflowTask(ctx, &taskpb.ResumeRequest{
+		TaskId: task.Task.Id, SetupOperationId: worktreecontract.NewSetupOperationID().String(),
 	})
-	if err != nil || response.SelectionRequired == nil || response.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil || response.Applied != nil {
+	if err != nil || response.GetSelectionRequired() == nil || response.GetSelectionRequired().GetOriginalTargetUnavailable() == nil || response.GetApplied() != nil {
 		t.Fatalf("Resume = %+v, %v; want original target selection", response, err)
 	}
 	nodes, err := service.store.ListCurrentNodes(ctx, taskID)

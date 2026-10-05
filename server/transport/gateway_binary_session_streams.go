@@ -65,6 +65,23 @@ func registerSessionBinarySubscription[
 	bindings map[string]gatewayBinaryBinding, service protoreflect.ServiceDescriptor, methodName protoreflect.Name,
 	newRequest func() Request, subscribe func(*Gateway, context.Context, Request) (Sub, error),
 ) error {
+	return registerGatewayBinarySubscription(bindings, service, methodName, newRequest,
+		func(request Request) (routeScopeParams, error) {
+			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+		},
+		subscribe,
+		func(_ Request, err error) proto.Message { return binaryAuthFailure(err) })
+}
+
+func registerGatewayBinarySubscription[
+	Request proto.Message,
+	Event proto.Message, Sub gatewaySubscription[Event],
+](
+	bindings map[string]gatewayBinaryBinding, service protoreflect.ServiceDescriptor, methodName protoreflect.Name,
+	newRequest func() Request, scope func(Request) (routeScopeParams, error),
+	subscribe func(*Gateway, context.Context, Request) (Sub, error),
+	failure func(Request, error) proto.Message,
+) error {
 	if service == nil {
 		return errors.New("generated subscription service is required")
 	}
@@ -85,7 +102,10 @@ func registerSessionBinarySubscription[
 			if !ok {
 				return routeScopeParams{}, fmt.Errorf("%s request type is invalid", associated.Subscribe.Name)
 			}
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			if scope == nil {
+				return routeScopeParams{}, nil
+			}
+			return scope(request)
 		},
 		subscribe: func(g *Gateway, ctx context.Context, _ *connectionState, message proto.Message) (gatewayBinarySubscriber, error) {
 			request, ok := message.(Request)
@@ -96,28 +116,32 @@ func registerSessionBinarySubscription[
 			if err != nil {
 				return nil, err
 			}
-			return sessionGatewayBinarySubscriber[Event]{sub}, nil
+			return gatewayBinaryStreamSubscriber[Event]{sub}, nil
 		},
-		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
+		failure: func(_ *Gateway, _ *connectionState, message proto.Message, err error) proto.Message {
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}
-			return gatewayBinaryFailureResult(method, binaryAuthFailure(err))
+			var request Request
+			if message != nil {
+				request = message.(Request)
+			}
+			return gatewayBinaryFailureResult(method, failure(request, err))
 		},
-		start: start, complete: binarySessionStreamCompletion,
+		start: start, complete: binaryStreamCompletion,
 	}
 	return nil
 }
 
-type sessionGatewayBinarySubscriber[Event proto.Message] struct {
+type gatewayBinaryStreamSubscriber[Event proto.Message] struct {
 	gatewaySubscription[Event]
 }
 
-func (s sessionGatewayBinarySubscriber[Event]) Next(ctx context.Context) (proto.Message, error) {
+func (s gatewayBinaryStreamSubscriber[Event]) Next(ctx context.Context) (proto.Message, error) {
 	return s.gatewaySubscription.Next(ctx)
 }
 
-func binarySessionStreamCompletion(err error) proto.Message {
+func binaryStreamCompletion(err error) proto.Message {
 	completion := &sharedpb.StreamCompletion{}
 	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return completion

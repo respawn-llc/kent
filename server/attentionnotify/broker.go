@@ -271,6 +271,4 @@ func (s *Subscription) closeWithError(err error) {
 	}
 }
 
-var _ serverapi.AttentionNotificationSubscription = (*Subscription)(nil)
-
 var ErrBatchNotFound = errors.New("question batch is not registered")

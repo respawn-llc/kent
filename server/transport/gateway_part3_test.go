@@ -466,21 +466,7 @@ func callGatewayDescriptor(
 ) {
 	t.Helper()
 	operation := sendGatewayDescriptor(t, conn, correlation, method, request)
-	var responseFrame []byte
-	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
-		t.Fatalf("receive %s: %v", operation.Name, err)
-	}
-	envelope, err := protoapi.DecodeEnvelope(responseFrame)
-	if err != nil {
-		t.Fatalf("decode %s response envelope: %v", operation.Name, err)
-	}
-	if failure := envelope.GetTransportFailure(); failure != nil {
-		t.Fatalf("%s transport failure: %+v", operation.Name, failure)
-	}
-	response := envelope.GetResult()
-	if response == nil {
-		t.Fatalf("%s result is required", operation.Name)
-	}
+	response := receiveGatewayDescriptorResult(t, conn)
 	if response.Operation != operation.Name || response.GetCorrelation() != correlation {
 		t.Fatalf("%s result identity = %+v", operation.Name, response)
 	}
@@ -490,6 +476,26 @@ func callGatewayDescriptor(
 	if err := protoapi.Validate(result); err != nil {
 		t.Fatalf("validate %s result: %v", operation.Name, err)
 	}
+}
+
+func receiveGatewayDescriptorResult(t *testing.T, conn *websocket.Conn) *sharedpb.Result {
+	t.Helper()
+	var responseFrame []byte
+	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
+		t.Fatalf("receive generated result: %v", err)
+	}
+	envelope, err := protoapi.DecodeEnvelope(responseFrame)
+	if err != nil {
+		t.Fatalf("decode result envelope: %v", err)
+	}
+	if failure := envelope.GetTransportFailure(); failure != nil {
+		t.Fatalf("transport failure: %+v", failure)
+	}
+	response := envelope.GetResult()
+	if response == nil {
+		t.Fatal("generated result is required")
+	}
+	return response
 }
 
 func sendGatewayDescriptor(t *testing.T, conn *websocket.Conn, correlation string, method protoreflect.MethodDescriptor, request proto.Message) protoapi.Operation {

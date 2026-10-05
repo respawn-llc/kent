@@ -7,10 +7,14 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"core/cli/app"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -67,17 +71,16 @@ func TestRunWatchCallerCancellationKeepsInterruptExitCode(t *testing.T) {
 
 func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testing.T) {
 	sessionID := "session-1"
-	response := serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task-1", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{{
-			Kind:      serverapi.WorkflowTaskObservationQuestion,
-			SessionID: &sessionID,
-			NodeKey:   stringPointerForTest("build"),
-			Question: &serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
+	response := &taskpb.ObserveSuccess{
+		TaskId: "task-1", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
+			SessionId: &sessionID, NodeKey: stringPointerForTest("build"),
+			Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
 				ToolCallID: "ask-1", SessionID: taskObservationSessionID(t, sessionID),
 				StepID: questionCommandStepID(), Question: "Proceed?", Suggestions: []string{"Yes"},
-			}},
-		}},
+				CreatedAt: time.UnixMilli(1),
+			}}),
+		}}}},
 	}
 	var output bytes.Buffer
 	projectRef := "workspace path/$branch"
@@ -89,7 +92,7 @@ func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testi
 		!strings.Contains(text, "build") ||
 		!strings.Contains(text, commandString([]string{
 			config.Command, "question", "answer",
-			"--task", response.TaskShortID,
+			"--task", response.TaskShortId,
 		})) ||
 		!strings.Contains(text, commandString([]string{
 			"--project", projectRef,
@@ -101,23 +104,23 @@ func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testi
 
 func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
 	firstSession, secondSession := "session-1", "session-2"
-	response := serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task-1", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{
-			{
-				Kind: serverapi.WorkflowTaskObservationQuestion, SessionID: &firstSession,
-				Question: &serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
+	response := &taskpb.ObserveSuccess{
+		TaskId: "task-1", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{
+			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
+				SessionId: &firstSession,
+				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
 					ToolCallID: "ask-1", SessionID: taskObservationSessionID(t, firstSession),
-					StepID: questionCommandStepID(), Question: "One?",
-				}},
-			},
-			{
-				Kind: serverapi.WorkflowTaskObservationQuestion, SessionID: &secondSession,
-				Question: &serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
+					StepID: questionCommandStepID(), Question: "One?", CreatedAt: time.UnixMilli(1),
+				}}),
+			}}},
+			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
+				SessionId: &secondSession,
+				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
 					ToolCallID: "ask-2", SessionID: taskObservationSessionID(t, secondSession),
-					StepID: questionCommandStepID(), Question: "Two?",
-				}},
-			},
+					StepID: questionCommandStepID(), Question: "Two?", CreatedAt: time.UnixMilli(1),
+				}}),
+			}}},
 		},
 	}
 	var output bytes.Buffer
@@ -130,6 +133,15 @@ func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
 	if !strings.Contains(text, firstHint) || !strings.Contains(text, secondHint) {
 		t.Fatalf("parallel task observation output = %q", text)
 	}
+}
+
+func observationQuestionForTest(t *testing.T, question serverapi.ObservationQuestion) *promptpb.ObservationQuestion {
+	t.Helper()
+	value, err := protoapi.ObservationQuestionToProto(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func taskObservationSessionID(t *testing.T, raw string) runtimeids.SessionID {

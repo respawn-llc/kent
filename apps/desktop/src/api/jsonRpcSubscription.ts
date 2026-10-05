@@ -5,7 +5,6 @@ import {
   handleSubscriptionMessage,
   parseFrame,
   sendSocketRequest,
-  subscriptionCompleteMethod,
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler } from "./transport";
@@ -37,7 +36,6 @@ export async function runJsonSubscription(
   const terminalPromise = new Promise<void>((resolve) => {
     resolveTerminal = resolve;
   });
-  const completeMethod = subscriptionCompleteMethod(method);
   const currentTerminal = (): typeof terminal => terminal;
   const failTerminal = (error: Error): void => {
     if (terminal !== null) return;
@@ -60,7 +58,7 @@ export async function runJsonSubscription(
     if (terminal !== null) return;
     if (isResponseFrame(event.data)) return;
     try {
-      const result = handleSubscriptionMessage(event, handler, completeMethod);
+      const result = handleSubscriptionMessage(event, handler, null);
       if (result.kind === "complete") {
         terminal = result;
         resolveTerminal?.();

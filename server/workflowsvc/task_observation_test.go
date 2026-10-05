@@ -11,9 +11,12 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/clientui"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestNormalizeTaskObservationErrorClassifiesClosedEventStream(t *testing.T) {
@@ -31,19 +34,19 @@ type observationPendingPromptSourceStub struct {
 }
 
 type observationTaskDetailStub struct {
-	detail serverapi.WorkflowTaskDetail
+	detail *taskpb.TaskDetail
 	nodes  []workflow.CurrentNode
 }
 
-func (s observationTaskDetailStub) GetTask(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
+func (s observationTaskDetailStub) GetTask(context.Context, string) (*taskpb.TaskDetail, error) {
 	return s.detail, nil
 }
 
-func (s observationTaskDetailStub) GetTaskByProjectShortID(context.Context, string, string) (serverapi.WorkflowTaskDetail, error) {
+func (s observationTaskDetailStub) GetTaskByProjectShortID(context.Context, string, string) (*taskpb.TaskDetail, error) {
 	return s.detail, nil
 }
 
-func (s observationTaskDetailStub) GetTaskByShortID(context.Context, string) (serverapi.WorkflowTaskDetail, error) {
+func (s observationTaskDetailStub) GetTaskByShortID(context.Context, string) (*taskpb.TaskDetail, error) {
 	return s.detail, nil
 }
 
@@ -59,12 +62,12 @@ func (observationDefinitionStub) GetDefinition(context.Context, runtimeids.Workf
 
 type observationAttentionStub struct{}
 
-func (observationAttentionStub) List(context.Context, serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-	return serverapi.WorkflowAttentionListResponse{}, nil
+func (observationAttentionStub) List(context.Context, *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error) {
+	return &taskpb.AttentionListSuccess{}, nil
 }
 
-func (observationAttentionStub) ListTask(context.Context, serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-	return serverapi.WorkflowTaskAttentionListResponse{}, nil
+func (observationAttentionStub) ListTask(context.Context, *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
+	return &taskpb.TaskAttentionListSuccess{}, nil
 }
 
 func (s observationPendingPromptSourceStub) ListPendingPrompts(string) []registry.PendingPromptSnapshot {
@@ -82,9 +85,9 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 	service := &Service{readModels: ReadModels{
 		Definitions: observationDefinitionStub{},
 		TaskDetail: observationTaskDetailStub{
-			detail: serverapi.WorkflowTaskDetail{Summary: serverapi.WorkflowTaskSummary{
-				ID: taskID, ProjectID: projectID, WorkflowID: workflowID, ShortID: "T-1",
-			}},
+			detail: &taskpb.TaskDetail{Summary: &taskpb.TaskSummary{
+				Id: taskID, ProjectId: projectID, WorkflowId: workflowID.String(), ShortId: "T-1",
+			}, Status: &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_INTERRUPTED}},
 			nodes: []workflow.CurrentNode{{
 				Reference: currentNode,
 				Scheduling: &workflow.CurrentNodeScheduling{
@@ -98,8 +101,8 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 		},
 		Attention: observationAttentionStub{},
 	}}
-	response, ready, err := service.observeWorkflowTask(context.Background(), serverapi.WorkflowTaskObservationRequest{
-		TaskID: taskID, ProjectID: projectID, Mode: serverapi.WorkflowTaskObservationWait,
+	response, ready, err := service.observeWorkflowTask(context.Background(), &taskpb.ObserveRequest{
+		TaskId: taskID, ProjectId: projectID, Mode: taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	})
 	if err != nil {
 		t.Fatalf("observe workflow task: %v", err)
@@ -107,8 +110,8 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 	if !ready || len(response.Outcomes) != 1 {
 		t.Fatalf("response = %+v, ready=%v; want one ready interruption", response, ready)
 	}
-	if response.Outcomes[0].Kind != serverapi.WorkflowTaskObservationInterrupted {
-		t.Fatalf("outcome kind = %q, want interruption", response.Outcomes[0].Kind)
+	if response.Outcomes[0].GetInterrupted() == nil {
+		t.Fatalf("outcome = %v, want interruption", response.Outcomes[0])
 	}
 }
 
@@ -138,11 +141,11 @@ func TestTaskCurrentNodeFailureUsesDefinitionIdentityAndDiagnostic(t *testing.T)
 	if err != nil {
 		t.Fatalf("task current node failure: %v", err)
 	}
-	if outcome.Kind != serverapi.WorkflowTaskObservationExecutionError ||
-		outcome.SessionID != nil ||
-		outcome.ScriptPath == nil || *outcome.ScriptPath != scriptPath ||
-		outcome.NodeKey == nil || *outcome.NodeKey != "check" ||
-		outcome.Failure == nil || outcome.Failure.Diagnostic == nil || *outcome.Failure.Diagnostic != "script stopped" {
+	detail := outcome.GetExecutionError()
+	if detail == nil || detail.SessionId != nil ||
+		detail.ScriptPath == nil || *detail.ScriptPath != scriptPath ||
+		detail.NodeKey == nil || *detail.NodeKey != "check" ||
+		detail.Failure == nil || detail.Failure.Diagnostic == nil || *detail.Failure.Diagnostic != "script stopped" {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 }
@@ -165,22 +168,26 @@ func TestTaskQuestionResolvesLiveAccessThroughAuthoritativePendingPromptSource(t
 			CreatedAt: createdAt,
 		}}},
 	}}
-	item := serverapi.WorkflowAttentionItem{
-		Kind:    string(serverapi.WorkflowTaskAttentionKindQuestion),
-		Message: &message,
-		Question: &serverapi.WorkflowAttentionQuestionPrompt{
-			SessionID: sessionID, StepID: stepID, ToolCallID: clientui.ToolCallID(questionID),
-			Kind:              serverapi.WorkflowAttentionQuestionKindApproval,
-			ApprovalDecisions: []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce},
-		},
-		OccurredAtUnixMs: createdAt.UnixMilli(),
+	item := &taskpb.AttentionItem{
+		Kind: taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
+		Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
+			Message: &message,
+			Question: &taskpb.AttentionQuestionPrompt{
+				SessionId: sessionID.String(), StepId: stepID.String(), ToolCallId: questionID,
+				Kind: taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
+				Prompt: &taskpb.AttentionQuestionPrompt_Approval{Approval: &taskpb.ApprovalQuestion{
+					ApprovalDecisions: []promptpb.ApprovalDecision{promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE},
+				}},
+			},
+		}},
+		OccurredAt: timestamppb.New(createdAt),
 	}
 	outcome, ok, err := service.taskQuestion(context.Background(), item, nil, map[string][]clientui.PendingApproval{})
 	if err != nil || !ok {
 		t.Fatalf("task question = %+v, ok=%v, err=%v", outcome, ok, err)
 	}
-	if outcome.Question == nil || outcome.Question.Approval == nil ||
-		outcome.Question.Approval.Options[0].Decision != clientui.ApprovalDecisionAllowOnce {
-		t.Fatalf("question = %+v", outcome.Question)
+	question := outcome.GetQuestion().GetQuestion().GetApproval()
+	if question == nil || question.Options[0].Decision != promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE {
+		t.Fatalf("question = %+v", outcome)
 	}
 }

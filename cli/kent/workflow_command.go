@@ -368,7 +368,7 @@ func writeWorkflowListResponse(
 }
 
 func validateWorkflowPagination(offset int, limit int) error {
-	_, err := serverapi.ResolveWorkflowOffsetWindow(&offset, &limit)
+	_, err := serverapi.ResolveOffsetWindow(&offset, &limit)
 	return err
 }
 
