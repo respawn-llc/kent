@@ -113,6 +113,8 @@ type sessionPickerModel struct {
 	startupStatus              *startupPickerStatusModel
 	updateStatus               *serverpb.UpdateStatus
 	clock                      func() time.Time
+	headerFactsLoading         bool
+	headerFactsErr             error
 }
 
 type sessionPickerPageLoadedMsg struct {
@@ -145,18 +147,19 @@ func newSessionPickerModel(
 		startupStatus.notice = *header.Notice
 	}
 	return &sessionPickerModel{
-		loader:         loader,
-		requestContext: requestContext,
-		header:         header,
-		activeTab:      sessioncontract.SessionCategoryMain,
-		main:           newSessionPickerTab(sessioncontract.SessionCategoryMain),
-		subagents:      newSessionPickerTab(sessioncontract.SessionCategorySubagent),
-		width:          defaultPickerWidth,
-		height:         defaultPickerHeight,
-		theme:          theme,
-		styles:         newSessionPickerStyles(theme),
-		startupStatus:  startupStatus,
-		clock:          time.Now,
+		loader:             loader,
+		requestContext:     requestContext,
+		header:             header,
+		activeTab:          sessioncontract.SessionCategoryMain,
+		main:               newSessionPickerTab(sessioncontract.SessionCategoryMain),
+		subagents:          newSessionPickerTab(sessioncontract.SessionCategorySubagent),
+		width:              defaultPickerWidth,
+		height:             defaultPickerHeight,
+		theme:              theme,
+		styles:             newSessionPickerStyles(theme),
+		startupStatus:      startupStatus,
+		clock:              time.Now,
+		headerFactsLoading: header.loadHeaderFacts != nil,
 	}
 }
 
@@ -165,6 +168,7 @@ func (m *sessionPickerModel) Init() tea.Cmd {
 		m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestInitial),
 		m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestInitial),
 		collectSessionPickerStatusCmd(m.header),
+		m.collectHeaderFactsCmd(),
 	}
 	if updateStatus := m.collectUpdateStatusCmd(); updateStatus != nil {
 		commands = append(commands, updateStatus)
@@ -201,10 +205,17 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPickerStatusMsg:
 		m.header.CWD = sessionPickerStatusText(message.cwd)
 		m.header.Branch = sessionPickerStatusText(message.branch)
-		m.header.Auth = sessionPickerStatusText(message.auth)
-		m.header.Model = sessionPickerStatusText(message.model)
 		m.ensureSelectedVisible(m.tab(m.activeTab))
 		return m, nil
+	case sessionPickerHeaderFactsMsg:
+		m.headerFactsLoading = false
+		m.headerFactsErr = message.err
+		if message.facts != nil {
+			m.header.Model = sessionPickerStatusText(sessionPickerModelSummary(message.facts.Model))
+			m.header.Provider = message.facts.Provider
+		}
+		m.ensureSelectedVisible(m.tab(m.activeTab))
+		return m, m.reconcileSpinnerTick()
 	case sessionPickerUpdateStatusMsg:
 		return m, m.applyUpdateStatus(message)
 	case tea.WindowSizeMsg:
@@ -263,6 +274,13 @@ func (m *sessionPickerModel) handleKey(key tea.KeyMsg) tea.Cmd {
 		tab := m.tab(m.activeTab)
 		if tab.bodyPhase == sessionPickerBodyFailed {
 			return m.startBodyRequest(m.activeTab, sessionPickerBodyRequestRetry)
+		}
+		if m.headerFactsErr != nil {
+			if m.headerFactsLoading {
+				return nil
+			}
+			m.headerFactsLoading = true
+			return tea.Batch(m.collectHeaderFactsCmd(), m.reconcileSpinnerTick())
 		}
 		switch selected := tab.selected.(type) {
 		case sessionPickerCreateSelection:
@@ -555,7 +573,7 @@ func (m *sessionPickerModel) applyPageLoaded(message sessionPickerPageLoadedMsg)
 			directional.generation,
 			directional.offset,
 		)
-		if m.header.StatusRequest.Settings.Debug {
+		if m.header.Debug {
 			panic(err)
 		}
 		tab.resetForFreshLoad()
@@ -589,7 +607,7 @@ func (m *sessionPickerModel) hasPendingPageRequest() bool {
 }
 
 func (m *sessionPickerModel) reconcileSpinnerTick() tea.Cmd {
-	if !m.hasPendingPageRequest() || m.scheduledSpinnerGeneration != nil {
+	if (!m.hasPendingPageRequest() && !m.headerFactsLoading) || m.scheduledSpinnerGeneration != nil {
 		return nil
 	}
 	m.spinnerSequence++

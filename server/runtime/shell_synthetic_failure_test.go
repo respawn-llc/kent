@@ -51,7 +51,7 @@ func TestShellRepairOutputsArePlaintext(t *testing.T) {
 				} else {
 					client.errors = []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}}
 				}
-				engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+				engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 				if !fresh {
 					steerDanglingToolCall(t, engine, "step", call)
 				}
@@ -101,7 +101,7 @@ func TestInterruptedShellOutputsArePlaintext(t *testing.T) {
 			started := make(chan struct{})
 			engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{
 				ID: tool, Handler: interruptedShellTool{started: started},
-			}), Config{Model: "gpt-5"})
+			}), Config{Model: "gpt-6-sol"})
 			stepID := runtimeTestStepID("interrupted-shell")
 			restore := setTestActiveStep(engine, stepID)
 			defer restore()

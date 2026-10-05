@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
+	"core/server/authservice"
 	"core/server/llm"
 	"core/server/onboardingimports"
 	"core/shared/config"
@@ -26,6 +27,9 @@ type Finalizer struct {
 	workspaceRoot   string
 	settingsPath    string
 	homeDir         string
+	connections     *authservice.BootstrapService
+	baseline        config.Settings
+	baselineSources map[string]config.Origin
 }
 
 type Options struct {
@@ -33,12 +37,21 @@ type Options struct {
 	WorkspaceRoot   string
 	SettingsPath    string
 	HomeDir         string
+	Connections     *authservice.BootstrapService
+	Baseline        config.Settings
+	BaselineSources map[string]config.Origin
 }
 
 func NewFinalizer(options Options) (*Finalizer, error) {
 	root := strings.TrimSpace(options.PersistenceRoot)
 	if root == "" {
 		return nil, errors.New("persistence root is required")
+	}
+	if options.Connections == nil {
+		return nil, errors.New("connection setup owner is required")
+	}
+	if strings.TrimSpace(options.Baseline.Model) == "" {
+		return nil, errors.New("published onboarding baseline is required")
 	}
 	settingsPath := strings.TrimSpace(options.SettingsPath)
 	if settingsPath == "" {
@@ -54,13 +67,13 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 		workspaceRoot:   strings.TrimSpace(options.WorkspaceRoot),
 		settingsPath:    settingsPath,
 		homeDir:         homeDir,
+		connections:     options.Connections,
+		baseline:        options.Baseline,
+		baselineSources: maps.Clone(options.BaselineSources),
 	}, nil
 }
 
-func (f *Finalizer) Finalize(ctx context.Context, req *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
 	if req == nil {
 		return nil, invalidRequest("request", "required")
 	}
@@ -70,42 +83,47 @@ func (f *Finalizer) Finalize(ctx context.Context, req *onboardingpb.FinalizeRequ
 	} else if exists {
 		return nil, configAlreadyExists(settingsPath)
 	}
-	release, err := globalRootLocks.acquire(ctx, f.persistenceRoot)
-	if err != nil {
-		return nil, serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelWaitingForLock)
-	}
-	defer release()
-	if exists, err := pathExists(settingsPath); err != nil {
-		return nil, configWriteFailed(settingsPath, "validate", err)
-	} else if exists {
-		return nil, configAlreadyExists(settingsPath)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelValidating)
-	}
-	settings, preserved, err := projectSettings(req)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := config.RenderSettingsTOMLForOnboarding(settings, config.OnboardingWriteOptions{PreservedDefaults: preserved}); err != nil {
-		return nil, invalidRequest("settings", "invalid")
-	}
 	ledger := &mutationLedger{}
-	if err := f.executeImports(ctx, req, ledger); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		if rollbackErr := ledger.rollback(); rollbackErr != nil {
-			return nil, rollbackFailed(serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelImporting), rollbackErr)
+	path, err := f.connections.FinishSetup(settingsPath, f.baseline, func(ctx context.Context, initial config.Settings) (config.Settings, config.OnboardingWriteOptions, error) {
+		settings, preserved, err := projectSettings(req, initial, f.baselineSources)
+		options := config.OnboardingWriteOptions{PreservedDefaults: preserved}
+		if err != nil {
+			return config.Settings{}, options, err
 		}
-		return nil, serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelImporting)
-	}
-	path, err := config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, settings, config.OnboardingWriteOptions{PreservedDefaults: preserved})
+		if req.Supervisor == nil && settings.Reviewer.Frequency != "off" && !preserved["reviewer.model"] {
+			provider, err := llm.ResolveRuntimeProviderCapabilities(initial)
+			if err != nil {
+				return config.Settings{}, options, err
+			}
+			if provider.IsOpenAIFirstParty {
+				settings.Reviewer.Model = "gpt-6-luna"
+				if preserved == nil {
+					preserved = map[string]bool{}
+				}
+				preserved["reviewer.model"] = true
+				options.PreservedDefaults = preserved
+			}
+		}
+		if _, err := config.RenderSettingsTOMLForOnboarding(settings, options); err != nil {
+			return config.Settings{}, options, invalidRequest("settings", "invalid")
+		}
+		if err := f.executeImports(ctx, req, ledger); err != nil {
+			return config.Settings{}, options, err
+		}
+		return settings, options, nil
+	})
 	if err != nil {
+		var finalizeErr *serverapi.OnboardingFinalizeError
+		if errors.As(err, &finalizeErr) {
+			return nil, err
+		}
 		if rollbackErr := ledger.rollback(); rollbackErr != nil {
 			return nil, rollbackFailed(configWriteFailed(settingsPath, "write", err), rollbackErr)
 		}
 		if config.IsSettingsFileAlreadyExists(err) {
+			return nil, configAlreadyExists(settingsPath)
+		}
+		if exists, statErr := pathExists(settingsPath); statErr == nil && exists {
 			return nil, configAlreadyExists(settingsPath)
 		}
 		return nil, configWriteFailed(settingsPath, "write", err)
@@ -113,9 +131,14 @@ func (f *Finalizer) Finalize(ctx context.Context, req *onboardingpb.FinalizeRequ
 	return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: path}, nil
 }
 
-func projectSettings(req *onboardingpb.FinalizeRequest) (config.Settings, map[string]bool, error) {
-	settings := config.DefaultOnboardingSettings()
+func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings, sources map[string]config.Origin) (config.Settings, map[string]bool, error) {
+	settings.EnabledTools = maps.Clone(settings.EnabledTools)
 	preserved := map[string]bool{}
+	for key, origin := range sources {
+		if origin.Declares(key) {
+			preserved[key] = true
+		}
+	}
 	effectiveModel := settings.Model
 	if req.Model != nil {
 		model, err := modelChoiceValue(req.Model)
@@ -160,21 +183,11 @@ func projectSettings(req *onboardingpb.FinalizeRequest) (config.Settings, map[st
 		}
 		settings.ModelVerbosity = config.ModelVerbosity(value)
 	}
-	if req.ModelTimeoutSeconds != nil {
-		settings.Timeouts.ModelRequestSeconds = int(*req.ModelTimeoutSeconds)
-	}
 	if req.AskQuestion != nil {
 		if settings.EnabledTools == nil {
 			settings.EnabledTools = map[toolspec.ID]bool{}
 		}
 		settings.EnabledTools[toolspec.ToolAskQuestion] = *req.AskQuestion
-	}
-	for _, override := range req.ToolOverrides {
-		id, err := onboardingToolID(override.GetId())
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
-		settings.EnabledTools[id] = override.Enabled
 	}
 	if req.Supervisor != nil {
 		if err := applySupervisor(&settings, preserved, req.Supervisor); err != nil {
@@ -228,10 +241,19 @@ func modelChoiceValue(choice *onboardingpb.ModelChoice) (string, error) {
 func applyContextWindow(settings *config.Settings, model string, choice *onboardingpb.ContextWindowChoice) error {
 	switch choice.Kind {
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT:
-		return nil
+		defaults := config.DefaultOnboardingSettings()
+		llm.ApplyDerivedModelContextBudget(settings, model, defaults.ModelContextWindow, defaults.ContextCompactionThresholdTokens)
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE:
-		meta, ok := llm.LookupModelMetadata(model)
-		if !ok || meta.LargeContextWindowTokens <= 0 {
+		contract, ok := llm.LookupModelCapabilityContract(model)
+		if !ok {
+			return invalidRequest("context_window.kind", "unsupported_for_model")
+		}
+		provider, err := llm.ResolveRuntimeProviderCapabilities(*settings)
+		if err != nil {
+			return err
+		}
+		meta := contract.ContextMetadata(provider)
+		if meta.LargeContextWindowTokens <= 0 {
 			return invalidRequest("context_window.kind", "unsupported_for_model")
 		}
 		settings.ModelContextWindow = meta.LargeContextWindowTokens
@@ -261,7 +283,7 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, field strin
 	case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
 		return config.DefaultOnboardingSettings().ThinkingLevel, nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
-		return "", nil
+		return llm.ProviderThinkingEffort(model, ""), nil
 	case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
 		level := strings.TrimSpace(choice.GetLevel())
 		if !contains(llm.SupportedThinkingLevelsModel(model), level) {
@@ -281,19 +303,25 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		return err
 	}
 	settings.Reviewer.Frequency = frequency
+	// A submitted Supervisor choice describes the whole visible selection:
+	// absent overrides mean inheritance. An absent Supervisor preserves baseline.
+	if choice.Model == nil {
+		delete(preserved, "reviewer.model")
+	}
+	if choice.Thinking == nil {
+		delete(preserved, "reviewer.thinking_level")
+	}
 	if choice.Model != nil {
 		model, err := modelChoiceValue(choice.Model)
 		if err != nil {
 			return err
 		}
-		if model != settings.Model {
-			settings.Reviewer.Model = model
-			preserved["reviewer.model"] = true
-		}
+		settings.Reviewer.Model = model
+		preserved["reviewer.model"] = true
 	}
-	reviewerModel := settings.Reviewer.Model
-	if strings.TrimSpace(reviewerModel) == "" {
-		reviewerModel = settings.Model
+	reviewerModel := settings.Model
+	if preserved["reviewer.model"] {
+		reviewerModel = settings.Reviewer.Model
 	}
 	if choice.Thinking != nil {
 		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT {
@@ -303,10 +331,8 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 		if err != nil {
 			return err
 		}
-		if choice.Thinking.Kind == onboardingpb.ThinkingKind_THINKING_KIND_DISABLED || thinking != settings.ThinkingLevel {
-			settings.Reviewer.ThinkingLevel = thinking
-			preserved["reviewer.thinking_level"] = true
-		}
+		settings.Reviewer.ThinkingLevel = thinking
+		preserved["reviewer.thinking_level"] = true
 	}
 	return nil
 }
@@ -360,31 +386,6 @@ func onboardingCompaction(value onboardingpb.CompactionMode) (string, error) {
 		return "none", nil
 	default:
 		return "", invalidRequest("compaction", "unsupported_value")
-	}
-}
-
-func onboardingToolID(value onboardingpb.ToolID) (toolspec.ID, error) {
-	switch value {
-	case onboardingpb.ToolID_TOOL_ID_EXEC_COMMAND:
-		return toolspec.ToolExecCommand, nil
-	case onboardingpb.ToolID_TOOL_ID_WRITE_STDIN:
-		return toolspec.ToolWriteStdin, nil
-	case onboardingpb.ToolID_TOOL_ID_VIEW_IMAGE:
-		return toolspec.ToolViewImage, nil
-	case onboardingpb.ToolID_TOOL_ID_PATCH:
-		return toolspec.ToolPatch, nil
-	case onboardingpb.ToolID_TOOL_ID_EDIT:
-		return toolspec.ToolEdit, nil
-	case onboardingpb.ToolID_TOOL_ID_ASK_QUESTION:
-		return toolspec.ToolAskQuestion, nil
-	case onboardingpb.ToolID_TOOL_ID_COMPLETE_NODE:
-		return toolspec.ToolCompleteNode, nil
-	case onboardingpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
-		return toolspec.ToolTriggerHandoff, nil
-	case onboardingpb.ToolID_TOOL_ID_WEB_SEARCH:
-		return toolspec.ToolWebSearch, nil
-	default:
-		return "", invalidRequest("tool_overrides.id", "unsupported_value")
 	}
 }
 
@@ -696,30 +697,6 @@ func pathExists(path string) (bool, error) {
 		return false, nil
 	} else {
 		return false, err
-	}
-}
-
-type rootLocks struct {
-	mu    sync.Mutex
-	locks map[string]chan struct{}
-}
-
-var globalRootLocks = &rootLocks{locks: map[string]chan struct{}{}}
-
-func (l *rootLocks) acquire(ctx context.Context, root string) (func(), error) {
-	l.mu.Lock()
-	ch := l.locks[root]
-	if ch == nil {
-		ch = make(chan struct{}, 1)
-		ch <- struct{}{}
-		l.locks[root] = ch
-	}
-	l.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-ch:
-		return func() { ch <- struct{}{} }, nil
 	}
 }
 

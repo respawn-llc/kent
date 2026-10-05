@@ -2,6 +2,6 @@
 
 package config
 
-func ServerLocalRPCSocketPath(App) (string, bool, error) {
+func ServerLocalRPCSocketPath(string) (string, bool, error) {
 	return "", false, nil
 }

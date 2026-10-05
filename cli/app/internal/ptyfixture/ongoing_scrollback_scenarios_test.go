@@ -580,7 +580,7 @@ func countProviderModelMismatchScreenRows(screen pty.ScreenSnapshot) int {
 }
 
 func providerModelMismatchRenderedText(mode transcriptrender.Mode) string {
-	return transcriptrender.RenderCommittedRow(&transcriptpb.CommittedRow{Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING, Integrity: transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{Reason: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH, Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING, ProviderModelMismatch: &transcriptpb.ProviderModelMismatch{RequestedModel: "gpt-5", ServedModel: "served-model"}}}}, 80, "dark", mode).Lines[0].Plain()
+	return transcriptrender.RenderCommittedRow(&transcriptpb.CommittedRow{Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING, Integrity: transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{Reason: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH, Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING, ProviderModelMismatch: &transcriptpb.ProviderModelMismatch{RequestedModel: "gpt-6-sol", ServedModel: "served-model"}}}}, 80, "dark", mode).Lines[0].Plain()
 }
 
 func colorMatches(actual string, expected theme.Color) bool {

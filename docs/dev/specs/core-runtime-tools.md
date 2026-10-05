@@ -233,9 +233,10 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Authentication And Configuration
 
-- TUI and headless startup, and goal, binding, question and worktree CLI commands, must use global/shared configuration and environment/CLI overrides for connection discovery. Fresh startup and these command helpers must not open the server metadata database locally. Main Workspace private ownership and operational settings must resolve in the running server after connection; a private-only endpoint override must not control pre-connection discovery. Existing Session-resume and caller-context lookup behavior is unchanged.
+- TUI and headless startup, and goal, binding, question and worktree CLI commands, must use global/shared configuration and environment/CLI overrides for connection discovery. Initial targeting must use the current or explicitly selected workspace. Clients must not open the server metadata database locally. The connected server must resolve Session and caller-context lookups, including the Session's workspace. Main Workspace private ownership and operational settings must resolve in the running server after connection. A private-only endpoint override must not control pre-connection discovery.
 - Provider access and authentication must follow [Provider Connections](provider-connections.md), including connection-local credentials, auth-less access, concurrent re-authentication, and terminal connection selection. Authentication failures and provider 401 errors must remain actionable. Successful refresh remains silent.
 - A missing settings file must start onboarding, including first sign-in, before Session selection. Headless execution must refuse to start until onboarding has completed.
+- The global `model` setting defaults to GPT-6.1 Sol. An omitted Supervisor model setting inherits the effective main model.
 - `theme=light` and `theme=dark` select fixed palettes; `theme=auto` or omission detects terminal or system appearance.
 - `debug=true` or `KENT_DEBUG=1` enables fail-fast diagnostic behavior for developer errors. Without debug mode, Kent does not crash for developer errors: it recovers when possible or exits with a clear error.
 - Thinking levels pass through unchanged. Kent provides recognized choices such as `low`, `medium`, `high`, `xhigh`, and `max` only when the selected model/provider supports them; otherwise it preserves the user value.
@@ -262,8 +263,11 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A higher configuration layer's `system_prompt_file` must replace the lower layer's configured selection. A role-specific selection must override the inherited default-agent selection. Kent must not accumulate competing configured custom prompt files. Automatic `SYSTEM.md` discovery and priority, built-in prompts, AGENTS.md, Skills, and locked Session history must retain their distinct behavior.
 - Kent must reject an explicitly empty configured `system_prompt_file`; omission must inherit the lower-layer selection.
 - Settings with file-relative paths must resolve against the configuration file that supplied the winning value. `worktrees.setup_script` must retain its source-workspace-relative path rule. Effective-setting reports must identify the winning layer, full property key, and originating file path or environment/command-line option. Inherited properties must retain their originating source.
-- Kent must reject malformed configuration sources, including unknown keys, invalid types, and settings outside their allowed scope, even when a later source would override them. Source errors must identify the offending source. Kent must validate the effective configuration and must not replace invalid values with defaults.
-- File loading and worktree setup must validate merged explicitly configured context constraints. Context budgets derived from the selected model must be validated at launch.
+- Clients must perform only the minimum validation supported by the configuration library and needed to read and try the values they need. Clients must take on no other configuration-validation responsibility. If the library cannot parse a configuration file, the client command must fail.
+- Client configuration reads must be limited to connection discovery and genuinely local preferences, including client lifecycle hooks. TUI Session startup and settings must use the existing server-owned Session and Chat settings APIs rather than reading operational configuration locally.
+- The server must validate operational configuration at startup. Clients must not initialize server persistence, Worktree directories, or managed ripgrep configuration. Session preparation must remain server-owned.
+- Operational configuration errors must identify the offending source. The server must validate the effective operational configuration and must not replace invalid values with defaults.
+- Server operational configuration loading and worktree setup must validate merged explicitly configured context constraints. Context budgets derived from the selected model must be validated at launch.
 - Main-agent, subagent, Supervisor, Workflow, worktree-setup, and read-only settings operations must use the same configuration resolution rules. Worktree setup must validate the full configuration, including agent settings.
 - If global and workspace settings resolve to the same physical file, Kent must apply it once as global settings, disable that shared workspace layer, and retain diagnostics for both resolved locations.
 
@@ -288,7 +292,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A compaction request must use the outgoing context's Thinking configuration. A committed compaction replacement must clear that context's original provider effort without changing the desired Thinking selection. The first subsequent supported request must establish its original provider effort from the then-current desired Thinking selection. An uncommitted compaction replacement must leave the original provider effort unchanged. Kent may also re-establish Thinking through a configuration-update item after compaction.
 - An existing Session must initialize its fixed reasoning baseline from its current effective Thinking level when it first uses configuration updates. Kent must preserve that effective selection in Session-owned state during adoption. This initialization may cause a cache miss and must not reconstruct or rewrite earlier requests.
 - Unsupported models and request modes must retain ordinary Thinking behavior.
-- Native Thinking updates must apply to supported Astra requests on the official OpenAI and ChatGPT/Codex endpoints. Custom OpenAI-compatible endpoints must retain ordinary Thinking behavior.
+- Native Thinking updates must apply to supported GPT-6 Astra, Sol, and Luna requests on the official OpenAI and ChatGPT/Codex endpoints. Custom OpenAI-compatible endpoints must retain ordinary Thinking behavior.
+- For models whose catalog supports `none`, disabled Thinking must resolve to the explicit `none` effort in setup, Chat settings, model requests, and compaction. Kent must preserve that selection across Session resume without changing previously dispatched history.
 - If an enabled endpoint rejects a native Thinking update, Kent must surface the request failure without falling back to request-level Thinking changes.
 - When constructing the separate Reviewer input, Kent must exclude the main agent's configuration updates and preserve the Reviewer's independent Thinking selection. This exclusion must not alter the main Session's recorded history or replay.
 - When a new fork targets a model or provider that does not support native Thinking updates, Kent must exclude those updates from the child's initial input rather than fail because of them. Kent must preserve the parent history and the order of the remaining child input. This exception must not change input already dispatched by the child.
@@ -296,14 +301,15 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Fast Mode And Context Usage
 
-- Fast Mode is a persisted Session Chat setting when the active provider supports first-party Responses priority service.
+- Fast Mode is a persisted Session Chat setting available when current capability metadata for the selected Provider Connection declares support for Kent's priority service behavior. Built-in OpenAI and ChatGPT/Codex connections declare support by default; all other connections default to unsupported unless their current metadata explicitly declares support.
+- Fast Mode availability is resolved from current Provider Connection metadata without refreshing authentication or making provider network requests. Locked Session provider facts do not determine availability, and availability is not a Session Contract fact or prompt-cache identity input.
 - Changing Fast Mode during an Agent Step persists and publishes immediately, affects the next provider or compaction request, and never changes the request already running.
 - A Fast Mode change creates no transcript row.
 - A supported request uses the provider's priority service tier when Fast Mode is enabled.
 - Disabled Fast Mode omits the provider's priority service tier.
 - Enabling Fast Mode for an unsupported provider fails without changing the Session setting.
 - Reopening a Session restores its effective Fast Mode setting.
-- Fast Mode does not create another Session Contract generation or prompt-cache identity.
+- Changing Fast Mode does not create another Session Contract generation.
 - Reviewer and compaction requests inherit the Session's effective Fast Mode when their provider supports it.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
 - Compaction selection compares current usage with the configured thresholds.

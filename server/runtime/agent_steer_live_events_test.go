@@ -12,7 +12,7 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 	t.Run("direct submission", func(t *testing.T) {
 		var events []Event
 		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalTextResponse("done")}}, tools.NewRegistry(), Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				events = append(events, event)
 			},
@@ -30,7 +30,7 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 	t.Run("queued flush", func(t *testing.T) {
 		var events []Event
 		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}, tools.NewRegistry(), Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				events = append(events, event)
 			},

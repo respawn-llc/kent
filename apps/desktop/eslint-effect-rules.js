@@ -1,4 +1,5 @@
 import ts from "typescript";
+import { win32 } from "node:path";
 
 const rootExecutors = new Set([
   "runFork",
@@ -21,12 +22,12 @@ const forbiddenMembers = new Map([
   ["effect/Scope", new Set(["make", "makeUnsafe", "globalScope"])],
   ["effect/ManagedRuntime", new Set(["make"])],
   ["effect/Runtime", new Set(["makeRunMain"])],
-  ["effect/unstable/reactivity/AtomRegistry", new Set(["make", "layer", "layerOptions"])],
+  ["effect/reactivity/AtomRegistry", new Set(["make", "layer", "layerOptions"])],
   ["@effect/atom-react", new Set(["RegistryContext"])],
   ["@effect/atom-react/RegistryContext", new Set(["RegistryContext"])],
 ]);
 
-const namespaceBarrels = new Set(["effect", "effect/unstable/reactivity"]);
+const namespaceBarrels = new Set(["effect", "effect/reactivity"]);
 
 function libraryModule(value) {
   if (typeof value !== "string") return null;
@@ -201,6 +202,18 @@ export const effectRules = {
             }
           }
           if (!isEffectOwner(file)) return;
+          // Native adapters may own private platform callback storage.
+          // Their exported observation contracts are still checked above.
+          const nativeAdapter =
+            win32.normalize(file.fileName).split(win32.sep).slice(-4, -1).join("/") ===
+            "packages/native-bridge/src";
+          const exportedSymbols = new Set(
+            checker
+              .getExportsOfModule(module)
+              .map((symbol) =>
+                symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol,
+              ),
+          );
           function visit(child) {
             if (ts.isNewExpression(child)) {
               const type = checker.getTypeAtLocation(child);
@@ -208,6 +221,13 @@ export const effectRules = {
               if (["Set", "Map", "WeakSet", "WeakMap"].includes(symbol?.name)) {
                 const arguments_ = checker.getTypeArguments(type);
                 if (arguments_.some((argument) => argument.getCallSignatures().length > 0)) {
+                  const binding = ts.isVariableDeclaration(child.parent) ? child.parent.name : undefined;
+                  if (
+                    nativeAdapter &&
+                    binding !== undefined &&
+                    !exportedSymbols.has(checker.getSymbolAtLocation(binding))
+                  )
+                    return;
                   context.report({ node: services.tsNodeToESTreeNodeMap.get(child), messageId: "contract" });
                 }
               }

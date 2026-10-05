@@ -358,7 +358,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReminderEntries(t *testin
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestLastCommittedAssistantFinalAnswerClearsAtBlankFinal(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, message := range []llm.Message{
 		{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")},
 		{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("")},
@@ -394,7 +394,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingErrorFeedback(t *testing.
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingHandoffFutureMessage(t *t
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReviewerFeedback(t *testi
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingGoalFeedback(t *testing.T
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestLastCommittedAssistantFinalAnswerDoesNotSkipTrailingUntypedDeveloperMes
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final handoff")}})); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestLocksAtFirstDispatch(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		Temperature:   1,
 		ThinkingLevel: "xhigh",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -634,7 +634,7 @@ func TestLocksAtFirstDispatch(t *testing.T) {
 	if meta.Locked == nil {
 		t.Fatalf("expected locked contract after first dispatch")
 	}
-	if meta.Locked.Model != "gpt-5" {
+	if meta.Locked.Model != "gpt-6-sol" {
 		t.Fatalf("locked model = %q", meta.Locked.Model)
 	}
 	if len(meta.Locked.EnabledTools) != 1 || meta.Locked.EnabledTools[0] != string(toolspec.ToolExecCommand) {
@@ -667,7 +667,7 @@ func TestHeadlessSessionLocksToolPreamblesOff(t *testing.T) {
 	}}}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		Temperature:   1,
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
@@ -696,7 +696,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	firstEngine := mustNewTestEngine(t, store, firstClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
@@ -712,7 +712,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	resumedEngine := mustNewTestEngine(t, store, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: true,
 	})
@@ -733,7 +733,7 @@ func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testin
 		Usage:     llm.Usage{WindowTokens: 272_000},
 	}}}
 	firstEngine := mustNewTestEngine(t, store, firstClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens: 272_000,
 	})
@@ -757,7 +757,7 @@ func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testin
 		Usage:     llm.Usage{WindowTokens: 400_000},
 	}}}
 	resumedEngine := mustNewTestEngine(t, store, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		EnabledTools:                  []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:           400_000,
 		EffectiveContextWindowPercent: 80,
@@ -795,7 +795,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                "gpt-5",
+		Model:                "gpt-6-sol",
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  272_000,
 		TranscriptWorkingDir: workspace,
@@ -825,7 +825,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		Usage:     llm.Usage{WindowTokens: 400000},
 	}}}
 	reopenedEngine := mustNewTestEngine(t, reopened, reopenedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                "gpt-5",
+		Model:                "gpt-6-sol",
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  400_000,
 		TranscriptWorkingDir: workspace,
@@ -863,7 +863,7 @@ func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("third")}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
 		CompactionMode:        "local",
 		AutoCompactionEnabled: &autoCompactionEnabled,
@@ -997,7 +997,7 @@ func TestLegacyNonBooleanSystemPromptSnapshotIsNotRefreshed(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		SystemPrompt:    "legacy prompt",
 		HasSystemPrompt: false,
 	}); err != nil {
@@ -1022,7 +1022,7 @@ func TestLockedRequestShapeSurvivesRuntimeConfigToolAndWebSearchToggles(t *testi
 		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: fakeTool{name: toolspec.ToolAskQuestion}},
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 		ToolPreambles: false,

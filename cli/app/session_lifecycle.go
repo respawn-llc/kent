@@ -26,18 +26,9 @@ type sessionLifecycleClientProvider interface {
 	SessionLifecycleClient() apicontract.SessionLifecycleService
 }
 
-type sessionConfigProvider interface {
-	Config() config.App
-}
-
 type sessionTransitionServer interface {
 	sessionLifecycleClientProvider
-	Reauthenticate(ctx context.Context, interactor authInteractor, interactive bool) error
-}
-
-type sessionWorkspaceChangeServer interface {
-	sessionLifecycleClientProvider
-	sessionConfigProvider
+	Reauthenticate(ctx context.Context) error
 }
 
 type sessionReattachServer interface {
@@ -52,23 +43,28 @@ type promptCommandCatalogServer interface {
 type interactiveSessionServer interface {
 	Close() error
 	launchPlannerServer
-	sessionWorkspaceChangeServer
 	sessionTransitionServer
-	EnsureAuthReady(ctx context.Context, interactor authInteractor, interactive bool) error
+	EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor) error
+	EnsureConnectionSetup(ctx context.Context) error
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
 }
 
 type sessionLifecycleOptions struct {
-	Intent    *serverapi.SessionLaunchIntent
-	Overrides serverapi.RunPromptOverrides
+	Intent              *serverapi.SessionLaunchIntent
+	Overrides           serverapi.RunPromptOverrides
+	InvocationOverrides serverapi.RunPromptOverrides
 }
 
 func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessionServer, interactor authInteractor, opts sessionLifecycleOptions) error {
 	clientSettings := clientSettingsForInteractiveServer(server)
 	originalServer := server
-	boundServer, err := ensureInteractiveProjectBinding(ctx, server)
-	if err != nil {
-		return err
+	boundServer := server
+	var err error
+	if _, attached := server.ProjectBinding(); !attached {
+		boundServer, err = ensureInteractiveProjectBinding(ctx, server)
+		if err != nil {
+			return err
+		}
 	}
 	if shouldCloseReboundServer(originalServer, boundServer) {
 		defer func() { _ = boundServer.Close() }()
@@ -154,12 +150,21 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			server = reboundServer
 			planner = newSessionLaunchPlanner(server)
 		}
-		launchRequest, err := sessionLaunchRequestFromIntent(intent, nextSessionOverrides)
+		launchRequest, err := sessionLaunchRequestFromIntent(intent, mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides))
 		if err != nil {
+			return err
+		}
+		if err := server.EnsureConnectionSetup(ctx); err != nil {
+			if errors.Is(err, ErrAuthCanceledByUser) {
+				return nil
+			}
 			return err
 		}
 		plan, err := planner.PlanSession(ctx, launchRequest)
 		if err != nil {
+			return err
+		}
+		if err := server.EnsureAuthReady(ctx, plan.ActiveSettings, interactor); err != nil {
 			return err
 		}
 		plan.ClientLifecycleCommand = clientSettings.Hooks.LifecycleCommand()
@@ -514,7 +519,7 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	if authPreparation != nil && *authPreparation == sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE {
-		if err := server.Reauthenticate(ctx, interactor, true); err != nil {
+		if err := server.Reauthenticate(ctx); err != nil {
 			return &sessionlaunchpb.SessionDirective{}, err
 		}
 	}

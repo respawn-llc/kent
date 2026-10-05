@@ -27,7 +27,7 @@ func TestSubmitUserMessageMissingPhaseOpenAILegacyResponseRemainsTerminal(t *tes
 		},
 	}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -127,7 +127,7 @@ func TestSubmitUserMessageCommentaryWithoutToolsEmitsRealtimeAssistantEvent(t *t
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -189,7 +189,7 @@ func TestSubmitUserMessageCommentaryWithToolCallsEmitsContiguousAssistantEvent(t
 		events []Event
 	)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -255,7 +255,7 @@ func TestSubmitUserMessageCommentaryWithToolCallsPublishesCommittedEntryStartMet
 		events   []Event
 	)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt Event) {
 			eventsMu.Lock()
 			events = append(events, evt)
@@ -388,7 +388,7 @@ func TestSubmitUserMessageMissingPhaseWithToolCallsPublishesContiguousAssistantE
 
 	events := make([]Event, 0, 16)
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 
@@ -459,7 +459,7 @@ func TestSubmitUserMessageDoesNotRetainPendingToolStartForHostedExecutions(t *te
 	}}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 	})
 
@@ -489,7 +489,7 @@ func TestSubmitUserMessageLegacyArtifactContentRemainsTerminal(t *testing.T) {
 		},
 	}}
 
-	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -531,7 +531,7 @@ func TestSubmitUserMessageFinalAnswerWithoutContentFailsProviderContract(t *test
 		Usage: llm.Usage{WindowTokens: 200000},
 	}}}
 
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 
 	_, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err == nil || !strings.Contains(err.Error(), "provider contract violation") {
@@ -568,7 +568,7 @@ func TestSubmitUserMessageCommentaryBeforeMissingFinalContinues(t *testing.T) {
 		},
 		finalTextResponse("done"),
 	}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "continue")
 	if err != nil {
@@ -591,7 +591,7 @@ func TestSubmitUserMessagePhaseOnlyCommentaryWithoutContentFailsProviderContract
 		},
 		Usage: llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 
 	_, err := eng.SubmitUserMessage(context.Background(), "continue")
 	if err == nil || !strings.Contains(err.Error(), "provider contract violation") {
@@ -630,7 +630,7 @@ func TestSubmitUserMessageMissingFinalContentWithToolCallsExecutesTools(t *testi
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID:      toolspec.ToolExecCommand,
 		Handler: fakeTool{name: toolspec.ToolExecCommand},
-	}), Config{Model: "gpt-5"})
+	}), Config{Model: "gpt-6-sol"})
 
 	message, err := eng.SubmitUserMessage(context.Background(), "continue")
 	if err != nil {

@@ -202,7 +202,7 @@ func TestTriggerHandoffWithProviderCompactionCarriesPreservedUserMessageInOrder(
 		}},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	if err := steerTestActiveStep(eng, "handoff-input", steerMessagesWithPersistenceIntent(

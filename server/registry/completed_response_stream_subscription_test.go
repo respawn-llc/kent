@@ -86,7 +86,7 @@ func newStreamSubscriptionFixture(t *testing.T, client llm.Client, toolRegistry 
 	t.Helper()
 	registry := NewRuntimeRegistry()
 	engine := newRegistryRuntime(t, client, toolRegistry, runtime.Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools:  append([]toolspec.ID(nil), enabledTools...),
 	}, func(engine *runtime.Engine, evt runtime.Event) {

@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadCapabilityOverridesFromFile(t *testing.T) {
-	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 
 [model_capabilities]
 supports_reasoning_effort = true
@@ -22,6 +22,7 @@ endpoint = "http://localhost:1234"
 provider_id = "custom-provider"
 supports_responses_api = true
 supports_responses_compact = false
+supports_fast_mode = true
 supports_prompt_cache_key = true
 supports_native_web_search = true
 supports_reasoning_encrypted = false
@@ -33,7 +34,8 @@ supports_provider_verbosity = true
 		t.Fatalf("expected model capability overrides from file, got %+v", cfg.Settings.ModelCapabilities)
 	}
 	capabilities := cfg.Settings.Connections["local"].Capabilities
-	if capabilities.ProviderID != "custom-provider" || !capabilities.SupportsResponsesAPI || !capabilities.SupportsPromptCacheKey || !capabilities.SupportsNativeWebSearch {
+	if capabilities.ProviderID != "custom-provider" || !capabilities.SupportsResponsesAPI || !capabilities.SupportsFastMode ||
+		!capabilities.SupportsPromptCacheKey || !capabilities.SupportsNativeWebSearch {
 		t.Fatalf("expected connection capability overrides from file, got %+v", capabilities)
 	}
 	if !capabilities.SupportsProviderVerbosity {
@@ -62,7 +64,7 @@ func TestLoadCapabilityOverridesFromEnv(t *testing.T) {
 }
 
 func TestLoadReviewerCapabilityOverridesFromFileAndEnv(t *testing.T) {
-	_, workspace, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, workspace, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 model_verbosity = "high"
 model_context_window = 372000
 
@@ -109,7 +111,7 @@ supports_vision_inputs = true
 }
 
 func TestLoadReviewerCapabilitiesInheritMainWhenUnset(t *testing.T) {
-	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-5.6-sol"
+	_, _, cfg := loadConfigTestFileApp(t, `model = "gpt-6-sol"
 model_verbosity = "high"
 model_context_window = 128000
 context_compaction_threshold_tokens = 121600

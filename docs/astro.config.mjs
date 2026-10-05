@@ -85,6 +85,10 @@ export default defineConfig({
           link: "/lifecycle-hooks/",
         },
         {
+          label: "Authentication",
+          link: "/authentication/",
+        },
+        {
           label: "Configuration",
           link: "/config/",
         },

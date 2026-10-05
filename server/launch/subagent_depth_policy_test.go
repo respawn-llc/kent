@@ -64,7 +64,7 @@ func newMetadataOnlyAncestryPlanner(t *testing.T) (Planner, string, *sessiontest
 			WorkspaceRoot:   "/tmp/workspace-a",
 			PersistenceRoot: root,
 			Settings: config.Settings{
-				Model:            "gpt-5",
+				Model:            "gpt-6-sol",
 				MaxSubagentDepth: 2,
 			},
 		},

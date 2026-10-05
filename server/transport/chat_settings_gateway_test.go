@@ -59,7 +59,7 @@ func TestGatewayDescriptorSettingsMissingSessionFailure(t *testing.T) {
 	}
 }
 
-func TestGatewayDescriptorSettingsRequiresAuthentication(t *testing.T) {
+func TestGatewayDescriptorSettingsChecksSessionWithoutProviderCredentials(t *testing.T) {
 	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	t.Cleanup(func() { _ = appCore.Close() })
 	t.Cleanup(server.Close)
@@ -71,16 +71,16 @@ func TestGatewayDescriptorSettingsRequiresAuthentication(t *testing.T) {
 	read := &settingspb.ReadResult{}
 	callGatewayDescriptor(t, conn, "unauthenticated-read", service.Methods().ByName("Read"),
 		&settingspb.ReadRequest{Target: &settingspb.ReadRequest_Session{Session: session}}, read)
-	if read.GetError().GetAuthRequired() == nil {
-		t.Fatalf("read authentication failure = %v", read)
+	if read.GetError().GetSessionNotFound().GetSessionId() != session.SessionId {
+		t.Fatalf("read Session failure = %v", read)
 	}
 	mutation := &settingspb.MutationResponse{}
 	callGatewayDescriptor(t, conn, "unauthenticated-mutation", service.Methods().ByName("Mutate"),
 		&settingspb.MutationRequest{
 			Session: session, Operation: &settingspb.MutationOperation{Operation: &settingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false}},
 		}, mutation)
-	if mutation.GetError().GetAuthRequired() == nil {
-		t.Fatalf("mutation authentication failure = %v", mutation)
+	if mutation.GetError().GetSessionNotFound().GetSessionId() != session.SessionId {
+		t.Fatalf("mutation Session failure = %v", mutation)
 	}
 }
 

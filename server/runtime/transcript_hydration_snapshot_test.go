@@ -10,7 +10,7 @@ import (
 
 func newTranscriptHydrationSnapshotTestEngine(t *testing.T, client llm.Client) *Engine {
 	t.Helper()
-	return mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	return mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 }
 
 func hydrationSnapshot(t *testing.T, engine *Engine) TranscriptHydrationSnapshot {
@@ -114,7 +114,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 func TestEngineCloseAbortsLiveToolsWithTheirRecordedExactStep(t *testing.T) {
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	stepID := runtimeTestStepID("close-live-tool")

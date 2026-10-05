@@ -1,4 +1,4 @@
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 export const state = Atom.make(0);
 const listeners = new Set<(value: number) => void>();

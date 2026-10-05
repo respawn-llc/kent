@@ -413,7 +413,7 @@ func TestScriptedResponsesHandlesMultipleResultsStreamingErrorsAndMetadata(t *te
 	t.Run("model and compaction", func(t *testing.T) {
 		window := 123456
 		stub := startScriptedStub(t, scriptedllm.Script{ContextWindowTokens: &window})
-		modelResponse, err := http.Get(stub.URL() + "/models/gpt-5")
+		modelResponse, err := http.Get(stub.URL() + "/models/gpt-6-sol")
 		if err != nil {
 			t.Fatalf("GET model: %v", err)
 		}
@@ -442,7 +442,7 @@ func TestScriptedResponsesSetsSSEContentTypeBeforeStreaming(t *testing.T) {
 	request, err := http.NewRequest(
 		http.MethodPost,
 		stub.URL()+"/responses",
-		strings.NewReader(`{"model":"gpt-5","input":[]}`),
+		strings.NewReader(`{"model":"gpt-6-sol","input":[]}`),
 	)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
@@ -494,7 +494,7 @@ func providerClient(t *testing.T, stub *blackbox.ResponsesStub) llm.Client {
 func providerClientWithWindow(t *testing.T, stub *blackbox.ResponsesStub, window int) llm.Client {
 	t.Helper()
 	client, err := llm.NewProviderClient(llm.ProviderClientOptions{
-		Provider: llm.ProviderOpenAI, Model: "gpt-5", OpenAIBaseURL: stub.URL(), ContextWindowTokens: window,
+		Provider: llm.ProviderOpenAI, Model: "gpt-6-sol", OpenAIBaseURL: stub.URL(), ContextWindowTokens: window,
 		Auth: staticTransportAuth{},
 	})
 	if err != nil {
@@ -504,7 +504,7 @@ func providerClientWithWindow(t *testing.T, stub *blackbox.ResponsesStub, window
 }
 
 func request(sessionID string, items []llm.ResponseItem) llm.Request {
-	return llm.Request{Model: "gpt-5", SessionID: textutil.Value(sessionID), Items: items, ToolChoiceMode: llm.ToolChoiceModeAutomatic}
+	return llm.Request{Model: "gpt-6-sol", SessionID: textutil.Value(sessionID), Items: items, ToolChoiceMode: llm.ToolChoiceModeAutomatic}
 }
 
 func generate(t *testing.T, client llm.Client, sessionID string, items []llm.ResponseItem) llm.Response {

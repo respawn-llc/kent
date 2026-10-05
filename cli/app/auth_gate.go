@@ -8,21 +8,20 @@ import (
 
 	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
+	"core/shared/config"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
 
 type authInteraction struct {
-	Theme        string
-	FlowErr      error
-	HasEnvAPIKey bool
+	Theme   string
+	FlowErr error
 }
 
 type authInteractor interface {
-	LookupEnv(key string) string
+	authenticateRemote(context.Context, onboardingConnectionClient, config.Settings, *authpb.BootstrapStatus) error
 }
 
-type headlessAuthInteractor struct {
-	lookupEnv func(string) string
-}
+type headlessAuthInteractor struct{}
 
 type oauthCallbackListener interface {
 	RedirectURI() string
@@ -32,17 +31,15 @@ type oauthCallbackListener interface {
 
 type interactiveAuthInteractor struct {
 	stderr                io.Writer
-	lookupEnv             func(string) string
 	openBrowser           func(string) error
 	startCallbackListener func() (oauthCallbackListener, error)
 	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) error) (authCallbackPageResult, error)
 	pickMethod            func(authInteraction) (authMethodPickerResult, error)
 }
 
-func newInteractiveAuthInteractor() authInteractor {
+func newInteractiveAuthInteractor() *interactiveAuthInteractor {
 	return &interactiveAuthInteractor{
 		stderr:      os.Stderr,
-		lookupEnv:   os.Getenv,
 		openBrowser: serverauth.OpenBrowser,
 		startCallbackListener: func() (oauthCallbackListener, error) {
 			return serverauth.StartOAuthCallbackListener()
@@ -52,21 +49,7 @@ func newInteractiveAuthInteractor() authInteractor {
 }
 
 func newHeadlessAuthInteractor() authInteractor {
-	return &headlessAuthInteractor{lookupEnv: os.Getenv}
-}
-
-func (i *interactiveAuthInteractor) LookupEnv(key string) string {
-	if i == nil || i.lookupEnv == nil {
-		return os.Getenv(key)
-	}
-	return i.lookupEnv(key)
-}
-
-func (i *headlessAuthInteractor) LookupEnv(key string) string {
-	if i == nil || i.lookupEnv == nil {
-		return os.Getenv(key)
-	}
-	return i.lookupEnv(key)
+	return &headlessAuthInteractor{}
 }
 
 func (i *interactiveAuthInteractor) chooseMethod(req authInteraction) (authMethodChoice, error) {

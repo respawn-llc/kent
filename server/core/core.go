@@ -299,6 +299,9 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		ReloadConfig: func() (config.App, error) {
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
+	}, sessionlaunch.ChatSettingsOwner{
+		Authority: s.safeBundles().Runtime.runtimeAuthority,
+		Registry:  s.safeBundles().Runtime.runtimeRegistry,
 	})
 }
 
@@ -370,13 +373,6 @@ func (s *Core) AuthManager() *auth.Manager {
 	return s.safeBundles().Auth.support.AuthManager
 }
 
-func (s *Core) ServerAuthRequired() bool {
-	if s == nil {
-		return true
-	}
-	return s.safeBundles().Auth.authRequired
-}
-
 func (s *Core) Background() *shelltool.Manager {
 	if s == nil {
 		return nil
@@ -428,6 +424,10 @@ func (s *Core) AuthBootstrapClient() apicontract.AuthBootstrapService {
 		return nil
 	}
 	return s.safeBundles().Auth.authBootstrap
+}
+
+func (s *Core) ConnectionManagementClient() apicontract.ConnectionManagementService {
+	return s.safeBundles().Auth.support.Connections
 }
 
 func (s *Core) AuthStatusClient() apicontract.AuthStatusService {

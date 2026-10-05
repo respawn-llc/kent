@@ -1,11 +1,11 @@
 import { promptAnswerEntry, type PendingPrompt, type PromptAnswerBatchEntryInput } from "@/api";
-import type { PickerDraft } from "./promptPickerState";
+import { isPickerDraftComplete, type PickerDraft } from "./promptPickerState";
 
 export function pickerAnswer(
   prompt: PendingPrompt,
   draft: PickerDraft | undefined,
 ): PromptAnswerBatchEntryInput {
-  if (draft === undefined || draft.status === "tentative")
+  if (draft === undefined || !isPickerDraftComplete(draft))
     throw new Error("Cannot submit an unfinished prompt.");
   if (draft.status === "declined") return { kind: "declined", toolCallID: prompt.toolCallID };
   const identity = { toolCallID: prompt.toolCallID, sessionID: prompt.sessionID, stepID: prompt.stepID };

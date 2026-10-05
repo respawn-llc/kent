@@ -37,13 +37,13 @@ func TestServiceMapsTypedLaunchIntents(t *testing.T) {
 		Config: config.App{
 			WorkspaceRoot:   "/tmp/workspace-a",
 			PersistenceRoot: persistenceRoot,
-			Settings:        testsetup.ProviderSettings(config.Settings{Model: "gpt-5"}),
+			Settings:        testsetup.ProviderSettings(config.Settings{Model: "gpt-6-sol"}),
 		},
 		ContainerDir:      containerDir,
 		StoreOptions:      persistence.Options(),
 		PersistedSessions: persistence,
 		SessionProjects:   sessionLaunchProjectResolver{}, ManagedWorktreeRoots: sessionLaunchProjectResolver{},
-	})
+	}, ChatSettingsOwner{})
 
 	createRequest := PlanRequest{
 		Mode:   launch.ModeInteractive,

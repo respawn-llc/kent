@@ -31,7 +31,7 @@ export type ToolPresentation =
       body: readonly ToolTextSection[];
       compact: string | null;
       copyPayload?: string | undefined;
-      icon: "wrench";
+      icon: "wrench" | "broom-sparkles";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
       status?: string | undefined;
@@ -65,7 +65,7 @@ export type ToolPresentation =
       body: readonly ToolTextSection[];
       compact: string;
       copyPayload?: string | undefined;
-      icon: "wrench";
+      icon: "image";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
       status?: string | undefined;
@@ -83,7 +83,7 @@ export type ToolPresentation =
       kind: "patch-changes";
       diagnostic?: string | undefined;
       files: readonly PatchChangedFile[];
-      icon: "file-diff";
+      icon: "pen-line";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
     }>
@@ -91,7 +91,7 @@ export type ToolPresentation =
       kind: "patch-invalid-input";
       compact: string;
       detail?: string | undefined;
-      icon: "file-diff";
+      icon: "pen-line";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
     }>;
@@ -265,7 +265,7 @@ function resolvePatch(
         kind: "patch-changes",
         diagnostic: context.committed?.IsError === true ? context.output : undefined,
         files: presentation.Files,
-        icon: "file-diff",
+        icon: "pen-line",
         iconTone: toolIconTone(context.item, context.meta),
         running: context.item.kind === "live",
       };
@@ -277,7 +277,7 @@ function resolvePatch(
           presentation.InvalidInput.InputDetail,
           context.committed?.IsError === true ? context.output : undefined,
         ),
-        icon: "file-diff",
+        icon: "pen-line",
         iconTone: toolIconTone(context.item, context.meta),
         running: context.item.kind === "live",
       };
@@ -334,7 +334,7 @@ function resolveViewImage(
     body: textSections(imageInput, context.output),
     compact: imageInput,
     copyPayload: buildToolCopyPayload("input-output", imageInput, context.committed?.Text),
-    icon: "wrench",
+    icon: "image",
     iconTone: toolIconTone(context.item, context.meta),
     running: context.item.kind === "live",
   };
@@ -390,7 +390,7 @@ function resolveGeneric(
     body: genericTextSections(context.input, context.output, context.meta),
     compact: compactInput ?? compactResult ?? context.tool.ToolName,
     copyPayload: buildToolCopyPayload("input-output", context.input, context.committed?.Text),
-    icon: "wrench",
+    icon: context.tool.ToolName === "trigger_handoff" ? "broom-sparkles" : "wrench",
     iconTone: toolIconTone(context.item, context.meta),
     running: context.item.kind === "live",
     status: genericStatus(context, compactInput, compactResult),

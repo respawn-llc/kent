@@ -44,7 +44,7 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 		Temperature:             1,
 		MaxTokens:               0,
 		FastMode:                e.FastModeEnabled(),
-		ReasoningEffort:         reviewerCfg.ThinkingLevel,
+		ReasoningEffort:         llm.ProviderThinkingEffort(reviewerCfg.Model, reviewerCfg.ThinkingLevel),
 		SupportsReasoningEffort: reviewerCfg.ModelCapabilities.SupportsReasoningEffort,
 		SystemPrompt:            systemPrompt,
 		Items:                   reviewerItems,

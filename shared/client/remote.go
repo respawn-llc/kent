@@ -87,11 +87,11 @@ func DialRemoteURLForSession(ctx context.Context, rpcURL string, sessionID strin
 	return dialRemoteURL(ctx, rpcURL, intent)
 }
 
-func DialConfiguredRemote(ctx context.Context, cfg config.App) (*Remote, error) {
+func DialConfiguredRemote(ctx context.Context, cfg config.Connection) (*Remote, error) {
 	return dialConfiguredRemote(ctx, cfg, nil)
 }
 
-func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.App, projectID string, workspaceRoot string) (*Remote, error) {
+func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.Connection, projectID string, workspaceRoot string) (*Remote, error) {
 	intent, err := newRemoteProjectWorkspaceRootAttachmentIntent(projectID, workspaceRoot)
 	if err != nil {
 		return nil, err
@@ -99,7 +99,7 @@ func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.App
 	return dialConfiguredRemote(ctx, cfg, intent)
 }
 
-func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.App, projectID string, workspaceID string) (*Remote, error) {
+func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.Connection, projectID string, workspaceID string) (*Remote, error) {
 	intent, err := newRemoteProjectWorkspaceIDAttachmentIntent(projectID, workspaceID)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func DialConfiguredRemoteForProjectWorkspaceID(ctx context.Context, cfg config.A
 	return dialConfiguredRemote(ctx, cfg, intent)
 }
 
-func DialConfiguredRemoteForSession(ctx context.Context, cfg config.App, sessionID string) (*Remote, error) {
+func DialConfiguredRemoteForSession(ctx context.Context, cfg config.Connection, sessionID string) (*Remote, error) {
 	intent, err := newRemoteSessionAttachmentIntent(sessionID)
 	if err != nil {
 		return nil, err
@@ -228,7 +228,25 @@ func (c *Remote) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstra
 		req,
 		&authpb.GetBootstrapStatusResult{},
 		func(failure *authpb.GetBootstrapStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
+		})
+}
+
+func (c *Remote) GetConnections(ctx context.Context, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "GetConnections"),
+		req, &authpb.GetConnectionsResult{},
+		func(failure *authpb.GetBootstrapStatusError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
+		})
+}
+
+func (c *Remote) ConfigureConnection(ctx context.Context, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(authpb.File_kent_api_auth_auth_proto, "AuthService", "ConfigureConnection"),
+		req, &authpb.ConfigureConnectionResult{},
+		func(failure *authpb.CompleteBootstrapError) error {
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 }
 
@@ -238,7 +256,7 @@ func (c *Remote) CompleteBootstrap(ctx context.Context, req *authpb.CompleteBoot
 		req,
 		&authpb.CompleteBootstrapResult{},
 		func(failure *authpb.CompleteBootstrapError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), failure.GetConnectionFailure())
 		})
 	if err != nil {
 		return nil, err
@@ -252,7 +270,7 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		req,
 		&authpb.GetStatusResult{},
 		func(failure *authpb.GetStatusError) error {
-			return authGeneratedError(failure.Code, failure.GetInternalFailure())
+			return authGeneratedError(failure.Code, failure.GetInternalFailure(), nil)
 		})
 }
 
@@ -655,7 +673,7 @@ func dialRemoteURL(ctx context.Context, rpcURL string, intent *remoteAttachmentI
 	return dialRemoteWithTransport(ctx, remoteDialPlan{endpoints: []rpcwire.Endpoint{endpoint}}, rpcwire.NewWebSocketTransport(), intent)
 }
 
-func dialConfiguredRemote(ctx context.Context, cfg config.App, intent *remoteAttachmentIntent) (*Remote, error) {
+func dialConfiguredRemote(ctx context.Context, cfg config.Connection, intent *remoteAttachmentIntent) (*Remote, error) {
 	plan, err := configuredRemoteDialPlan(cfg)
 	if err != nil {
 		return nil, err

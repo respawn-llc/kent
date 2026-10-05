@@ -160,12 +160,13 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 	e.ensureOrchestrationCollaborators()
 	var (
 		liveRunInterrupted bool
-		taggedQueueItems   map[runtimeids.QueueItemID]struct{}
+		stoppedMessages    []QueuedUserMessage
 		goalLoop           bool
 		orphaned           bool
 	)
 	tracker := goalLoopInterruptTracker{engine: e}
 	interruptedSnapshot, err := e.stepLifecycle.InterruptCurrent(func(snapshot *RunSnapshot) {
+		var taggedQueueItems map[runtimeids.QueueItemID]struct{}
 		if snapshot == nil {
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptWhere(func(group *liveRunGroup) bool {
 				orphaned = group.status == RunStatusRunning && !group.hasPendingContinuation()
@@ -177,12 +178,15 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 		} else {
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptMatchingStep(snapshot)
 		}
+		// Cancellation can finish compaction and make queued work eligible.
+		// Remove this run's inputs before that boundary can be released.
+		stoppedMessages = e.messageFlow.DrainPendingUserInjectionsByID(stringQueueItemIDSet(taggedQueueItems))
 		tracker.match = !liveRunInterrupted || goalLoop
 		tracker.onSnapshot(snapshot)
 	})
 	tracker.resolve(err, interruptedSnapshot)
-	if liveRunInterrupted {
-		e.failStoppedLiveRunQueueItems(taggedQueueItems)
+	if len(stoppedMessages) != 0 {
+		e.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return stoppedMessages })
 	}
 	if orphaned {
 		diagnostic := invariant.OperationalError(nil, e.cfg.Debug, "interrupt Runtime",

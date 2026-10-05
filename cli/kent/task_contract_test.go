@@ -325,7 +325,7 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runTaskSearch(
 		t.Context(),
-		config.App{},
+		config.Connection{},
 		stub,
 		stub,
 		[]string{"project-b", "project-a", "project-b"},
@@ -365,7 +365,7 @@ func TestTaskSearchExecutionProjectsScopeAndTypedOutcomes(t *testing.T) {
 	stderr.Reset()
 	if code := runTaskSearch(
 		t.Context(),
-		config.App{},
+		config.Connection{},
 		stub,
 		stub,
 		nil,
