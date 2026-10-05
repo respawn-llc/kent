@@ -1,4 +1,4 @@
-import { createContext, useContext, type ComponentProps, type ReactNode } from "react";
+import { createContext, useContext, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Streamdown, type Components, type CustomRendererProps, type ExtraProps } from "streamdown";
@@ -115,6 +115,11 @@ function MarkdownExternalLink({ children, href, className, title }: ComponentPro
   const url = safeExternalUrl(href);
   if (url === undefined) return <span>{children}</span>;
   if (openExternal === null) throw new Error("MarkdownLinkProvider is required for external links.");
+  const openLink = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button > 1) return;
+    event.preventDefault();
+    openExternal(url);
+  };
   return (
     <a
       className={className}
@@ -122,10 +127,8 @@ function MarkdownExternalLink({ children, href, className, title }: ComponentPro
       title={title}
       rel="noopener noreferrer"
       target="_blank"
-      onClick={(event) => {
-        event.preventDefault();
-        openExternal(url);
-      }}
+      onClick={openLink}
+      onAuxClick={openLink}
     >
       {children}
     </a>

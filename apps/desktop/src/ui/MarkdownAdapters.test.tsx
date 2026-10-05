@@ -110,6 +110,23 @@ describe("Markdown adapters", () => {
     },
   );
 
+  it.each([StaticMarkdown, StreamingMarkdown])(
+    "opens middle-clicked Markdown links through the native browser-opening action",
+    async (Markdown) => {
+      const user = userEvent.setup();
+      const services = createTestServices([]);
+      const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
+      const url = "https://github.com/vercel/streamdown/issues/592";
+      render(
+        <TestAppProviders services={services}>
+          <Markdown value={`[Upstream issue](${url})`} />
+        </TestAppProviders>,
+      );
+      await user.pointer({ keys: "[MouseMiddle]", target: await screen.findByRole("link") });
+      expect(open).toHaveBeenCalledExactlyOnceWith(url);
+    },
+  );
+
   it("keeps unfinished streaming links inert until the destination is complete", async () => {
     const user = userEvent.setup();
     const services = createTestServices([]);
